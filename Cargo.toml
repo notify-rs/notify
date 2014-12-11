@@ -5,3 +5,7 @@ authors = ["Félix Saparelli <felix@passcod.name>"]
 
 [dependencies]
 time = "*"
+#inotify = "*"
+
+[dependencies.inotify]
+git = "https://github.com/hannobraun/inotify-rs.git"

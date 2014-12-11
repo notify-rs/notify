@@ -1,33 +1,35 @@
 #![feature(phase)]
 #[phase(plugin, link)] extern crate log;
 
-use std::fmt;
+use std::io::IoError;
 
-#[test]
-fn it_works() {
-}
+#[cfg(target_os="linux")]
+pub mod inotify;
 
+#[deriving(Send)]
 pub struct Event {
-  pub name: Path,
+  pub path: Path,
   pub op: Op,
 }
 
-pub enum Op {
-  Create,
-  Write,
-  Remove,
-  Rename,
-  Chmod,
+bitflags! {
+  flags Op: u32 {
+    const CREATE  = 0x00000001,
+    const WRITE   = 0x00000010,
+    const REMOVE  = 0x00000100,
+    const RENAME  = 0x00001000,
+    const CHMOD   = 0x00010000,
+  }
 }
 
-impl fmt::Show for Op {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> fmt::Result {
-    match self {
-      &Op::Create  => "Create",
-      &Op::Write   => "Write",
-      &Op::Remove  => "Remove",
-      &Op::Rename  => "Rename",
-      &Op::Chmod   => "Chmod",
-    }.fmt(f)
-  }
+pub enum Error {
+  Generic(String),
+  Io(IoError),
+  NotImplemented,
+}
+
+pub trait Watcher {
+  fn new(Sender<Event>) -> Result<Self, Error>;
+  fn watch(&mut self, &Path) -> Result<(), Error>;
+  fn unwatch(&mut self, &Path) -> Result<(), Error>;
 }
