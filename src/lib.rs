@@ -2,24 +2,27 @@
 #[phase(plugin, link)] extern crate log;
 
 use std::io::IoError;
+pub use self::op::Op;
 
 #[cfg(target_os="linux")]
 pub mod inotify;
 
-#[deriving(Send)]
-pub struct Event {
-  pub path: Path,
-  pub op: Op,
+pub mod op {
+  bitflags! {
+    flags Op: u32 {
+      const CHMOD   = 0b00001,
+      const CREATE  = 0b00010,
+      const REMOVE  = 0b00100,
+      const RENAME  = 0b01000,
+      const WRITE   = 0b10000,
+    }
+  }
 }
 
-bitflags! {
-  flags Op: u32 {
-    const CREATE  = 0x00000001,
-    const WRITE   = 0x00000010,
-    const REMOVE  = 0x00000100,
-    const RENAME  = 0x00001000,
-    const CHMOD   = 0x00010000,
-  }
+#[deriving(Send)]
+pub struct Event {
+  pub path: Option<Path>,
+  pub op: Result<Op, Error>,
 }
 
 pub enum Error {
