@@ -9,7 +9,7 @@ pub mod inotify;
 
 pub mod op {
   bitflags! {
-    flags Op: u32 {
+    #[deriving(Copy)] flags Op: u32 {
       const CHMOD   = 0b00001,
       const CREATE  = 0b00010,
       const REMOVE  = 0b00100,
@@ -29,6 +29,7 @@ pub enum Error {
   Generic(String),
   Io(IoError),
   NotImplemented,
+  WatchNotFound,
 }
 
 pub trait Watcher {
