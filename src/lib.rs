@@ -3,9 +3,12 @@
 
 use std::io::IoError;
 pub use self::op::Op;
+pub use self::inotify::INotifyWatcher;
+pub use self::poll::PollWatcher;
 
 #[cfg(target_os="linux")]
 pub mod inotify;
+pub mod poll;
 
 pub mod op {
   bitflags! {
@@ -29,6 +32,7 @@ pub enum Error {
   Generic(String),
   Io(IoError),
   NotImplemented,
+  PathNotFound,
   WatchNotFound,
 }
 
@@ -36,4 +40,14 @@ pub trait Watcher {
   fn new(Sender<Event>) -> Result<Self, Error>;
   fn watch(&mut self, &Path) -> Result<(), Error>;
   fn unwatch(&mut self, &Path) -> Result<(), Error>;
+}
+
+#[cfg(target_os = "linux")]
+pub fn new(tx: Sender<Event>) -> Result<INotifyWatcher, Error> {
+  Watcher::new(tx)
+}
+
+#[cfg(not(any(target_os = "linux")))]
+pub fn new(tx: Sender<Event>) -> Result<PollWatcher, Error> {
+  Watcher::new(tx)
 }

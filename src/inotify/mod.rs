@@ -38,7 +38,7 @@ impl INotifyWatcher {
           }
         }
       }
-    });
+    })
   }
 }
 
