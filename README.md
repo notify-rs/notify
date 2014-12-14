@@ -18,13 +18,16 @@ extern crate notify;
 let (tx, rx) = channel();
 
 // Select the recommended implementation for this platform
-let watcher = notify::new(tx);
+match notify::new(tx) {
+  Ok(watcher) => {
+    // Watch files!
+    watcher.watch(Path::new("/path/to/foo"));
 
-// Watch files!
-watcher.watch(Path::new("/path/to/foo"));
-
-// Receive events!
-println!("{}", rx.recv());
+    // Receive events!
+    println!("{}", rx.recv());
+  },
+  Err(e) => println!("Uh oh: {}", e)
+}
 ```
 
 ## Platforms

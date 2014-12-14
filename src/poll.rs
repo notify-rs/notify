@@ -15,7 +15,7 @@ impl PollWatcher {
     let watches = self.watches.clone();
     let open = self.open.clone();
     spawn(proc() {
-      let mtimes: HashMap<Path, u64> = HashMap::new();
+      let mut mtimes: HashMap<Path, u64> = HashMap::new();
       loop {
         if !(*open.read()) {
           break
@@ -24,8 +24,8 @@ impl PollWatcher {
         for watch in watches.read().iter() {
           if !watch.exists() {
             tx.send(Event {
-              path: Ok(watch.clone()),
-              op: Err(PathNotFound)
+              path: Some(watch.clone()),
+              op: Err(Error::PathNotFound)
             });
             continue
           }
@@ -33,7 +33,7 @@ impl PollWatcher {
           match watch.lstat() {
             Err(e) => {
               tx.send(Event {
-                path: Ok(watch.clone()),
+                path: Some(watch.clone()),
                 op: Err(Error::Io(e))
               });
               continue
@@ -44,7 +44,7 @@ impl PollWatcher {
                 Some(old) => {
                   if stat.modified > old {
                     tx.send(Event {
-                      path: Ok(watch.clone()),
+                      path: Some(watch.clone()),
                       op: Ok(op::WRITE)
                     });
                     continue

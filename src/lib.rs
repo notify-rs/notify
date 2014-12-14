@@ -51,3 +51,24 @@ pub fn new(tx: Sender<Event>) -> Result<INotifyWatcher, Error> {
 pub fn new(tx: Sender<Event>) -> Result<PollWatcher, Error> {
   Watcher::new(tx)
 }
+
+#[test]
+#[cfg(target_os = "linux")]
+fn new_inotify() {
+  let (tx, rx) = channel();
+  let w: Result<INotifyWatcher, Error> = Watcher::new(tx);
+  match w {
+    Ok(_) => assert!(true),
+    Err(_) => assert!(false)
+  }
+}
+
+#[test]
+fn new_poll() {
+  let (tx, rx) = channel();
+  let w: Result<PollWatcher, Error> = Watcher::new(tx);
+  match w {
+    Ok(_) => assert!(true),
+    Err(_) => assert!(false)
+  }
+}
