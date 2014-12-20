@@ -1,7 +1,7 @@
 [package]
 name = "notify"
-version = "1.0.1"
-authors = ["Félix Saparelli <felix@passcod.name>"]
+version = "1.0.2"
+authors = ["Félix Saparelli <me@passcod.name>"]
 
 description = "Cross-platform filesystem notification library"
 homepage = "https://github.com/passcod/rsnotify"

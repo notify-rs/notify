@@ -3,6 +3,7 @@
 
 use std::io::IoError;
 pub use self::op::Op;
+#[cfg(target_os="linux")]
 pub use self::inotify::INotifyWatcher;
 pub use self::poll::PollWatcher;
 
