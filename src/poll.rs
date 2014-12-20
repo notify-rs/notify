@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::io::fs::PathExtensions;
+use std::io::fs::{mod, PathExtensions};
 use std::sync::{Arc, RWLock};
-use super::{Error, Event, op, Op, Watcher};
+use super::{Error, Event, op, Watcher};
 
 pub struct PollWatcher {
   tx: Sender<Event>,
@@ -14,7 +14,13 @@ impl PollWatcher {
     let tx = self.tx.clone();
     let watches = self.watches.clone();
     let open = self.open.clone();
-    spawn(proc() {
+    spawn(move || {
+      // In order of priority:
+      // TODO: populate mtimes before loop, and then handle creation events
+      // TODO: handle deletion events
+      // TODO: handle chmod events
+      // TODO: handle renames
+      // TODO: DRY it up
       let mut mtimes: HashMap<Path, u64> = HashMap::new();
       loop {
         if !(*open.read()) {
@@ -55,6 +61,43 @@ impl PollWatcher {
           }
 
           // TODO: recurse into the dir
+          // TODO: more efficient implementation where the dir tree is cached?
+          match fs::walk_dir(watch) {
+            Err(e) => {
+              tx.send(Event {
+                path: Some(watch.clone()),
+                op: Err(Error::Io(e))
+              });
+              continue
+            },
+            Ok(mut iter) => {
+              for path in iter {
+                match path.lstat() {
+                  Err(e) => {
+                    tx.send(Event {
+                      path: Some(path.clone()),
+                      op: Err(Error::Io(e))
+                    });
+                    continue
+                  },
+                  Ok(stat) => {
+                    match mtimes.insert(path.clone(), stat.modified) {
+                      None => continue, // First run
+                      Some(old) => {
+                        if stat.modified > old {
+                          tx.send(Event {
+                            path: Some(path.clone()),
+                            op: Ok(op::WRITE)
+                          });
+                          continue
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     })

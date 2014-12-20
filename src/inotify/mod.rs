@@ -21,7 +21,7 @@ impl INotifyWatcher {
     let mut ino = self.inotify.clone();
     let tx = self.tx.clone();
     let paths = self.paths.clone();
-    spawn(proc() {
+    spawn(move || {
       loop {
         match ino.event() {
           Ok(e) => {
@@ -105,7 +105,7 @@ impl Watcher for INotifyWatcher {
     match self.watches.get(path) {
       None => {},
       Some(p) => {
-        watching.insert(p.ref1().clone());
+        watching.insert((&p.1).clone());
         watching.insert(flags::IN_MASK_ADD);
       }
     }
@@ -125,7 +125,7 @@ impl Watcher for INotifyWatcher {
     match self.watches.remove(path) {
       None => Err(Error::WatchNotFound),
       Some(p) => {
-        let w = p.ref0();
+        let w = &p.0;
         match self.inotify.rm_watch(w.clone()) {
           Err(e) => Err(Error::Io(e)),
           Ok(_) => {

@@ -12,7 +12,7 @@ pub mod poll;
 
 pub mod op {
   bitflags! {
-    #[deriving(Copy)] flags Op: u32 {
+    flags Op: u32 {
       const CHMOD   = 0b00001,
       const CREATE  = 0b00010,
       const REMOVE  = 0b00100,
