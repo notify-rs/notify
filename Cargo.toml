@@ -1,11 +1,24 @@
 [package]
 name = "notify"
-version = "1.0.0"
+version = "1.0.1"
 authors = ["Félix Saparelli <felix@passcod.name>"]
+
+description = "Cross-platform filesystem notification library"
+homepage = "https://github.com/passcod/rsnotify"
+repository = "https://github.com/passcod/rsnotify"
+
+readme = "README.md"
+license = "CC0-1.0"
+keywords = [
+  "events",
+  "filesystem",
+  "notify",
+  "watch",
+]
 
 [dependencies]
 time = "*"
-#inotify = "*"
 
-[dependencies.inotify]
+[target.x86_64-unknown-linux-gnu.dependencies.inotify]
 git = "https://github.com/hannobraun/inotify-rs.git"
+version = "0.0.1"
