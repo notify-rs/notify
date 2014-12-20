@@ -5,8 +5,8 @@ _Cross-platform filesystem notification library for Rust._
 ## Install
 
 ```toml
-[dependencies.notify]
-git = "https://github.com/passcod/rsnotify.git"
+[dependencies]
+notify = "^1.0"
 ```
 
 ## Usage
@@ -14,26 +14,27 @@ git = "https://github.com/passcod/rsnotify.git"
 ```rust
 extern crate notify;
 
-// Create a channel to receive the events
-let (tx, rx) = channel();
+use notify::{RecommendedWatcher, Error, Watcher};
 
-// Select the recommended implementation for this platform
-match notify::new(tx) {
-  Ok(watcher) => {
-    // Watch files!
-    watcher.watch(Path::new("/path/to/foo"));
-
-    // Receive events!
-    println!("{}", rx.recv());
-  },
-  Err(e) => println!("Uh oh: {}", e)
+fn main() {
+  let (tx, rx) = channel();
+  let mut w: Result<RecommendedWatcher, Error> = Watcher::new(tx);
+  match w {
+    Ok(mut watcher) => {
+      watcher.watch(&Path::new("/home/test/notify"));
+      match rx.recv() {
+        _ => println!("Recv.")
+      }
+    },
+    Err(e) => println!("Error")
+  }
 }
 ```
 
 ## Platforms
 
 - Linux / Android: inotify
-- All platforms: polling
+- All platforms: polling (only `op::WRITE`)
 
 ### Todo
 
@@ -42,12 +43,17 @@ match notify::new(tx) {
 - BSD / OS X / iOS: kqueue
 - Solaris 11: FEN
 
-### Tests
+## Known Bugs
 
-Nothing is tested yet.
+- inotify backend panics when dropped
+- polling backend only handles `op::WRITE`s
+- see `TODO` comments in the code for more
 
 ## Origins
 
-Inspired by Go's [fsnotify](https://github.com/go-fsnotify/fsnotify), born out of need for [cargo watch](https://github.com/passcod/cargo-watch), and general frustration at the non-existence of C/Rust cross-platform notify libraries.
+Inspired by Go's [fsnotify](https://github.com/go-fsnotify/fsnotify), born out
+of need for [cargo watch](https://github.com/passcod/cargo-watch), and general
+frustration at the non-existence of C/Rust cross-platform notify libraries.
 
-Written from scratch by [Félix Saparelli](https://passcod.name), and released in the Public Domain.
+Written from scratch by [Félix Saparelli](https://passcod.name), and released
+in the Public Domain.

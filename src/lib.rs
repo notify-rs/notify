@@ -42,13 +42,10 @@ pub trait Watcher {
   fn unwatch(&mut self, &Path) -> Result<(), Error>;
 }
 
-#[cfg(target_os = "linux")]
-pub fn new(tx: Sender<Event>) -> Result<INotifyWatcher, Error> {
-  Watcher::new(tx)
-}
+#[cfg(target_os = "linux")] pub type RecommendedWatcher = INotifyWatcher;
+#[cfg(not(any(target_os = "linux")))] pub type RecommendedWatcher = PollWatcher;
 
-#[cfg(not(any(target_os = "linux")))]
-pub fn new(tx: Sender<Event>) -> Result<PollWatcher, Error> {
+pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher, Error> {
   Watcher::new(tx)
 }
 
@@ -67,6 +64,16 @@ fn new_inotify() {
 fn new_poll() {
   let (tx, rx) = channel();
   let w: Result<PollWatcher, Error> = Watcher::new(tx);
+  match w {
+    Ok(_) => assert!(true),
+    Err(_) => assert!(false)
+  }
+}
+
+#[test]
+fn new_recommended() {
+  let (tx, rx) = channel();
+  let w: Result<RecommendedWatcher, Error> = Watcher::new(tx);
   match w {
     Ok(_) => assert!(true),
     Err(_) => assert!(false)
