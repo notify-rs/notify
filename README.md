@@ -5,12 +5,13 @@ _Cross-platform filesystem notification library for Rust._
 ## Install
 
 ```toml
-[dependencies.notify]
-git = "https://github.com/passcod/rsnotify.git"
+[dependencies]
+notify = "1"
 ```
 
-Will be added to the [crates.io](https://crates.io) registry as soon as the
-all the dependencies are published there as well.
+Notify uses semver, so only major versions break backward compatibility. While
+Rust hasn't reached 1.0, compatibility breaks through language evolution are
+ignored and counted as bugfixes; the compatibility is for this API only.
 
 ## Usage
 
