@@ -5,6 +5,7 @@ use self::inotify_sys::wrapper::{mod, INotify, Watch};
 use std::collections::HashMap;
 use std::io::IoErrorKind;
 use std::sync::{Arc, RWLock};
+use std::thread::Thread;
 use super::{Error, Event, op, Op, Watcher};
 
 mod flags;
@@ -21,7 +22,7 @@ impl INotifyWatcher {
     let mut ino = self.inotify.clone();
     let tx = self.tx.clone();
     let paths = self.paths.clone();
-    spawn(move || {
+    Thread::spawn(move || {
       loop {
         match ino.wait_for_events() {
           Ok(es) => {
@@ -40,7 +41,7 @@ impl INotifyWatcher {
           }
         }
       }
-    })
+    }).detach();
   }
 }
 

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io::fs::{mod, PathExtensions};
 use std::sync::{Arc, RWLock};
+use std::thread::Thread;
 use super::{Error, Event, op, Watcher};
 
 pub struct PollWatcher {
@@ -14,7 +15,7 @@ impl PollWatcher {
     let tx = self.tx.clone();
     let watches = self.watches.clone();
     let open = self.open.clone();
-    spawn(move || {
+    Thread::spawn(move || {
       // In order of priority:
       // TODO: populate mtimes before loop, and then handle creation events
       // TODO: handle deletion events
@@ -100,7 +101,7 @@ impl PollWatcher {
           }
         }
       }
-    })
+    }).detach();
   }
 }
 
