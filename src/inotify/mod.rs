@@ -23,9 +23,11 @@ impl INotifyWatcher {
     let paths = self.paths.clone();
     spawn(move || {
       loop {
-        match ino.event() {
-          Ok(e) => {
-            handle_event(e, &tx, &paths)
+        match ino.wait_for_events() {
+          Ok(es) => {
+            for e in es.iter() {
+              handle_event(e.clone(), &tx, &paths)
+            }
           },
           Err(e) => {
             match e.kind {

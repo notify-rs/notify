@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "1.0.2"
+version = "1.0.3"
 authors = ["Félix Saparelli <me@passcod.name>"]
 
 description = "Cross-platform filesystem notification library"
@@ -20,5 +20,4 @@ keywords = [
 time = "*"
 
 [target.x86_64-unknown-linux-gnu.dependencies.inotify]
-git = "https://github.com/hannobraun/inotify-rs.git"
-version = "0.0.1"
+version = "0.1"
