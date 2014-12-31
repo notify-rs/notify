@@ -34,7 +34,7 @@ impl INotifyWatcher {
             match e.kind {
               IoErrorKind::EndOfFile => break,
               _ => {
-                tx.send_opt(Event {
+                let _ = tx.send_opt(Event {
                   path: None,
                   op: Err(Error::Io(e))
                 });
