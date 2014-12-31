@@ -23,11 +23,12 @@ pub mod op {
   }
 }
 
-#[deriving(Send)]
 pub struct Event {
   pub path: Option<Path>,
   pub op: Result<Op, Error>,
 }
+
+unsafe impl Send for Event {}
 
 pub enum Error {
   Generic(String),
