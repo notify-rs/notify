@@ -7,6 +7,7 @@ use std::io::IoErrorKind;
 use std::sync::{Arc, RWLock};
 use std::thread::Thread;
 use super::{Error, Event, op, Op, Watcher};
+use std::io::fs::{PathExtensions, walk_dir};
 
 mod flags;
 
@@ -44,6 +45,34 @@ impl INotifyWatcher {
         }
       }
     }).detach();
+  }
+
+  fn add_watch(&mut self, path: &Path) -> Result<(), Error> {
+    let mut watching  = flags::IN_ATTRIB
+                      | flags::IN_CREATE
+                      | flags::IN_DELETE
+                      | flags::IN_DELETE_SELF
+                      | flags::IN_MODIFY
+                      | flags::IN_MOVED_FROM
+                      | flags::IN_MOVED_TO
+                      | flags::IN_MOVE_SELF;
+    match self.watches.get(path) {
+      None => {},
+      Some(p) => {
+        watching.insert((&p.1).clone());
+        watching.insert(flags::IN_MASK_ADD);
+      }
+    }
+
+    match self.inotify.add_watch(path, watching.bits()) {
+      Err(e) => return Err(Error::Io(e)),
+      Ok(w) => {
+        watching.remove(flags::IN_MASK_ADD);
+        self.watches.insert(path.clone(), (w.clone(), watching));
+        (*self.paths).write().unwrap().insert(w.clone(), path.clone());
+        Ok(())
+      }
+    }
   }
 }
 
@@ -99,30 +128,16 @@ impl Watcher for INotifyWatcher {
   }
 
   fn watch(&mut self, path: &Path) -> Result<(), Error> {
-    let mut watching  = flags::IN_ATTRIB
-                      | flags::IN_CREATE
-                      | flags::IN_DELETE
-                      | flags::IN_DELETE_SELF
-                      | flags::IN_MODIFY
-                      | flags::IN_MOVED_FROM
-                      | flags::IN_MOVED_TO
-                      | flags::IN_MOVE_SELF;
-    match self.watches.get(path) {
-      None => {},
-      Some(p) => {
-        watching.insert((&p.1).clone());
-        watching.insert(flags::IN_MASK_ADD);
-      }
-    }
-
-    match self.inotify.add_watch(path, watching.bits()) {
-      Err(e) => return Err(Error::Io(e)),
-      Ok(w) => {
-        watching.remove(flags::IN_MASK_ADD);
-        self.watches.insert(path.clone(), (w.clone(), watching));
-        (*self.paths).write().unwrap().insert(w.clone(), path.clone());
-        Ok(())
-      }
+    match walk_dir(path) {
+      Ok(mut d) => {
+        for ref dir in d {
+          if dir.is_dir() {
+            try!(self.add_watch(dir));
+          }
+        }
+        self.add_watch(path)
+      },
+      Err(e) => Err(Error::Io(e))
     }
   }
 
