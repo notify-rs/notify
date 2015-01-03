@@ -6,7 +6,7 @@ _Cross-platform filesystem notification library for Rust._
 
 ```toml
 [dependencies]
-notify = "1"
+notify = "1.0"
 ```
 
 Notify uses semver, so only major versions break backward compatibility. While
@@ -59,7 +59,7 @@ fn main() {
 
 ## Known Bugs
 
-- inotify backend panics when dropped
+- inotify backend doesn't recurse properly (#2)
 - polling backend only handles `op::WRITE`s
 - see `TODO` comments in the code for more
 

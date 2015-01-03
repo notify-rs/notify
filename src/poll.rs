@@ -24,11 +24,11 @@ impl PollWatcher {
       // TODO: DRY it up
       let mut mtimes: HashMap<Path, u64> = HashMap::new();
       loop {
-        if !(*open.read()) {
+        if !(*open.read().unwrap()) {
           break
         }
 
-        for watch in watches.read().iter() {
+        for watch in watches.read().unwrap().iter() {
           if !watch.exists() {
             tx.send(Event {
               path: Some(watch.clone()),
@@ -117,12 +117,12 @@ impl Watcher for PollWatcher {
   }
 
   fn watch(&mut self, path: &Path) -> Result<(), Error> {
-    (*self.watches).write().insert(path.clone());
+    (*self.watches).write().unwrap().insert(path.clone());
     Ok(())
   }
 
   fn unwatch(&mut self, path: &Path) -> Result<(), Error> {
-    if (*self.watches).write().remove(path) {
+    if (*self.watches).write().unwrap().remove(path) {
       Ok(())
     } else {
       Err(Error::WatchNotFound)
@@ -133,7 +133,7 @@ impl Watcher for PollWatcher {
 impl Drop for PollWatcher {
   fn drop(&mut self) {
     {
-      let mut open = (*self.open).write();
+      let mut open = (*self.open).write().unwrap();
       (*open) = false;
     }
   }

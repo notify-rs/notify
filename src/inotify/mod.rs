@@ -68,7 +68,7 @@ fn handle_event(event: wrapper::Event, tx: &Sender<Event>, paths: &Arc<RWLock<Ha
 
   let path = match event.name.is_empty() {
     true => {
-      match (*paths).read().get(&event.wd) {
+      match (*paths).read().unwrap().get(&event.wd) {
         Some(p) => Some(p.clone()),
         None => None
       }
@@ -120,7 +120,7 @@ impl Watcher for INotifyWatcher {
       Ok(w) => {
         watching.remove(flags::IN_MASK_ADD);
         self.watches.insert(path.clone(), (w.clone(), watching));
-        (*self.paths).write().insert(w.clone(), path.clone());
+        (*self.paths).write().unwrap().insert(w.clone(), path.clone());
         Ok(())
       }
     }
@@ -136,7 +136,7 @@ impl Watcher for INotifyWatcher {
           Ok(_) => {
             // Nothing depends on the value being gone
             // from here now that inotify isn't watching.
-            (*self.paths).write().remove(w);
+            (*self.paths).write().unwrap().remove(w);
             Ok(())
           }
         }
