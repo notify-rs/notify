@@ -23,11 +23,12 @@ pub mod op {
   }
 }
 
-#[deriving(Send)]
 pub struct Event {
   pub path: Option<Path>,
   pub op: Result<Op, Error>,
 }
+
+unsafe impl Send for Event {}
 
 pub enum Error {
   Generic(String),
@@ -53,7 +54,7 @@ pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher, Error> {
 #[test]
 #[cfg(target_os = "linux")]
 fn new_inotify() {
-  let (tx, rx) = channel();
+  let (tx, _) = channel();
   let w: Result<INotifyWatcher, Error> = Watcher::new(tx);
   match w {
     Ok(_) => assert!(true),
@@ -63,7 +64,7 @@ fn new_inotify() {
 
 #[test]
 fn new_poll() {
-  let (tx, rx) = channel();
+  let (tx, _) = channel();
   let w: Result<PollWatcher, Error> = Watcher::new(tx);
   match w {
     Ok(_) => assert!(true),
@@ -73,7 +74,7 @@ fn new_poll() {
 
 #[test]
 fn new_recommended() {
-  let (tx, rx) = channel();
+  let (tx, _) = channel();
   let w: Result<RecommendedWatcher, Error> = Watcher::new(tx);
   match w {
     Ok(_) => assert!(true),
