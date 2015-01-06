@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::io::fs::{mod, PathExtensions};
+use std::io::fs::{self, PathExtensions};
 use std::sync::{Arc, RWLock};
+use std::sync::mpsc::Sender;
 use std::thread::Thread;
 use super::{Error, Event, op, Watcher};
 
@@ -30,7 +31,7 @@ impl PollWatcher {
 
         for watch in watches.read().unwrap().iter() {
           if !watch.exists() {
-            tx.send(Event {
+            let _ = tx.send(Event {
               path: Some(watch.clone()),
               op: Err(Error::PathNotFound)
             });
@@ -39,7 +40,7 @@ impl PollWatcher {
 
           match watch.lstat() {
             Err(e) => {
-              tx.send(Event {
+              let _ = tx.send(Event {
                 path: Some(watch.clone()),
                 op: Err(Error::Io(e))
               });
@@ -50,7 +51,7 @@ impl PollWatcher {
                 None => continue, // First run
                 Some(old) => {
                   if stat.modified > old {
-                    tx.send(Event {
+                    let _ = tx.send(Event {
                       path: Some(watch.clone()),
                       op: Ok(op::WRITE)
                     });
@@ -65,7 +66,7 @@ impl PollWatcher {
           // TODO: more efficient implementation where the dir tree is cached?
           match fs::walk_dir(watch) {
             Err(e) => {
-              tx.send(Event {
+              let _ = tx.send(Event {
                 path: Some(watch.clone()),
                 op: Err(Error::Io(e))
               });
@@ -75,7 +76,7 @@ impl PollWatcher {
               for path in iter {
                 match path.lstat() {
                   Err(e) => {
-                    tx.send(Event {
+                    let _ = tx.send(Event {
                       path: Some(path.clone()),
                       op: Err(Error::Io(e))
                     });
@@ -86,7 +87,7 @@ impl PollWatcher {
                       None => continue, // First run
                       Some(old) => {
                         if stat.modified > old {
-                          tx.send(Event {
+                          let _ = tx.send(Event {
                             path: Some(path.clone()),
                             op: Ok(op::WRITE)
                           });

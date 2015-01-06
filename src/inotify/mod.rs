@@ -1,10 +1,11 @@
 extern crate "inotify" as inotify_sys;
 extern crate libc;
 
-use self::inotify_sys::wrapper::{mod, INotify, Watch};
+use self::inotify_sys::wrapper::{self, INotify, Watch};
 use std::collections::HashMap;
 use std::io::IoErrorKind;
 use std::sync::{Arc, RWLock};
+use std::sync::mpsc::Sender;
 use std::thread::Thread;
 use super::{Error, Event, op, Op, Watcher};
 use std::io::fs::{PathExtensions, walk_dir};
@@ -35,7 +36,7 @@ impl INotifyWatcher {
             match e.kind {
               IoErrorKind::EndOfFile => break,
               _ => {
-                let _ = tx.send_opt(Event {
+                let _ = tx.send(Event {
                   path: None,
                   op: Err(Error::Io(e))
                 });
@@ -105,10 +106,10 @@ fn handle_event(event: wrapper::Event, tx: &Sender<Event>, paths: &Arc<RWLock<Ha
     false => Path::new_opt(event.name)
   };
 
-  tx.send(Event {
+  let _ = tx.send(Event {
     path: path,
     op: Ok(o)
-  })
+  });
 }
 
 impl Watcher for INotifyWatcher {

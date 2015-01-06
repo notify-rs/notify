@@ -6,7 +6,7 @@ _Cross-platform filesystem notification library for Rust._
 
 ```toml
 [dependencies]
-notify = "1.0"
+notify = "1.1"
 ```
 
 Notify uses semver, so only major versions break backward compatibility. While

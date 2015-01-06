@@ -2,6 +2,8 @@
 #[phase(plugin, link)] extern crate log;
 
 use std::io::IoError;
+use std::sync::mpsc::Sender;
+#[cfg(test)] use std::sync::mpsc::channel;
 pub use self::op::Op;
 #[cfg(target_os="linux")]
 pub use self::inotify::INotifyWatcher;
