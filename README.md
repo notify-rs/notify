@@ -19,6 +19,7 @@ ignored and counted as bugfixes; the compatibility is for this API only.
 extern crate notify;
 
 use notify::{RecommendedWatcher, Error, Watcher};
+use std::sync::mpsc::channel;
 
 fn main() {
   // Create a channel to receive the events.
@@ -61,6 +62,8 @@ fn main() {
 
 - polling backend only handles `op::WRITE`s
 - see `TODO` comments in the code for more
+
+Pull requests and bug reports happily accepted!
 
 ## Origins
 
