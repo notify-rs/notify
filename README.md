@@ -59,7 +59,6 @@ fn main() {
 
 ## Known Bugs
 
-- inotify backend doesn't recurse properly (#2)
 - polling backend only handles `op::WRITE`s
 - see `TODO` comments in the code for more
 
