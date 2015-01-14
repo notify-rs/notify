@@ -1,5 +1,7 @@
-#![feature(phase)]
-#[phase(plugin, link)] extern crate log;
+#![feature(plugin)]
+#![allow(unstable)]
+
+#[plugin] extern crate log;
 
 use std::io::IoError;
 use std::sync::mpsc::Sender;
