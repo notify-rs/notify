@@ -2,6 +2,7 @@
 #![allow(unstable)]
 
 #[plugin] extern crate log;
+#[macro_use] extern crate bitflags;
 
 use std::io::IoError;
 use std::sync::mpsc::Sender;
