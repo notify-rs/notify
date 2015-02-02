@@ -1,7 +1,7 @@
-#![feature(phase)]
-#[phase(plugin, link)] extern crate log;
+#[macro_use] extern crate log;
+#[macro_use] extern crate rustc_bitflags;
 
-use std::io::IoError;
+use std::old_io::IoError;
 use std::sync::mpsc::Sender;
 #[cfg(test)] use std::sync::mpsc::channel;
 pub use self::op::Op;

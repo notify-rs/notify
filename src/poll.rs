@@ -1,14 +1,14 @@
 use std::collections::{HashMap, HashSet};
-use std::io::fs::{self, PathExtensions};
-use std::sync::{Arc, RWLock};
+use std::old_io::fs::{self, PathExtensions};
+use std::sync::{Arc, RwLock};
 use std::sync::mpsc::Sender;
 use std::thread::Thread;
 use super::{Error, Event, op, Watcher};
 
 pub struct PollWatcher {
   tx: Sender<Event>,
-  watches: Arc<RWLock<HashSet<Path>>>,
-  open: Arc<RWLock<bool>>
+  watches: Arc<RwLock<HashSet<Path>>>,
+  open: Arc<RwLock<bool>>
 }
 
 impl PollWatcher {
@@ -102,7 +102,7 @@ impl PollWatcher {
           }
         }
       }
-    }).detach();
+    });
   }
 }
 
@@ -110,8 +110,8 @@ impl Watcher for PollWatcher {
   fn new(tx: Sender<Event>) -> Result<PollWatcher, Error> {
     let mut p = PollWatcher {
       tx: tx,
-      watches: Arc::new(RWLock::new(HashSet::new())),
-      open: Arc::new(RWLock::new(true))
+      watches: Arc::new(RwLock::new(HashSet::new())),
+      open: Arc::new(RwLock::new(true))
     };
     p.run();
     Ok(p)

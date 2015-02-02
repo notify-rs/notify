@@ -3,12 +3,12 @@ extern crate libc;
 
 use self::inotify_sys::wrapper::{self, INotify, Watch};
 use std::collections::HashMap;
-use std::io::IoErrorKind;
-use std::sync::{Arc, RWLock};
+use std::old_io::IoErrorKind;
+use std::old_io::fs::{PathExtensions, walk_dir};
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, RwLock};
 use std::thread::Thread;
 use super::{Error, Event, op, Op, Watcher};
-use std::io::fs::{PathExtensions, walk_dir};
 
 mod flags;
 
@@ -16,7 +16,7 @@ pub struct INotifyWatcher {
   inotify: INotify,
   tx: Sender<Event>,
   watches: HashMap<Path, (Watch, flags::Mask)>,
-  paths: Arc<RWLock<HashMap<Watch, Path>>>
+  paths: Arc<RwLock<HashMap<Watch, Path>>>
 }
 
 impl INotifyWatcher {
@@ -45,7 +45,7 @@ impl INotifyWatcher {
           }
         }
       }
-    }).detach();
+    });
   }
 
   fn add_watch(&mut self, path: &Path) -> Result<(), Error> {
@@ -78,7 +78,7 @@ impl INotifyWatcher {
 }
 
 #[inline]
-fn handle_event(event: wrapper::Event, tx: &Sender<Event>, paths: &Arc<RWLock<HashMap<Watch, Path>>>) {
+fn handle_event(event: wrapper::Event, tx: &Sender<Event>, paths: &Arc<RwLock<HashMap<Watch, Path>>>) {
   let mut o = Op::empty();
   if event.is_create() || event.is_moved_to() {
     o.insert(op::CREATE);
@@ -119,7 +119,7 @@ impl Watcher for INotifyWatcher {
         inotify: i,
         tx: tx,
         watches: HashMap::new(), // TODO: use bimap?
-        paths: Arc::new(RWLock::new(HashMap::new()))
+        paths: Arc::new(RwLock::new(HashMap::new()))
       },
       Err(e) => return Err(Error::Io(e))
     };
