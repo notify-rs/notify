@@ -1,13 +1,17 @@
+#![feature(path, io, core, rustc_private, libc, hash, std_misc, fs)]
+
 #[macro_use] extern crate log;
 #[macro_use] extern crate rustc_bitflags;
 
-use std::old_io::IoError;
 use std::sync::mpsc::Sender;
 #[cfg(test)] use std::sync::mpsc::channel;
 pub use self::op::Op;
 #[cfg(target_os="linux")]
 pub use self::inotify::INotifyWatcher;
 pub use self::poll::PollWatcher;
+use std::io;
+
+use std::path::{Path, PathBuf};
 
 #[cfg(target_os="linux")]
 pub mod inotify;
@@ -26,7 +30,7 @@ pub mod op {
 }
 
 pub struct Event {
-  pub path: Option<Path>,
+  pub path: Option<PathBuf>,
   pub op: Result<Op, Error>,
 }
 
@@ -34,7 +38,7 @@ unsafe impl Send for Event {}
 
 pub enum Error {
   Generic(String),
-  Io(IoError),
+  Io(io::Error),
   NotImplemented,
   PathNotFound,
   WatchNotFound,
