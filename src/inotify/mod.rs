@@ -27,7 +27,6 @@ impl INotifyWatcher {
     Thread::spawn(move || {
       loop {
         match ino.wait_for_events() {
-          Ok(es) if es.is_empty() => break,
           Ok(es) => {
             for e in es.iter() {
               handle_event(e.clone(), &tx, &paths)
