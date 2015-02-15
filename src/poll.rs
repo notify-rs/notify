@@ -1,13 +1,14 @@
 use std::collections::{HashMap, HashSet};
-use std::old_io::fs::{self, PathExtensions};
 use std::sync::{Arc, RwLock};
 use std::sync::mpsc::Sender;
 use std::thread::Thread;
 use super::{Error, Event, op, Watcher};
+use std::fs::{self, PathExt};
+use std::path::{Path, PathBuf};
 
 pub struct PollWatcher {
   tx: Sender<Event>,
-  watches: Arc<RwLock<HashSet<Path>>>,
+  watches: Arc<RwLock<HashSet<PathBuf>>>,
   open: Arc<RwLock<bool>>
 }
 
@@ -23,7 +24,7 @@ impl PollWatcher {
       // TODO: handle chmod events
       // TODO: handle renames
       // TODO: DRY it up
-      let mut mtimes: HashMap<Path, u64> = HashMap::new();
+      let mut mtimes: HashMap<PathBuf, u64> = HashMap::new();
       loop {
         if !(*open.read().unwrap()) {
           break
@@ -38,7 +39,7 @@ impl PollWatcher {
             continue
           }
 
-          match watch.lstat() {
+          match watch.metadata() {
             Err(e) => {
               let _ = tx.send(Event {
                 path: Some(watch.clone()),
@@ -47,10 +48,10 @@ impl PollWatcher {
               continue
             },
             Ok(stat) => {
-              match mtimes.insert(watch.clone(), stat.modified) {
+              match mtimes.insert(watch.clone(), stat.modified()) {
                 None => continue, // First run
                 Some(old) => {
-                  if stat.modified > old {
+                  if stat.modified() > old {
                     let _ = tx.send(Event {
                       path: Some(watch.clone()),
                       op: Ok(op::WRITE)
@@ -72,30 +73,42 @@ impl PollWatcher {
               });
               continue
             },
-            Ok(mut iter) => {
-              for path in iter {
-                match path.lstat() {
-                  Err(e) => {
-                    let _ = tx.send(Event {
-                      path: Some(path.clone()),
-                      op: Err(Error::Io(e))
-                    });
-                    continue
-                  },
-                  Ok(stat) => {
-                    match mtimes.insert(path.clone(), stat.modified) {
-                      None => continue, // First run
-                      Some(old) => {
-                        if stat.modified > old {
-                          let _ = tx.send(Event {
-                            path: Some(path.clone()),
-                            op: Ok(op::WRITE)
-                          });
-                          continue
+            Ok(iter) => {
+              for entry in iter {
+                match entry {
+                  Ok(entry) => {
+                    let path = entry.path();
+
+                    match path.metadata() {
+                      Err(e) => {
+                        let _ = tx.send(Event {
+                          path: Some(path.clone()),
+                          op: Err(Error::Io(e))
+                        });
+                        continue
+                      },
+                      Ok(stat) => {
+                        match mtimes.insert(path.clone(), stat.modified()) {
+                          None => continue, // First run
+                          Some(old) => {
+                            if stat.modified() > old {
+                              let _ = tx.send(Event {
+                                path: Some(path.clone()),
+                                op: Ok(op::WRITE)
+                              });
+                              continue
+                            }
+                          }
                         }
                       }
                     }
-                  }
+                  },
+                  Err(e) => {
+                    let _ = tx.send(Event {
+                      path: Some(watch.clone()),
+                      op: Err(Error::Io(e))
+                    });
+                  },
                 }
               }
             }
@@ -118,12 +131,18 @@ impl Watcher for PollWatcher {
   }
 
   fn watch(&mut self, path: &Path) -> Result<(), Error> {
-    (*self.watches).write().unwrap().insert(path.clone());
+    // FIXME:
+    // once https://github.com/rust-lang/rust/pull/22351 gets merged,
+    // just use a &Path
+    (*self.watches).write().unwrap().insert(path.to_path_buf());
     Ok(())
   }
 
   fn unwatch(&mut self, path: &Path) -> Result<(), Error> {
-    if (*self.watches).write().unwrap().remove(path) {
+    // FIXME:
+    // once https://github.com/rust-lang/rust/pull/22351 gets merged,
+    // just use a &Path
+    if (*self.watches).write().unwrap().remove(&path.to_path_buf()) {
       Ok(())
     } else {
       Err(Error::WatchNotFound)
