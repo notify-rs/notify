@@ -23,9 +23,5 @@ keywords = [
 [dependencies]
 time = "*"
 
-#[target.x86_64-unknown-linux-gnu.dependencies.inotify]
-#version = "0.1"
-
 [target.x86_64-unknown-linux-gnu.dependencies.inotify]
-git = "https://github.com/blaenk/inotify-rs.git"
-branch = "new-io"
+version = "^0.1"
