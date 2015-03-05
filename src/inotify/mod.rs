@@ -103,7 +103,7 @@ fn handle_event(event: wrapper::Event, tx: &Sender<Event>, paths: &Arc<RwLock<Ha
         None => None
       }
     },
-    false => Some(PathBuf::new(&event.name)),
+    false => paths.read().unwrap().get(&event.wd).map(|root| root.join(&event.name)),
   };
 
   let _ = tx.send(Event {
