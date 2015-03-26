@@ -1,4 +1,4 @@
-extern crate "inotify" as inotify_sys;
+extern crate inotify as inotify_sys;
 extern crate libc;
 
 use self::inotify_sys::wrapper::{self, INotify, Watch};
@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs::{PathExt, walk_dir};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
-use std::thread::Thread;
+use std::thread;
 use super::{Error, Event, op, Op, Watcher};
 use std::path::{Path, PathBuf};
 
@@ -24,7 +24,7 @@ impl INotifyWatcher {
     let mut ino = self.inotify.clone();
     let tx = self.tx.clone();
     let paths = self.paths.clone();
-    Thread::spawn(move || {
+    thread::spawn(move || {
       loop {
         match ino.wait_for_events() {
           Ok(es) => {
