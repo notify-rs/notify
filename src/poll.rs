@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::sync::mpsc::Sender;
-use std::thread::Thread;
+use std::thread;
 use super::{Error, Event, op, Watcher};
 use std::fs::{self, PathExt};
 use std::path::{Path, PathBuf};
@@ -17,7 +17,7 @@ impl PollWatcher {
     let tx = self.tx.clone();
     let watches = self.watches.clone();
     let open = self.open.clone();
-    Thread::spawn(move || {
+    thread::spawn(move || {
       // In order of priority:
       // TODO: populate mtimes before loop, and then handle creation events
       // TODO: handle deletion events
