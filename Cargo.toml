@@ -1,10 +1,11 @@
 [package]
 name = "notify"
-version = "1.2.0"
+version = "1.2.1"
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Antti Keränen <detegr@gmail.com>",
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
+  "Michael Maurizi <mmaurizi@azavea.com>",
 ]
 
 description = "Cross-platform filesystem notification library"
