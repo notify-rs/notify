@@ -23,6 +23,7 @@ keywords = [
 
 [dependencies]
 time = "*"
+bitflags = "*"
 
 [target.x86_64-unknown-linux-gnu.dependencies.inotify]
 version = "^0.1"

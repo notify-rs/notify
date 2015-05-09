@@ -1,7 +1,7 @@
 #![feature(rustc_private, libc, fs_time, fs_walk, path_ext)]
 
 #[macro_use] extern crate log;
-#[macro_use] extern crate rustc_bitflags;
+#[macro_use] extern crate bitflags;
 
 use std::sync::mpsc::Sender;
 #[cfg(test)] use std::sync::mpsc::channel;

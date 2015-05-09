@@ -131,18 +131,12 @@ impl Watcher for PollWatcher {
   }
 
   fn watch(&mut self, path: &Path) -> Result<(), Error> {
-    // FIXME:
-    // once https://github.com/rust-lang/rust/pull/22351 gets merged,
-    // just use a &Path
     (*self.watches).write().unwrap().insert(path.to_path_buf());
     Ok(())
   }
 
   fn unwatch(&mut self, path: &Path) -> Result<(), Error> {
-    // FIXME:
-    // once https://github.com/rust-lang/rust/pull/22351 gets merged,
-    // just use a &Path
-    if (*self.watches).write().unwrap().remove(&path.to_path_buf()) {
+    if (*self.watches).write().unwrap().remove(path) {
       Ok(())
     } else {
       Err(Error::WatchNotFound)
