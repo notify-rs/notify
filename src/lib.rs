@@ -1,5 +1,3 @@
-#![feature(rustc_private, libc, fs_time, fs_walk, path_ext)]
-
 #[macro_use] extern crate log;
 #[macro_use] extern crate bitflags;
 

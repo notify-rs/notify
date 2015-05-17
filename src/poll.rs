@@ -3,8 +3,11 @@ use std::sync::{Arc, RwLock};
 use std::sync::mpsc::Sender;
 use std::thread;
 use super::{Error, Event, op, Watcher};
-use std::fs::{self, PathExt};
+use std::fs::PathExt;
 use std::path::{Path, PathBuf};
+use self::walker::Walker;
+
+extern crate walker;
 
 pub struct PollWatcher {
   tx: Sender<Event>,
@@ -63,9 +66,8 @@ impl PollWatcher {
             }
           }
 
-          // TODO: recurse into the dir
           // TODO: more efficient implementation where the dir tree is cached?
-          match fs::walk_dir(watch) {
+          match Walker::new(watch) {
             Err(e) => {
               let _ = tx.send(Event {
                 path: Some(watch.clone()),

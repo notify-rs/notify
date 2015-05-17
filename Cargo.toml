@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "1.2.1"
+version = "1.2.3"
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Antti Keränen <detegr@gmail.com>",
@@ -22,8 +22,11 @@ keywords = [
 ]
 
 [dependencies]
-time = "*"
 bitflags = "*"
+libc = "*"
+log = "*"
+time = "*"
+walker = "^1.0.0"
 
 [target.x86_64-unknown-linux-gnu.dependencies.inotify]
 version = "^0.1"
