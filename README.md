@@ -1,5 +1,10 @@
 # Notify
 
+__NOTICE: I need a usable-in-stable replacement for `stat.modified()` i.e.
+a cross-platform way of getting the mtime of a file. Without that, I cannot
+make this library work. I do not currently have the time to do it myself, so
+*please help*. Thank you.__
+
 _Cross-platform filesystem notification library for Rust._
 
 ## Install
