@@ -1,6 +1,5 @@
 use fsevent_sys::core_foundation as cf;
 use fsevent_sys::fsevent as fs;
-
 use std::slice;
 use std::ffi::CString;
 use std::mem::transmute;
@@ -8,6 +7,8 @@ use std::slice::from_raw_parts_mut;
 use std::str::from_utf8;
 use std::ffi::CStr;
 use std::convert::AsRef;
+use std::thread;
+use std::sync::{Arc, RwLock};
 
 use std::sync::mpsc::{Sender};
 use super::{Error, Event, op, Watcher};
@@ -22,9 +23,9 @@ pub struct FsEventWatcher {
   since_when: fs::FSEventStreamEventId,
   latency: cf::CFTimeInterval,
   flags: fs::FSEventStreamCreateFlags,
-  sender: Sender<Event>,
+  sender: Arc<RwLock<Sender<Event>>>,
+  stream: Option<*mut libc::c_void>
 }
-
 
 pub type FsEventCallback = fn(Vec<Event>);
 
@@ -54,23 +55,23 @@ bitflags! {
 }
 
 fn translate_flags(flags: StreamFlags) -> op::Op {
-    let mut ret = op::Op::empty();
-    if flags.contains(ITEM_XATTR_MOD) {
-        ret.insert(op::CHMOD);
-    }
-    if flags.contains(ITEM_CREATED) {
-        ret.insert(op::CREATE);
-    }
-    if flags.contains(ITEM_REMOVED) {
-        ret.insert(op::REMOVE);
-    }
-    if flags.contains(ITEM_RENAMED) {
-        ret.insert(op::RENAME);
-    }
-    if flags.contains(ITEM_MODIFIED) {
-        ret.insert(op::WRITE);
-    }
-    ret
+  let mut ret = op::Op::empty();
+  if flags.contains(ITEM_XATTR_MOD) {
+    ret.insert(op::CHMOD);
+  }
+  if flags.contains(ITEM_CREATED) {
+    ret.insert(op::CREATE);
+  }
+  if flags.contains(ITEM_REMOVED) {
+    ret.insert(op::REMOVE);
+  }
+  if flags.contains(ITEM_RENAMED) {
+    ret.insert(op::RENAME);
+  }
+  if flags.contains(ITEM_MODIFIED) {
+    ret.insert(op::WRITE);
+  }
+  ret
 }
 
 
@@ -85,7 +86,7 @@ pub fn is_api_available() -> (bool, String) {
 }
 
 fn default_stream_context(info: *const FsEventWatcher) -> fs::FSEventStreamContext {
-  let ptr = info as *mut libc::c_void;
+  let ptr = unsafe { transmute((*info).sender.clone()) };
   let stream_context = fs::FSEventStreamContext{
     version: 0,
     info: ptr,
@@ -142,51 +143,58 @@ impl FsEventWatcher {
       cf::CFRelease(placeholder);
     }
   }
-  pub fn observe(&self) {
+  pub fn run(&mut self) {
     let stream_context = default_stream_context(self);
+    println!("debug addr in run() => {:?}", self as *const FsEventWatcher as *mut libc::c_void)  ;
 
     let cb = callback as *mut _;
 
     unsafe {
       let stream = fs::FSEventStreamCreate(cf::kCFAllocatorDefault,
-       cb,
-       &stream_context,
-       self.paths,
-       self.since_when,
-       self.latency,
-       self.flags);
+                                           cb,
+                                           &stream_context,
+                                           self.paths,
+                                           self.since_when,
+                                           self.latency,
+                                           self.flags);
 
-      // fs::FSEventStreamShow(stream);
+      let dummy = stream as u64;
+      thread::spawn(move || {
+        let stream = dummy as *mut libc::c_void;
+        fs::FSEventStreamShow(stream);
 
-      fs::FSEventStreamScheduleWithRunLoop(stream,
-        cf::CFRunLoopGetCurrent(),
-        cf::kCFRunLoopDefaultMode);
+        fs::FSEventStreamScheduleWithRunLoop(stream,
+                                             cf::CFRunLoopGetCurrent(),
+                                             cf::kCFRunLoopDefaultMode);
 
-      fs::FSEventStreamStart(stream);
-      cf::CFRunLoopRun();
+        fs::FSEventStreamStart(stream);
 
-      fs::FSEventStreamFlushSync(stream);
-      fs::FSEventStreamStop(stream);
+        // self.stream = Some(stream);
+        cf::CFRunLoopRun();
+        println!("are you ok?");
 
+
+      });
     }
   }
 }
 
 #[allow(unused_variables)]
-pub fn callback(
-    stream_ref: fs::FSEventStreamRef,
-    info: *mut libc::c_void,
-    num_events: libc::size_t,      // size_t numEvents
-    event_paths: *const *const libc::c_char, // void *eventPaths
-    event_flags: *mut libc::c_void, // const FSEventStreamEventFlags eventFlags[]
-    event_ids: *mut libc::c_void,  // const FSEventStreamEventId eventIds[]
+pub extern "C" fn callback(
+  stream_ref: fs::FSEventStreamRef,
+  info: *mut libc::c_void,
+  num_events: libc::size_t,      // size_t numEvents
+  event_paths: *const *const libc::c_char, // void *eventPaths
+  event_flags: *mut libc::c_void, // const FSEventStreamEventFlags eventFlags[]
+  event_ids: *mut libc::c_void,  // const FSEventStreamEventId eventIds[]
   ) {
   let num = num_events as usize;
   let e_ptr = event_flags as *mut u32;
   let i_ptr = event_ids as *mut u64;
-  let fs_event = info as *mut FsEventWatcher;
+  let sender = unsafe { transmute::<_, Arc<RwLock<Sender<Event>>>>(info) };
 
   unsafe {
+
     let paths: &[*const libc::c_char] = transmute(slice::from_raw_parts(event_paths, num));
     let flags = from_raw_parts_mut(e_ptr, num);
     let ids = from_raw_parts_mut(i_ptr, num);
@@ -194,13 +202,13 @@ pub fn callback(
     for p in (0..num) {
       let i = CStr::from_ptr(paths[p]).to_bytes();
       let flag: StreamFlags = StreamFlags::from_bits(flags[p] as u32)
-      .expect(format!("Unable to decode StreamFlags: {}", flags[p] as u32).as_ref());
+        .expect(format!("Unable to decode StreamFlags: {}", flags[p] as u32).as_ref());
 
       let path = PathBuf::from(from_utf8(i).ok().expect("Invalid UTF8 string."));
-
       let event = Event{op: Ok(translate_flags(flag)), path: Some(path)};
 
-      let _s = (*fs_event).sender.send(event);
+      let sender = sender.read().unwrap();
+      let _s = sender.send(event).unwrap();
     }
   }
 }
@@ -216,15 +224,16 @@ impl Watcher for FsEventWatcher {
         since_when: fs::kFSEventStreamEventIdSinceNow,
         latency: 0.1,
         flags: fs::kFSEventStreamCreateFlagFileEvents,
-        sender: tx,
+        sender: Arc::new(RwLock::new(tx)),
+        stream: None,
       };
     }
-    fsevent.observe();
     Ok(fsevent)
   }
 
   fn watch(&mut self, path: &Path) -> Result<(), Error> {
     self.append_path(&path.to_str().unwrap());
+    self.run();
     Ok(())
   }
 
@@ -235,6 +244,10 @@ impl Watcher for FsEventWatcher {
 
 impl Drop for FsEventWatcher {
   fn drop(&mut self) {
-    println!("not yet implemnted");
+    if let Some(stream) = self.stream {
+      unsafe {
+        fs::FSEventStreamStop(stream);
+      }
+    }
   }
 }
