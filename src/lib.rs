@@ -67,6 +67,7 @@ fn new_inotify() {
 }
 
 #[test]
+#[cfg(feature="poll")]
 fn new_poll() {
   let (tx, _) = channel();
   let w: Result<NullWatcher, Error> = Watcher::new(tx);
