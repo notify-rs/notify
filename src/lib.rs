@@ -1,6 +1,7 @@
 #[macro_use] extern crate log;
 #[macro_use] extern crate bitflags;
 #[cfg(target_os="macos")] extern crate fsevent_sys;
+#[cfg(target_os="windows")] extern crate winapi;
 extern crate libc;
 
 pub use self::op::Op;
@@ -11,10 +12,12 @@ use std::sync::mpsc::Sender;
 
 #[cfg(target_os="macos")] pub use self::fsevent::FsEventWatcher;
 #[cfg(target_os="linux")] pub use self::inotify::INotifyWatcher;
+#[cfg(target_os="windows")] pub use self::windows::ReadDirectoryChangesWatcher;
 pub use self::null::NullWatcher;
 
 #[cfg(target_os="linux")] pub mod inotify;
 #[cfg(target_os="macos")] pub mod fsevent;
+#[cfg(target_os="windows")] pub mod windows;
 pub mod null;
 
 pub mod op {
@@ -53,7 +56,8 @@ pub trait Watcher {
 
 #[cfg(target_os = "linux")] pub type RecommendedWatcher = INotifyWatcher;
 #[cfg(target_os = "macos")] pub type RecommendedWatcher = FsEventWatcher;
-#[cfg(not(any(target_os = "linux", target_os = "macos")))] pub type RecommendedWatcher = NullWatcher;
+#[cfg(target_os = "windows")] pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))] pub type RecommendedWatcher = NullWatcher;
 
 pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher, Error> {
   Watcher::new(tx)

@@ -5,7 +5,7 @@ authors = [
   "Félix Saparelli <me@passcod.name>",
   "Antti Keränen <detegr@gmail.com>",
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
-  "Michael Maurizi <mmaurizi@azavea.com>",
+  "Michael Maurizi <michael.maurizi@gmail.com>",
   "Pierre Baillet <oct@zoy.org>",
   "ShuYu Wang <andelf@gmail.com>",
 ]
@@ -35,3 +35,9 @@ version = "^0.1"
 
 [target.x86_64-apple-darwin.dependencies.fsevent-sys]
 version = "^0.1"
+
+[target.i686-pc-windows-gnu]
+dependencies = { winapi = "0.1", kernel32-sys = "0.1" }
+
+[target.x86_64-pc-windows-gnu]
+dependencies = { winapi = "0.1", kernel32-sys = "0.1" }
