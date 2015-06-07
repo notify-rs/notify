@@ -1,14 +1,16 @@
 extern crate inotify as inotify_sys;
 extern crate libc;
+extern crate walker;
 
 use self::inotify_sys::wrapper::{self, INotify, Watch};
+use self::walker::Walker;
 use std::collections::HashMap;
-use std::fs::{PathExt, walk_dir};
+use std::fs::metadata;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use super::{Error, Event, op, Op, Watcher};
-use std::path::{Path, PathBuf};
 
 mod flags;
 
@@ -129,14 +131,18 @@ impl Watcher for INotifyWatcher {
   }
 
   fn watch(&mut self, path: &Path) -> Result<(), Error> {
-    match walk_dir(path) {
+    match Walker::new(path) {
       Ok(d) => {
         for dir in d {
           match dir {
             Ok(entry) => {
               let path = entry.path();
+              let meta = match metadata(&path) {
+                Ok(m) => m,
+                Err(e) => return Err(Error::Io(e)),
+              };
 
-              if path.is_dir() {
+              if meta.is_dir() {
                 try!(self.add_watch(&path));
               }
             },
@@ -151,7 +157,10 @@ impl Watcher for INotifyWatcher {
   }
 
   fn unwatch(&mut self, path: &Path) -> Result<(), Error> {
-    match self.watches.remove(path) {
+    // FIXME:
+    // once Rust 1.1 is released, just use a &Path
+    // Relevant bug is https://github.com/rust-lang/rust/pull/25060
+    match self.watches.remove(&path.to_path_buf()) {
       None => Err(Error::WatchNotFound),
       Some(p) => {
         let w = &p.0;

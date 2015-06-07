@@ -14,9 +14,10 @@ _Cross-platform filesystem notification library for Rust._
 notify = "1.1"
 ```
 
-Notify uses semver, so only major versions break backward compatibility. While
-Rust hasn't reached 1.0, compatibility breaks through language evolution are
-ignored and counted as bugfixes; the compatibility is for this API only.
+Notify currently doesn't have working builds for stable version numbers, as
+the notice above explains, some things are missing. However, `2.0.0-preN`
+releases will be [published to crates.io](https://crates.io/crates/notify) for
+the adventurous and those in need.
 
 ## Usage
 
@@ -31,7 +32,7 @@ fn main() {
   let (tx, rx) = channel();
 
   // Automatically select the best implementation for your platform.
-  // You can also access each implementation directly e.g. PollWatcher.
+  // You can also access each implementation directly e.g. INotifyWatcher.
   let mut w: Result<RecommendedWatcher, Error> = Watcher::new(tx);
 
   match w {
@@ -54,7 +55,8 @@ fn main() {
 ## Platforms
 
 - Linux / Android: inotify
-- All platforms: polling (only `op::WRITE`)
+- ~~All platforms: polling~~ (not working, see notice)
+- Coming soon: OS X using FSEvent
 
 ### Todo
 
@@ -65,8 +67,8 @@ fn main() {
 
 ## Known Bugs
 
-- polling backend only handles `op::WRITE`s
-- see `TODO` comments in the code for more
+- ~~polling backend only handles `op::WRITE`s~~ (poll implementation scrapped for the moment)
+- see `TODO` and `FIXME` comments in the code for more
 
 Pull requests and bug reports happily accepted!
 
@@ -77,4 +79,4 @@ of need for [cargo watch](https://github.com/passcod/cargo-watch), and general
 frustration at the non-existence of C/Rust cross-platform notify libraries.
 
 Written from scratch by [Félix Saparelli](https://passcod.name), and released
-in the Public Domain.
+in the Public Domain using the Creative Commons Zero Declaration.

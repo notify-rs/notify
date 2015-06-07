@@ -6,14 +6,14 @@ use std::sync::mpsc::Sender;
 pub use self::op::Op;
 #[cfg(target_os="linux")]
 pub use self::inotify::INotifyWatcher;
-pub use self::poll::PollWatcher;
+pub use self::null::NullWatcher;
 use std::io;
 
 use std::path::{Path, PathBuf};
 
 #[cfg(target_os="linux")]
 pub mod inotify;
-pub mod poll;
+pub mod null;
 
 pub mod op {
   bitflags! {
@@ -49,7 +49,7 @@ pub trait Watcher {
 }
 
 #[cfg(target_os = "linux")] pub type RecommendedWatcher = INotifyWatcher;
-#[cfg(not(any(target_os = "linux")))] pub type RecommendedWatcher = PollWatcher;
+#[cfg(not(any(target_os = "linux")))] pub type RecommendedWatcher = NullWatcher;
 
 pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher, Error> {
   Watcher::new(tx)
@@ -69,7 +69,7 @@ fn new_inotify() {
 #[test]
 fn new_poll() {
   let (tx, _) = channel();
-  let w: Result<PollWatcher, Error> = Watcher::new(tx);
+  let w: Result<NullWatcher, Error> = Watcher::new(tx);
   match w {
     Ok(_) => assert!(true),
     Err(_) => assert!(false)
