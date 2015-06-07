@@ -1,3 +1,5 @@
+// via https://github.com/octplane/fsevent-rust
+
 use fsevent_sys::core_foundation as cf;
 use fsevent_sys::fsevent as fs;
 use std::slice;
@@ -27,12 +29,10 @@ pub struct FsEventWatcher {
   stream: Option<*mut libc::c_void>
 }
 
-pub type FsEventCallback = fn(Vec<Event>);
-
 bitflags! {
   flags StreamFlags: u32 {
     const NONE = 0x00000000,
-    const MUST_SCAN_SUBDIRS = 0x00000001,
+    const MUST_SCAN_SUB_DIRS = 0x00000001,
     const USER_DROPPED = 0x00000002,
     const KERNEL_DROPPED = 0x00000004,
     const IDS_WRAPPED = 0x00000008,
@@ -42,15 +42,15 @@ bitflags! {
     const UNMOUNT = 0x00000080,
     const ITEM_CREATED = 0x00000100,
     const ITEM_REMOVED = 0x00000200,
-    const INOTE_META_MOD = 0x00000400,
+    const ITEM_INODE_META_MOD = 0x00000400,
     const ITEM_RENAMED = 0x00000800,
     const ITEM_MODIFIED = 0x00001000,
-    const FINDER_INFO_MOD = 0x00002000,
+    const ITEM_FINDER_INFO_MOD = 0x00002000,
     const ITEM_CHANGE_OWNER = 0x00004000,
     const ITEM_XATTR_MOD = 0x00008000,
-    const IS_FILE = 0x00010000,
-    const IS_DIR = 0x00020000,
-    const IS_SYMLIMK = 0x00040000,
+    const ITEM_IS_FILE = 0x00010000,
+    const ITEM_IS_DIR = 0x00020000,
+    const ITEM_IS_SYMLIMK = 0x00040000,
   }
 }
 
@@ -68,7 +68,7 @@ fn translate_flags(flags: StreamFlags) -> op::Op {
   if flags.contains(ITEM_RENAMED) {
     ret.insert(op::RENAME);
   }
-  if flags.contains(ITEM_MODIFIED) {
+  if flags.contains(ITEM_MODIFIED)  {
     ret.insert(op::WRITE);
   }
   ret
