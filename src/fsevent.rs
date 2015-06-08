@@ -1,3 +1,4 @@
+#![allow(non_upper_case_globals, dead_code)]
 // via https://github.com/octplane/fsevent-rust
 
 use fsevent_sys::core_foundation as cf;
@@ -19,6 +20,16 @@ use libc;
 
 
 // TODO: add this to fsevent_sys
+const kCFStringEncodingUTF8: u32 = 0x08000100;
+pub type CFStringEncoding = u32;
+
+const kCFCompareEqualTo: i32     = 0;
+pub type CFComparisonResult = i32;
+
+// MacOS uses Case Insensitive path
+const kCFCompareCaseInsensitive: u32 = 1;
+pub type CFStringCompareFlags = u32;
+
 #[link(name = "CoreServices", kind = "framework")]
 extern "C" {
   pub fn FSEventStreamInvalidate(streamRef: fs::FSEventStreamRef);
@@ -26,9 +37,56 @@ extern "C" {
   pub fn FSEventStreamUnscheduleFromRunLoop(streamRef: fs::FSEventStreamRef, runLoop: cf::CFRunLoopRef, runLoopMode: cf::CFStringRef);
 
   pub fn CFRunLoopStop(rl: cf::CFRunLoopRef);
+  pub fn CFShowStr (str: cf::CFStringRef);
+  pub fn CFStringGetCStringPtr(theString: cf::CFStringRef, encoding: CFStringEncoding) -> *const libc::c_char;
+  pub fn CFStringCompare(theString1: cf::CFStringRef, theString2: cf::CFStringRef, compareOptions: CFStringCompareFlags) -> CFComparisonResult;
+  pub fn CFArrayRemoveValueAtIndex(theArray: cf::CFMutableArrayRef, idx: cf::CFIndex);
 }
 
 pub const NULL: cf::CFRef = cf::NULL;
+
+unsafe fn str_path_to_cfstring_ref(source: &str) -> cf::CFStringRef {
+  let c_path = CString::new(source).unwrap();
+  let c_len = libc::strlen(c_path.as_ptr());
+  let mut url = cf::CFURLCreateFromFileSystemRepresentation(cf::kCFAllocatorDefault, c_path.as_ptr(), c_len as i64, false);
+  let mut placeholder = cf::CFURLCopyAbsoluteURL(url);
+  cf::CFRelease(url);
+
+  let imaginary: cf::CFRef = cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks);
+
+  while !cf::CFURLResourceIsReachable(placeholder, cf::kCFAllocatorDefault) {
+
+    let child = cf::CFURLCopyLastPathComponent(placeholder);
+    cf::CFArrayInsertValueAtIndex(imaginary, 0, child);
+    cf::CFRelease(child);
+
+    url = cf::CFURLCreateCopyDeletingLastPathComponent(cf::kCFAllocatorDefault, placeholder);
+    cf::CFRelease(placeholder);
+    placeholder = url;
+  }
+
+  url = cf::CFURLCreateFileReferenceURL(cf::kCFAllocatorDefault, placeholder, cf::kCFAllocatorDefault);
+  cf::CFRelease(placeholder);
+  placeholder = cf::CFURLCreateFilePathURL(cf::kCFAllocatorDefault, url, cf::kCFAllocatorDefault);
+  cf::CFRelease(url);
+
+  if imaginary != cf::kCFAllocatorDefault {
+    let mut count =  0;
+    while { count < cf::CFArrayGetCount(imaginary) }
+    {
+      let component = cf::CFArrayGetValueAtIndex(imaginary, count);
+      url = cf::CFURLCreateCopyAppendingPathComponent(cf::kCFAllocatorDefault, placeholder, component, false);
+      cf::CFRelease(placeholder);
+      placeholder = url;
+      count = count + 1;
+    }
+    cf::CFRelease(imaginary);
+  }
+
+  let cf_path = cf::CFURLCopyFileSystemPath(placeholder, cf::kCFURLPOSIXPathStyle);
+  cf::CFRelease(placeholder);
+  cf_path
+}
 
 pub struct FsEventWatcher {
   paths: cf::CFMutableArrayRef,
@@ -102,53 +160,61 @@ struct StreamContextInfo {
 }
 
 impl FsEventWatcher {
-  // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
-  pub fn append_path(&self, source: &str) {
-    unsafe {
-      let c_path = CString::new(source).unwrap();
-      let c_len = libc::strlen(c_path.as_ptr());
-      let mut url = cf::CFURLCreateFromFileSystemRepresentation(cf::kCFAllocatorDefault, c_path.as_ptr(), c_len as i64, false);
-      let mut placeholder = cf::CFURLCopyAbsoluteURL(url);
-      cf::CFRelease(url);
+  #[inline]
+  pub fn is_running(&self) -> bool {
+    self.runloop.read().unwrap().is_some()
+  }
 
-      let imaginary: cf::CFRef = cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks);
-
-      while !cf::CFURLResourceIsReachable(placeholder, cf::kCFAllocatorDefault) {
-
-        let child = cf::CFURLCopyLastPathComponent(placeholder);
-        cf::CFArrayInsertValueAtIndex(imaginary, 0, child);
-        cf::CFRelease(child);
-
-        url = cf::CFURLCreateCopyDeletingLastPathComponent(cf::kCFAllocatorDefault, placeholder);
-        cf::CFRelease(placeholder);
-        placeholder = url;
-      }
-
-      url = cf::CFURLCreateFileReferenceURL(cf::kCFAllocatorDefault, placeholder, cf::kCFAllocatorDefault);
-      cf::CFRelease(placeholder);
-      placeholder = cf::CFURLCreateFilePathURL(cf::kCFAllocatorDefault, url, cf::kCFAllocatorDefault);
-      cf::CFRelease(url);
-
-      if imaginary != cf::kCFAllocatorDefault {
-        let mut count =  0;
-        while { count < cf::CFArrayGetCount(imaginary) }
-        {
-          let component = cf::CFArrayGetValueAtIndex(imaginary, count);
-          url = cf::CFURLCreateCopyAppendingPathComponent(cf::kCFAllocatorDefault, placeholder, component, false);
-          cf::CFRelease(placeholder);
-          placeholder = url;
-          count = count + 1;
+  pub fn stop(&mut self) {
+    if !self.is_running() {
+      return;
+    }
+    if let Ok(runloop) = self.runloop.read() {
+      if let Some(runloop) = runloop.clone() {
+        unsafe {
+          let runloop = runloop as *mut libc::c_void;
+          CFRunLoopStop(runloop);
         }
-        cf::CFRelease(imaginary);
       }
+    }
+    self.runloop = Arc::new(RwLock::new(None));
+    if let Some(ref context_info)  = self.context {
+      // sync done channel
+      match context_info.done.recv() {
+        Ok(()) => (),
+        Err(_) => panic!("the runloop may not be finished!"),
+      }
+    }
+    self.context = None;
+  }
 
-      let cf_path = cf::CFURLCopyFileSystemPath(placeholder, cf::kCFURLPOSIXPathStyle);
-      cf::CFArrayAppendValue(self.paths, cf_path);
-      cf::CFRelease(cf_path);
-      cf::CFRelease(placeholder);
+  fn remove_path(&mut self, source: &str) {
+    unsafe {
+      let cf_path = str_path_to_cfstring_ref(source);
+
+      for idx in 0 .. cf::CFArrayGetCount(self.paths) {
+        let item = cf::CFArrayGetValueAtIndex(self.paths, idx);
+        if CFStringCompare(item, cf_path, kCFCompareCaseInsensitive) == kCFCompareEqualTo {
+          CFArrayRemoveValueAtIndex(self.paths, idx);
+        }
+      }
     }
   }
-  pub fn run(&mut self) {
+  // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
+  fn append_path(&mut self, source: &str) {
+    unsafe {
+      let cf_path = str_path_to_cfstring_ref(source);
+      cf::CFArrayAppendValue(self.paths, cf_path);
+      cf::CFRelease(cf_path);
+    }
+  }
+
+
+  pub fn run(&mut self) -> Result<(), Error> {
+    if unsafe { cf::CFArrayGetCount(self.paths) } == 0 {
+      return Err(Error::PathNotFound);
+    }
+
     // done channel is used to sync quit status of runloop thread
     let (done_tx, done_rx) = channel();
 
@@ -198,6 +264,7 @@ impl FsEventWatcher {
         let _d = done_tx.send(()).unwrap();
       });
     }
+    Ok(())
   }
 }
 
@@ -253,32 +320,25 @@ impl Watcher for FsEventWatcher {
   }
 
   fn watch(&mut self, path: &Path) -> Result<(), Error> {
+    self.stop();
     self.append_path(&path.to_str().unwrap());
-    self.run();
-    Ok(())
+    self.run()
   }
 
-  fn unwatch(&mut self, _path: &Path) -> Result<(), Error> {
-    Err(Error::NotImplemented)
+  fn unwatch(&mut self, path: &Path) -> Result<(), Error> {
+    self.stop();
+    self.remove_path(&path.to_str().unwrap());
+    // ignore return error: may be empty path list
+    let _ = self.run();
+    Ok(())
   }
 }
 
 impl Drop for FsEventWatcher {
   fn drop(&mut self) {
+    self.stop();
     unsafe {
-      if let Ok(runloop) = self.runloop.read() {
-        if let Some(runloop) = runloop.clone() {
-          let runloop = runloop as *mut libc::c_void;
-          CFRunLoopStop(runloop);
-        }
-      }
-      if let Some(ref context_info)  = self.context {
-        // sync done channel
-        match context_info.done.recv() {
-          Ok(()) => (),
-          Err(_) => panic!("the runloop may not be finished!"),
-        }
-      }
+      cf::CFRelease(self.paths);
     }
   }
 }
@@ -293,14 +353,17 @@ fn test_fsevent_watcher_drop() {
     let mut watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
     watcher.watch(&Path::new("../../")).unwrap();
     thread::sleep_ms(2_000);
-  }
-  thread::sleep_ms(2_000);
+    println!("is running -> {}", watcher.is_running());
 
+    thread::sleep_ms(1_000);
+    watcher.unwatch(&Path::new("../..")).unwrap();
+    println!("is running -> {}", watcher.is_running());
+  }
+  thread::sleep_ms(1_000);
   // if drop() works, this loop will quit after all Sender freed
   // otherwise will block forever
   for e in rx.iter() {
-      println!("debug => event => {:?} {:?}", 233, e.path);
-      println!("NOTE: dir changes. reload!");
+      println!("debug => {:?} {:?}", e.op.map(|e| e.bits()).unwrap_or(0), e.path);
   }
   println!("in test: {} works", file!());
 }
