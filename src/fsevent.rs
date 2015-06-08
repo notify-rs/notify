@@ -11,8 +11,6 @@ use std::ffi::CStr;
 use std::convert::AsRef;
 use std::thread;
 use std::sync::{Arc, RwLock};
-use std::boxed;
-use std::boxed::Box;
 
 use std::sync::mpsc::{channel, Sender, Receiver};
 use super::{Error, Event, op, Watcher};
@@ -37,9 +35,9 @@ pub struct FsEventWatcher {
   since_when: fs::FSEventStreamEventId,
   latency: cf::CFTimeInterval,
   flags: fs::FSEventStreamCreateFlags,
-  sender: Box<Sender<Event>>,
+  sender: Sender<Event>,
   runloop: Arc<RwLock<Option<usize>>>,
-  context: Option<*mut StreamContextInfo>,
+  context: Option<StreamContextInfo>,
 }
 
 bitflags! {
@@ -99,8 +97,8 @@ pub fn is_api_available() -> (bool, String) {
 }
 
 struct StreamContextInfo {
-  sender: *mut Sender<Event>,
-  done:  *mut Receiver<()>
+  sender: Sender<Event>,
+  done:  Receiver<()>
 }
 
 impl FsEventWatcher {
@@ -154,18 +152,16 @@ impl FsEventWatcher {
     // done channel is used to sync quit status of runloop thread
     let (done_tx, done_rx) = channel();
 
-    // boxed here; will be freed in drop()
-    let info = boxed::into_raw(Box::new(
-      StreamContextInfo {
-        sender: boxed::into_raw(self.sender.clone()),
-        done: boxed::into_raw(Box::new(done_rx))
-      }));
+    let info = StreamContextInfo {
+      sender: self.sender.clone(),
+      done: done_rx
+    };
 
-    self.context = Some(info.clone());
+    self.context = Some(info);
 
     let stream_context = fs::FSEventStreamContext{
       version: 0,
-      info: info as *mut libc::c_void,
+      info: unsafe { transmute::<_, *mut libc::c_void>(self.context.as_ref()) },
       retain: cf::NULL,
       copy_description: cf::NULL };
 
@@ -179,7 +175,7 @@ impl FsEventWatcher {
                                            self.latency,
                                            self.flags);
       let dummy = stream as u64;
-      let mut runloop = self.runloop.clone();
+      let runloop = self.runloop.clone();
       thread::spawn(move || {
         let stream = dummy as *mut libc::c_void;
         // fs::FSEventStreamShow(stream);
@@ -192,14 +188,14 @@ impl FsEventWatcher {
                                              cur_runloop,
                                              cf::kCFRunLoopDefaultMode);
 
-        let ret = fs::FSEventStreamStart(stream);
+        fs::FSEventStreamStart(stream);
 
         // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
         cf::CFRunLoopRun();
         fs::FSEventStreamStop(stream);
         FSEventStreamInvalidate(stream);
         FSEventStreamRelease(stream);
-        done_tx.send(());
+        let _d = done_tx.send(()).unwrap();
       });
     }
   }
@@ -232,7 +228,7 @@ pub extern "C" fn callback(
       let path = PathBuf::from(from_utf8(i).ok().expect("Invalid UTF8 string."));
       let event = Event{op: Ok(translate_flags(flag)), path: Some(path)};
 
-      let _s = (*(*info).sender).send(event).unwrap();
+      let _s = (*info).sender.send(event).unwrap();
     }
   }
 }
@@ -248,7 +244,7 @@ impl Watcher for FsEventWatcher {
         since_when: fs::kFSEventStreamEventIdSinceNow,
         latency: 0.1,
         flags: fs::kFSEventStreamCreateFlagFileEvents,
-        sender: Box::new(tx),
+        sender: tx,
         runloop: Arc::new(RwLock::new(None)),
         context: None,
       };
@@ -276,16 +272,35 @@ impl Drop for FsEventWatcher {
           CFRunLoopStop(runloop);
         }
       }
-      if let Some(context_info)  = self.context {
-        // recover box and let Box dealloc it
-        Box::from_raw((*context_info).sender);
+      if let Some(ref context_info)  = self.context {
         // sync done channel
-        let done = Box::from_raw((*context_info).done);
-        match done.recv() {
+        match context_info.done.recv() {
           Ok(()) => (),
           Err(_) => panic!("the runloop may not be finished!"),
         }
       }
     }
   }
+}
+
+
+
+#[test]
+fn test_fsevent_watcher_drop() {
+  use super::*;
+  let (tx, rx) = channel();
+  {
+    let mut watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
+    watcher.watch(&Path::new("../../")).unwrap();
+    thread::sleep_ms(2_000);
+  }
+  thread::sleep_ms(2_000);
+
+  // if drop() works, this loop will quit after all Sender freed
+  // otherwise will block forever
+  for e in rx.iter() {
+      println!("debug => event => {:?} {:?}", 233, e.path);
+      println!("NOTE: dir changes. reload!");
+  }
+  println!("in test: {} works", file!());
 }
