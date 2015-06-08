@@ -39,7 +39,6 @@ pub struct Event {
 }
 
 unsafe impl Send for Event {}
-unsafe impl Sync for Event {}
 
 #[derive(Debug)]
 pub enum Error {
@@ -76,8 +75,18 @@ fn new_inotify() {
 }
 
 #[test]
-#[cfg(feature="poll")]
-fn new_poll() {
+#[cfg(target_os = "macos")]
+fn new_inotify() {
+  let (tx, _) = channel();
+  let w: Result<FsEventWatcher, Error> = Watcher::new(tx);
+  match w {
+    Ok(_) => assert!(true),
+    Err(_) => assert!(false)
+  }
+}
+
+#[test]
+fn new_null() {
   let (tx, _) = channel();
   let w: Result<NullWatcher, Error> = Watcher::new(tx);
   match w {
