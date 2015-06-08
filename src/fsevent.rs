@@ -11,12 +11,24 @@ use std::ffi::CStr;
 use std::convert::AsRef;
 use std::thread;
 use std::sync::{Arc, RwLock};
+use std::boxed;
+use std::boxed::Box;
 
-use std::sync::mpsc::{Sender};
+use std::sync::mpsc::{channel, Sender, Receiver};
 use super::{Error, Event, op, Watcher};
 use std::path::{Path, PathBuf};
-
 use libc;
+
+
+// TODO: add this to fsevent_sys
+#[link(name = "CoreServices", kind = "framework")]
+extern "C" {
+  pub fn FSEventStreamInvalidate(streamRef: fs::FSEventStreamRef);
+  pub fn FSEventStreamRelease(streamRef: fs::FSEventStreamRef);
+  pub fn FSEventStreamUnscheduleFromRunLoop(streamRef: fs::FSEventStreamRef, runLoop: cf::CFRunLoopRef, runLoopMode: cf::CFStringRef);
+
+  pub fn CFRunLoopStop(rl: cf::CFRunLoopRef);
+}
 
 pub const NULL: cf::CFRef = cf::NULL;
 
@@ -25,8 +37,9 @@ pub struct FsEventWatcher {
   since_when: fs::FSEventStreamEventId,
   latency: cf::CFTimeInterval,
   flags: fs::FSEventStreamCreateFlags,
-  sender: Arc<RwLock<Sender<Event>>>,
-  stream: Option<*mut libc::c_void>
+  sender: Box<Sender<Event>>,
+  runloop: Arc<RwLock<Option<usize>>>,
+  context: Option<*mut StreamContextInfo>,
 }
 
 bitflags! {
@@ -85,15 +98,9 @@ pub fn is_api_available() -> (bool, String) {
   return (true, "ok".to_string());
 }
 
-fn default_stream_context(info: *const FsEventWatcher) -> fs::FSEventStreamContext {
-  let ptr = unsafe { transmute((*info).sender.clone()) };
-  let stream_context = fs::FSEventStreamContext{
-    version: 0,
-    info: ptr,
-    retain: cf::NULL,
-    copy_description: cf::NULL };
-
-  stream_context
+struct StreamContextInfo {
+  sender: *mut Sender<Event>,
+  done:  *mut Receiver<()>
 }
 
 impl FsEventWatcher {
@@ -144,11 +151,25 @@ impl FsEventWatcher {
     }
   }
   pub fn run(&mut self) {
-    let stream_context = default_stream_context(self);
-    println!("debug addr in run() => {:?}", self as *const FsEventWatcher as *mut libc::c_void)  ;
+    // done channel is used to sync quit status of runloop thread
+    let (done_tx, done_rx) = channel();
+
+    // boxed here; will be freed in drop()
+    let info = boxed::into_raw(Box::new(
+      StreamContextInfo {
+        sender: boxed::into_raw(self.sender.clone()),
+        done: boxed::into_raw(Box::new(done_rx))
+      }));
+
+    self.context = Some(info.clone());
+
+    let stream_context = fs::FSEventStreamContext{
+      version: 0,
+      info: info as *mut libc::c_void,
+      retain: cf::NULL,
+      copy_description: cf::NULL };
 
     let cb = callback as *mut _;
-
     unsafe {
       let stream = fs::FSEventStreamCreate(cf::kCFAllocatorDefault,
                                            cb,
@@ -157,23 +178,28 @@ impl FsEventWatcher {
                                            self.since_when,
                                            self.latency,
                                            self.flags);
-
       let dummy = stream as u64;
+      let mut runloop = self.runloop.clone();
       thread::spawn(move || {
         let stream = dummy as *mut libc::c_void;
-        fs::FSEventStreamShow(stream);
-
+        // fs::FSEventStreamShow(stream);
+        let cur_runloop = cf::CFRunLoopGetCurrent();
+        {
+          let mut runloop = runloop.write().unwrap();
+          *runloop = Some(cur_runloop as *mut libc::c_void as usize);
+        }
         fs::FSEventStreamScheduleWithRunLoop(stream,
-                                             cf::CFRunLoopGetCurrent(),
+                                             cur_runloop,
                                              cf::kCFRunLoopDefaultMode);
 
-        fs::FSEventStreamStart(stream);
+        let ret = fs::FSEventStreamStart(stream);
 
-        // self.stream = Some(stream);
+        // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
         cf::CFRunLoopRun();
-        println!("are you ok?");
-
-
+        fs::FSEventStreamStop(stream);
+        FSEventStreamInvalidate(stream);
+        FSEventStreamRelease(stream);
+        done_tx.send(());
       });
     }
   }
@@ -191,10 +217,9 @@ pub extern "C" fn callback(
   let num = num_events as usize;
   let e_ptr = event_flags as *mut u32;
   let i_ptr = event_ids as *mut u64;
-  let sender = unsafe { transmute::<_, Arc<RwLock<Sender<Event>>>>(info) };
+  let info = unsafe { transmute::<_, *const StreamContextInfo>(info) };
 
   unsafe {
-
     let paths: &[*const libc::c_char] = transmute(slice::from_raw_parts(event_paths, num));
     let flags = from_raw_parts_mut(e_ptr, num);
     let ids = from_raw_parts_mut(i_ptr, num);
@@ -207,8 +232,7 @@ pub extern "C" fn callback(
       let path = PathBuf::from(from_utf8(i).ok().expect("Invalid UTF8 string."));
       let event = Event{op: Ok(translate_flags(flag)), path: Some(path)};
 
-      let sender = sender.read().unwrap();
-      let _s = sender.send(event).unwrap();
+      let _s = (*(*info).sender).send(event).unwrap();
     }
   }
 }
@@ -224,8 +248,9 @@ impl Watcher for FsEventWatcher {
         since_when: fs::kFSEventStreamEventIdSinceNow,
         latency: 0.1,
         flags: fs::kFSEventStreamCreateFlagFileEvents,
-        sender: Arc::new(RwLock::new(tx)),
-        stream: None,
+        sender: Box::new(tx),
+        runloop: Arc::new(RwLock::new(None)),
+        context: None,
       };
     }
     Ok(fsevent)
@@ -244,9 +269,22 @@ impl Watcher for FsEventWatcher {
 
 impl Drop for FsEventWatcher {
   fn drop(&mut self) {
-    if let Some(stream) = self.stream {
-      unsafe {
-        fs::FSEventStreamStop(stream);
+    unsafe {
+      if let Ok(runloop) = self.runloop.read() {
+        if let Some(runloop) = runloop.clone() {
+          let runloop = runloop as *mut libc::c_void;
+          CFRunLoopStop(runloop);
+        }
+      }
+      if let Some(context_info)  = self.context {
+        // recover box and let Box dealloc it
+        Box::from_raw((*context_info).sender);
+        // sync done channel
+        let done = Box::from_raw((*context_info).done);
+        match done.recv() {
+          Ok(()) => (),
+          Err(_) => panic!("the runloop may not be finished!"),
+        }
       }
     }
   }
