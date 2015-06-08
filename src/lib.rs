@@ -3,22 +3,18 @@
 #[cfg(target_os="macos")] extern crate fsevent_sys;
 extern crate libc;
 
+pub use self::op::Op;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 #[cfg(test)] use std::sync::mpsc::channel;
-pub use self::op::Op;
-#[cfg(target_os="linux")]
-pub use self::inotify::INotifyWatcher;
-#[cfg(target_os="macos")]
-pub use self::fsevent::FsEventWatcher;
+
+#[cfg(target_os="macos")] pub use self::fsevent::FsEventWatcher;
+#[cfg(target_os="linux")] pub use self::inotify::INotifyWatcher;
 pub use self::null::NullWatcher;
-use std::io;
 
-use std::path::{Path, PathBuf};
-
-#[cfg(target_os="linux")]
-pub mod inotify;
-#[cfg(target_os="macos")]
-pub mod fsevent;
+#[cfg(target_os="linux")] pub mod inotify;
+#[cfg(target_os="macos")] pub mod fsevent;
 pub mod null;
 
 pub mod op {
@@ -76,7 +72,7 @@ fn new_inotify() {
 
 #[test]
 #[cfg(target_os = "macos")]
-fn new_inotify() {
+fn new_fsevent() {
   let (tx, _) = channel();
   let w: Result<FsEventWatcher, Error> = Watcher::new(tx);
   match w {

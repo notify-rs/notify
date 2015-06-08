@@ -1,16 +1,18 @@
 [package]
 name = "notify"
-version = "2.0.0-pre1"
+version = "2.0.0"
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Antti Keränen <detegr@gmail.com>",
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
   "Michael Maurizi <mmaurizi@azavea.com>",
+  "Pierre Baillet <oct@zoy.org>",
+  "ShuYu Wang <andelf@gmail.com>",
 ]
 
 description = "Cross-platform filesystem notification library"
 homepage = "https://github.com/passcod/rsnotify"
-repository = "https://github.com/passcod/rsnotify"
+repository = "https://github.com/passcod/rsnotify.git"
 
 readme = "README.md"
 license = "CC0-1.0"

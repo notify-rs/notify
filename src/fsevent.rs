@@ -55,7 +55,6 @@ unsafe fn str_path_to_cfstring_ref(source: &str) -> cf::CFStringRef {
   let imaginary: cf::CFRef = cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks);
 
   while !cf::CFURLResourceIsReachable(placeholder, cf::kCFAllocatorDefault) {
-
     let child = cf::CFURLCopyLastPathComponent(placeholder);
     cf::CFArrayInsertValueAtIndex(imaginary, 0, child);
     cf::CFRelease(child);
@@ -72,8 +71,7 @@ unsafe fn str_path_to_cfstring_ref(source: &str) -> cf::CFStringRef {
 
   if imaginary != cf::kCFAllocatorDefault {
     let mut count =  0;
-    while { count < cf::CFArrayGetCount(imaginary) }
-    {
+    while count < cf::CFArrayGetCount(imaginary) {
       let component = cf::CFArrayGetValueAtIndex(imaginary, count);
       url = cf::CFURLCreateCopyAppendingPathComponent(cf::kCFAllocatorDefault, placeholder, component, false);
       cf::CFRelease(placeholder);
@@ -144,14 +142,15 @@ fn translate_flags(flags: StreamFlags) -> op::Op {
 }
 
 
-pub fn is_api_available() -> (bool, String) {
+pub fn is_api_available() -> Result<(), String> {
   let ma = cf::system_version_major();
   let mi = cf::system_version_minor();
 
   if ma == 10 && mi < 5 {
-    return (false, "This version of OSX does not support the FSEvent library, cannot proceed".to_string());
+    Err("This version of OSX does not support the FSEvent library, cannot proceed".to_string())
+  } else {
+    Ok(())
   }
-  return (true, "ok".to_string());
 }
 
 struct StreamContextInfo {
@@ -169,6 +168,7 @@ impl FsEventWatcher {
     if !self.is_running() {
       return;
     }
+
     if let Ok(runloop) = self.runloop.read() {
       if let Some(runloop) = runloop.clone() {
         unsafe {
@@ -177,6 +177,7 @@ impl FsEventWatcher {
         }
       }
     }
+
     self.runloop = Arc::new(RwLock::new(None));
     if let Some(ref context_info)  = self.context {
       // sync done channel
@@ -185,6 +186,7 @@ impl FsEventWatcher {
         Err(_) => panic!("the runloop may not be finished!"),
       }
     }
+
     self.context = None;
   }
 
@@ -200,6 +202,7 @@ impl FsEventWatcher {
       }
     }
   }
+
   // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
   fn append_path(&mut self, source: &str) {
     unsafe {
@@ -208,7 +211,6 @@ impl FsEventWatcher {
       cf::CFRelease(cf_path);
     }
   }
-
 
   pub fn run(&mut self) -> Result<(), Error> {
     if unsafe { cf::CFArrayGetCount(self.paths) } == 0 {
@@ -242,6 +244,7 @@ impl FsEventWatcher {
                                            self.flags);
       let dummy = stream as u64;
       let runloop = self.runloop.clone();
+
       thread::spawn(move || {
         let stream = dummy as *mut libc::c_void;
         // fs::FSEventStreamShow(stream);
@@ -264,6 +267,7 @@ impl FsEventWatcher {
         let _d = done_tx.send(()).unwrap();
       });
     }
+
     Ok(())
   }
 }
@@ -316,6 +320,7 @@ impl Watcher for FsEventWatcher {
         context: None,
       };
     }
+
     Ok(fsevent)
   }
 
@@ -349,6 +354,7 @@ impl Drop for FsEventWatcher {
 fn test_fsevent_watcher_drop() {
   use super::*;
   let (tx, rx) = channel();
+
   {
     let mut watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
     watcher.watch(&Path::new("../../")).unwrap();
@@ -359,11 +365,14 @@ fn test_fsevent_watcher_drop() {
     watcher.unwatch(&Path::new("../..")).unwrap();
     println!("is running -> {}", watcher.is_running());
   }
+
   thread::sleep_ms(1_000);
+
   // if drop() works, this loop will quit after all Sender freed
   // otherwise will block forever
   for e in rx.iter() {
       println!("debug => {:?} {:?}", e.op.map(|e| e.bits()).unwrap_or(0), e.path);
   }
+
   println!("in test: {} works", file!());
 }

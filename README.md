@@ -1,9 +1,9 @@
 # Notify
 
 __NOTICE: I need a usable-in-stable replacement for `stat.modified()` i.e.
-a cross-platform way of getting the mtime of a file. Without that, I cannot
-make this library work. I do not currently have the time to do it myself, so
-*please help*. Thank you.__
+a cross-platform way of getting the mtime of a file. Without that, the polling
+backend will be left out, and I do not currently have the time to do it myself,
+so [*please help*](https://github.com/passcod/rsnotify/issues/12). Thank you.__
 
 _Cross-platform filesystem notification library for Rust._
 
@@ -11,13 +11,8 @@ _Cross-platform filesystem notification library for Rust._
 
 ```toml
 [dependencies]
-notify = "1.1"
+notify = "^2.0"
 ```
-
-Notify currently doesn't have working builds for stable version numbers, as
-the notice above explains, some things are missing. However, `2.0.0-preN`
-releases will be [published to crates.io](https://crates.io/crates/notify) for
-the adventurous and those in need.
 
 ## Usage
 
@@ -56,19 +51,14 @@ fn main() {
 
 - Linux / Android: inotify
 - ~~All platforms: polling~~ (not working, see notice)
-- Coming soon: OS X using FSEvent
+- OS X: FSEvent
 
 ### Todo
 
-- Windows: ReadDirectoryChangesW
-- OS X: FSEvents
+- Polling (see notice)
+- Windows: ReadDirectoryChangesW (see [#4](https://github.com/passcod/rsnotify/issues/4))
 - BSD / OS X / iOS: kqueue
 - Solaris 11: FEN
-
-## Known Bugs
-
-- ~~polling backend only handles `op::WRITE`s~~ (poll implementation scrapped for the moment)
-- see `TODO` and `FIXME` comments in the code for more
 
 Pull requests and bug reports happily accepted!
 
@@ -78,5 +68,6 @@ Inspired by Go's [fsnotify](https://github.com/go-fsnotify/fsnotify), born out
 of need for [cargo watch](https://github.com/passcod/cargo-watch), and general
 frustration at the non-existence of C/Rust cross-platform notify libraries.
 
-Written from scratch by [Félix Saparelli](https://passcod.name), and released
-in the Public Domain using the Creative Commons Zero Declaration.
+Written by [Félix Saparelli](https://passcod.name) and awesome
+[contributors](https://github.com/passcod/rsnotify/graphs/contributors),
+and released in the Public Domain using the Creative Commons Zero Declaration.
