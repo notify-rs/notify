@@ -1,11 +1,15 @@
 #[macro_use] extern crate log;
 #[macro_use] extern crate bitflags;
+#[cfg(target_os="macos")] extern crate fsevent_sys;
+extern crate libc;
 
 use std::sync::mpsc::Sender;
 #[cfg(test)] use std::sync::mpsc::channel;
 pub use self::op::Op;
 #[cfg(target_os="linux")]
 pub use self::inotify::INotifyWatcher;
+#[cfg(target_os="macos")]
+pub use self::fsevent::FsEventWatcher;
 pub use self::null::NullWatcher;
 use std::io;
 
@@ -13,6 +17,8 @@ use std::path::{Path, PathBuf};
 
 #[cfg(target_os="linux")]
 pub mod inotify;
+#[cfg(target_os="macos")]
+pub mod fsevent;
 pub mod null;
 
 pub mod op {
@@ -34,6 +40,7 @@ pub struct Event {
 
 unsafe impl Send for Event {}
 
+#[derive(Debug)]
 pub enum Error {
   Generic(String),
   Io(io::Error),
@@ -49,7 +56,8 @@ pub trait Watcher {
 }
 
 #[cfg(target_os = "linux")] pub type RecommendedWatcher = INotifyWatcher;
-#[cfg(not(any(target_os = "linux")))] pub type RecommendedWatcher = NullWatcher;
+#[cfg(target_os = "macos")] pub type RecommendedWatcher = FsEventWatcher;
+#[cfg(not(any(target_os = "linux", target_os = "macos")))] pub type RecommendedWatcher = NullWatcher;
 
 pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher, Error> {
   Watcher::new(tx)
@@ -67,7 +75,18 @@ fn new_inotify() {
 }
 
 #[test]
-fn new_poll() {
+#[cfg(target_os = "macos")]
+fn new_inotify() {
+  let (tx, _) = channel();
+  let w: Result<FsEventWatcher, Error> = Watcher::new(tx);
+  match w {
+    Ok(_) => assert!(true),
+    Err(_) => assert!(false)
+  }
+}
+
+#[test]
+fn new_null() {
   let (tx, _) = channel();
   let w: Result<NullWatcher, Error> = Watcher::new(tx);
   match w {
