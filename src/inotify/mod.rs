@@ -86,10 +86,10 @@ fn handle_event(event: wrapper::Event, tx: &Sender<Event>, paths: &Arc<RwLock<Ha
     o.insert(op::CREATE);
   }
   if event.is_delete_self() || event.is_delete() {
-    o.insert(op::WRITE);
+    o.insert(op::REMOVE);
   }
   if event.is_modify() {
-    o.insert(op::REMOVE);
+    o.insert(op::WRITE);
   }
   if event.is_move_self() || event.is_moved_from() {
     o.insert(op::RENAME);
