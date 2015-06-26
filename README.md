@@ -1,10 +1,5 @@
 # Notify
 
-__NOTICE: I need a usable-in-stable replacement for `stat.modified()` i.e.
-a cross-platform way of getting the mtime of a file. Without that, the polling
-backend will be left out, and I do not currently have the time to do it myself,
-so [*please help*](https://github.com/passcod/rsnotify/issues/12). Thank you.__
-
 _Cross-platform filesystem notification library for Rust._
 
 ## Install
@@ -50,8 +45,8 @@ fn main() {
 ## Platforms
 
 - Linux / Android: inotify
-- ~~All platforms: polling~~ (not working, see notice)
 - OS X: FSEvent
+- All platforms: polling
 
 ### Todo
 
