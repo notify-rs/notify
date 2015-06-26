@@ -4,6 +4,7 @@ version = "2.0.0"
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Antti Keränen <detegr@gmail.com>",
+  "Gilbert Röhrbein <gilbert@ifsr.de>",
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
   "Michael Maurizi <mmaurizi@azavea.com>",
   "Pierre Baillet <oct@zoy.org>",
