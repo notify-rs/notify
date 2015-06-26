@@ -1,10 +1,9 @@
 #![allow(non_upper_case_globals, dead_code)]
-// via https://github.com/octplane/fsevent-rust
+extern crate fsevent as fse;
 
 use fsevent_sys::core_foundation as cf;
 use fsevent_sys::fsevent as fs;
 use std::slice;
-use std::ffi::CString;
 use std::mem::transmute;
 use std::slice::from_raw_parts_mut;
 use std::str::from_utf8;
@@ -18,74 +17,6 @@ use super::{Error, Event, op, Watcher};
 use std::path::{Path, PathBuf};
 use libc;
 
-
-// TODO: add this to fsevent_sys
-const kCFStringEncodingUTF8: u32 = 0x08000100;
-pub type CFStringEncoding = u32;
-
-const kCFCompareEqualTo: i32     = 0;
-pub type CFComparisonResult = i32;
-
-// MacOS uses Case Insensitive path
-const kCFCompareCaseInsensitive: u32 = 1;
-pub type CFStringCompareFlags = u32;
-
-#[link(name = "CoreServices", kind = "framework")]
-extern "C" {
-  pub fn FSEventStreamInvalidate(streamRef: fs::FSEventStreamRef);
-  pub fn FSEventStreamRelease(streamRef: fs::FSEventStreamRef);
-  pub fn FSEventStreamUnscheduleFromRunLoop(streamRef: fs::FSEventStreamRef, runLoop: cf::CFRunLoopRef, runLoopMode: cf::CFStringRef);
-
-  pub fn CFRunLoopStop(rl: cf::CFRunLoopRef);
-  pub fn CFShowStr (str: cf::CFStringRef);
-  pub fn CFStringGetCStringPtr(theString: cf::CFStringRef, encoding: CFStringEncoding) -> *const libc::c_char;
-  pub fn CFStringCompare(theString1: cf::CFStringRef, theString2: cf::CFStringRef, compareOptions: CFStringCompareFlags) -> CFComparisonResult;
-  pub fn CFArrayRemoveValueAtIndex(theArray: cf::CFMutableArrayRef, idx: cf::CFIndex);
-}
-
-pub const NULL: cf::CFRef = cf::NULL;
-
-unsafe fn str_path_to_cfstring_ref(source: &str) -> cf::CFStringRef {
-  let c_path = CString::new(source).unwrap();
-  let c_len = libc::strlen(c_path.as_ptr());
-  let mut url = cf::CFURLCreateFromFileSystemRepresentation(cf::kCFAllocatorDefault, c_path.as_ptr(), c_len as i64, false);
-  let mut placeholder = cf::CFURLCopyAbsoluteURL(url);
-  cf::CFRelease(url);
-
-  let imaginary: cf::CFRef = cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks);
-
-  while !cf::CFURLResourceIsReachable(placeholder, cf::kCFAllocatorDefault) {
-    let child = cf::CFURLCopyLastPathComponent(placeholder);
-    cf::CFArrayInsertValueAtIndex(imaginary, 0, child);
-    cf::CFRelease(child);
-
-    url = cf::CFURLCreateCopyDeletingLastPathComponent(cf::kCFAllocatorDefault, placeholder);
-    cf::CFRelease(placeholder);
-    placeholder = url;
-  }
-
-  url = cf::CFURLCreateFileReferenceURL(cf::kCFAllocatorDefault, placeholder, cf::kCFAllocatorDefault);
-  cf::CFRelease(placeholder);
-  placeholder = cf::CFURLCreateFilePathURL(cf::kCFAllocatorDefault, url, cf::kCFAllocatorDefault);
-  cf::CFRelease(url);
-
-  if imaginary != cf::kCFAllocatorDefault {
-    let mut count =  0;
-    while count < cf::CFArrayGetCount(imaginary) {
-      let component = cf::CFArrayGetValueAtIndex(imaginary, count);
-      url = cf::CFURLCreateCopyAppendingPathComponent(cf::kCFAllocatorDefault, placeholder, component, false);
-      cf::CFRelease(placeholder);
-      placeholder = url;
-      count = count + 1;
-    }
-    cf::CFRelease(imaginary);
-  }
-
-  let cf_path = cf::CFURLCopyFileSystemPath(placeholder, cf::kCFURLPOSIXPathStyle);
-  cf::CFRelease(placeholder);
-  cf_path
-}
-
 pub struct FsEventWatcher {
   paths: cf::CFMutableArrayRef,
   since_when: fs::FSEventStreamEventId,
@@ -96,61 +27,24 @@ pub struct FsEventWatcher {
   context: Option<StreamContextInfo>,
 }
 
-bitflags! {
-  flags StreamFlags: u32 {
-    const NONE = 0x00000000,
-    const MUST_SCAN_SUB_DIRS = 0x00000001,
-    const USER_DROPPED = 0x00000002,
-    const KERNEL_DROPPED = 0x00000004,
-    const IDS_WRAPPED = 0x00000008,
-    const HISTORY_DONE = 0x00000010,
-    const ROOT_CHANGED = 0x00000020,
-    const MOUNT = 0x00000040,
-    const UNMOUNT = 0x00000080,
-    const ITEM_CREATED = 0x00000100,
-    const ITEM_REMOVED = 0x00000200,
-    const ITEM_INODE_META_MOD = 0x00000400,
-    const ITEM_RENAMED = 0x00000800,
-    const ITEM_MODIFIED = 0x00001000,
-    const ITEM_FINDER_INFO_MOD = 0x00002000,
-    const ITEM_CHANGE_OWNER = 0x00004000,
-    const ITEM_XATTR_MOD = 0x00008000,
-    const ITEM_IS_FILE = 0x00010000,
-    const ITEM_IS_DIR = 0x00020000,
-    const ITEM_IS_SYMLIMK = 0x00040000,
-  }
-}
-
-fn translate_flags(flags: StreamFlags) -> op::Op {
+fn translate_flags(flags: fse::StreamFlags) -> op::Op {
   let mut ret = op::Op::empty();
-  if flags.contains(ITEM_XATTR_MOD) {
+  if flags.contains(fse::ITEM_XATTR_MOD) {
     ret.insert(op::CHMOD);
   }
-  if flags.contains(ITEM_CREATED) {
+  if flags.contains(fse::ITEM_CREATED) {
     ret.insert(op::CREATE);
   }
-  if flags.contains(ITEM_REMOVED) {
+  if flags.contains(fse::ITEM_REMOVED) {
     ret.insert(op::REMOVE);
   }
-  if flags.contains(ITEM_RENAMED) {
+  if flags.contains(fse::ITEM_RENAMED) {
     ret.insert(op::RENAME);
   }
-  if flags.contains(ITEM_MODIFIED)  {
+  if flags.contains(fse::ITEM_MODIFIED)  {
     ret.insert(op::WRITE);
   }
   ret
-}
-
-
-pub fn is_api_available() -> Result<(), String> {
-  let ma = cf::system_version_major();
-  let mi = cf::system_version_minor();
-
-  if ma == 10 && mi < 5 {
-    Err("This version of OSX does not support the FSEvent library, cannot proceed".to_string())
-  } else {
-    Ok(())
-  }
 }
 
 struct StreamContextInfo {
@@ -173,7 +67,7 @@ impl FsEventWatcher {
       if let Some(runloop) = runloop.clone() {
         unsafe {
           let runloop = runloop as *mut libc::c_void;
-          CFRunLoopStop(runloop);
+          cf::CFRunLoopStop(runloop);
         }
       }
     }
@@ -187,17 +81,18 @@ impl FsEventWatcher {
       }
     }
 
+
     self.context = None;
   }
 
   fn remove_path(&mut self, source: &str) {
     unsafe {
-      let cf_path = str_path_to_cfstring_ref(source);
+      let cf_path = cf::str_path_to_cfstring_ref(source);
 
       for idx in 0 .. cf::CFArrayGetCount(self.paths) {
         let item = cf::CFArrayGetValueAtIndex(self.paths, idx);
-        if CFStringCompare(item, cf_path, kCFCompareCaseInsensitive) == kCFCompareEqualTo {
-          CFArrayRemoveValueAtIndex(self.paths, idx);
+        if cf::CFStringCompare(item, cf_path, cf::kCFCompareCaseInsensitive) == cf::kCFCompareEqualTo {
+          cf::CFArrayRemoveValueAtIndex(self.paths, idx);
         }
       }
     }
@@ -206,7 +101,7 @@ impl FsEventWatcher {
   // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
   fn append_path(&mut self, source: &str) {
     unsafe {
-      let cf_path = str_path_to_cfstring_ref(source);
+      let cf_path = cf::str_path_to_cfstring_ref(source);
       cf::CFArrayAppendValue(self.paths, cf_path);
       cf::CFRelease(cf_path);
     }
@@ -262,8 +157,8 @@ impl FsEventWatcher {
         // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
         cf::CFRunLoopRun();
         fs::FSEventStreamStop(stream);
-        FSEventStreamInvalidate(stream);
-        FSEventStreamRelease(stream);
+        fs::FSEventStreamInvalidate(stream);
+        fs::FSEventStreamRelease(stream);
         let _d = done_tx.send(()).unwrap();
       });
     }
@@ -293,7 +188,7 @@ pub extern "C" fn callback(
 
     for p in (0..num) {
       let i = CStr::from_ptr(paths[p]).to_bytes();
-      let flag: StreamFlags = StreamFlags::from_bits(flags[p] as u32)
+      let flag = fse::StreamFlags::from_bits(flags[p] as u32)
         .expect(format!("Unable to decode StreamFlags: {}", flags[p] as u32).as_ref());
 
       let path = PathBuf::from(from_utf8(i).ok().expect("Invalid UTF8 string."));

@@ -31,6 +31,7 @@ log = "*"
 time = "*"
 filetime = "*"
 walker = "^1.0.0"
+fsevent = "^0.2.11"
 
 [target.x86_64-unknown-linux-gnu.dependencies.inotify]
 version = "^0.1"
