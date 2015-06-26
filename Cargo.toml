@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "2.0.0"
+version = "2.1.0"
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Antti Keränen <detegr@gmail.com>",
@@ -31,10 +31,12 @@ log = "*"
 time = "*"
 filetime = "*"
 walker = "^1.0.0"
-fsevent = "^0.2.11"
 
 [target.x86_64-unknown-linux-gnu.dependencies.inotify]
 version = "^0.1"
+
+[target.x86_64-apple-darwin.dependencies.fsevent]
+version = "^0.2.11"
 
 [target.x86_64-apple-darwin.dependencies.fsevent-sys]
 version = "^0.1"

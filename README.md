@@ -1,12 +1,14 @@
 # Notify
 
+[![Crates.io](https://img.shields.io/crates/v/notify.svg?style=flat-square)](https://crates.io/crates/notify)[![Crates.io](https://img.shields.io/crates/l/notify.svg?style=flat-square)](https://creativecommons.org/publicdomain/zero/1.0/)![Crates.io](https://img.shields.io/crates/d/notify.svg?style=flat-square)[![Travis](https://img.shields.io/travis/passcod/rsnotify.svg?style=flat-square)](https://travis-ci.org/passcod/rsnotify)[![Code of Conduct](https://img.shields.io/badge/contributor-covenant-123456.svg?style=flat-square)](http://contributor-covenant.org/version/1/1/0/)
+
 _Cross-platform filesystem notification library for Rust._
 
 ## Install
 
 ```toml
 [dependencies]
-notify = "^2.0"
+notify = "^2.1"
 ```
 
 ## Usage
@@ -50,7 +52,6 @@ fn main() {
 
 ### Todo
 
-- Polling (see notice)
 - Windows: ReadDirectoryChangesW (see [#4](https://github.com/passcod/rsnotify/issues/4))
 - BSD / OS X / iOS: kqueue
 - Solaris 11: FEN
