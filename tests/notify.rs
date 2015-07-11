@@ -5,7 +5,8 @@ extern crate tempfile;
 use notify::*;
 use std::io::Write;
 use std::path::Path;
-use std::sync::mpsc::{channel, Receiver};
+use std::thread;
+use std::sync::mpsc::{channel, Sender, Receiver};
 use tempdir::TempDir;
 use tempfile::NamedTempFile;
 
@@ -18,25 +19,28 @@ fn validate_recv(rx: Receiver<Event>, evs: Vec<(&Path, Op)>) {
   assert!(rx.try_recv().is_err());
 }
 
-#[test]
-fn watch_single_file() {
+fn validate_watch_single_file<F, W>(ctor: F) where
+  F: Fn(Sender<Event>) -> Result<W, Error>, W: Watcher
+{
   let mut file = NamedTempFile::new().unwrap();
   let (tx, rx) = channel();
-  let mut w: RecommendedWatcher = Watcher::new(tx).unwrap();
+  let mut w = ctor(tx).unwrap();
   w.watch(file.path()).unwrap();
+  thread::sleep_ms(1000);
   file.write_all(b"foo").unwrap();
   file.flush().unwrap();
   validate_recv(rx, vec![(file.path(), op::WRITE)]);
 }
 
-#[test]
-fn watch_dir() {
+fn validate_watch_dir<F, W>(ctor: F) where
+  F: Fn(Sender<Event>) -> Result<W, Error>, W: Watcher
+{
   let dir = TempDir::new("dir").unwrap();
   let dir1 = TempDir::new_in(dir.path(), "dir1").unwrap();
   let dir2 = TempDir::new_in(dir.path(), "dir2").unwrap();
   let dir11 = TempDir::new_in(dir1.path(), "dir11").unwrap();
   let (tx, rx) = channel();
-  let mut w: RecommendedWatcher = Watcher::new(tx).unwrap();
+  let mut w = ctor(tx).unwrap();
   w.watch(dir.path()).unwrap();
   let f111 = NamedTempFile::new_in(dir11.path()).unwrap();
   let f111_path = f111.path().to_owned();
@@ -47,3 +51,24 @@ fn watch_dir() {
                          (f21.path(), op::CREATE),
                          (f111_path, op::REMOVE)]);
 }
+
+#[test]
+fn watch_single_file_recommended() {
+  validate_watch_single_file(RecommendedWatcher::new);
+}
+
+#[test]
+fn watch_dir_recommended() {
+  validate_watch_dir(RecommendedWatcher::new);
+}
+
+#[test]
+fn watch_single_file_poll() {
+  validate_watch_single_file(PollWatcher::new);
+}
+
+// FIXME
+// #[test]
+// fn watch_dir_poll() {
+//   validate_watch_dir(PollWatcher::new);
+// }

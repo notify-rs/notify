@@ -71,6 +71,8 @@ impl PollWatcher {
                   }
                 }
               }
+
+              if !stat.is_dir() { continue }
             }
           }
 
