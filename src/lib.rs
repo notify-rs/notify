@@ -8,7 +8,6 @@ pub use self::op::Op;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-#[cfg(test)] use std::sync::mpsc::channel;
 
 #[cfg(target_os="macos")] pub use self::fsevent::FsEventWatcher;
 #[cfg(target_os="linux")] pub use self::inotify::INotifyWatcher;
@@ -60,56 +59,4 @@ pub trait Watcher {
 
 pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher, Error> {
   Watcher::new(tx)
-}
-
-#[test]
-#[cfg(target_os = "linux")]
-fn new_inotify() {
-  let (tx, _) = channel();
-  let w: Result<INotifyWatcher, Error> = Watcher::new(tx);
-  match w {
-    Ok(_) => assert!(true),
-    Err(_) => assert!(false)
-  }
-}
-
-#[test]
-#[cfg(target_os = "macos")]
-fn new_fsevent() {
-  let (tx, _) = channel();
-  let w: Result<FsEventWatcher, Error> = Watcher::new(tx);
-  match w {
-    Ok(_) => assert!(true),
-    Err(_) => assert!(false)
-  }
-}
-
-#[test]
-fn new_null() {
-  let (tx, _) = channel();
-  let w: Result<NullWatcher, Error> = Watcher::new(tx);
-  match w {
-    Ok(_) => assert!(true),
-    Err(_) => assert!(false)
-  }
-}
-
-#[test]
-fn new_poll() {
-  let (tx, _) = channel();
-  let w: Result<PollWatcher, Error> = Watcher::new(tx);
-  match w {
-    Ok(_) => assert!(true),
-    Err(_) => assert!(false)
-  }
-}
-
-#[test]
-fn new_recommended() {
-  let (tx, _) = channel();
-  let w: Result<RecommendedWatcher, Error> = Watcher::new(tx);
-  match w {
-    Ok(_) => assert!(true),
-    Err(_) => assert!(false)
-  }
 }

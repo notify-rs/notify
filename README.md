@@ -8,7 +8,7 @@ _Cross-platform filesystem notification library for Rust._
 
 ```toml
 [dependencies]
-notify = "^2.1"
+notify = "^2.2"
 ```
 
 ## Usage

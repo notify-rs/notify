@@ -16,12 +16,12 @@ fn validate_recv(rx: Receiver<Event>, evs: Vec<(&Path, Op)>) {
     assert_eq!(actual.path.unwrap().as_path(), expected.0);
     assert_eq!(actual.op.unwrap(), expected.1);
   }
+
   assert!(rx.try_recv().is_err());
 }
 
 fn validate_watch_single_file<F, W>(ctor: F) where
-  F: Fn(Sender<Event>) -> Result<W, Error>, W: Watcher
-{
+  F: Fn(Sender<Event>) -> Result<W, Error>, W: Watcher {
   let mut file = NamedTempFile::new().unwrap();
   let (tx, rx) = channel();
   let mut w = ctor(tx).unwrap();
@@ -33,8 +33,7 @@ fn validate_watch_single_file<F, W>(ctor: F) where
 }
 
 fn validate_watch_dir<F, W>(ctor: F) where
-  F: Fn(Sender<Event>) -> Result<W, Error>, W: Watcher
-{
+  F: Fn(Sender<Event>) -> Result<W, Error>, W: Watcher {
   let dir = TempDir::new("dir").unwrap();
   let dir1 = TempDir::new_in(dir.path(), "dir1").unwrap();
   let dir2 = TempDir::new_in(dir.path(), "dir2").unwrap();
@@ -67,8 +66,54 @@ fn watch_single_file_poll() {
   validate_watch_single_file(PollWatcher::new);
 }
 
-// FIXME
-// #[test]
-// fn watch_dir_poll() {
-//   validate_watch_dir(PollWatcher::new);
-// }
+#[cfg(target_os = "linux")]
+#[test]
+fn new_inotify() {
+  let (tx, _) = channel();
+  let w: Result<INotifyWatcher, Error> = Watcher::new(tx);
+  match w {
+    Ok(_) => assert!(true),
+    Err(_) => assert!(false)
+  }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn new_fsevent() {
+  let (tx, _) = channel();
+  let w: Result<FsEventWatcher, Error> = Watcher::new(tx);
+  match w {
+    Ok(_) => assert!(true),
+    Err(_) => assert!(false)
+  }
+}
+
+#[test]
+fn new_null() {
+  let (tx, _) = channel();
+  let w: Result<NullWatcher, Error> = Watcher::new(tx);
+  match w {
+    Ok(_) => assert!(true),
+    Err(_) => assert!(false)
+  }
+}
+
+#[test]
+fn new_poll() {
+  let (tx, _) = channel();
+  let w: Result<PollWatcher, Error> = Watcher::new(tx);
+  match w {
+    Ok(_) => assert!(true),
+    Err(_) => assert!(false)
+  }
+}
+
+#[test]
+fn new_recommended() {
+  let (tx, _) = channel();
+  let w: Result<RecommendedWatcher, Error> = Watcher::new(tx);
+  match w {
+    Ok(_) => assert!(true),
+    Err(_) => assert!(false)
+  }
+}
