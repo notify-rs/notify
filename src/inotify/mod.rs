@@ -131,28 +131,28 @@ impl Watcher for INotifyWatcher {
   }
 
   fn watch(&mut self, path: &Path) -> Result<(), Error> {
-    match Walker::new(path) {
-      Ok(d) => {
-        for dir in d {
-          match dir {
-            Ok(entry) => {
-              let path = entry.path();
-              let meta = match metadata(&path) {
-                Ok(m) => m,
-                Err(e) => return Err(Error::Io(e)),
-              };
-
-              if meta.is_dir() {
+    let is_dir = match metadata(&path) {
+      Ok(m)  => m.is_dir(),
+      Err(e) => return Err(Error::Io(e)),
+    };
+    if is_dir {
+      match Walker::new(path) {
+        Ok(dir) => {
+          for entry in dir {
+            match entry {
+              Ok(entry) => {
+                let path = entry.path();
                 try!(self.add_watch(&path));
-              }
-            },
-            Err(e) => return Err(Error::Io(e)),
+              },
+              Err(e) => return Err(Error::Io(e)),
+            }
           }
-        }
-
-        self.add_watch(path)
-      },
-      Err(e) => Err(Error::Io(e))
+          self.add_watch(path)
+        },
+        Err(e) => Err(Error::Io(e))
+      }
+    } else {
+      self.add_watch(&path)
     }
   }
 
