@@ -49,7 +49,7 @@ impl INotifyWatcher {
     });
   }
 
-  fn add_watch(&mut self, path: &Path) -> Result<(), Error> {
+  fn add_watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
     let mut watching  = flags::IN_ATTRIB
                       | flags::IN_CREATE
                       | flags::IN_DELETE
@@ -58,7 +58,7 @@ impl INotifyWatcher {
                       | flags::IN_MOVED_FROM
                       | flags::IN_MOVED_TO
                       | flags::IN_MOVE_SELF;
-    let path = path.to_path_buf();
+    let path = path.as_ref().to_path_buf();
     match self.watches.get(&path) {
       None => {},
       Some(p) => {
