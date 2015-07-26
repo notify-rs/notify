@@ -252,12 +252,12 @@ fn test_fsevent_watcher_drop() {
 
   {
     let mut watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
-    watcher.watch(&Path::new("../../")).unwrap();
+    watcher.watch("../../").unwrap();
     thread::sleep_ms(2_000);
     println!("is running -> {}", watcher.is_running());
 
     thread::sleep_ms(1_000);
-    watcher.unwatch(&Path::new("../..")).unwrap();
+    watcher.unwatch("../..").unwrap();
     println!("is running -> {}", watcher.is_running());
   }
 
