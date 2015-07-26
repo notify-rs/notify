@@ -219,15 +219,15 @@ impl Watcher for FsEventWatcher {
     Ok(fsevent)
   }
 
-  fn watch(&mut self, path: &Path) -> Result<(), Error> {
+  fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
     self.stop();
-    self.append_path(&path.to_str().unwrap());
+    self.append_path(&path.as_ref().to_str().unwrap());
     self.run()
   }
 
-  fn unwatch(&mut self, path: &Path) -> Result<(), Error> {
+  fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
     self.stop();
-    self.remove_path(&path.to_str().unwrap());
+    self.remove_path(&path.as_ref().to_str().unwrap());
     // ignore return error: may be empty path list
     let _ = self.run();
     Ok(())

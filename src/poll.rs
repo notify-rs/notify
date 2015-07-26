@@ -146,13 +146,13 @@ impl Watcher for PollWatcher {
     Ok(p)
   }
 
-  fn watch(&mut self, path: &Path) -> Result<(), Error> {
-    (*self.watches).write().unwrap().insert(path.to_path_buf());
+  fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+    (*self.watches).write().unwrap().insert(path.as_ref().to_path_buf());
     Ok(())
   }
 
-  fn unwatch(&mut self, path: &Path) -> Result<(), Error> {
-    if (*self.watches).write().unwrap().remove(path) {
+  fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+    if (*self.watches).write().unwrap().remove(path.as_ref()) {
       Ok(())
     } else {
       Err(Error::WatchNotFound)
