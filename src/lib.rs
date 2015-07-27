@@ -50,8 +50,8 @@ pub enum Error {
 
 pub trait Watcher {
   fn new(Sender<Event>) -> Result<Self, Error>;
-  fn watch<P: AsRef<Path>>(&mut self, P) -> Result<(), Error>;
-  fn unwatch<P: AsRef<Path>>(&mut self, P) -> Result<(), Error>;
+  fn watch<P: AsRef<Path> + ?Sized>(&mut self, &P) -> Result<(), Error>;
+  fn unwatch<P: AsRef<Path> + ?Sized>(&mut self, &P) -> Result<(), Error>;
 }
 
 #[cfg(target_os = "linux")] pub type RecommendedWatcher = INotifyWatcher;
