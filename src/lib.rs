@@ -8,6 +8,7 @@ pub use self::op::Op;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
+use std::convert::AsRef;
 
 #[cfg(target_os="macos")] pub use self::fsevent::FsEventWatcher;
 #[cfg(target_os="linux")] pub use self::inotify::INotifyWatcher;
@@ -49,8 +50,8 @@ pub enum Error {
 
 pub trait Watcher {
   fn new(Sender<Event>) -> Result<Self, Error>;
-  fn watch(&mut self, &Path) -> Result<(), Error>;
-  fn unwatch(&mut self, &Path) -> Result<(), Error>;
+  fn watch<P: AsRef<Path> + ?Sized>(&mut self, &P) -> Result<(), Error>;
+  fn unwatch<P: AsRef<Path> + ?Sized>(&mut self, &P) -> Result<(), Error>;
 }
 
 #[cfg(target_os = "linux")] pub type RecommendedWatcher = INotifyWatcher;

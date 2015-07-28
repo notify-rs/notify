@@ -31,7 +31,7 @@ fn main() {
     Ok(mut watcher) => {
       // Add a path to be watched. All files and directories at that path and
       // below will be monitored for changes.
-      watcher.watch(&Path::new("/home/test/notify"));
+      watcher.watch("/home/test/notify");
 
       // You'll probably want to do that in a loop. The type to match for is
       // notify::Event, look at src/lib.rs for details.
