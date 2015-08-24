@@ -49,7 +49,7 @@ impl INotifyWatcher {
     });
   }
 
-  fn add_watch<P: AsRef<Path> + ?Sized>(&mut self, path: &P) -> Result<(), Error> {
+  fn add_watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
     let mut watching  = flags::IN_ATTRIB
                       | flags::IN_CREATE
                       | flags::IN_DELETE
@@ -130,7 +130,7 @@ impl Watcher for INotifyWatcher {
     return Ok(it);
   }
 
-  fn watch<P: AsRef<Path> + ?Sized>(&mut self, path: &P) -> Result<(), Error> {
+  fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
     let is_dir = match metadata(&path.as_ref()) {
       Ok(m)  => m.is_dir(),
       Err(e) => return Err(Error::Io(e)),
@@ -156,7 +156,7 @@ impl Watcher for INotifyWatcher {
     }
   }
 
-  fn unwatch<P: AsRef<Path> + ?Sized>(&mut self, path: &P) -> Result<(), Error> {
+  fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
     // FIXME:
     // once Rust 1.1 is released, just use a &Path
     // Relevant bug is https://github.com/rust-lang/rust/pull/25060
