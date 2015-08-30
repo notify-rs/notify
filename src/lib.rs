@@ -32,6 +32,7 @@ pub mod op {
   }
 }
 
+#[derive(Debug)]
 pub struct Event {
   pub path: Option<PathBuf>,
   pub op: Result<Op, Error>,
