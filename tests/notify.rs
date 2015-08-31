@@ -66,7 +66,6 @@ fn validate_recv(rx: Receiver<Event>, evs: Vec<(&Path, Op)>) {
         let expected = evs.get(i).unwrap();
         if path.clone().as_path() == expected.0 && op.contains(expected.1) {
             removables.push(i);
-            break;
         }
       }
       for removable in removables {
