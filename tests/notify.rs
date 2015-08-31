@@ -127,8 +127,8 @@ fn watch_dir_recommended() {
 }
 
 #[test]
-#[cfg(not(any(target_os="macos")))]
 fn watch_single_file_poll() {
+  // Currently broken on OSX because relative filename are sent.
   validate_watch_single_file(PollWatcher::new);
 }
 
