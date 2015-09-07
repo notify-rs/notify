@@ -208,8 +208,8 @@ impl Watcher for FsEventWatcher {
       fsevent = FsEventWatcher {
         paths: cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks),
         since_when: fs::kFSEventStreamEventIdSinceNow,
-        latency: 0.1,
-        flags: fs::kFSEventStreamCreateFlagFileEvents,
+        latency: 0.0,
+        flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
         sender: tx,
         runloop: Arc::new(RwLock::new(None)),
         context: None,
