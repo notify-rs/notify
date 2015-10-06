@@ -49,7 +49,7 @@ pub enum Error {
   WatchNotFound,
 }
 
-pub trait Watcher {
+pub trait Watcher: Sized {
   fn new(Sender<Event>) -> Result<Self, Error>;
   fn watch<P: AsRef<Path>>(&mut self, P) -> Result<(), Error>;
   fn unwatch<P: AsRef<Path>>(&mut self, P) -> Result<(), Error>;
