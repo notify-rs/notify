@@ -24,7 +24,7 @@ pub struct FsEventWatcher {
   flags: fs::FSEventStreamCreateFlags,
   sender: Sender<Event>,
   runloop: Arc<RwLock<Option<usize>>>,
-  context: Option<StreamContextInfo>,
+  context: Option<Box<StreamContextInfo>>,
 }
 
 fn translate_flags(flags: fse::StreamFlags) -> op::Op {
@@ -120,11 +120,11 @@ impl FsEventWatcher {
       done: done_rx
     };
 
-    self.context = Some(info);
+    self.context = Some(Box::new(info));
 
     let stream_context = fs::FSEventStreamContext{
       version: 0,
-      info: unsafe { transmute::<_, *mut libc::c_void>(self.context.as_ref()) },
+      info: unsafe { transmute::<Option<&StreamContextInfo>, *mut libc::c_void>(self.context.as_ref().map(|ctx| & **ctx)) },
       retain: cf::NULL,
       copy_description: cf::NULL };
 
