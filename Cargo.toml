@@ -11,7 +11,8 @@ authors = [
   "ShuYu Wang <andelf@gmail.com>",
   "Jimmy Lu <gongchuo.lu@gmail.com>",
   "Francisco Giordano <frangio.1@gmail.com>",
-  "Jake Kerr"
+  "Jake Kerr",
+  "Ty Overby <ty@pre-alpha.com>",
 ]
 
 description = "Cross-platform filesystem notification library"
