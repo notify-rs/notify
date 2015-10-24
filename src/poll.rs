@@ -18,7 +18,17 @@ pub struct PollWatcher {
 }
 
 impl PollWatcher {
-  fn run(&mut self) {
+  pub fn with_delay(tx: Sender<Event>, delay: u32) -> Result<PollWatcher, Error> {
+    let mut p = PollWatcher {
+      tx: tx,
+      watches: Arc::new(RwLock::new(HashSet::new())),
+      open: Arc::new(RwLock::new(true))
+    };
+    p.run(delay);
+    Ok(p)
+  }
+
+  fn run(&mut self, delay: u32) {
     let tx = self.tx.clone();
     let watches = self.watches.clone();
     let open = self.open.clone();
@@ -31,6 +41,9 @@ impl PollWatcher {
       // TODO: DRY it up
       let mut mtimes: HashMap<PathBuf, u64> = HashMap::new();
       loop {
+        if delay != 0 {
+          thread::sleep_ms(delay);
+        }
         if !(*open.read().unwrap()) {
           break
         }
@@ -137,13 +150,7 @@ impl PollWatcher {
 
 impl Watcher for PollWatcher {
   fn new(tx: Sender<Event>) -> Result<PollWatcher, Error> {
-    let mut p = PollWatcher {
-      tx: tx,
-      watches: Arc::new(RwLock::new(HashSet::new())),
-      open: Arc::new(RwLock::new(true))
-    };
-    p.run();
-    Ok(p)
+      PollWatcher::with_delay(tx, 10)
   }
 
   fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
