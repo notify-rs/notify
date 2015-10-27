@@ -87,7 +87,7 @@ fn validate_watch_single_file<F, W>(ctor: F) where
   thread::sleep_ms(1000);
   file.write_all(b"foo").unwrap();
   file.flush().unwrap();
-  validate_recv(rx, vec![(resolve_path(file.path()).as_path(), op::CREATE)]);
+  validate_recv(rx, vec![(resolve_path(file.path()).as_path(), op::WRITE)]);
 }
 
 
