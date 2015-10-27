@@ -81,13 +81,14 @@ fn validate_recv(rx: Receiver<Event>, evs: Vec<(&Path, Op)>) {
 fn validate_watch_single_file<F, W>(ctor: F) where
   F: Fn(Sender<Event>) -> Result<W, Error>, W: Watcher {
   let mut file = NamedTempFile::new().unwrap();
+  file.write_all(b"foo").unwrap();
   let (tx, rx) = channel();
   let mut w = ctor(tx).unwrap();
   w.watch(file.path()).unwrap();
   thread::sleep_ms(1000);
-  file.write_all(b"foo").unwrap();
+  file.write_all(b"bar").unwrap();
   file.flush().unwrap();
-  validate_recv(rx, vec![(resolve_path(file.path()).as_path(), op::CREATE)]);
+  validate_recv(rx, vec![(resolve_path(file.path()).as_path(), op::WRITE)]);
 }
 
 
