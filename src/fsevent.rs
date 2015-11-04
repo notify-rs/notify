@@ -138,18 +138,19 @@ impl FsEventWatcher {
 
     // move into thread
     let dummy = stream as usize;
-    let runloop = self.runloop.clone();
+    // channel to pass runloop around
+    let (rl_tx, rl_rx) = channel();
 
     thread::spawn(move || {
       let stream = dummy as *mut libc::c_void;
       unsafe {
         let cur_runloop = cf::CFRunLoopGetCurrent();
-        let _ = runloop.write().as_mut().map(|rl| **rl = Some(cur_runloop as *mut libc::c_void as usize)).unwrap();
-        fs::FSEventStreamScheduleWithRunLoop(stream, cur_runloop, cf::kCFRunLoopDefaultMode);
 
+        fs::FSEventStreamScheduleWithRunLoop(stream, cur_runloop, cf::kCFRunLoopDefaultMode);
         fs::FSEventStreamStart(stream);
 
         // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
+        rl_tx.send(cur_runloop  as *mut libc::c_void as usize).ok().expect("Unable to send runloop to watcher");
         cf::CFRunLoopRun();
         fs::FSEventStreamStop(stream);
         fs::FSEventStreamInvalidate(stream);
@@ -157,6 +158,8 @@ impl FsEventWatcher {
       }
       done_tx.send(()).ok().expect("error while signal run loop is done");
     });
+    // block until runloop has been set
+    self.runloop = Arc::new(RwLock::new(Some(rl_rx.recv().unwrap())));
 
     Ok(())
   }
