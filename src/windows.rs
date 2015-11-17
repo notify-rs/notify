@@ -2,8 +2,6 @@ extern crate libc;
 extern crate kernel32;
 extern crate winapi;
 
-use libc::c_void;
-
 use winapi::{HANDLE, INVALID_HANDLE_VALUE, fileapi, winbase, winnt};
 use winapi::minwinbase::{OVERLAPPED, LPOVERLAPPED};
 use winapi::winerror::ERROR_OPERATION_ABORTED;
@@ -14,10 +12,11 @@ use std::mem;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
-use std::sync::mpsc::{channel, Sender, Receiver};
+use std::sync::mpsc::{channel, Sender, Receiver, RecvError};
 use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::thread;
+use std::os::raw::c_void;
 
 use super::{Event, Error, op, Op, Watcher};
 
@@ -35,10 +34,25 @@ enum Action {
     Stop
 }
 
+enum SelectResult {
+    Timeout,
+    Action(Action),
+    Error(RecvError)
+}
+
 struct ReadDirectoryChangesServer {
     rx: Receiver<Action>,
     tx: Sender<Event>,
     watches: HashMap<PathBuf, HANDLE>,
+}
+
+fn oneshot_timer(ms: u32) -> Receiver<()> {
+    let (tx, rx) = channel();
+    thread::spawn(move || {
+            thread::sleep_ms(ms);
+            tx.send(());
+        });
+    rx
 }
 
 impl ReadDirectoryChangesServer {
@@ -56,18 +70,47 @@ impl ReadDirectoryChangesServer {
     }
 
     fn run(mut self) {
-        while let Ok(action) = self.rx.recv() {
-            match action {
-                Action::Watch(path) => self.add_watch(path),
-                Action::Unwatch(path) => self.remove_watch(path),
-                Action::Stop => {
-                    for (_, handle) in self.watches {
-                        unsafe {
-                            close_handle(handle);
+        loop {
+            let timeout = oneshot_timer(500); // TODO: dumb, spawns a thread every time
+
+            // have to pull the result out of the select! this way, because it
+            // can't parse self.rx.recv() in its arguments.
+            let res = {
+                let rx = &self.rx;
+
+                select! (
+                    _ = timeout.recv() => SelectResult::Timeout, // TODO: timeout error?
+                    action_res = rx.recv() => {
+                        match action_res {
+                            Err(e) => SelectResult::Error(e),
+                            Ok(action) => SelectResult::Action(action)
                         }
                     }
-                    break
+                )
+            };
+
+            match res {
+                SelectResult::Timeout => (),
+                SelectResult::Error(e) => panic!("watcher error: {:?}", e), // TODO: what to do?
+                SelectResult::Action(action) => {
+                    match action {
+                        Action::Watch(path) => self.add_watch(path),
+                        Action::Unwatch(path) => self.remove_watch(path),
+                        Action::Stop => {
+                            for (_, handle) in self.watches {
+                                unsafe {
+                                    close_handle(handle);
+                                }
+                            }
+                            break
+                        }
+                    }
                 }
+            }
+
+            // call sleepex with alertable flag so that our completion routine fires
+            unsafe {
+                kernel32::SleepEx(500, 1);
             }
         }
     }
@@ -128,19 +171,20 @@ fn start_read(tx: &Sender<Event>, handle: HANDLE) {
               | winnt::FILE_NOTIFY_CHANGE_CREATION
               | winnt::FILE_NOTIFY_CHANGE_SECURITY;
 
-    let request_p = &mut request as *mut _ as *mut c_void;
-
     unsafe {
         let mut overlapped: Box<OVERLAPPED> = Box::new(mem::zeroed());
         // When using callback based async requests, we are allowed to use the hEvent member
         // for our own purposes
+
+        let req_buf = request.buffer.as_mut_ptr() as *mut c_void;
+        let request_p: *mut c_void = mem::transmute(request);
         overlapped.hEvent = request_p;
 
         // This is using an asynchronous call with a completion routine for receiving notifications
         // An I/O completion port would probably be more performant
         kernel32::ReadDirectoryChangesW(
             handle,
-            request.buffer.as_mut_ptr() as *mut c_void,
+            req_buf,
             BUF_SIZE,
             1,  // We do want to monitor subdirectories
             flags,
@@ -149,7 +193,6 @@ fn start_read(tx: &Sender<Event>, handle: HANDLE) {
             Some(handle_event));
 
         mem::forget(overlapped);
-        mem::forget(request);
     }
 }
 
@@ -171,7 +214,9 @@ unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, ove
     let mut cur_offset: *const u8 = request.buffer.as_ptr();
     let mut cur_entry: *const FILE_NOTIFY_INFORMATION = mem::transmute(cur_offset);
     loop {
-        let encoded_path: &[u16] = slice::from_raw_parts((*cur_entry).FileName.as_ptr(), (*cur_entry).FileNameLength as usize);
+        // filename length is size in bytes, so / 2
+        let len = (*cur_entry).FileNameLength as usize / 2;
+        let encoded_path: &[u16] = slice::from_raw_parts((*cur_entry).FileName.as_ptr(), len);
         let path = PathBuf::from(OsString::from_wide(encoded_path));
 
         let op = match (*cur_entry).Action {
@@ -193,6 +238,8 @@ unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, ove
         cur_offset = cur_offset.offset((*cur_entry).NextEntryOffset as isize);
         cur_entry = mem::transmute(cur_offset);
     }
+
+    // TODO: need to free request and overlapped
 }
 
 pub struct ReadDirectoryChangesWatcher {

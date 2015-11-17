@@ -1,3 +1,5 @@
+#![feature(mpsc_select)]
+
 #[macro_use] extern crate log;
 #[macro_use] extern crate bitflags;
 #[cfg(target_os="macos")] extern crate fsevent_sys;
@@ -32,6 +34,7 @@ pub mod op {
   }
 }
 
+#[derive(Debug)]
 pub struct Event {
   pub path: Option<PathBuf>,
   pub op: Result<Op, Error>,
