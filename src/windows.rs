@@ -25,7 +25,8 @@ const BUF_SIZE: u32 = 16384;
 struct ReadDirectoryRequest {
     tx: Sender<Event>,
     buffer: [u8; BUF_SIZE as usize],
-    handle: HANDLE
+    handle: HANDLE,
+    root: PathBuf
 }
 
 enum Action {
@@ -137,8 +138,8 @@ impl ReadDirectoryChangesServer {
                 return;
             }
         }
-        self.watches.insert(path, handle);
-        start_read(&self.tx, handle);
+        self.watches.insert(path.clone(), handle);
+        start_read(&path, &self.tx, handle);
     }
 
     fn remove_watch(&mut self, path: PathBuf) {
@@ -156,11 +157,12 @@ unsafe fn close_handle(handle: HANDLE) {
     kernel32::CloseHandle(handle);
 }
 
-fn start_read(tx: &Sender<Event>, handle: HANDLE) {
+fn start_read(path: &PathBuf, tx: &Sender<Event>, handle: HANDLE) {
     let mut request = Box::new(ReadDirectoryRequest {
         tx: tx.clone(),
         handle: handle,
-        buffer: [0u8; BUF_SIZE as usize]
+        buffer: [0u8; BUF_SIZE as usize],
+        root: path.clone()
     });
 
     let flags = winnt::FILE_NOTIFY_CHANGE_FILE_NAME
@@ -207,7 +209,7 @@ unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, ove
     }
 
     // Get the next request queued up as soon as possible
-    start_read(&request.tx, request.handle);
+    start_read(&request.root, &request.tx, request.handle);
 
     // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length string
     // as its last member.  Each struct contains an offset for getting the next entry in the buffer
@@ -217,7 +219,8 @@ unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, ove
         // filename length is size in bytes, so / 2
         let len = (*cur_entry).FileNameLength as usize / 2;
         let encoded_path: &[u16] = slice::from_raw_parts((*cur_entry).FileName.as_ptr(), len);
-        let path = PathBuf::from(OsString::from_wide(encoded_path));
+        // prepend root to get a full path
+        let path = request.root.join(PathBuf::from(OsString::from_wide(encoded_path)));
 
         let op = match (*cur_entry).Action {
             winnt::FILE_ACTION_ADDED => op::CREATE,
@@ -227,10 +230,12 @@ unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, ove
             _ => Op::empty()
         };
 
-        let _ = request.tx.send(Event {
+
+        let evt = Event {
             path: Some(path),
             op: Ok(op)
-        });
+        };
+        request.tx.send(evt).ok().expect("error while sending event");
 
         if (*cur_entry).NextEntryOffset == 0 {
             break;
