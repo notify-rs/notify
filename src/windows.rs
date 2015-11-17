@@ -214,8 +214,6 @@ unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, ove
         cur_offset = cur_offset.offset((*cur_entry).NextEntryOffset as isize);
         cur_entry = mem::transmute(cur_offset);
     }
-
-    // TODO: need to free request and overlapped
 }
 
 pub struct ReadDirectoryChangesWatcher {
