@@ -230,15 +230,13 @@ impl Watcher for ReadDirectoryChangesWatcher {
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
-        // TODO: Add SendError to notify::Error and use try!(...)?
-        self.tx.send(Action::Watch(path.as_ref().to_path_buf()));
-        Ok(())
+        self.tx.send(Action::Watch(path.as_ref().to_path_buf()))
+            .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()))
     }
 
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
-        // TODO: Add SendError to notify::Error and use try!(...)?
-        self.tx.send(Action::Unwatch(path.as_ref().to_path_buf()));
-        Ok(())
+        self.tx.send(Action::Unwatch(path.as_ref().to_path_buf()))
+            .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()))
     }
 }
 
