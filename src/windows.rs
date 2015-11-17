@@ -12,7 +12,7 @@ use std::mem;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
-use std::sync::mpsc::{channel, Sender, Receiver, RecvError};
+use std::sync::mpsc::{channel, Sender, Receiver};
 use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::thread;
@@ -35,25 +35,10 @@ enum Action {
     Stop
 }
 
-enum SelectResult {
-    Timeout,
-    Action(Action),
-    Error(RecvError)
-}
-
 struct ReadDirectoryChangesServer {
     rx: Receiver<Action>,
     tx: Sender<Event>,
-    watches: HashMap<PathBuf, HANDLE>,
-}
-
-fn oneshot_timer(ms: u32) -> Receiver<()> {
-    let (tx, rx) = channel();
-    thread::spawn(move || {
-            thread::sleep_ms(ms);
-            tx.send(());
-        });
-    rx
+    watches: HashMap<PathBuf, HANDLE>
 }
 
 impl ReadDirectoryChangesServer {
@@ -72,41 +57,27 @@ impl ReadDirectoryChangesServer {
 
     fn run(mut self) {
         loop {
-            let timeout = oneshot_timer(500); // TODO: dumb, spawns a thread every time
+            // process all available actions first
+            let mut stopped = false;
 
-            // have to pull the result out of the select! this way, because it
-            // can't parse self.rx.recv() in its arguments.
-            let res = {
-                let rx = &self.rx;
-
-                select! (
-                    _ = timeout.recv() => SelectResult::Timeout, // TODO: timeout error?
-                    action_res = rx.recv() => {
-                        match action_res {
-                            Err(e) => SelectResult::Error(e),
-                            Ok(action) => SelectResult::Action(action)
-                        }
-                    }
-                )
-            };
-
-            match res {
-                SelectResult::Timeout => (),
-                SelectResult::Error(e) => panic!("watcher error: {:?}", e), // TODO: what to do?
-                SelectResult::Action(action) => {
-                    match action {
-                        Action::Watch(path) => self.add_watch(path),
-                        Action::Unwatch(path) => self.remove_watch(path),
-                        Action::Stop => {
-                            for (_, handle) in self.watches {
-                                unsafe {
-                                    close_handle(handle);
-                                }
+            while let Ok(action) = self.rx.try_recv() {
+                match action {
+                    Action::Watch(path) => self.add_watch(path),
+                    Action::Unwatch(path) => self.remove_watch(path),
+                    Action::Stop => {
+                        stopped = true;
+                        for (_, handle) in &self.watches {
+                            unsafe {
+                                close_handle(*handle);
                             }
-                            break
                         }
+                        break;
                     }
                 }
+            };
+
+            if stopped {
+                break;
             }
 
             // call sleepex with alertable flag so that our completion routine fires
