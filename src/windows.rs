@@ -206,7 +206,7 @@ unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, ove
             path: Some(path),
             op: Ok(op)
         };
-        request.tx.send(evt).ok().expect("error while sending event");
+        let _ = request.tx.send(evt);
 
         if (*cur_entry).NextEntryOffset == 0 {
             break;
