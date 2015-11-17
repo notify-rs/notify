@@ -5,22 +5,25 @@
 #[cfg(target_os="macos")] extern crate fsevent_sys;
 #[cfg(target_os="windows")] extern crate winapi;
 extern crate libc;
+extern crate filetime;
 
 pub use self::op::Op;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-#[cfg(test)] use std::sync::mpsc::channel;
+use std::convert::AsRef;
 
 #[cfg(target_os="macos")] pub use self::fsevent::FsEventWatcher;
 #[cfg(target_os="linux")] pub use self::inotify::INotifyWatcher;
 #[cfg(target_os="windows")] pub use self::windows::ReadDirectoryChangesWatcher;
 pub use self::null::NullWatcher;
+pub use self::poll::PollWatcher;
 
 #[cfg(target_os="linux")] pub mod inotify;
 #[cfg(target_os="macos")] pub mod fsevent;
 #[cfg(target_os="windows")] pub mod windows;
 pub mod null;
+pub mod poll;
 
 pub mod op {
   bitflags! {
@@ -51,59 +54,17 @@ pub enum Error {
   WatchNotFound,
 }
 
-pub trait Watcher {
+pub trait Watcher: Sized {
   fn new(Sender<Event>) -> Result<Self, Error>;
-  fn watch(&mut self, &Path) -> Result<(), Error>;
-  fn unwatch(&mut self, &Path) -> Result<(), Error>;
+  fn watch<P: AsRef<Path>>(&mut self, P) -> Result<(), Error>;
+  fn unwatch<P: AsRef<Path>>(&mut self, P) -> Result<(), Error>;
 }
 
 #[cfg(target_os = "linux")] pub type RecommendedWatcher = INotifyWatcher;
 #[cfg(target_os = "macos")] pub type RecommendedWatcher = FsEventWatcher;
 #[cfg(target_os = "windows")] pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))] pub type RecommendedWatcher = NullWatcher;
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))] pub type RecommendedWatcher = PollWatcher;
 
 pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher, Error> {
   Watcher::new(tx)
-}
-
-#[test]
-#[cfg(target_os = "linux")]
-fn new_inotify() {
-  let (tx, _) = channel();
-  let w: Result<INotifyWatcher, Error> = Watcher::new(tx);
-  match w {
-    Ok(_) => assert!(true),
-    Err(_) => assert!(false)
-  }
-}
-
-#[test]
-#[cfg(target_os = "macos")]
-fn new_fsevent() {
-  let (tx, _) = channel();
-  let w: Result<FsEventWatcher, Error> = Watcher::new(tx);
-  match w {
-    Ok(_) => assert!(true),
-    Err(_) => assert!(false)
-  }
-}
-
-#[test]
-fn new_null() {
-  let (tx, _) = channel();
-  let w: Result<NullWatcher, Error> = Watcher::new(tx);
-  match w {
-    Ok(_) => assert!(true),
-    Err(_) => assert!(false)
-  }
-}
-
-#[test]
-fn new_recommended() {
-  let (tx, _) = channel();
-  let w: Result<RecommendedWatcher, Error> = Watcher::new(tx);
-  match w {
-    Ok(_) => assert!(true),
-    Err(_) => assert!(false)
-  }
 }

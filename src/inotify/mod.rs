@@ -49,7 +49,7 @@ impl INotifyWatcher {
     });
   }
 
-  fn add_watch(&mut self, path: &Path) -> Result<(), Error> {
+  fn add_watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
     let mut watching  = flags::IN_ATTRIB
                       | flags::IN_CREATE
                       | flags::IN_DELETE
@@ -58,7 +58,7 @@ impl INotifyWatcher {
                       | flags::IN_MOVED_FROM
                       | flags::IN_MOVED_TO
                       | flags::IN_MOVE_SELF;
-    let path = path.to_path_buf();
+    let path = path.as_ref().to_path_buf();
     match self.watches.get(&path) {
       None => {},
       Some(p) => {
@@ -86,10 +86,10 @@ fn handle_event(event: wrapper::Event, tx: &Sender<Event>, paths: &Arc<RwLock<Ha
     o.insert(op::CREATE);
   }
   if event.is_delete_self() || event.is_delete() {
-    o.insert(op::WRITE);
+    o.insert(op::REMOVE);
   }
   if event.is_modify() {
-    o.insert(op::REMOVE);
+    o.insert(op::WRITE);
   }
   if event.is_move_self() || event.is_moved_from() {
     o.insert(op::RENAME);
@@ -130,37 +130,37 @@ impl Watcher for INotifyWatcher {
     return Ok(it);
   }
 
-  fn watch(&mut self, path: &Path) -> Result<(), Error> {
-    match Walker::new(path) {
-      Ok(d) => {
-        for dir in d {
-          match dir {
-            Ok(entry) => {
-              let path = entry.path();
-              let meta = match metadata(&path) {
-                Ok(m) => m,
-                Err(e) => return Err(Error::Io(e)),
-              };
-
-              if meta.is_dir() {
+  fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+    let is_dir = match metadata(&path.as_ref()) {
+      Ok(m)  => m.is_dir(),
+      Err(e) => return Err(Error::Io(e)),
+    };
+    if is_dir {
+      match Walker::new(path.as_ref()) {
+        Ok(dir) => {
+          for entry in dir {
+            match entry {
+              Ok(entry) => {
+                let path = entry.path();
                 try!(self.add_watch(&path));
-              }
-            },
-            Err(e) => return Err(Error::Io(e)),
+              },
+              Err(e) => return Err(Error::Io(e)),
+            }
           }
-        }
-
-        self.add_watch(path)
-      },
-      Err(e) => Err(Error::Io(e))
+          self.add_watch(path.as_ref())
+        },
+        Err(e) => Err(Error::Io(e))
+      }
+    } else {
+      self.add_watch(&path.as_ref())
     }
   }
 
-  fn unwatch(&mut self, path: &Path) -> Result<(), Error> {
+  fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
     // FIXME:
     // once Rust 1.1 is released, just use a &Path
     // Relevant bug is https://github.com/rust-lang/rust/pull/25060
-    match self.watches.remove(&path.to_path_buf()) {
+    match self.watches.remove(&path.as_ref().to_path_buf()) {
       None => Err(Error::WatchNotFound),
       Some(p) => {
         let w = &p.0;

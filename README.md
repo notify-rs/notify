@@ -1,9 +1,6 @@
 # Notify
 
-__NOTICE: I need a usable-in-stable replacement for `stat.modified()` i.e.
-a cross-platform way of getting the mtime of a file. Without that, the polling
-backend will be left out, and I do not currently have the time to do it myself,
-so [*please help*](https://github.com/passcod/rsnotify/issues/12). Thank you.__
+[![Crates.io](https://img.shields.io/crates/v/notify.svg?style=flat-square)](https://crates.io/crates/notify)[![Crates.io](https://img.shields.io/crates/l/notify.svg?style=flat-square)](https://creativecommons.org/publicdomain/zero/1.0/)![Crates.io](https://img.shields.io/crates/d/notify.svg?style=flat-square)[![Travis](https://img.shields.io/travis/passcod/rsnotify.svg?style=flat-square)](https://travis-ci.org/passcod/rsnotify)[![Code of Conduct](https://img.shields.io/badge/contributor-covenant-123456.svg?style=flat-square)](http://contributor-covenant.org/version/1/1/0/)
 
 _Cross-platform filesystem notification library for Rust._
 
@@ -11,7 +8,7 @@ _Cross-platform filesystem notification library for Rust._
 
 ```toml
 [dependencies]
-notify = "^2.0"
+notify = "^2.4.1"
 ```
 
 ## Usage
@@ -34,7 +31,7 @@ fn main() {
     Ok(mut watcher) => {
       // Add a path to be watched. All files and directories at that path and
       // below will be monitored for changes.
-      watcher.watch(&Path::new("/home/test/notify"));
+      watcher.watch("/home/test/notify");
 
       // You'll probably want to do that in a loop. The type to match for is
       // notify::Event, look at src/lib.rs for details.
@@ -50,12 +47,11 @@ fn main() {
 ## Platforms
 
 - Linux / Android: inotify
-- ~~All platforms: polling~~ (not working, see notice)
 - OS X: FSEvent
+- All platforms: polling
 
 ### Todo
 
-- Polling (see notice)
 - Windows: ReadDirectoryChangesW (see [#4](https://github.com/passcod/rsnotify/issues/4))
 - BSD / OS X / iOS: kqueue
 - Solaris 11: FEN

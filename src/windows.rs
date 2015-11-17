@@ -255,15 +255,15 @@ impl Watcher for ReadDirectoryChangesWatcher {
         });
     }
 
-    fn watch(&mut self, path: &Path) -> Result<(), Error> {
+    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
         // TODO: Add SendError to notify::Error and use try!(...)?
-        self.tx.send(Action::Watch(path.to_path_buf()));
+        self.tx.send(Action::Watch(path.as_ref().to_path_buf()));
         Ok(())
     }
 
-    fn unwatch(&mut self, path: &Path) -> Result<(), Error> {
+    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
         // TODO: Add SendError to notify::Error and use try!(...)?
-        self.tx.send(Action::Unwatch(path.to_path_buf()));
+        self.tx.send(Action::Unwatch(path.as_ref().to_path_buf()));
         Ok(())
     }
 }

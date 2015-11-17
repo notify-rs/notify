@@ -11,11 +11,11 @@ impl Watcher for NullWatcher {
     Ok(NullWatcher)
   }
 
-  fn watch(&mut self, path: &Path) -> Result<(), Error> {
+  fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
     Ok(())
   }
 
-  fn unwatch(&mut self, path: &Path) -> Result<(), Error> {
+  fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
     Ok(())
   }
 }
