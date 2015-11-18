@@ -1,9 +1,10 @@
 environment:
   matrix:
   - TARGET: x86_64-pc-windows-msvc
-  - TARGET: x86_64-pc-windows-gnu
   - TARGET: i686-pc-windows-msvc
-  - TARGET: i686-pc-windows-gnu
+  # skip the gnu targets to reduce build time
+  #- TARGET: x86_64-pc-windows-gnu
+  #- TARGET: i686-pc-windows-gnu
 install:
   - ps: Start-FileDownload "https://static.rust-lang.org/dist/rust-nightly-${env:TARGET}.exe"
   - rust-nightly-%TARGET%.exe /VERYSILENT /NORESTART /DIR="C:\Program Files (x86)\Rust"
