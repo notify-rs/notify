@@ -22,11 +22,17 @@ use super::{Event, Error, op, Op, Watcher};
 
 const BUF_SIZE: u32 = 16384;
 
+#[derive(Debug,Clone)]
+struct ReadData {
+    dir: PathBuf, // directory that is being watched
+    file: Option<PathBuf>, // if a file is being watched, this is its full path
+}
+
 struct ReadDirectoryRequest {
     tx: Sender<Event>,
     buffer: [u8; BUF_SIZE as usize],
     handle: HANDLE,
-    root: PathBuf
+    data: ReadData
 }
 
 enum Action {
@@ -88,7 +94,25 @@ impl ReadDirectoryChangesServer {
     }
 
     fn add_watch(&mut self, path: PathBuf) {
-        let encoded_path: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        // path must exist and be either a file or directory
+        if !path.is_dir() && !path.is_file() {
+            let _ = self.tx.send(Event {
+                path: Some(path),
+                op: Err(Error::Generic("Input watch path is neither a file nor a directory.".to_owned()))
+            });
+            return;
+        }
+
+        let (watching_file,dir_target) = {
+            if path.is_dir() {
+                (false,path.clone())
+            } else {
+                // emulate file watching by watching the parent directory
+                (true,path.parent().unwrap().to_path_buf())
+            }
+        };
+
+        let encoded_path: Vec<u16> = dir_target.as_os_str().encode_wide().chain(Some(0)).collect();
         let handle;
         unsafe {
             handle = kernel32::CreateFileW(
@@ -101,16 +125,30 @@ impl ReadDirectoryChangesServer {
                 ptr::null_mut());
 
             if handle == INVALID_HANDLE_VALUE {
+                let err = if watching_file {
+                    Err(Error::Generic("You attempted to watch a single file, but parent directory could not be opened.".to_owned()))
+                } else {
+                    // TODO: Call GetLastError for better error info?
+                    Err(Error::PathNotFound)
+                };
                 let _ = self.tx.send(Event {
                     path: None,
-                    // TODO: Call GetLastError for better error info?
-                    op: Err(Error::PathNotFound)
+                    op: err
                 });
                 return;
             }
         }
+        let wf = if watching_file {
+            Some(path.clone())
+        } else {
+            None
+        };
+        let rd = ReadData {
+            dir: dir_target,
+            file: wf
+        };
         self.watches.insert(path.clone(), handle);
-        start_read(&path, &self.tx, handle);
+        start_read(&rd, &self.tx, handle);
     }
 
     fn remove_watch(&mut self, path: PathBuf) {
@@ -128,12 +166,12 @@ unsafe fn close_handle(handle: HANDLE) {
     kernel32::CloseHandle(handle);
 }
 
-fn start_read(path: &PathBuf, tx: &Sender<Event>, handle: HANDLE) {
+fn start_read(rd: &ReadData, tx: &Sender<Event>, handle: HANDLE) {
     let mut request = Box::new(ReadDirectoryRequest {
         tx: tx.clone(),
         handle: handle,
         buffer: [0u8; BUF_SIZE as usize],
-        root: path.clone()
+        data: rd.clone()
     });
 
     let flags = winnt::FILE_NOTIFY_CHANGE_FILE_NAME
@@ -143,6 +181,12 @@ fn start_read(path: &PathBuf, tx: &Sender<Event>, handle: HANDLE) {
               | winnt::FILE_NOTIFY_CHANGE_LAST_WRITE
               | winnt::FILE_NOTIFY_CHANGE_CREATION
               | winnt::FILE_NOTIFY_CHANGE_SECURITY;
+
+    let monitor_subdir = if (&request.data.file).is_none() {
+      1
+    } else {
+      0
+    };
 
     unsafe {
         let mut overlapped: Box<OVERLAPPED> = Box::new(mem::zeroed());
@@ -159,7 +203,7 @@ fn start_read(path: &PathBuf, tx: &Sender<Event>, handle: HANDLE) {
             handle,
             req_buf,
             BUF_SIZE,
-            1,  // We do want to monitor subdirectories
+            monitor_subdir,
             flags,
             &mut 0u32 as *mut u32,  // This parameter is not used for async requests
             &mut *overlapped as *mut OVERLAPPED,
@@ -180,7 +224,7 @@ unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, ove
     }
 
     // Get the next request queued up as soon as possible
-    start_read(&request.root, &request.tx, request.handle);
+    start_read(&request.data, &request.tx, request.handle);
 
     // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length string
     // as its last member.  Each struct contains an offset for getting the next entry in the buffer
@@ -191,22 +235,31 @@ unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, ove
         let len = (*cur_entry).FileNameLength as usize / 2;
         let encoded_path: &[u16] = slice::from_raw_parts((*cur_entry).FileName.as_ptr(), len);
         // prepend root to get a full path
-        let path = request.root.join(PathBuf::from(OsString::from_wide(encoded_path)));
+        let path = request.data.dir.join(PathBuf::from(OsString::from_wide(encoded_path)));
 
-        let op = match (*cur_entry).Action {
-            winnt::FILE_ACTION_ADDED => op::CREATE,
-            winnt::FILE_ACTION_REMOVED => op::REMOVE,
-            winnt::FILE_ACTION_MODIFIED => op::WRITE,
-            winnt::FILE_ACTION_RENAMED_OLD_NAME | winnt::FILE_ACTION_RENAMED_NEW_NAME => op::RENAME,
-            _ => Op::empty()
+        // if we are watching a single file, ignore the event unless the path is exactly
+        // the watched file
+        let skip = match request.data.file {
+            None => false,
+            Some(ref watch_path) => *watch_path != path
         };
 
+        if !skip {
+            let op = match (*cur_entry).Action {
+                winnt::FILE_ACTION_ADDED => op::CREATE,
+                winnt::FILE_ACTION_REMOVED => op::REMOVE,
+                winnt::FILE_ACTION_MODIFIED => op::WRITE,
+                winnt::FILE_ACTION_RENAMED_OLD_NAME | winnt::FILE_ACTION_RENAMED_NEW_NAME => op::RENAME,
+                _ => Op::empty()
+            };
 
-        let evt = Event {
-            path: Some(path),
-            op: Ok(op)
-        };
-        let _ = request.tx.send(evt);
+
+            let evt = Event {
+                path: Some(path),
+                op: Ok(op)
+            };
+            let _ = request.tx.send(evt);
+        }
 
         if (*cur_entry).NextEntryOffset == 0 {
             break;
@@ -230,6 +283,12 @@ impl Watcher for ReadDirectoryChangesWatcher {
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+        // path must exist and be either a file or directory
+        let pb = path.as_ref().to_path_buf();
+        if !pb.is_dir() && !pb.is_file() {
+            return Err(Error::Generic("Input watch path is neither a file nor a directory.".to_owned()));
+        }
+
         self.tx.send(Action::Watch(path.as_ref().to_path_buf()))
             .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()))
     }
