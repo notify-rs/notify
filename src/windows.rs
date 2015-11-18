@@ -94,7 +94,7 @@ impl ReadDirectoryChangesServer {
             handle = kernel32::CreateFileW(
                 encoded_path.as_ptr(),
                 winnt::FILE_LIST_DIRECTORY,
-                winnt::FILE_SHARE_READ | winnt::FILE_SHARE_DELETE,
+                winnt::FILE_SHARE_READ | winnt::FILE_SHARE_DELETE | winnt::FILE_SHARE_WRITE,
                 ptr::null_mut(),
                 fileapi::OPEN_EXISTING,
                 winbase::FILE_FLAG_BACKUP_SEMANTICS | winbase::FILE_FLAG_OVERLAPPED,
