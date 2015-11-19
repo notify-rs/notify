@@ -13,6 +13,7 @@ authors = [
   "Francisco Giordano <frangio.1@gmail.com>",
   "Jake Kerr",
   "Ty Overby <ty@pre-alpha.com>",
+  "John Quigley <veggieburritox@gmail.com>"
 ]
 
 description = "Cross-platform filesystem notification library"
