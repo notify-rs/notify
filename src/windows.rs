@@ -273,9 +273,9 @@ impl Watcher for ReadDirectoryChangesWatcher {
     fn new(event_tx: Sender<Event>) -> Result<ReadDirectoryChangesWatcher, Error> {
         let action_tx = ReadDirectoryChangesServer::start(event_tx);
 
-        return Ok(ReadDirectoryChangesWatcher {
+        Ok(ReadDirectoryChangesWatcher {
             tx: action_tx
-        });
+        })
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
