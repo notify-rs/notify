@@ -73,6 +73,11 @@ impl ReadDirectoryChangesServer {
                                 close_handle(*handle);
                             }
                         }
+                        // wait for final read callback.  required to avoid leaking callback
+                        // memory
+                        unsafe {
+                            kernel32::SleepEx(500, 1);
+                        }
                         break;
                     }
                 }
@@ -215,7 +220,8 @@ unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, ove
     let request: Box<ReadDirectoryRequest> = mem::transmute(overlapped.hEvent);
 
     if error_code == ERROR_OPERATION_ABORTED {
-        // We receive this error when the directory for this request is unwatched?
+        // received when dir is unwatched or watcher is shutdown; return and let overlapped/request
+        // get drop-cleaned
         return;
     }
 
