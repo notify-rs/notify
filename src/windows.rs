@@ -18,10 +18,11 @@ use super::{Event, Error, op, Op, Watcher};
 
 const BUF_SIZE: u32 = 16384;
 
-#[derive(Debug,Clone)]
+#[derive(Clone)]
 struct ReadData {
     dir: PathBuf, // directory that is being watched
     file: Option<PathBuf>, // if a file is being watched, this is its full path
+    meta_tx: Sender<MetaEvent>,
 }
 
 struct ReadDirectoryRequest {
@@ -37,19 +38,25 @@ enum Action {
     Stop
 }
 
+pub enum MetaEvent {
+    WatcherComplete
+}
+
 struct ReadDirectoryChangesServer {
     rx: Receiver<Action>,
     tx: Sender<Event>,
+    meta_tx: Sender<MetaEvent>,
     watches: HashMap<PathBuf, HANDLE>
 }
 
 impl ReadDirectoryChangesServer {
-    fn start(event_tx: Sender<Event>) -> Sender<Action> {
+    fn start(event_tx: Sender<Event>, meta_tx: Sender<MetaEvent>) -> Sender<Action> {
         let (action_tx, action_rx) = channel();
         thread::spawn(move || {
             let server = ReadDirectoryChangesServer {
                 tx: event_tx,
                 rx: action_rx,
+                meta_tx: meta_tx,
                 watches: HashMap::new()
             };
             server.run();
@@ -146,7 +153,8 @@ impl ReadDirectoryChangesServer {
         };
         let rd = ReadData {
             dir: dir_target,
-            file: wf
+            file: wf,
+            meta_tx: self.meta_tx.clone(),
         };
         self.watches.insert(path.clone(), handle);
         start_read(&rd, &self.tx, handle);
@@ -220,6 +228,7 @@ unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, ove
     let request: Box<ReadDirectoryRequest> = mem::transmute(overlapped.hEvent);
 
     if error_code == ERROR_OPERATION_ABORTED {
+        let _ = request.data.meta_tx.send(MetaEvent::WatcherComplete);
         // received when dir is unwatched or watcher is shutdown; return and let overlapped/request
         // get drop-cleaned
         return;
@@ -275,13 +284,22 @@ pub struct ReadDirectoryChangesWatcher {
     tx: Sender<Action>
 }
 
+impl ReadDirectoryChangesWatcher {
+   pub fn create(event_tx: Sender<Event>, meta_tx: Sender<MetaEvent>) ->
+       Result<ReadDirectoryChangesWatcher, Error> {
+       let action_tx = ReadDirectoryChangesServer::start(event_tx,meta_tx);
+
+       Ok(ReadDirectoryChangesWatcher {
+           tx: action_tx
+       })
+   }
+}
+
 impl Watcher for ReadDirectoryChangesWatcher {
     fn new(event_tx: Sender<Event>) -> Result<ReadDirectoryChangesWatcher, Error> {
-        let action_tx = ReadDirectoryChangesServer::start(event_tx);
-
-        Ok(ReadDirectoryChangesWatcher {
-            tx: action_tx
-        })
+        // create dummy channel for meta event
+        let (tx, _) = channel();
+        ReadDirectoryChangesWatcher::create(event_tx, tx)
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
