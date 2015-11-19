@@ -1,11 +1,7 @@
-extern crate libc;
 extern crate kernel32;
-extern crate winapi;
 
-use winapi::{HANDLE, INVALID_HANDLE_VALUE, fileapi, winbase, winnt};
-use winapi::minwinbase::{OVERLAPPED, LPOVERLAPPED};
-use winapi::winerror::ERROR_OPERATION_ABORTED;
-use winapi::winnt::FILE_NOTIFY_INFORMATION;
+use winapi::{OVERLAPPED, LPOVERLAPPED, HANDLE, INVALID_HANDLE_VALUE,
+    ERROR_OPERATION_ABORTED, FILE_NOTIFY_INFORMATION, fileapi, winbase, winnt};
 
 use std::collections::HashMap;
 use std::mem;
