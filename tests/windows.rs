@@ -3,50 +3,85 @@ extern crate tempdir;
 extern crate tempfile;
 extern crate time;
 
-
 use notify::*;
-use std::io::Write;
-use std::path::{Path, PathBuf};
 use std::thread;
-use std::sync::mpsc::{channel, Sender, Receiver};
+use std::sync::mpsc::{channel, Receiver};
 use tempdir::TempDir;
-use tempfile::NamedTempFile;
 
+fn check_for_error(rx:&Receiver<notify::Event>) {
+    while let Ok(res) = rx.try_recv() {
+        match res.op {
+            Err(e) => panic!("unexpected err: {:?}: {:?}", e, res.path),
+            _ => ()
+        }
+    };
+}
 #[cfg(target_os="windows")]
 #[test]
 fn shutdown() {
     // create a watcher for n directories.  start the watcher, then shut it down.  inspect
     // the watcher to make sure that it received final callbacks for all n watchers.
-
-    let mut dirs:Vec<tempdir::TempDir> = Vec::new();
     let dir_count = 100;
 
     // to get meta events, we have to pass in the meta channel
     let (meta_tx,meta_rx) = channel();
-
+    let (tx, rx) = channel();
     {
-        let (tx, _) = channel();
+        let mut dirs:Vec<tempdir::TempDir> = Vec::new();
         let mut w = ReadDirectoryChangesWatcher::create(tx,meta_tx).unwrap();
 
         for _ in 0..dir_count {
-            let d = TempDir::new("d").unwrap();
-            //println!("{:?}", d.path());
-            w.watch(d.path()).unwrap();
+            let d = TempDir::new("rsnotifytest").unwrap();
             dirs.push(d);
         }
+
+        for d in &dirs { // need the ref, otherwise its a move and the dir will be dropped!
+            //println!("{:?}", d.path());
+            w.watch(d.path()).unwrap();
+        }
+
+        thread::sleep_ms(2000); // give watcher time to watch paths before we drop it
+
+        // unwatch half of the directories, let the others get stopped when we go out of scope
+        for d in &dirs[0..dir_count/2] {
+            w.unwatch(d.path()).unwrap();
+        }
+
+        thread::sleep_ms(2000); // sleep to unhook the watches
     }
 
-    const TIMEOUT_S: f64 = 4.0;
+    check_for_error(&rx);
+
+    const TIMEOUT_S: f64 = 60.0;  // give it PLENTY of time before we declare failure
     let deadline = time::precise_time_s() + TIMEOUT_S;
     let mut watchers_shutdown = 0;
-    while time::precise_time_s() < deadline {
+    while watchers_shutdown != dir_count && time::precise_time_s() < deadline {
         if let Ok(actual) = meta_rx.try_recv() {
             match actual {
-                WatcherComplete => watchers_shutdown += 1
+                notify::windows::MetaEvent::SingleWatchComplete => watchers_shutdown += 1
             }
         }
-        thread::sleep_ms(50);
+        thread::sleep_ms(50); // don't burn cpu, can take some time for completion events to fire
     }
 
     assert_eq!(watchers_shutdown,dir_count);
+}
+
+#[cfg(target_os="windows")]
+#[test]
+#[ignore]
+// repeatedly watch and unwatch a directory; make sure process memory does not increase.
+// you use task manager to watch the memory; it will fluctuate a bit, but should not leak overall
+fn memtest_manual() {
+    loop {
+        let (tx, rx) = channel();
+        let d = TempDir::new("rsnotifytest").unwrap();
+        {
+            let (meta_tx,_) = channel();
+            let mut w = ReadDirectoryChangesWatcher::create(tx,meta_tx).unwrap();
+            w.watch(d.path()).unwrap();
+            thread::sleep_ms(1); // this should make us run pretty hot but not insane
+        }
+        check_for_error(&rx);
+    }
 }
