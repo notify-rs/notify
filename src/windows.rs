@@ -215,9 +215,8 @@ fn start_read(rd: &ReadData, tx: &Sender<Event>, handle: HANDLE) {
 }
 
 unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, overlapped: LPOVERLAPPED) {
-    // TODO: Use Box::from_raw when it is no longer unstable
-    let overlapped: Box<OVERLAPPED> = mem::transmute(overlapped);
-    let request: Box<ReadDirectoryRequest> = mem::transmute(overlapped.hEvent);
+    let overlapped: Box<OVERLAPPED> = Box::from_raw(overlapped);
+    let request: Box<ReadDirectoryRequest> = Box::from_raw(overlapped.hEvent as *mut _);
 
     if error_code == ERROR_OPERATION_ABORTED {
         // received when dir is unwatched or watcher is shutdown; return and let overlapped/request
