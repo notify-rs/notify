@@ -107,6 +107,7 @@ fn validate_watch_single_file<F, W>(ctor: F) where
       // them all in the same directory.
       let mut excluded_file = NamedTempFile::new().unwrap();
       let another_excluded_file = NamedTempFile::new().unwrap();
+      let _ = another_excluded_file; // eliminate warning
       excluded_file.write_all(b"shouldn't get an event for this").unwrap();
 
       file.write_all(b"foo").unwrap();
@@ -150,7 +151,7 @@ fn validate_watch_dir<F, W>(ctor: F) where
   w.watch(dir.path()).unwrap();
   // Windows needs some time for thread spinup before we start creating files.
   if cfg!(target_os = "windows") {
-      thread::sleep_ms(5);
+      thread::sleep_ms(250);
   }
 
   let f111 = NamedTempFile::new_in(dir11.path()).unwrap();
