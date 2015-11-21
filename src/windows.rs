@@ -186,9 +186,9 @@ impl ReadDirectoryChangesServer {
     fn remove_watch(&mut self, path: PathBuf) {
         if let Some(ws) = self.watches.remove(&path) {
             stop_watch(&ws, &self.meta_tx);
-            }
         }
     }
+}
 
 fn stop_watch(ws:&WatchState,meta_tx: &Sender<MetaEvent>) {
     unsafe {
