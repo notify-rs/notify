@@ -149,10 +149,6 @@ fn validate_watch_dir<F, W>(ctor: F) where
   let mut w = ctor(tx).unwrap();
 
   w.watch(dir.path()).unwrap();
-  // Windows needs some time for thread spinup before we start creating files.
-  if cfg!(target_os = "windows") {
-      thread::sleep_ms(250);
-  }
 
   let f111 = NamedTempFile::new_in(dir11.path()).unwrap();
   let f111_path = f111.path().to_owned();

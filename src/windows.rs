@@ -1,6 +1,6 @@
 extern crate kernel32;
 
-use winapi::{OVERLAPPED, LPOVERLAPPED, HANDLE, INVALID_HANDLE_VALUE, INFINITE, TRUE,
+use winapi::{OVERLAPPED, LPOVERLAPPED, HANDLE, INVALID_HANDLE_VALUE, INFINITE, TRUE, WAIT_OBJECT_0,
     ERROR_OPERATION_ABORTED, FILE_NOTIFY_INFORMATION, fileapi, winbase, winnt};
 
 use std::collections::HashMap;
@@ -39,7 +39,8 @@ enum Action {
 }
 
 pub enum MetaEvent {
-    SingleWatchComplete
+    SingleWatchComplete,
+    WatcherAwakened
 }
 
 struct WatchState {
@@ -51,18 +52,26 @@ struct ReadDirectoryChangesServer {
     rx: Receiver<Action>,
     tx: Sender<Event>,
     meta_tx: Sender<MetaEvent>,
-    watches: HashMap<PathBuf, WatchState>
+    cmd_tx: Sender<Result<PathBuf,Error>>,
+    watches: HashMap<PathBuf, WatchState>,
+    wakeup_sem: HANDLE
 }
 
 impl ReadDirectoryChangesServer {
-    fn start(event_tx: Sender<Event>, meta_tx: Sender<MetaEvent>) -> Sender<Action> {
+    fn start(event_tx: Sender<Event>, meta_tx: Sender<MetaEvent>, cmd_tx:Sender<Result<PathBuf,Error>>, wakeup_sem: HANDLE) -> Sender<Action> {
+
         let (action_tx, action_rx) = channel();
+        // it is, in fact, ok to send the semaphore across threads
+        let sem_temp = wakeup_sem as u64;
         thread::spawn(move || {
+            let wakeup_sem = sem_temp as HANDLE;
             let server = ReadDirectoryChangesServer {
                 tx: event_tx,
                 rx: action_rx,
                 meta_tx: meta_tx,
-                watches: HashMap::new()
+                cmd_tx: cmd_tx,
+                watches: HashMap::new(),
+                wakeup_sem: wakeup_sem
             };
             server.run();
         });
@@ -76,7 +85,10 @@ impl ReadDirectoryChangesServer {
 
             while let Ok(action) = self.rx.try_recv() {
                 match action {
-                    Action::Watch(path) => self.add_watch(path),
+                    Action::Watch(path) => {
+                        let res = self.add_watch(path);
+                        let _ = self.cmd_tx.send(res);
+                    },
                     Action::Unwatch(path) => self.remove_watch(path),
                     Action::Stop => {
                         stopped = true;
@@ -92,21 +104,25 @@ impl ReadDirectoryChangesServer {
                 break;
             }
 
-            // call sleepex with alertable flag so that our completion routine fires
             unsafe {
-                kernel32::SleepEx(500, 1);
+                // wait with alertable flag so that the completion routine fires
+                let waitres = kernel32::WaitForSingleObjectEx(self.wakeup_sem, 500, TRUE);
+                if waitres == WAIT_OBJECT_0 {
+                    let _ = self.meta_tx.send(MetaEvent::WatcherAwakened);
+                }
             }
+        }
+
+        // we have to clean this up, since the watcher may be long gone
+        unsafe {
+            kernel32::CloseHandle(self.wakeup_sem);
         }
     }
 
-    fn add_watch(&mut self, path: PathBuf) {
+    fn add_watch(&mut self, path: PathBuf) -> Result<PathBuf,Error> {
         // path must exist and be either a file or directory
         if !path.is_dir() && !path.is_file() {
-            let _ = self.tx.send(Event {
-                path: Some(path),
-                op: Err(Error::Generic("Input watch path is neither a file nor a directory.".to_owned()))
-            });
-            return;
+            return Err(Error::Generic("Input watch path is neither a file nor a directory.".to_owned()));
         }
 
         let (watching_file,dir_target) = {
@@ -137,11 +153,7 @@ impl ReadDirectoryChangesServer {
                     // TODO: Call GetLastError for better error info?
                     Err(Error::PathNotFound)
                 };
-                let _ = self.tx.send(Event {
-                    path: None,
-                    op: err
-                });
-                return;
+                return err;
             }
         }
         let wf = if watching_file {
@@ -155,11 +167,7 @@ impl ReadDirectoryChangesServer {
         };
         if semaphore == ptr::null_mut() || semaphore == INVALID_HANDLE_VALUE {
             unsafe { kernel32::CloseHandle(handle); }
-            let _ = self.tx.send(Event {
-                path: Some(path),
-                op: Err(Error::Generic("Failed to create semaphore for watch.".to_owned()))
-            });
-            return;
+            return Err(Error::Generic("Failed to create semaphore for watch.".to_owned()));
         }
         let rd = ReadData {
             dir: dir_target,
@@ -172,6 +180,7 @@ impl ReadDirectoryChangesServer {
         };
         self.watches.insert(path.clone(), ws);
         start_read(&rd, &self.tx, handle);
+        Ok(path.to_path_buf())
     }
 
     fn remove_watch(&mut self, path: PathBuf) {
@@ -188,7 +197,7 @@ fn stop_watch(ws:&WatchState,meta_tx: &Sender<MetaEvent>) {
         // have to wait for it, otherwise we leak the memory allocated for there read request
         if cio != 0 && ch != 0 {
             kernel32::WaitForSingleObjectEx(ws.complete_sem, INFINITE, TRUE);
-}
+        }
         kernel32::CloseHandle(ws.complete_sem);
 
     }
@@ -223,7 +232,7 @@ fn start_read(rd: &ReadData, tx: &Sender<Event>, handle: HANDLE) {
         // for our own purposes
 
         let req_buf = request.buffer.as_mut_ptr() as *mut c_void;
-        let request_p: *mut c_void = mem::transmute(request);
+        let request_p = Box::into_raw(request) as *mut c_void;
         overlapped.hEvent = request_p;
 
         // This is using an asynchronous call with a completion routine for receiving notifications
@@ -246,9 +255,9 @@ fn start_read(rd: &ReadData, tx: &Sender<Event>, handle: HANDLE) {
             kernel32::ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
         } else {
             // read ok. forget overlapped to let the completion routine handle memory
-        mem::forget(overlapped);
+            mem::forget(overlapped);
+        }
     }
-}
 }
 
 unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, overlapped: LPOVERLAPPED) {
@@ -309,25 +318,70 @@ unsafe extern "system" fn handle_event(error_code: u32, _bytes_written: u32, ove
 }
 
 pub struct ReadDirectoryChangesWatcher {
-    tx: Sender<Action>
+    tx: Sender<Action>,
+    cmd_rx: Receiver<Result<PathBuf,Error>>,
+    wakeup_sem: HANDLE
 }
 
 impl ReadDirectoryChangesWatcher {
-   pub fn create(event_tx: Sender<Event>, meta_tx: Sender<MetaEvent>) ->
-       Result<ReadDirectoryChangesWatcher, Error> {
-       let action_tx = ReadDirectoryChangesServer::start(event_tx,meta_tx);
+   pub fn create(event_tx: Sender<Event>, meta_tx: Sender<MetaEvent>) -> Result<ReadDirectoryChangesWatcher, Error> {
+       let (cmd_tx, cmd_rx) = channel();
+
+       let wakeup_sem = unsafe {
+           kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut())
+       };
+       if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
+           return Err(Error::Generic("Failed to create wakeup semaphore.".to_owned()));
+       }
+
+       let action_tx = ReadDirectoryChangesServer::start(event_tx,meta_tx,cmd_tx,wakeup_sem);
 
        Ok(ReadDirectoryChangesWatcher {
-           tx: action_tx
+           tx: action_tx,
+           cmd_rx: cmd_rx,
+           wakeup_sem: wakeup_sem
        })
+   }
+
+   fn wakeup_server(&mut self) {
+       // breaks the server out of its wait state.  right now this is really just an optimization,
+       // so that if you add a watch you don't block for 500ms in watch() while the
+       // server sleeps.
+       unsafe { kernel32::ReleaseSemaphore(self.wakeup_sem, 1, ptr::null_mut()); }
+   }
+
+   fn send_action_require_ack(&mut self, action:Action, pb:&PathBuf) -> Result<(), Error> {
+       match self.tx.send(action) {
+           Err(_) => Err(Error::Generic("Error sending to internal channel".to_owned())),
+           Ok(_) => {
+               // wake 'em up, we don't want to wait around for the ack
+               self.wakeup_server();
+
+               match self.cmd_rx.recv() {
+                   Err(_) => Err(Error::Generic("Error receiving from command channel".to_owned())),
+                   Ok(ack_res) => {
+                       match ack_res {
+                           Err(e) => Err(Error::Generic(format!("Error in watcher: {:?}", e))),
+                           Ok(ack_pb) => {
+                               if pb.as_path() != ack_pb.as_path() {
+                                   Err(Error::Generic(format!("Expected ack for {:?} but got ack for {:?}", pb, ack_pb)))
+                               } else {
+                                   Ok(())
+                               }
+                           }
+                       }
+                   }
+               }
+           }
+       }
    }
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
     fn new(event_tx: Sender<Event>) -> Result<ReadDirectoryChangesWatcher, Error> {
         // create dummy channel for meta event
-        let (tx, _) = channel();
-        ReadDirectoryChangesWatcher::create(event_tx, tx)
+        let (meta_tx, _) = channel();
+        ReadDirectoryChangesWatcher::create(event_tx, meta_tx)
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
@@ -336,19 +390,21 @@ impl Watcher for ReadDirectoryChangesWatcher {
         if !pb.is_dir() && !pb.is_file() {
             return Err(Error::Generic("Input watch path is neither a file nor a directory.".to_owned()));
         }
-
-        self.tx.send(Action::Watch(path.as_ref().to_path_buf()))
-            .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()))
+        self.send_action_require_ack(Action::Watch(path.as_ref().to_path_buf()), &pb)
     }
 
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
-        self.tx.send(Action::Unwatch(path.as_ref().to_path_buf()))
-            .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()))
+        let res = self.tx.send(Action::Unwatch(path.as_ref().to_path_buf()))
+            .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()));
+        self.wakeup_server();
+        res
     }
 }
 
 impl Drop for ReadDirectoryChangesWatcher {
     fn drop(&mut self) {
         let _ = self.tx.send(Action::Stop);
+        // better wake it up
+        self.wakeup_server();
     }
 }
