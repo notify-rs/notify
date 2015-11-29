@@ -2,9 +2,9 @@
 
 [![Crate version](https://img.shields.io/crates/v/notify.svg?style=flat-square)](https://crates.io/crates/notify)
 [![Crate license](https://img.shields.io/crates/l/notify.svg?style=flat-square)](https://creativecommons.org/publicdomain/zero/1.0/)
-![Crate download count](https://img.shields.io/crates/d/notify.svg?style=flat-square)  
+![Crate download count](https://img.shields.io/crates/d/notify.svg?style=flat-square)
 [![Appveyor](https://img.shields.io/appveyor/ci/passcod/rsnotify.svg?style=flat-square)](https://ci.appveyor.com/project/passcod/rsnotify) <sup>(Windows)</sup>
-[![Travis](https://img.shields.io/travis/passcod/rsnotify.svg?style=flat-square)](https://travis-ci.org/passcod/rsnotify) <sup>(Linux and OS X)</sup>  
+[![Travis](https://img.shields.io/travis/passcod/rsnotify.svg?style=flat-square)](https://travis-ci.org/passcod/rsnotify) <sup>(Linux and OS X)</sup>
 [![Code of Conduct](https://img.shields.io/badge/contributor-covenant-123456.svg?style=flat-square)](http://contributor-covenant.org/version/1/1/0/)
 
 
@@ -14,7 +14,7 @@ _Cross-platform filesystem notification library for Rust._
 
 ```toml
 [dependencies]
-notify = "^2.4.1"
+notify = "^2.5.0"
 ```
 
 ## Usage
@@ -54,11 +54,11 @@ fn main() {
 
 - Linux / Android: inotify
 - OS X: FSEvent
+- Windows: ReadDirectoryChangesW
 - All platforms: polling
 
 ### Todo
 
-- Windows: ReadDirectoryChangesW (see [#4](https://github.com/passcod/rsnotify/issues/4))
 - BSD / OS X / iOS: kqueue
 - Solaris 11: FEN
 
