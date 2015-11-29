@@ -3,8 +3,10 @@
 [![Crate version](https://img.shields.io/crates/v/notify.svg?style=flat-square)](https://crates.io/crates/notify)
 [![Crate license](https://img.shields.io/crates/l/notify.svg?style=flat-square)](https://creativecommons.org/publicdomain/zero/1.0/)
 ![Crate download count](https://img.shields.io/crates/d/notify.svg?style=flat-square)
+
 [![Appveyor](https://img.shields.io/appveyor/ci/passcod/rsnotify.svg?style=flat-square)](https://ci.appveyor.com/project/passcod/rsnotify) <sup>(Windows)</sup>
 [![Travis](https://img.shields.io/travis/passcod/rsnotify.svg?style=flat-square)](https://travis-ci.org/passcod/rsnotify) <sup>(Linux and OS X)</sup>
+
 [![Code of Conduct](https://img.shields.io/badge/contributor-covenant-123456.svg?style=flat-square)](http://contributor-covenant.org/version/1/1/0/)
 
 
