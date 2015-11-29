@@ -1,5 +1,6 @@
 #[macro_use] extern crate log;
 #[macro_use] extern crate bitflags;
+#[cfg(target_os="linux")] extern crate mio;
 #[cfg(target_os="macos")] extern crate fsevent_sys;
 #[cfg(target_os="windows")] extern crate winapi;
 extern crate libc;
