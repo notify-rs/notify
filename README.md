@@ -7,7 +7,7 @@
 [![Appveyor](https://img.shields.io/appveyor/ci/passcod/rsnotify.svg?style=flat-square)](https://ci.appveyor.com/project/passcod/rsnotify) <sup>(Windows)</sup>
 [![Travis](https://img.shields.io/travis/passcod/rsnotify.svg?style=flat-square)](https://travis-ci.org/passcod/rsnotify) <sup>(Linux and OS X)</sup>
 
-[![Code of Conduct](https://img.shields.io/badge/contributor-covenant-123456.svg?style=flat-square)](http://contributor-covenant.org/version/1/1/0/)
+[![Code of Conduct](https://img.shields.io/badge/contributor-covenant-123456.svg?style=flat-square)](http://contributor-covenant.org/version/1/3/0/)
 
 
 _Cross-platform filesystem notification library for Rust._
