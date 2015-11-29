@@ -53,31 +53,77 @@ fn resolve_path(path: &Path) -> PathBuf {
     PathBuf::from(p)
 }
 
-fn validate_recv(rx: Receiver<Event>, evs: Vec<(&Path, Op)>) {
+fn validate_recv(rx: Receiver<Event>, evs: Vec<(&Path, Op)>) -> Vec<Event> {
   let deadline = time::precise_time_s() + TIMEOUT_S;
   let mut evs = evs.clone();
+
+  let mut received_events:Vec<Event> = Vec::new();
 
   while time::precise_time_s() < deadline {
     if let Ok(actual) = rx.try_recv() {
       let path = actual.path.clone().unwrap();
-      let op = actual.op.unwrap().clone();
-      let mut removables = vec!();
-      for i in (0..evs.len()) {
-        let expected = evs.get(i).unwrap();
-        if path.clone().as_path() == expected.0 && op.contains(expected.1) {
-            removables.push(i);
+      match actual.op {
+        Err(e) => panic!("unexpected err: {:?}", e),
+        Ok(op) => {
+          let mut removables = vec!();
+          for i in (0..evs.len()) {
+            let expected = evs.get(i).unwrap();
+            if path.clone().as_path() == expected.0 && op.contains(expected.1) {
+              removables.push(i);
+            }
+          }
+          for removable in removables {
+            evs.remove(removable);
+          }
         }
       }
-      for removable in removables {
-        evs.remove(removable);
-      }
+
+      received_events.push(actual);
     }
     if evs.is_empty() { break; }
   }
   assert!(evs.is_empty(),
     "Some expected events did not occur before the test timedout:\n\t\t{:?}", evs);
+
+  received_events
 }
 
+#[cfg(target_os = "windows")]
+// Windows needs to test this differently since it can't watch files that don't exist yet.
+fn validate_watch_single_file<F, W>(ctor: F) where
+  F: Fn(Sender<Event>) -> Result<W, Error>, W: Watcher {
+
+  let (tx, rx) = channel();
+  let mut w = ctor(tx).unwrap();
+
+  // While the file is open, windows won't report modified events for it.
+  // Flushing doesn't help.  So make sure it is closed before we validate.
+  let path = {
+      let mut file = NamedTempFile::new().unwrap();
+      w.watch(file.path()).unwrap();
+      thread::sleep_ms(1000); // give watcher enough time to spin up
+
+      // make some files that should be exlcuded from watch. this works because tempfile creates
+      // them all in the same directory.
+      let mut excluded_file = NamedTempFile::new().unwrap();
+      let another_excluded_file = NamedTempFile::new().unwrap();
+      let _ = another_excluded_file; // eliminate warning
+      excluded_file.write_all(b"shouldn't get an event for this").unwrap();
+
+      file.write_all(b"foo").unwrap();
+      file.flush().unwrap();
+      file.path().to_path_buf()
+  };
+  let events = validate_recv(rx, vec![(path.as_path(), op::WRITE),
+                                      (path.as_path(), op::REMOVE)]);
+
+  // make sure that ONLY the target path is in the list of received events
+  for evt in events {
+      assert!(evt.path.unwrap() == path.as_path());
+  }
+}
+
+#[cfg(not(target_os = "windows"))]
 fn validate_watch_single_file<F, W>(ctor: F) where
   F: Fn(Sender<Event>) -> Result<W, Error>, W: Watcher {
   let mut file = NamedTempFile::new().unwrap();
@@ -103,6 +149,7 @@ fn validate_watch_dir<F, W>(ctor: F) where
   let mut w = ctor(tx).unwrap();
 
   w.watch(dir.path()).unwrap();
+
   let f111 = NamedTempFile::new_in(dir11.path()).unwrap();
   let f111_path = f111.path().to_owned();
   let f111_path = f111_path.as_path();
