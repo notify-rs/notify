@@ -40,6 +40,9 @@ walker = "^1.0.0"
 [target.x86_64-unknown-linux-gnu.dependencies.inotify]
 version = "^0.1"
 
+[target.x86_64-unknown-linux-musl.dependencies.inotify]
+version = "^0.1"
+
 [target.x86_64-apple-darwin.dependencies.fsevent]
 version = "^0.2.11"
 
