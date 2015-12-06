@@ -1,10 +1,10 @@
 extern crate inotify as inotify_sys;
 extern crate libc;
-extern crate walker;
+extern crate walkdir;
 
 use mio::{self, EventLoop};
 use self::inotify_sys::wrapper::{self, INotify, Watch};
-use self::walker::Walker;
+use self::walkdir::WalkDir;
 use std::collections::HashMap;
 use std::fs::metadata;
 use std::path::{Path, PathBuf};
@@ -83,29 +83,20 @@ impl mio::Handler for INotifyHandler {
 
 impl INotifyHandler {
   fn add_watch_recursively(&mut self, path: PathBuf) -> Result<(), Error> {
-    let is_dir = match metadata(path.as_ref() as &Path) {
-      Ok(m)  => m.is_dir(),
+    match metadata(&path) {
       Err(e) => return Err(Error::Io(e)),
-    };
-    if is_dir {
-      match Walker::new(path.as_ref()) {
-        Ok(dir) => {
-          for entry in dir {
-            match entry {
-              Ok(entry) => {
-                let path = entry.path();
-                try!(self.add_watch(path));
-              },
-              Err(e) => return Err(Error::Io(e)),
-            }
-          }
-          self.add_watch(path)
-        },
-        Err(e) => Err(Error::Io(e))
+      Ok(m)  => match m.is_dir() {
+        false => return self.add_watch(path),
+        true => {}
       }
-    } else {
-      self.add_watch(path)
     }
+
+    for entry in WalkDir::new(path).follow_links(true)
+        .into_iter().filter_map(|e| e.ok()) {
+      try!(self.add_watch(entry.path().to_path_buf()));
+    }
+
+    Ok(())
   }
 
   fn add_watch(&mut self, path: PathBuf) -> Result<(), Error> {
