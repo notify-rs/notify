@@ -1,7 +1,10 @@
 environment:
   matrix:
   - TARGET: x86_64-pc-windows-msvc
+    VCVARS: "C:\\Program Files (x86)\\Microsoft Visual Studio 14.0\\VC\\bin\\amd64\\vcvars64.bat"
   - TARGET: i686-pc-windows-msvc
+    VCVARS: "C:\\Program Files (x86)\\Microsoft Visual Studio 14.0\\VC\\bin\\vcvars32.bat"
+
   # skip the gnu targets to reduce build time
   #- TARGET: x86_64-pc-windows-gnu
   #- TARGET: i686-pc-windows-gnu
@@ -16,4 +19,5 @@ install:
 build: false
 
 test_script:
+  - call "%VCVARS%"
   - cargo test --verbose
