@@ -5,11 +5,11 @@ use std::fs;
 use std::thread;
 use super::{Error, Event, op, Watcher};
 use std::path::{Path, PathBuf};
-use self::walker::Walker;
+use self::walkdir::WalkDir;
 
 use filetime::FileTime;
 
-extern crate walker;
+extern crate walkdir;
 
 pub struct PollWatcher {
   tx: Sender<Event>,
@@ -90,54 +90,31 @@ impl PollWatcher {
           }
 
           // TODO: more efficient implementation where the dir tree is cached?
-          match Walker::new(watch) {
-            Err(e) => {
-              let _ = tx.send(Event {
-                path: Some(watch.clone()),
-                op: Err(Error::Io(e))
-              });
-              continue
-            },
-            Ok(iter) => {
-              for entry in iter {
-                match entry {
-                  Ok(entry) => {
-                    let path = entry.path();
+          for entry in WalkDir::new(watch).follow_links(true)
+              .into_iter().filter_map(|e| e.ok()) {
+            let path = entry.path();
 
-                    match fs::metadata(&path) {
-                      Err(e) => {
-                        let _ = tx.send(Event {
-                          path: Some(path.clone()),
-                          op: Err(Error::Io(e))
-                        });
-                        continue
-                      },
-                      Ok(stat) => {
-                        let modified =
-                          FileTime::from_last_modification_time(&stat)
-                          .seconds();
-
-                        match mtimes.insert(path.clone(), modified) {
-                          None => continue, // First run
-                          Some(old) => {
-                            if modified > old {
-                              let _ = tx.send(Event {
-                                path: Some(path.clone()),
-                                op: Ok(op::WRITE)
-                              });
-                              continue
-                            }
-                          }
-                        }
-                      }
+            match fs::metadata(&path) {
+              Err(e) => {
+                let _ = tx.send(Event {
+                  path: Some(path.to_path_buf()),
+                  op: Err(Error::Io(e))
+                });
+                continue
+              },
+              Ok(stat) => {
+                let modified = FileTime::from_last_modification_time(&stat).seconds();
+                match mtimes.insert(path.clone().to_path_buf(), modified) {
+                  None => continue, // First run
+                  Some(old) => {
+                    if modified > old {
+                      let _ = tx.send(Event {
+                        path: Some(path.to_path_buf()),
+                        op: Ok(op::WRITE)
+                      });
+                      continue
                     }
-                  },
-                  Err(e) => {
-                    let _ = tx.send(Event {
-                      path: Some(watch.clone()),
-                      op: Err(Error::Io(e))
-                    });
-                  },
+                  }
                 }
               }
             }
