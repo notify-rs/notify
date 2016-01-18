@@ -104,7 +104,7 @@ impl INotifyHandler {
                      | flags::IN_CREATE
                      | flags::IN_DELETE
                      | flags::IN_DELETE_SELF
-                     | flags::IN_MODIFY
+                     | flags::IN_CLOSE_WRITE
                      | flags::IN_MOVED_FROM
                      | flags::IN_MOVED_TO
                      | flags::IN_MOVE_SELF;
@@ -155,7 +155,7 @@ fn handle_event(event: wrapper::Event, tx: &Sender<Event>, paths: &Arc<RwLock<Ha
   if event.is_delete_self() || event.is_delete() {
     o.insert(op::REMOVE);
   }
-  if event.is_modify() {
+  if event.is_close_write() {
     o.insert(op::WRITE);
   }
   if event.is_move_self() || event.is_moved_from() {
