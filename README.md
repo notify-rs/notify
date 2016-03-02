@@ -33,7 +33,7 @@ fn main() {
 
   // Automatically select the best implementation for your platform.
   // You can also access each implementation directly e.g. INotifyWatcher.
-  let mut w: Result<RecommendedWatcher, Error> = Watcher::new(tx);
+  let w: Result<RecommendedWatcher, Error> = Watcher::new(tx);
 
   match w {
     Ok(mut watcher) => {
@@ -47,7 +47,7 @@ fn main() {
         _ => println!("Recv.")
       }
     },
-    Err(e) => println!("Error")
+    Err(_) => println!("Error")
   }
 }
 ```
