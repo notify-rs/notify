@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::convert::AsRef;
 use std::fmt;
-// Permits retrieve err.description()
 use std::error::Error as StdError;
 
 #[cfg(target_os="macos")] pub use self::fsevent::FsEventWatcher;
