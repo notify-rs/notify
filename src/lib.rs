@@ -56,17 +56,17 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let error = String::from(match *self {
-            Error::PathNotFound => "No path was found.",
-            Error::WatchNotFound => "No watch was found.",
-            Error::NotImplemented => "Not implemented.",
-            Error::Generic(ref err) => err.as_ref(),
-            Error::Io(ref err) => err.description(),
-        });
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    let error = String::from(match *self {
+      Error::PathNotFound => "No path was found.",
+      Error::WatchNotFound => "No watch was found.",
+      Error::NotImplemented => "Not implemented.",
+      Error::Generic(ref err) => err.as_ref(),
+      Error::Io(ref err) => err.description(),
+    });
 
-        write!(f, "{}", error)
-    }
+    write!(f, "{}", error)
+  }
 }
 
 pub trait Watcher: Sized {
@@ -87,13 +87,17 @@ pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher, Error> {
 
 #[test]
 fn display_formatted_errors() {
-    let expected = "Some error";
-    assert_eq!(expected,
-               format!("{}", Error::Generic(String::from(expected))));
-    assert_eq!(
-        expected,
-        format!("{}",
-            Error::Io(io::Error::new(io::ErrorKind::Other, expected))
-            )
-        );
+  let expected = "Some error";
+
+  assert_eq!(
+    expected,
+    format!("{}", Error::Generic(String::from(expected)))
+  );
+
+  assert_eq!(
+    expected,
+    format!("{}",
+      Error::Io(io::Error::new(io::ErrorKind::Other, expected))
+    )
+  );
 }
