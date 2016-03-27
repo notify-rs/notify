@@ -11,6 +11,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::convert::AsRef;
+use std::fmt;
+use std::error::Error as StdError;
 
 #[cfg(target_os="macos")] pub use self::fsevent::FsEventWatcher;
 #[cfg(target_os="linux")] pub use self::inotify::INotifyWatcher;
@@ -53,6 +55,20 @@ pub enum Error {
   WatchNotFound,
 }
 
+impl fmt::Display for Error {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    let error = String::from(match *self {
+      Error::PathNotFound => "No path was found.",
+      Error::WatchNotFound => "No watch was found.",
+      Error::NotImplemented => "Not implemented.",
+      Error::Generic(ref err) => err.as_ref(),
+      Error::Io(ref err) => err.description(),
+    });
+
+    write!(f, "{}", error)
+  }
+}
+
 pub trait Watcher: Sized {
   fn new(Sender<Event>) -> Result<Self, Error>;
   fn watch<P: AsRef<Path>>(&mut self, P) -> Result<(), Error>;
@@ -66,4 +82,22 @@ pub trait Watcher: Sized {
 
 pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher, Error> {
   Watcher::new(tx)
+}
+
+
+#[test]
+fn display_formatted_errors() {
+  let expected = "Some error";
+
+  assert_eq!(
+    expected,
+    format!("{}", Error::Generic(String::from(expected)))
+  );
+
+  assert_eq!(
+    expected,
+    format!("{}",
+      Error::Io(io::Error::new(io::ErrorKind::Other, expected))
+    )
+  );
 }
