@@ -85,9 +85,8 @@ impl INotifyHandler {
   fn add_watch_recursively(&mut self, path: PathBuf) -> Result<(), Error> {
     match metadata(&path) {
       Err(e) => return Err(Error::Io(e)),
-      Ok(m)  => match m.is_dir() {
-        false => return self.add_watch(path),
-        true => {}
+      Ok(m)  => if !m.is_dir() {
+        return self.add_watch(path);
       }
     }
 
@@ -108,20 +107,17 @@ impl INotifyHandler {
                      | flags::IN_MOVED_FROM
                      | flags::IN_MOVED_TO
                      | flags::IN_MOVE_SELF;
-    match self.watches.get(&path) {
-      None => {},
-      Some(p) => {
-        watching.insert((&p.1).clone());
-        watching.insert(flags::IN_MASK_ADD);
-      }
+    if let Some(p) = self.watches.get(&path) {
+      watching.insert(p.1);
+      watching.insert(flags::IN_MASK_ADD);
     }
 
     match self.inotify.add_watch(&path, watching.bits()) {
-      Err(e) => return Err(Error::Io(e)),
+      Err(e) => Err(Error::Io(e)),
       Ok(w) => {
         watching.remove(flags::IN_MASK_ADD);
-        self.watches.insert(path.clone(), (w.clone(), watching));
-        (*self.paths).write().unwrap().insert(w.clone(), path);
+        self.watches.insert(path.clone(), (w, watching));
+        (*self.paths).write().unwrap().insert(w, path);
         Ok(())
       }
     }
@@ -131,13 +127,13 @@ impl INotifyHandler {
     match self.watches.remove(&path) {
       None => Err(Error::WatchNotFound),
       Some(p) => {
-        let w = &p.0;
-        match self.inotify.rm_watch(w.clone()) {
+        let w = p.0;
+        match self.inotify.rm_watch(w) {
           Err(e) => Err(Error::Io(e)),
           Ok(_) => {
             // Nothing depends on the value being gone
             // from here now that inotify isn't watching.
-            (*self.paths).write().unwrap().remove(w);
+            (*self.paths).write().unwrap().remove(&w);
             Ok(())
           }
         }
@@ -165,14 +161,13 @@ fn handle_event(event: wrapper::Event, tx: &Sender<Event>, paths: &Arc<RwLock<Ha
     o.insert(op::CHMOD);
   }
 
-  let path = match event.name.is_empty() {
-    true => {
-      match (*paths).read().unwrap().get(&event.wd) {
-        Some(p) => Some(p.clone()),
-        None => None
-      }
-    },
-    false => paths.read().unwrap().get(&event.wd).map(|root| root.join(&event.name)),
+  let path = if event.name.is_empty() {
+    match (*paths).read().unwrap().get(&event.wd) {
+      Some(p) => Some(p.clone()),
+      None => None
+    }
+  } else {
+    paths.read().unwrap().get(&event.wd).map(|root| root.join(&event.name))
   };
 
   let _ = tx.send(Event {

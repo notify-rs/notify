@@ -5,6 +5,7 @@ use std::fs;
 use std::thread;
 use super::{Error, Event, op, Watcher};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use self::walkdir::WalkDir;
 
 use filetime::FileTime;
@@ -42,7 +43,7 @@ impl PollWatcher {
       let mut mtimes: HashMap<PathBuf, u64> = HashMap::new();
       loop {
         if delay != 0 {
-          thread::sleep_ms(delay);
+          thread::sleep(Duration::from_millis(delay as u64));
         }
         if !(*open.read().unwrap()) {
           break
@@ -104,7 +105,7 @@ impl PollWatcher {
               },
               Ok(stat) => {
                 let modified = FileTime::from_last_modification_time(&stat).seconds();
-                match mtimes.insert(path.clone().to_path_buf(), modified) {
+                match mtimes.insert(path.to_path_buf(), modified) {
                   None => continue, // First run
                   Some(old) => {
                     if modified > old {
