@@ -12,7 +12,9 @@ use std::path::Component;
 use std::fs::read_link;
 use std::path::{Path, PathBuf};
 use std::thread;
+use std::time::Duration;
 use std::sync::mpsc::{channel, Sender, Receiver};
+#[cfg(not(target_os="linux"))]
 use tempdir::TempDir;
 use tempfile::NamedTempFile;
 
@@ -66,7 +68,7 @@ fn validate_recv(rx: Receiver<Event>, evs: Vec<(&Path, Op)>) -> Vec<Event> {
         Err(e) => panic!("unexpected err: {:?}", e),
         Ok(op) => {
           let mut removables = vec!();
-          for i in (0..evs.len()) {
+          for i in 0..evs.len() {
             let expected = evs.get(i).unwrap();
             if path.clone().as_path() == expected.0 && op.contains(expected.1) {
               removables.push(i);
@@ -101,7 +103,7 @@ fn validate_watch_single_file<F, W>(ctor: F) where
   let path = {
       let mut file = NamedTempFile::new().unwrap();
       w.watch(file.path()).unwrap();
-      thread::sleep_ms(1000); // give watcher enough time to spin up
+      thread::sleep(Duration::from_millis(1000)); // give watcher enough time to spin up
 
       // make some files that should be exlcuded from watch. this works because tempfile creates
       // them all in the same directory.
@@ -130,13 +132,14 @@ fn validate_watch_single_file<F, W>(ctor: F) where
   let (tx, rx) = channel();
   let mut w = ctor(tx).unwrap();
   w.watch(file.path()).unwrap();
-  thread::sleep_ms(1000);
+  thread::sleep(Duration::from_millis(1000));
   file.write_all(b"foo").unwrap();
   file.flush().unwrap();
   validate_recv(rx, vec![(resolve_path(file.path()).as_path(), op::CREATE)]);
 }
 
 
+#[cfg(not(target_os = "linux"))]
 fn validate_watch_dir<F, W>(ctor: F) where
   F: Fn(Sender<Event>) -> Result<W, Error>, W: Watcher {
   let dir = TempDir::new("dir").unwrap();
@@ -145,7 +148,7 @@ fn validate_watch_dir<F, W>(ctor: F) where
   let dir11 = TempDir::new_in(dir1.path(), "dir11").unwrap();
   let (tx, rx) = channel();
   // OSX FsEvent needs some time to discard old events from its log.
-  thread::sleep_ms(12000);
+  thread::sleep(Duration::from_millis(12000));
   let mut w = ctor(tx).unwrap();
 
   w.watch(dir.path()).unwrap();
@@ -154,9 +157,9 @@ fn validate_watch_dir<F, W>(ctor: F) where
   let f111_path = f111.path().to_owned();
   let f111_path = f111_path.as_path();
   let f21 = NamedTempFile::new_in(dir2.path()).unwrap();
-  thread::sleep_ms(4000);
+  thread::sleep(Duration::from_millis(4000));
   f111.close().unwrap();
-  thread::sleep_ms(4000);
+  thread::sleep(Duration::from_millis(4000));
   validate_recv(rx, vec![(resolve_path(f111_path).as_path(), op::CREATE),
                          (resolve_path(f21.path()).as_path(), op::CREATE),
                          (resolve_path(f111_path).as_path(), op::REMOVE)]);
