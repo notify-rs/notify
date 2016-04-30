@@ -7,16 +7,15 @@ use super::{Error, Event, Watcher};
 pub struct NullWatcher;
 
 impl Watcher for NullWatcher {
-  fn new(tx: Sender<Event>) -> Result<NullWatcher, Error> {
-    Ok(NullWatcher)
-  }
+    fn new(tx: Sender<Event>) -> Result<NullWatcher, Error> {
+        Ok(NullWatcher)
+    }
 
-  fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
-    Ok(())
-  }
+    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+        Ok(())
+    }
 
-  fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
-    Ok(())
-  }
+    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+        Ok(())
+    }
 }
-

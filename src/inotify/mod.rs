@@ -20,218 +20,223 @@ const INOTIFY: mio::Token = mio::Token(0);
 pub struct INotifyWatcher(mio::Sender<EventLoopMsg>);
 
 struct INotifyHandler {
-  inotify: INotify,
-  tx: Sender<Event>,
-  watches: HashMap<PathBuf, (Watch, flags::Mask)>,
-  paths: Arc<RwLock<HashMap<Watch, PathBuf>>>
+    inotify: INotify,
+    tx: Sender<Event>,
+    watches: HashMap<PathBuf, (Watch, flags::Mask)>,
+    paths: Arc<RwLock<HashMap<Watch, PathBuf>>>,
 }
 
 enum EventLoopMsg {
-  AddWatch(PathBuf, Sender<Result<(), Error>>),
-  RemoveWatch(PathBuf, Sender<Result<(), Error>>),
-  Shutdown,
+    AddWatch(PathBuf, Sender<Result<(), Error>>),
+    RemoveWatch(PathBuf, Sender<Result<(), Error>>),
+    Shutdown,
 }
 
 impl mio::Handler for INotifyHandler {
-  type Timeout = ();
-  type Message = EventLoopMsg;
+    type Timeout = ();
+    type Message = EventLoopMsg;
 
-  fn ready(&mut self, _event_loop: &mut EventLoop<INotifyHandler>, token: mio::Token, events: mio::EventSet) {
-    match token {
-      INOTIFY => {
-        assert!(events.is_readable());
+    fn ready(&mut self,
+             _event_loop: &mut EventLoop<INotifyHandler>,
+             token: mio::Token,
+             events: mio::EventSet) {
+        match token {
+            INOTIFY => {
+                assert!(events.is_readable());
 
-        match self.inotify.available_events() {
-          Ok(events) => {
-            assert!(!events.is_empty());
+                match self.inotify.available_events() {
+                    Ok(events) => {
+                        assert!(!events.is_empty());
 
-            for e in events {
-              handle_event(e.clone(), &self.tx, &self.paths)
+                        for e in events {
+                            handle_event(e.clone(), &self.tx, &self.paths)
+                        }
+                    }
+                    Err(e) => {
+                        let _ = self.tx.send(Event {
+                            path: None,
+                            op: Err(Error::Io(e)),
+                        });
+                    }
+                }
             }
-          },
-          Err(e) => {
-            let _ = self.tx.send(Event {
-              path: None,
-              op: Err(Error::Io(e))
-            });
-          }
+            _ => unreachable!(),
         }
-      }
-      _ => unreachable!(),
     }
-  }
 
-  fn notify(&mut self, event_loop: &mut EventLoop<INotifyHandler>, msg: EventLoopMsg) {
-    match msg {
-      EventLoopMsg::AddWatch(path, tx) => {
-        let _ = tx.send(self.add_watch_recursively(path));
-      },
-      EventLoopMsg::RemoveWatch(path, tx) => {
-        let _ = tx.send(self.remove_watch(path));
-      },
-      EventLoopMsg::Shutdown => {
-        for path in self.watches.clone().keys() {
-          let _ = self.remove_watch(path.to_owned());
+    fn notify(&mut self, event_loop: &mut EventLoop<INotifyHandler>, msg: EventLoopMsg) {
+        match msg {
+            EventLoopMsg::AddWatch(path, tx) => {
+                let _ = tx.send(self.add_watch_recursively(path));
+            }
+            EventLoopMsg::RemoveWatch(path, tx) => {
+                let _ = tx.send(self.remove_watch(path));
+            }
+            EventLoopMsg::Shutdown => {
+                for path in self.watches.clone().keys() {
+                    let _ = self.remove_watch(path.to_owned());
+                }
+                let _ = self.inotify.close();
+
+                event_loop.shutdown();
+            }
         }
-        let _ = self.inotify.close();
-
-        event_loop.shutdown();
-      },
     }
-  }
 }
 
 impl INotifyHandler {
-  fn add_watch_recursively(&mut self, path: PathBuf) -> Result<(), Error> {
-    match metadata(&path) {
-      Err(e) => return Err(Error::Io(e)),
-      Ok(m)  => if !m.is_dir() {
-        return self.add_watch(path);
-      }
-    }
-
-    for entry in WalkDir::new(path).follow_links(true)
-        .into_iter().filter_map(|e| e.ok()) {
-      try!(self.add_watch(entry.path().to_path_buf()));
-    }
-
-    Ok(())
-  }
-
-  fn add_watch(&mut self, path: PathBuf) -> Result<(), Error> {
-    let mut watching = flags::IN_ATTRIB
-                     | flags::IN_CREATE
-                     | flags::IN_DELETE
-                     | flags::IN_DELETE_SELF
-                     | flags::IN_MODIFY
-                     | flags::IN_MOVED_FROM
-                     | flags::IN_MOVED_TO
-                     | flags::IN_MOVE_SELF;
-    if let Some(p) = self.watches.get(&path) {
-      watching.insert(p.1);
-      watching.insert(flags::IN_MASK_ADD);
-    }
-
-    match self.inotify.add_watch(&path, watching.bits()) {
-      Err(e) => Err(Error::Io(e)),
-      Ok(w) => {
-        watching.remove(flags::IN_MASK_ADD);
-        self.watches.insert(path.clone(), (w, watching));
-        (*self.paths).write().unwrap().insert(w, path);
-        Ok(())
-      }
-    }
-  }
-
-  fn remove_watch(&mut self, path: PathBuf) -> Result<(), Error> {
-    match self.watches.remove(&path) {
-      None => Err(Error::WatchNotFound),
-      Some(p) => {
-        let w = p.0;
-        match self.inotify.rm_watch(w) {
-          Err(e) => Err(Error::Io(e)),
-          Ok(_) => {
-            // Nothing depends on the value being gone
-            // from here now that inotify isn't watching.
-            (*self.paths).write().unwrap().remove(&w);
-            Ok(())
-          }
+    fn add_watch_recursively(&mut self, path: PathBuf) -> Result<(), Error> {
+        match metadata(&path) {
+            Err(e) => return Err(Error::Io(e)),
+            Ok(m) => {
+                if !m.is_dir() {
+                    return self.add_watch(path);
+                }
+            }
         }
-      }
+
+        for entry in WalkDir::new(path)
+                         .follow_links(true)
+                         .into_iter()
+                         .filter_map(|e| e.ok()) {
+            try!(self.add_watch(entry.path().to_path_buf()));
+        }
+
+        Ok(())
     }
-  }
+
+    fn add_watch(&mut self, path: PathBuf) -> Result<(), Error> {
+        let mut watching = flags::IN_ATTRIB | flags::IN_CREATE | flags::IN_DELETE |
+                           flags::IN_DELETE_SELF | flags::IN_MODIFY |
+                           flags::IN_MOVED_FROM |
+                           flags::IN_MOVED_TO | flags::IN_MOVE_SELF;
+        if let Some(p) = self.watches.get(&path) {
+            watching.insert(p.1);
+            watching.insert(flags::IN_MASK_ADD);
+        }
+
+        match self.inotify.add_watch(&path, watching.bits()) {
+            Err(e) => Err(Error::Io(e)),
+            Ok(w) => {
+                watching.remove(flags::IN_MASK_ADD);
+                self.watches.insert(path.clone(), (w, watching));
+                (*self.paths).write().unwrap().insert(w, path);
+                Ok(())
+            }
+        }
+    }
+
+    fn remove_watch(&mut self, path: PathBuf) -> Result<(), Error> {
+        match self.watches.remove(&path) {
+            None => Err(Error::WatchNotFound),
+            Some(p) => {
+                let w = p.0;
+                match self.inotify.rm_watch(w) {
+                    Err(e) => Err(Error::Io(e)),
+                    Ok(_) => {
+                        // Nothing depends on the value being gone
+                        // from here now that inotify isn't watching.
+                        (*self.paths).write().unwrap().remove(&w);
+                        Ok(())
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[inline]
-fn handle_event(event: wrapper::Event, tx: &Sender<Event>, paths: &Arc<RwLock<HashMap<Watch, PathBuf>>>) {
-  let mut o = Op::empty();
-  if event.is_create() || event.is_moved_to() {
-    o.insert(op::CREATE);
-  }
-  if event.is_delete_self() || event.is_delete() {
-    o.insert(op::REMOVE);
-  }
-  if event.is_modify() {
-    o.insert(op::WRITE);
-  }
-  if event.is_move_self() || event.is_moved_from() {
-    o.insert(op::RENAME);
-  }
-  if event.is_attrib() {
-    o.insert(op::CHMOD);
-  }
-
-  let path = if event.name.is_empty() {
-    match (*paths).read().unwrap().get(&event.wd) {
-      Some(p) => Some(p.clone()),
-      None => None
+fn handle_event(event: wrapper::Event,
+                tx: &Sender<Event>,
+                paths: &Arc<RwLock<HashMap<Watch, PathBuf>>>) {
+    let mut o = Op::empty();
+    if event.is_create() || event.is_moved_to() {
+        o.insert(op::CREATE);
     }
-  } else {
-    paths.read().unwrap().get(&event.wd).map(|root| root.join(&event.name))
-  };
+    if event.is_delete_self() || event.is_delete() {
+        o.insert(op::REMOVE);
+    }
+    if event.is_modify() {
+        o.insert(op::WRITE);
+    }
+    if event.is_move_self() || event.is_moved_from() {
+        o.insert(op::RENAME);
+    }
+    if event.is_attrib() {
+        o.insert(op::CHMOD);
+    }
 
-  let _ = tx.send(Event {
-    path: path,
-    op: Ok(o)
-  });
+    let path = if event.name.is_empty() {
+        match (*paths).read().unwrap().get(&event.wd) {
+            Some(p) => Some(p.clone()),
+            None => None,
+        }
+    } else {
+        paths.read().unwrap().get(&event.wd).map(|root| root.join(&event.name))
+    };
+
+    let _ = tx.send(Event {
+        path: path,
+        op: Ok(o),
+    });
 }
 
 impl Watcher for INotifyWatcher {
-  fn new(tx: Sender<Event>) -> Result<INotifyWatcher, Error> {
-    INotify::init()
-      .and_then(|inotify| EventLoop::new().map(|l| (inotify, l)))
-      .and_then(|(inotify, mut event_loop)| {
-        let inotify_fd = inotify.fd;
-        let evented_inotify = mio::unix::EventedFd(&inotify_fd);
+    fn new(tx: Sender<Event>) -> Result<INotifyWatcher, Error> {
+        INotify::init()
+            .and_then(|inotify| EventLoop::new().map(|l| (inotify, l)))
+            .and_then(|(inotify, mut event_loop)| {
+                let inotify_fd = inotify.fd;
+                let evented_inotify = mio::unix::EventedFd(&inotify_fd);
 
-        let handler = INotifyHandler {
-          inotify: inotify,
-          tx: tx,
-          watches: HashMap::new(),
-          paths: Arc::new(RwLock::new(HashMap::new()))
-        };
+                let handler = INotifyHandler {
+                    inotify: inotify,
+                    tx: tx,
+                    watches: HashMap::new(),
+                    paths: Arc::new(RwLock::new(HashMap::new())),
+                };
 
-        event_loop.register(&evented_inotify,
-                            INOTIFY,
-                            mio::EventSet::readable(),
-                            mio::PollOpt::level())
-          .map(|_| (event_loop, handler))
-      })
-      .map(|(mut event_loop, mut handler)| {
-        let channel = event_loop.channel();
+                event_loop.register(&evented_inotify,
+                                    INOTIFY,
+                                    mio::EventSet::readable(),
+                                    mio::PollOpt::level())
+                          .map(|_| (event_loop, handler))
+            })
+            .map(|(mut event_loop, mut handler)| {
+                let channel = event_loop.channel();
 
-        ThreadBuilder::new()
-          .name("INotify Watcher".to_owned())
-          .spawn(move|| event_loop.run(&mut handler))
-          .unwrap();
+                ThreadBuilder::new()
+                    .name("INotify Watcher".to_owned())
+                    .spawn(move || event_loop.run(&mut handler))
+                    .unwrap();
 
-        INotifyWatcher(channel)
-      })
-      .map_err(Error::Io)
-  }
+                INotifyWatcher(channel)
+            })
+            .map_err(Error::Io)
+    }
 
-  fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
-    let (tx, rx) = mpsc::channel();
-    let msg = EventLoopMsg::AddWatch(path.as_ref().to_owned(), tx);
+    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+        let (tx, rx) = mpsc::channel();
+        let msg = EventLoopMsg::AddWatch(path.as_ref().to_owned(), tx);
 
-    // we expect the event loop to live and reply => unwraps must not panic
-    self.0.send(msg).unwrap();
-    rx.recv().unwrap()
-  }
+        // we expect the event loop to live and reply => unwraps must not panic
+        self.0.send(msg).unwrap();
+        rx.recv().unwrap()
+    }
 
-  fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
-    let (tx, rx) = mpsc::channel();
-    let msg = EventLoopMsg::RemoveWatch(path.as_ref().to_owned(), tx);
+    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+        let (tx, rx) = mpsc::channel();
+        let msg = EventLoopMsg::RemoveWatch(path.as_ref().to_owned(), tx);
 
-    // we expect the event loop to live and reply => unwraps must not panic
-    self.0.send(msg).unwrap();
-    rx.recv().unwrap()
-  }
+        // we expect the event loop to live and reply => unwraps must not panic
+        self.0.send(msg).unwrap();
+        rx.recv().unwrap()
+    }
 }
 
 impl Drop for INotifyWatcher {
-  fn drop(&mut self) {
-    // we expect the event loop to live => unwrap must not panic
-    self.0.send(EventLoopMsg::Shutdown).unwrap();
-  }
+    fn drop(&mut self) {
+        // we expect the event loop to live => unwrap must not panic
+        self.0.send(EventLoopMsg::Shutdown).unwrap();
+    }
 }
