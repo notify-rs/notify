@@ -1,3 +1,86 @@
+//! Cross-platform file system notification library
+//!
+//! The source code for this project can be found on [GitHub](https://github.com/passcod/rsnotify).
+//!
+//! # Installation
+//!
+//! Simply add `notify` to your _Cargo.toml_.
+//!
+//! ```toml
+//! [dependencies]
+//! notify = "^2.5.0"
+//! ```
+//!
+//! # Examples
+//!
+//! Basic usage
+//!
+//! ```no_run
+//! extern crate notify;
+//!
+//! use notify::{RecommendedWatcher, Error, Watcher};
+//! use std::sync::mpsc::channel;
+//!
+//! fn main() {
+//!   // Create a channel to receive the events.
+//!   let (tx, rx) = channel();
+//!
+//!   // Automatically select the best implementation for your platform.
+//!   // You can also access each implementation directly e.g. INotifyWatcher.
+//!   let w: Result<RecommendedWatcher, Error> = Watcher::new(tx);
+//!
+//!   match w {
+//!     Ok(mut watcher) => {
+//!       // Add a path to be watched. All files and directories at that path and
+//!       // below will be monitored for changes.
+//!       watcher.watch("/home/test/notify");
+//!
+//!       // You'll probably want to do that in a loop. The type to match for is
+//!       // notify::Event, look at src/lib.rs for details.
+//!       match rx.recv() {
+//!         _ => println!("Recv.")
+//!       }
+//!     },
+//!     Err(_) => println!("Error")
+//!   }
+//! }
+//! ```
+//!
+//! ## Platforms
+//!
+//! - Linux / Android: inotify
+//! - OS X: FSEvent
+//! - Windows: ReadDirectoryChangesW
+//! - All platforms: polling
+//!
+//! ## Limitations
+//!
+//! ### FSEvent
+//!
+//! Due to the inner security model of FSEvent (see
+//! [FileSystemEventSecurity](https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html)),
+//! some event cannot be observed easily when trying to follow files that do not belong to you. In
+//! this case, reverting to the pollwatcher can fix the issue, with a slight performance cost.
+//!
+//! ## Todo
+//!
+//! - BSD / OS X / iOS: kqueue
+//! - Solaris 11: FEN
+//!
+//! Pull requests and bug reports happily accepted!
+//!
+//! ## Origins
+//!
+//! Inspired by Go's [fsnotify](https://github.com/go-fsnotify/fsnotify), born out
+//! of need for [cargo watch](https://github.com/passcod/cargo-watch), and general
+//! frustration at the non-existence of C/Rust cross-platform notify libraries.
+//!
+//! Written by [Félix Saparelli](https://passcod.name) and awesome
+//! [contributors](https://github.com/passcod/rsnotify/graphs/contributors),
+//! and released in the Public Domain using the Creative Commons Zero Declaration.
+
+#![deny(missing_docs)]
+
 #[macro_use]
 extern crate log;
 #[macro_use]
@@ -28,38 +111,75 @@ pub use self::windows::ReadDirectoryChangesWatcher;
 pub use self::null::NullWatcher;
 pub use self::poll::PollWatcher;
 
-#[cfg(target_os="linux")]pub mod inotify;
-#[cfg(target_os="macos")]pub mod fsevent;
-#[cfg(target_os="windows")]pub mod windows;
+#[cfg(target_os="linux")]
+pub mod inotify;
+#[cfg(target_os="macos")]
+pub mod fsevent;
+#[cfg(target_os="windows")]
+pub mod windows;
+
 pub mod null;
 pub mod poll;
 
+/// Contains the Op type which describes the actions for which an event is delivered
 pub mod op {
     bitflags! {
-    flags Op: u32 {
-      const CHMOD   = 0b00001,
-      const CREATE  = 0b00010,
-      const REMOVE  = 0b00100,
-      const RENAME  = 0b01000,
-      const WRITE   = 0b10000,
+        /// Detected actions for which an Event is delivered
+        ///
+        /// Multiple actions may be delivered in a single event.
+        flags Op: u32 {
+            /// Permissions changed
+            const CHMOD   = 0b00001,
+            /// Created
+            const CREATE  = 0b00010,
+            /// Removed
+            const REMOVE  = 0b00100,
+            /// Renamed
+            const RENAME  = 0b01000,
+            /// Written
+            const WRITE   = 0b10000,
+        }
     }
-  }
 }
 
+/// Event delivered when action occurs on a watched path
+///
+/// When using the poll watcher, `op` may be Err in the case where getting metadata for the path
+/// fails.
+///
+/// When using the INotifyWatcher, `op` may be Err if activity is detected on the file and there is
+/// an error reading from inotify.
 #[derive(Debug)]
 pub struct Event {
+    /// Path where Event originated
     pub path: Option<PathBuf>,
+
+    /// Operation detected on Path.
     pub op: Result<Op, Error>,
 }
 
 unsafe impl Send for Event {}
 
+/// Errors generated from the `notify` crate
 #[derive(Debug)]
 pub enum Error {
+    /// Generic error
+    ///
+    /// May be used in cases where a platform specific error is mapped to this type
     Generic(String),
+
+    /// I/O errors
     Io(io::Error),
+
+    /// Something isn't implemented in notify
+    ///
+    /// TODO this isn't used and should be removed
     NotImplemented,
+
+    /// The provided path does not exist
     PathNotFound,
+
+    /// Attempted to remove a watch that does not exist
     WatchNotFound,
 }
 
@@ -77,21 +197,41 @@ impl fmt::Display for Error {
     }
 }
 
+/// Type that can deliver file activity notifications
+///
+/// Watcher is implemented per platform using the best implementation available on that platform. In
+/// addition to such event driven implementations, a polling implementation is also provided that
+/// should work on any platform.
 pub trait Watcher: Sized {
+    /// Create a new Watcher
     fn new(Sender<Event>) -> Result<Self, Error>;
+
+    /// Begin watching a new path
+    ///
+    /// If the path is a directory, events will be delivered for all files in that tree.
     fn watch<P: AsRef<Path>>(&mut self, P) -> Result<(), Error>;
+
+    /// Stop watching a path
+    ///
+    /// Returns an Error in the case that Path has not been watched or if failing to remove the
+    /// watch fails.
     fn unwatch<P: AsRef<Path>>(&mut self, P) -> Result<(), Error>;
 }
 
+/// The recommended `Watcher` implementation for the current platform
 #[cfg(target_os = "linux")]
 pub type RecommendedWatcher = INotifyWatcher;
+/// The recommended `Watcher` implementation for the current platform
 #[cfg(target_os = "macos")]
 pub type RecommendedWatcher = FsEventWatcher;
+/// The recommended `Watcher` implementation for the current platform
 #[cfg(target_os = "windows")]
 pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
+/// The recommended `Watcher` implementation for the current platform
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub type RecommendedWatcher = PollWatcher;
 
+/// Convenience method for creating the `RecommendedWatcher` for the current platform
 pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher, Error> {
     Watcher::new(tx)
 }

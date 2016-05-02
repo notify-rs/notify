@@ -1,3 +1,13 @@
+//! Watcher implementation for Darwin's FSEvent API
+//!
+//! The FSEvent API provides a mechanism to notify clients about directories they ought to re-scan
+//! in order to keep their internal data structures up-to-date with respect to the true state of the
+//! file system. (For example, when files or directories are created, modified, or removed.) It
+//! sends these notifications "in bulk", possibly notifying the client of changes to several
+//! directories in a single callback.
+//!
+//! See also https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/
+
 #![allow(non_upper_case_globals, dead_code)]
 extern crate fsevent as fse;
 
@@ -16,6 +26,7 @@ use super::{Error, Event, op, Watcher};
 use std::path::{Path, PathBuf};
 use libc;
 
+/// FSEvent-based `Watcher` implementation
 pub struct FsEventWatcher {
     paths: cf::CFMutableArrayRef,
     since_when: fs::FSEventStreamEventId,
@@ -53,10 +64,14 @@ struct StreamContextInfo {
 
 impl FsEventWatcher {
     #[inline]
+    #[doc(hidden)]
+    // TODO should not be pub
     pub fn is_running(&self) -> bool {
         self.runloop.is_some()
     }
 
+    #[doc(hidden)]
+    // TODO should not be pub
     pub fn stop(&mut self) {
         if !self.is_running() {
             return;
@@ -104,6 +119,8 @@ impl FsEventWatcher {
         }
     }
 
+    #[doc(hidden)]
+    // TODO should not be pub
     pub fn run(&mut self) -> Result<(), Error> {
         if unsafe { cf::CFArrayGetCount(self.paths) } == 0 {
             return Err(Error::PathNotFound);
@@ -171,6 +188,7 @@ impl FsEventWatcher {
 }
 
 #[allow(unused_variables)]
+#[doc(hidden)]
 pub unsafe extern "C" fn callback(
   stream_ref: fs::FSEventStreamRef,
   info: *mut libc::c_void,

@@ -1,3 +1,9 @@
+//! Watcher implementation for the inotify Linux API
+//!
+//! The inotify API provides a mechanism for monitoring filesystem events.  Inotify can be used to
+//! monitor individual files, or to monitor directories.  When a directory is monitored, inotify
+//! will return events for the directory itself, and for files inside the directory.
+
 extern crate inotify as inotify_sys;
 extern crate libc;
 extern crate walkdir;
@@ -17,6 +23,7 @@ mod flags;
 
 const INOTIFY: mio::Token = mio::Token(0);
 
+/// Watcher implementation based on inotify
 pub struct INotifyWatcher(mio::Sender<EventLoopMsg>);
 
 struct INotifyHandler {

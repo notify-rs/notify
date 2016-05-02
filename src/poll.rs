@@ -1,3 +1,8 @@
+//! Generic Watcher implementation based on polling
+//!
+//! Checks the `watch`ed paths periodically to detect changes. This implementation only uses
+//! cross-platform APIs; it should function on any platform that the Rust standard library does.
+
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::sync::mpsc::Sender;
@@ -12,6 +17,7 @@ use filetime::FileTime;
 
 extern crate walkdir;
 
+/// Polling based `Watcher` implementation
 pub struct PollWatcher {
     tx: Sender<Event>,
     watches: Arc<RwLock<HashSet<PathBuf>>>,
@@ -19,6 +25,7 @@ pub struct PollWatcher {
 }
 
 impl PollWatcher {
+    /// Create a PollWatcher which polls every `delay` milliseconds
     pub fn with_delay(tx: Sender<Event>, delay: u32) -> Result<PollWatcher, Error> {
         let mut p = PollWatcher {
             tx: tx,
