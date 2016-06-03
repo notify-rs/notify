@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 use std::sync::mpsc::Sender;
 use std::fs;
 use std::thread;
-use super::{Error, Event, op, Watcher};
+use super::{Error, Event, op, Result, Watcher};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use self::walkdir::WalkDir;
@@ -19,7 +19,7 @@ pub struct PollWatcher {
 }
 
 impl PollWatcher {
-    pub fn with_delay(tx: Sender<Event>, delay: u32) -> Result<PollWatcher, Error> {
+    pub fn with_delay(tx: Sender<Event>, delay: u32) -> Result<PollWatcher> {
         let mut p = PollWatcher {
             tx: tx,
             watches: Arc::new(RwLock::new(HashSet::new())),
@@ -130,16 +130,16 @@ impl PollWatcher {
 }
 
 impl Watcher for PollWatcher {
-    fn new(tx: Sender<Event>) -> Result<PollWatcher, Error> {
+    fn new(tx: Sender<Event>) -> Result<PollWatcher> {
         PollWatcher::with_delay(tx, 10)
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         (*self.watches).write().unwrap().insert(path.as_ref().to_path_buf());
         Ok(())
     }
 
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         if (*self.watches).write().unwrap().remove(path.as_ref()) {
             Ok(())
         } else {
