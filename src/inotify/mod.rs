@@ -95,6 +95,18 @@ impl mio::Handler for INotifyHandler {
     }
 }
 
+/// return DirEntry when it is a directory
+fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry> {
+    if let Ok(e) = e {
+        if let Ok(metadata) = e.metadata() {
+            if metadata.is_dir() {
+                return Some(e);
+            }
+        }
+    }
+    None
+}
+
 impl INotifyHandler {
     fn add_watch_recursively(&mut self, path: PathBuf) -> Result<()> {
         match metadata(&path) {
@@ -109,7 +121,7 @@ impl INotifyHandler {
         for entry in WalkDir::new(path)
                          .follow_links(true)
                          .into_iter()
-                         .filter_map(|e| e.ok()) {
+                         .filter_map(|e| filter_dir(e)) {
             try!(self.add_watch(entry.path().to_path_buf()));
         }
 
