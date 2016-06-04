@@ -130,15 +130,17 @@ pub mod op {
         /// Multiple actions may be delivered in a single event.
         flags Op: u32 {
             /// Permissions changed
-            const CHMOD   = 0b00001,
+            const CHMOD   = 0b000001,
             /// Created
-            const CREATE  = 0b00010,
+            const CREATE  = 0b000010,
             /// Removed
-            const REMOVE  = 0b00100,
+            const REMOVE  = 0b000100,
             /// Renamed
-            const RENAME  = 0b01000,
+            const RENAME  = 0b001000,
             /// Written
-            const WRITE   = 0b10000,
+            const WRITE   = 0b010000,
+            /// Watch has been ignored by the implementation
+            const IGNORED = 0b100000,
         }
     }
 }
