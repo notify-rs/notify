@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Watcher implementation for Windows' directory management APIs
 //!
 //! See https://msdn.microsoft.com/en-us/library/windows/desktop/aa363950(v=vs.85).aspx
