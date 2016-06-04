@@ -20,7 +20,7 @@ const INOTIFY: mio::Token = mio::Token(0);
 pub struct INotifyWatcher(mio::Sender<EventLoopMsg>);
 
 struct INotifyHandler {
-    inotify: INotify,
+    inotify: Option<INotify>,
     tx: Sender<Event>,
     watches: HashMap<PathBuf, (Watch, flags::Mask)>,
     paths: Arc<RwLock<HashMap<Watch, PathBuf>>>,
@@ -44,19 +44,21 @@ impl mio::Handler for INotifyHandler {
             INOTIFY => {
                 assert!(events.is_readable());
 
-                match self.inotify.available_events() {
-                    Ok(events) => {
-                        assert!(!events.is_empty());
+                if let Some(ref mut inotify) = self.inotify {
+                    match inotify.available_events() {
+                        Ok(events) => {
+                            assert!(!events.is_empty());
 
-                        for e in events {
-                            handle_event(e.clone(), &self.tx, &self.paths)
+                            for e in events {
+                                handle_event(e.clone(), &self.tx, &self.paths)
+                            }
                         }
-                    }
-                    Err(e) => {
-                        let _ = self.tx.send(Event {
-                            path: None,
-                            op: Err(Error::Io(e)),
-                        });
+                        Err(e) => {
+                            let _ = self.tx.send(Event {
+                                path: None,
+                                op: Err(Error::Io(e)),
+                            });
+                        }
                     }
                 }
             }
@@ -76,7 +78,9 @@ impl mio::Handler for INotifyHandler {
                 for path in self.watches.clone().keys() {
                     let _ = self.remove_watch(path.to_owned());
                 }
-                let _ = self.inotify.close();
+                if let Some(inotify) = self.inotify.take() {
+                    let _ = inotify.close();
+                }
 
                 event_loop.shutdown();
             }
@@ -115,14 +119,18 @@ impl INotifyHandler {
             watching.insert(flags::IN_MASK_ADD);
         }
 
-        match self.inotify.add_watch(&path, watching.bits()) {
-            Err(e) => Err(Error::Io(e)),
-            Ok(w) => {
-                watching.remove(flags::IN_MASK_ADD);
-                self.watches.insert(path.clone(), (w, watching));
-                (*self.paths).write().unwrap().insert(w, path);
-                Ok(())
+        if let Some(ref inotify) = self.inotify {
+            match inotify.add_watch(&path, watching.bits()) {
+                Err(e) => Err(Error::Io(e)),
+                Ok(w) => {
+                    watching.remove(flags::IN_MASK_ADD);
+                    self.watches.insert(path.clone(), (w, watching));
+                    (*self.paths).write().unwrap().insert(w, path);
+                    Ok(())
+                }
             }
+        } else {
+            Ok(())
         }
     }
 
@@ -131,14 +139,18 @@ impl INotifyHandler {
             None => Err(Error::WatchNotFound),
             Some(p) => {
                 let w = p.0;
-                match self.inotify.rm_watch(w) {
-                    Err(e) => Err(Error::Io(e)),
-                    Ok(_) => {
-                        // Nothing depends on the value being gone
-                        // from here now that inotify isn't watching.
-                        (*self.paths).write().unwrap().remove(&w);
-                        Ok(())
+                if let Some(ref inotify) = self.inotify {
+                    match inotify.rm_watch(w) {
+                        Err(e) => Err(Error::Io(e)),
+                        Ok(_) => {
+                            // Nothing depends on the value being gone
+                            // from here now that inotify isn't watching.
+                            (*self.paths).write().unwrap().remove(&w);
+                            Ok(())
+                        }
                     }
+                } else {
+                    Ok(())
                 }
             }
         }
@@ -190,7 +202,7 @@ impl Watcher for INotifyWatcher {
                 let evented_inotify = mio::unix::EventedFd(&inotify_fd);
 
                 let handler = INotifyHandler {
-                    inotify: inotify,
+                    inotify: Some(inotify),
                     tx: tx,
                     watches: HashMap::new(),
                     paths: Arc::new(RwLock::new(HashMap::new())),
