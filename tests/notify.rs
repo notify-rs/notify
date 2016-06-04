@@ -93,7 +93,7 @@ fn validate_recv(rx: Receiver<Event>, evs: Vec<(&Path, Op)>) -> Vec<Event> {
 #[cfg(target_os = "windows")]
 // Windows needs to test this differently since it can't watch files that don't exist yet.
 fn validate_watch_single_file<F, W>(ctor: F) where
-  F: Fn(Sender<Event>) -> Result<W, Error>, W: Watcher {
+  F: Fn(Sender<Event>) -> Result<W>, W: Watcher {
 
   let (tx, rx) = channel();
   let mut w = ctor(tx).unwrap();
@@ -127,7 +127,7 @@ fn validate_watch_single_file<F, W>(ctor: F) where
 
 #[cfg(not(target_os = "windows"))]
 fn validate_watch_single_file<F, W>(ctor: F) where
-  F: Fn(Sender<Event>) -> Result<W, Error>, W: Watcher {
+  F: Fn(Sender<Event>) -> Result<W>, W: Watcher {
   let mut file = NamedTempFile::new().unwrap();
   let (tx, rx) = channel();
   let mut w = ctor(tx).unwrap();
@@ -141,7 +141,7 @@ fn validate_watch_single_file<F, W>(ctor: F) where
 
 #[cfg(not(target_os = "linux"))]
 fn validate_watch_dir<F, W>(ctor: F) where
-  F: Fn(Sender<Event>) -> Result<W, Error>, W: Watcher {
+  F: Fn(Sender<Event>) -> Result<W>, W: Watcher {
   let dir = TempDir::new("dir").unwrap();
   let dir1 = TempDir::new_in(dir.path(), "dir1").unwrap();
   let dir2 = TempDir::new_in(dir.path(), "dir2").unwrap();
@@ -191,7 +191,7 @@ fn watch_single_file_poll() {
 #[test]
 fn new_inotify() {
   let (tx, _) = channel();
-  let w: Result<INotifyWatcher, Error> = Watcher::new(tx);
+  let w: Result<INotifyWatcher> = Watcher::new(tx);
   match w {
     Ok(_) => assert!(true),
     Err(_) => assert!(false)
@@ -202,7 +202,7 @@ fn new_inotify() {
 #[test]
 fn new_fsevent() {
   let (tx, _) = channel();
-  let w: Result<FsEventWatcher, Error> = Watcher::new(tx);
+  let w: Result<FsEventWatcher> = Watcher::new(tx);
   match w {
     Ok(_) => assert!(true),
     Err(_) => assert!(false)
@@ -212,7 +212,7 @@ fn new_fsevent() {
 #[test]
 fn new_null() {
   let (tx, _) = channel();
-  let w: Result<NullWatcher, Error> = Watcher::new(tx);
+  let w: Result<NullWatcher> = Watcher::new(tx);
   match w {
     Ok(_) => assert!(true),
     Err(_) => assert!(false)
@@ -222,7 +222,7 @@ fn new_null() {
 #[test]
 fn new_poll() {
   let (tx, _) = channel();
-  let w: Result<PollWatcher, Error> = Watcher::new(tx);
+  let w: Result<PollWatcher> = Watcher::new(tx);
   match w {
     Ok(_) => assert!(true),
     Err(_) => assert!(false)
@@ -232,7 +232,7 @@ fn new_poll() {
 #[test]
 fn new_recommended() {
   let (tx, _) = channel();
-  let w: Result<RecommendedWatcher, Error> = Watcher::new(tx);
+  let w: Result<RecommendedWatcher> = Watcher::new(tx);
   match w {
     Ok(_) => assert!(true),
     Err(_) => assert!(false)

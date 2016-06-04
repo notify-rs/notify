@@ -15,7 +15,7 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::thread;
 use std::os::raw::c_void;
 
-use super::{Event, Error, op, Op, Watcher};
+use super::{Event, Error, op, Op, Result, Watcher};
 
 const BUF_SIZE: u32 = 16384;
 
@@ -53,7 +53,7 @@ struct ReadDirectoryChangesServer {
     rx: Receiver<Action>,
     tx: Sender<Event>,
     meta_tx: Sender<MetaEvent>,
-    cmd_tx: Sender<Result<PathBuf, Error>>,
+    cmd_tx: Sender<Result<PathBuf>>,
     watches: HashMap<PathBuf, WatchState>,
     wakeup_sem: HANDLE,
 }
@@ -61,7 +61,7 @@ struct ReadDirectoryChangesServer {
 impl ReadDirectoryChangesServer {
     fn start(event_tx: Sender<Event>,
              meta_tx: Sender<MetaEvent>,
-             cmd_tx: Sender<Result<PathBuf, Error>>,
+             cmd_tx: Sender<Result<PathBuf>>,
              wakeup_sem: HANDLE)
              -> Sender<Action> {
 
@@ -124,7 +124,7 @@ impl ReadDirectoryChangesServer {
         }
     }
 
-    fn add_watch(&mut self, path: PathBuf) -> Result<PathBuf, Error> {
+    fn add_watch(&mut self, path: PathBuf) -> Result<PathBuf> {
         // path must exist and be either a file or directory
         if !path.is_dir() && !path.is_file() {
             return Err(Error::Generic("Input watch path is neither a file nor a directory."
@@ -331,14 +331,14 @@ unsafe extern "system" fn handle_event(error_code: u32,
 
 pub struct ReadDirectoryChangesWatcher {
     tx: Sender<Action>,
-    cmd_rx: Receiver<Result<PathBuf, Error>>,
+    cmd_rx: Receiver<Result<PathBuf>>,
     wakeup_sem: HANDLE,
 }
 
 impl ReadDirectoryChangesWatcher {
     pub fn create(event_tx: Sender<Event>,
                   meta_tx: Sender<MetaEvent>)
-                  -> Result<ReadDirectoryChangesWatcher, Error> {
+                  -> Result<ReadDirectoryChangesWatcher> {
         let (cmd_tx, cmd_rx) = channel();
 
         let wakeup_sem = unsafe {
@@ -366,7 +366,7 @@ impl ReadDirectoryChangesWatcher {
         }
     }
 
-    fn send_action_require_ack(&mut self, action: Action, pb: &PathBuf) -> Result<(), Error> {
+    fn send_action_require_ack(&mut self, action: Action, pb: &PathBuf) -> Result<()> {
         match self.tx.send(action) {
             Err(_) => Err(Error::Generic("Error sending to internal channel".to_owned())),
             Ok(_) => {
@@ -399,13 +399,13 @@ impl ReadDirectoryChangesWatcher {
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
-    fn new(event_tx: Sender<Event>) -> Result<ReadDirectoryChangesWatcher, Error> {
+    fn new(event_tx: Sender<Event>) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
         let (meta_tx, _) = channel();
         ReadDirectoryChangesWatcher::create(event_tx, meta_tx)
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         // path must exist and be either a file or directory
         let pb = path.as_ref().to_path_buf();
         if !pb.is_dir() && !pb.is_file() {
@@ -415,7 +415,7 @@ impl Watcher for ReadDirectoryChangesWatcher {
         self.send_action_require_ack(Action::Watch(path.as_ref().to_path_buf()), &pb)
     }
 
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         let res = self.tx
                       .send(Action::Unwatch(path.as_ref().to_path_buf()))
                       .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()));

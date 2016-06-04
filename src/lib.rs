@@ -18,6 +18,7 @@ use std::sync::mpsc::Sender;
 use std::convert::AsRef;
 use std::fmt;
 use std::error::Error as StdError;
+use std::result::Result as StdResult;
 
 #[cfg(target_os="macos")]
 pub use self::fsevent::FsEventWatcher;
@@ -49,7 +50,7 @@ pub mod op {
 #[derive(Debug)]
 pub struct Event {
     pub path: Option<PathBuf>,
-    pub op: Result<Op, Error>,
+    pub op: Result<Op>,
 }
 
 unsafe impl Send for Event {}
@@ -77,10 +78,12 @@ impl fmt::Display for Error {
     }
 }
 
+pub type Result<T> = StdResult<T, Error>;
+
 pub trait Watcher: Sized {
-    fn new(Sender<Event>) -> Result<Self, Error>;
-    fn watch<P: AsRef<Path>>(&mut self, P) -> Result<(), Error>;
-    fn unwatch<P: AsRef<Path>>(&mut self, P) -> Result<(), Error>;
+    fn new(Sender<Event>) -> Result<Self>;
+    fn watch<P: AsRef<Path>>(&mut self, P) -> Result<()>;
+    fn unwatch<P: AsRef<Path>>(&mut self, P) -> Result<()>;
 }
 
 #[cfg(target_os = "linux")]
@@ -92,7 +95,7 @@ pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub type RecommendedWatcher = PollWatcher;
 
-pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher, Error> {
+pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher> {
     Watcher::new(tx)
 }
 

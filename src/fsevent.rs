@@ -12,7 +12,7 @@ use std::convert::AsRef;
 use std::thread;
 
 use std::sync::mpsc::{channel, Sender, Receiver};
-use super::{Error, Event, op, Watcher};
+use super::{Error, Event, op, Result, Watcher};
 use std::path::{Path, PathBuf};
 use libc;
 
@@ -104,7 +104,7 @@ impl FsEventWatcher {
         }
     }
 
-    pub fn run(&mut self) -> Result<(), Error> {
+    pub fn run(&mut self) -> Result<()> {
         if unsafe { cf::CFArrayGetCount(self.paths) } == 0 {
             return Err(Error::PathNotFound);
         }
@@ -206,7 +206,7 @@ pub unsafe extern "C" fn callback(
 
 
 impl Watcher for FsEventWatcher {
-    fn new(tx: Sender<Event>) -> Result<FsEventWatcher, Error> {
+    fn new(tx: Sender<Event>) -> Result<FsEventWatcher> {
         Ok(FsEventWatcher {
             paths: unsafe {
                 cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
@@ -220,13 +220,13 @@ impl Watcher for FsEventWatcher {
         })
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         self.stop();
         self.append_path(&path.as_ref().to_str().unwrap());
         self.run()
     }
 
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         self.stop();
         self.remove_path(&path.as_ref().to_str().unwrap());
         // ignore return error: may be empty path list

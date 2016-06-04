@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, RwLock};
 use std::thread::Builder as ThreadBuilder;
-use super::{Error, Event, op, Op, Watcher};
+use super::{Error, Event, op, Op, Result, Watcher};
 
 mod flags;
 
@@ -27,8 +27,8 @@ struct INotifyHandler {
 }
 
 enum EventLoopMsg {
-    AddWatch(PathBuf, Sender<Result<(), Error>>),
-    RemoveWatch(PathBuf, Sender<Result<(), Error>>),
+    AddWatch(PathBuf, Sender<Result<()>>),
+    RemoveWatch(PathBuf, Sender<Result<()>>),
     Shutdown,
 }
 
@@ -85,7 +85,7 @@ impl mio::Handler for INotifyHandler {
 }
 
 impl INotifyHandler {
-    fn add_watch_recursively(&mut self, path: PathBuf) -> Result<(), Error> {
+    fn add_watch_recursively(&mut self, path: PathBuf) -> Result<()> {
         match metadata(&path) {
             Err(e) => return Err(Error::Io(e)),
             Ok(m) => {
@@ -105,7 +105,7 @@ impl INotifyHandler {
         Ok(())
     }
 
-    fn add_watch(&mut self, path: PathBuf) -> Result<(), Error> {
+    fn add_watch(&mut self, path: PathBuf) -> Result<()> {
         let mut watching = flags::IN_ATTRIB | flags::IN_CREATE | flags::IN_DELETE |
                            flags::IN_DELETE_SELF | flags::IN_MODIFY |
                            flags::IN_MOVED_FROM |
@@ -126,7 +126,7 @@ impl INotifyHandler {
         }
     }
 
-    fn remove_watch(&mut self, path: PathBuf) -> Result<(), Error> {
+    fn remove_watch(&mut self, path: PathBuf) -> Result<()> {
         match self.watches.remove(&path) {
             None => Err(Error::WatchNotFound),
             Some(p) => {
@@ -182,7 +182,7 @@ fn handle_event(event: wrapper::Event,
 }
 
 impl Watcher for INotifyWatcher {
-    fn new(tx: Sender<Event>) -> Result<INotifyWatcher, Error> {
+    fn new(tx: Sender<Event>) -> Result<INotifyWatcher> {
         INotify::init()
             .and_then(|inotify| EventLoop::new().map(|l| (inotify, l)))
             .and_then(|(inotify, mut event_loop)| {
@@ -215,7 +215,7 @@ impl Watcher for INotifyWatcher {
             .map_err(Error::Io)
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         let (tx, rx) = mpsc::channel();
         let msg = EventLoopMsg::AddWatch(path.as_ref().to_owned(), tx);
 
@@ -224,7 +224,7 @@ impl Watcher for INotifyWatcher {
         rx.recv().unwrap()
     }
 
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         let (tx, rx) = mpsc::channel();
         let msg = EventLoopMsg::RemoveWatch(path.as_ref().to_owned(), tx);
 
