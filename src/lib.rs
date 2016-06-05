@@ -203,6 +203,25 @@ impl fmt::Display for Error {
 /// Type alias to use this library's Error type in a Result
 pub type Result<T> = StdResult<T, Error>;
 
+impl StdError for Error {
+    fn description(&self) -> &str {
+        match *self {
+            Error::PathNotFound => "No path was found",
+            Error::WatchNotFound => "No watch was found",
+            Error::NotImplemented => "Not implemented",
+            Error::Generic(_) => "Generic error",
+            Error::Io(_) => "I/O Error",
+        }
+    }
+
+    fn cause(&self) -> Option<&StdError> {
+        match *self {
+            Error::Io(ref cause) => Some(cause),
+            _ => None
+        }
+    }
+}
+
 /// Type that can deliver file activity notifications
 ///
 /// Watcher is implemented per platform using the best implementation available on that platform. In
