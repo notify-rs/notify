@@ -184,6 +184,9 @@ fn handle_event(event: wrapper::Event,
     if event.is_attrib() {
         o.insert(op::CHMOD);
     }
+    if event.is_ignored() {
+        o.insert(op::IGNORED);
+    }
 
     let path = if event.name.is_empty() {
         match (*paths).read().unwrap().get(&event.wd) {
