@@ -1,22 +1,16 @@
 [package]
 name = "notify"
-version = "2.5.5"
+version = "2.6.0"
 authors = [
   "Félix Saparelli <me@passcod.name>",
-  "Antti Keränen <detegr@gmail.com>",
-  "Gilbert Röhrbein <gilbert@ifsr.de>",
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
   "Michael Maurizi <michael.maurizi@gmail.com>",
   "Pierre Baillet <oct@zoy.org>",
-  "ShuYu Wang <andelf@gmail.com>",
-  "Jimmy Lu <gongchuo.lu@gmail.com>",
-  "Francisco Giordano <frangio.1@gmail.com>",
-  "Jake Kerr",
-  "Ty Overby <ty@pre-alpha.com>",
-  "John Quigley <veggieburritox@gmail.com>"
+  "Joe Wilm <joe@jwilm.com>"
 ]
 
 description = "Cross-platform filesystem notification library"
+documentation = "https://crates.fyi/crates/notify"
 homepage = "https://github.com/passcod/rsnotify"
 repository = "https://github.com/passcod/rsnotify.git"
 
