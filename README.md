@@ -23,31 +23,40 @@ notify = "^2.5.0"
 
 ```rust
 extern crate notify;
-
-use notify::{RecommendedWatcher, Error, Watcher};
+use std::sync::mpsc::Receiver;
+use std::sync::mpsc::sync_channel;
+use std::thread;
+use notify::{RecommendedWatcher, Watcher};
 use std::sync::mpsc::channel;
 
-fn main() {
+fn watch() -> notify::Result<()> {
   // Create a channel to receive the events.
   let (tx, rx) = channel();
 
   // Automatically select the best implementation for your platform.
   // You can also access each implementation directly e.g. INotifyWatcher.
-  let w: Result<RecommendedWatcher, Error> = Watcher::new(tx);
+  let mut watcher: RecommendedWatcher = try!(Watcher::new(tx));
 
-  match w {
-    Ok(mut watcher) => {
-      // Add a path to be watched. All files and directories at that path and
-      // below will be monitored for changes.
-      watcher.watch("/home/test/notify");
-
-      // You'll probably want to do that in a loop. The type to match for is
-      // notify::Event, look at src/lib.rs for details.
+  // Add a path to be watched. All files and directories at that path and
+  // below will be monitored for changes.
+  try!(watcher.watch("/home/test/notify"));
+  
+  // This is a simple loop, but you may want to use more complex logic here,
+  // for example to handle I/O.
+  loop {
       match rx.recv() {
-        _ => println!("Recv.")
+        Ok(notify::Event{ path: Some(path),op:Ok(op) }) => {
+            println!("{:?} {:?}", op, path);
+        },
+        Err(e) => println!("watch error {}", e),
+        _ => ()
       }
-    },
-    Err(_) => println!("Error")
+  }
+}
+
+fn main() {
+  if let Err(err) = watch() {
+    println!("Error! {:?}", err)
   }
 }
 ```
