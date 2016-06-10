@@ -64,19 +64,13 @@ fn validate_recv(rx: Receiver<Event>, evs: Vec<(&Path, Op)>) -> Vec<Event> {
   while time::precise_time_s() < deadline {
     if let Ok(actual) = rx.try_recv() {
       let path = actual.path.clone().unwrap();
+      let path = path.as_path();
       match actual.op {
         Err(e) => panic!("unexpected err: {:?}", e),
         Ok(op) => {
-          let mut removables = vec!();
-          for i in 0..evs.len() {
-            let expected = evs.get(i).unwrap();
-            if path.clone().as_path() == expected.0 && op.contains(expected.1) {
-              removables.push(i);
-            }
-          }
-          for removable in removables {
-            evs.remove(removable);
-          }
+          evs.retain(|event| {
+            not(path == event.0 && op.contains(event.1))
+          });
         }
       }
 
