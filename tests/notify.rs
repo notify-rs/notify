@@ -13,7 +13,7 @@ use std::fs::read_link;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
-use std::sync::mpsc::{channel, Sender, Receiver};
+use std::sync::mpsc::{channel, Sender, Receiver, TryRecvError};
 #[cfg(not(target_os="linux"))]
 use tempdir::TempDir;
 use tempfile::NamedTempFile;
@@ -62,25 +62,17 @@ fn validate_recv(rx: Receiver<Event>, evs: Vec<(&Path, Op)>) -> Vec<Event> {
   let mut received_events:Vec<Event> = Vec::new();
 
   while time::precise_time_s() < deadline {
-    if let Ok(actual) = rx.try_recv() {
-      let path = actual.path.clone().unwrap();
-      match actual.op {
-        Err(e) => panic!("unexpected err: {:?}", e),
-        Ok(op) => {
-          let mut removables = vec!();
-          for i in 0..evs.len() {
-            let expected = evs.get(i).unwrap();
-            if path.clone().as_path() == expected.0 && op.contains(expected.1) {
-              removables.push(i);
-            }
-          }
-          for removable in removables {
-            evs.remove(removable);
-          }
-        }
-      }
-
-      received_events.push(actual);
+    match rx.try_recv() {
+      Ok(Event{path: Some(path), op: Ok(op)}) => {
+        evs.retain(|event| {
+          !(path.as_path() == event.0 && op.contains(event.1))
+        });
+        received_events.push(Event{path: Some(path), op: Ok(op)});
+      },
+      Ok(Event{path: None, ..})  => (),
+      Ok(Event{op: Err(e), ..}) => panic!("unexpected channel err: {:?}", e),
+      Err(TryRecvError::Empty) => (),
+      Err(e) => panic!("unexpected channel err: {:?}", e)
     }
     if evs.is_empty() { break; }
   }
