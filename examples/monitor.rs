@@ -23,8 +23,10 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
         match rx.recv() {
           Ok(notify::Event{path:Some(path), op:Ok(CREATE)}) => {
               println!("{:?} {:?}", CREATE, path);
-              if let Err(e) = watcher.watch(path) {
-                  println!("error adding watch {}", e);
+              if path.is_dir() {
+                  if let Err(e) = watcher.watch(path) {
+                      println!("error adding watch {}", e);
+                  }
               }
           },
           Ok(notify::Event{path:Some(path), op:Ok(op)}) => {
