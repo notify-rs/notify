@@ -230,3 +230,31 @@ fn new_recommended() {
     Err(_) => assert!(false)
   }
 }
+
+// if this test builds, it means RecommendedWatcher is Send.
+#[test]
+fn test_watcher_send() {
+    let (tx, _) = channel();
+
+    let mut watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
+
+    thread::spawn(move || {
+        watcher.watch(".").unwrap();
+    }).join().unwrap();
+}
+
+// if this test builds, it means RecommendedWatcher is Sync.
+#[test]
+fn test_watcher_sync() {
+    use std::sync::{ Arc, RwLock };
+
+    let (tx, _) = channel();
+
+    let watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
+    let watcher = Arc::new(RwLock::new(watcher));
+
+    thread::spawn(move || {
+        let mut watcher = watcher.write().unwrap();
+        watcher.watch(".").unwrap();
+    }).join().unwrap();
+}
