@@ -15,7 +15,6 @@ use std::collections::HashMap;
 use std::fs::metadata;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, RwLock};
 use std::thread::Builder as ThreadBuilder;
 use super::{Error, Event, op, Op, Result, Watcher};
 
@@ -30,7 +29,7 @@ struct INotifyHandler {
     inotify: Option<INotify>,
     tx: Sender<Event>,
     watches: HashMap<PathBuf, (Watch, flags::Mask)>,
-    paths: Arc<RwLock<HashMap<Watch, PathBuf>>>,
+    paths: HashMap<Watch, PathBuf>,
 }
 
 enum EventLoopMsg {
@@ -144,7 +143,7 @@ impl INotifyHandler {
                 Ok(w) => {
                     watching.remove(flags::IN_MASK_ADD);
                     self.watches.insert(path.clone(), (w, watching));
-                    (*self.paths).write().unwrap().insert(w, path);
+                    self.paths.insert(w, path);
                     Ok(())
                 }
             }
@@ -164,7 +163,7 @@ impl INotifyHandler {
                         Ok(_) => {
                             // Nothing depends on the value being gone
                             // from here now that inotify isn't watching.
-                            (*self.paths).write().unwrap().remove(&w);
+                            self.paths.remove(&w);
                             Ok(())
                         }
                     }
@@ -179,7 +178,7 @@ impl INotifyHandler {
 #[inline]
 fn handle_event(event: wrapper::Event,
                 tx: &Sender<Event>,
-                paths: &Arc<RwLock<HashMap<Watch, PathBuf>>>) {
+                paths: &HashMap<Watch, PathBuf>) {
     let mut o = Op::empty();
     if event.is_create() || event.is_moved_to() {
         o.insert(op::CREATE);
@@ -201,12 +200,12 @@ fn handle_event(event: wrapper::Event,
     }
 
     let path = if event.name.is_empty() {
-        match (*paths).read().unwrap().get(&event.wd) {
+        match paths.get(&event.wd) {
             Some(p) => Some(p.clone()),
             None => None,
         }
     } else {
-        paths.read().unwrap().get(&event.wd).map(|root| root.join(&event.name))
+        paths.get(&event.wd).map(|root| root.join(&event.name))
     };
 
     let _ = tx.send(Event {
@@ -227,7 +226,7 @@ impl Watcher for INotifyWatcher {
                     inotify: Some(inotify),
                     tx: tx,
                     watches: HashMap::new(),
-                    paths: Arc::new(RwLock::new(HashMap::new())),
+                    paths: HashMap::new(),
                 };
 
                 event_loop.register(&evented_inotify,
