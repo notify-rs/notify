@@ -5,14 +5,25 @@ use notify::{RecommendedWatcher, Watcher};
 use std::path::Path;
 use std::sync::mpsc::channel;
 
+#[cfg(target_os="linux")]
+fn add_watch<P: AsRef<Path>>(watcher: &mut RecommendedWatcher, path: P) -> notify::Result<()> {
+    watcher.watch(path)
+}
+
+// OS X and Windows already monitor the entire file tree, including newly created directories
+#[cfg(not(target_os="linux"))]
+fn add_watch<P: AsRef<Path>>(watcher: &mut RecommendedWatcher, path: P) -> notify::Result<()> {
+    Ok(())
+}
+
 fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
     // Create a channel to receive the events.
     let (tx, rx) = channel();
-  
+
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
     let mut watcher: RecommendedWatcher = try!(Watcher::new(tx));
-  
+
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
     try!(watcher.watch(path));
@@ -24,7 +35,7 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
           Ok(notify::Event{path:Some(path), op:Ok(CREATE)}) => {
               println!("{:?} {:?}", CREATE, path);
               if path.is_dir() {
-                  if let Err(e) = watcher.watch(path) {
+                  if let Err(e) = add_watch(&mut watcher, path) {
                       println!("error adding watch {}", e);
                   }
               }
