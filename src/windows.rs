@@ -310,11 +310,11 @@ unsafe extern "system" fn handle_event(error_code: u32,
 
         if !skip {
             let op = match (*cur_entry).Action {
-                winnt::FILE_ACTION_ADDED => op::CREATE,
+                winnt::FILE_ACTION_ADDED |
+                winnt::FILE_ACTION_RENAMED_NEW_NAME => op::CREATE,
                 winnt::FILE_ACTION_REMOVED => op::REMOVE,
                 winnt::FILE_ACTION_MODIFIED => op::WRITE,
-                winnt::FILE_ACTION_RENAMED_OLD_NAME |
-                winnt::FILE_ACTION_RENAMED_NEW_NAME => op::RENAME,
+                winnt::FILE_ACTION_RENAMED_OLD_NAME => op::RENAME,
                 _ => Op::empty(),
             };
 
