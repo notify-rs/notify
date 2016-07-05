@@ -16,7 +16,7 @@ _Cross-platform filesystem notification library for Rust._
 
 ```toml
 [dependencies]
-notify = "^2.6.1"
+notify = "2.6.2"
 ```
 
 ## Usage
@@ -40,7 +40,7 @@ fn watch() -> notify::Result<()> {
   // Add a path to be watched. All files and directories at that path and
   // below will be monitored for changes.
   try!(watcher.watch("/home/test/notify"));
-  
+
   // This is a simple loop, but you may want to use more complex logic here,
   // for example to handle I/O.
   loop {
