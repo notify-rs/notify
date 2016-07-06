@@ -116,7 +116,7 @@ impl ReadDirectoryChangesServer {
 
             unsafe {
                 // wait with alertable flag so that the completion routine fires
-                let waitres = kernel32::WaitForSingleObjectEx(self.wakeup_sem, 500, TRUE);
+                let waitres = kernel32::WaitForSingleObjectEx(self.wakeup_sem, 100, TRUE);
                 if waitres == WAIT_OBJECT_0 {
                     let _ = self.meta_tx.send(MetaEvent::WatcherAwakened);
                 }
@@ -364,7 +364,7 @@ impl ReadDirectoryChangesWatcher {
 
     fn wakeup_server(&mut self) {
         // breaks the server out of its wait state.  right now this is really just an optimization,
-        // so that if you add a watch you don't block for 500ms in watch() while the
+        // so that if you add a watch you don't block for 100ms in watch() while the
         // server sleeps.
         unsafe {
             kernel32::ReleaseSemaphore(self.wakeup_sem, 1, ptr::null_mut());
