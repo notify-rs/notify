@@ -20,7 +20,7 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::thread;
 use std::os::raw::c_void;
 
-use super::{Event, Error, op, Op, Result, Watcher};
+use super::{Event, Error, op, Op, Result, Watcher, RecursiveMode};
 
 const BUF_SIZE: u32 = 16384;
 
@@ -29,6 +29,7 @@ struct ReadData {
     dir: PathBuf, // directory that is being watched
     file: Option<PathBuf>, // if a file is being watched, this is its full path
     complete_sem: HANDLE,
+    is_recursive: bool,
 }
 
 struct ReadDirectoryRequest {
@@ -39,7 +40,7 @@ struct ReadDirectoryRequest {
 }
 
 enum Action {
-    Watch(PathBuf),
+    Watch(PathBuf, RecursiveMode),
     Unwatch(PathBuf),
     Stop,
 }
@@ -95,8 +96,8 @@ impl ReadDirectoryChangesServer {
 
             while let Ok(action) = self.rx.try_recv() {
                 match action {
-                    Action::Watch(path) => {
-                        let res = self.add_watch(path);
+                    Action::Watch(path, recursive_mode) => {
+                        let res = self.add_watch(path, recursive_mode.is_recursive());
                         let _ = self.cmd_tx.send(res);
                     }
                     Action::Unwatch(path) => self.remove_watch(path),
@@ -129,7 +130,7 @@ impl ReadDirectoryChangesServer {
         }
     }
 
-    fn add_watch(&mut self, path: PathBuf) -> Result<PathBuf> {
+    fn add_watch(&mut self, path: PathBuf, is_recursive: bool) -> Result<PathBuf> {
         // path must exist and be either a file or directory
         if !path.is_dir() && !path.is_file() {
             return Err(Error::Generic("Input watch path is neither a file nor a directory."
@@ -189,6 +190,7 @@ impl ReadDirectoryChangesServer {
             dir: dir_target,
             file: wf,
             complete_sem: semaphore,
+            is_recursive: is_recursive,
         };
         let ws = WatchState {
             dir_handle: handle,
@@ -235,7 +237,7 @@ fn start_read(rd: &ReadData, tx: &Sender<Event>, handle: HANDLE) {
                 winnt::FILE_NOTIFY_CHANGE_CREATION |
                 winnt::FILE_NOTIFY_CHANGE_SECURITY;
 
-    let monitor_subdir = if (&request.data.file).is_none() {
+    let monitor_subdir = if (&request.data.file).is_none() && request.data.is_recursive {
         1
     } else {
         0
@@ -410,14 +412,14 @@ impl Watcher for ReadDirectoryChangesWatcher {
         ReadDirectoryChangesWatcher::create(event_tx, meta_tx)
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         // path must exist and be either a file or directory
         let pb = path.as_ref().to_path_buf();
         if !pb.is_dir() && !pb.is_file() {
             return Err(Error::Generic("Input watch path is neither a file nor a directory."
                                           .to_owned()));
         }
-        self.send_action_require_ack(Action::Watch(path.as_ref().to_path_buf()), &pb)
+        self.send_action_require_ack(Action::Watch(path.as_ref().to_path_buf(), recursive_mode), &pb)
     }
 
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {

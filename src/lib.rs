@@ -18,7 +18,7 @@
 //! ```no_run
 //! extern crate notify;
 //!
-//! use notify::{RecommendedWatcher, Error, Watcher};
+//! use notify::{RecommendedWatcher, Error, Watcher, RecursiveMode};
 //! use std::sync::mpsc::channel;
 //!
 //! fn main() {
@@ -33,7 +33,7 @@
 //!     Ok(mut watcher) => {
 //!       // Add a path to be watched. All files and directories at that path and
 //!       // below will be monitored for changes.
-//!       watcher.watch("/home/test/notify");
+//!       watcher.watch("/home/test/notify", RecursiveMode::Recursive);
 //!
 //!       // You'll probably want to do that in a loop. The type to match for is
 //!       // notify::Event, look at src/lib.rs for details.
@@ -222,6 +222,25 @@ impl StdError for Error {
     }
 }
 
+/// Indicates whether only the provided directory or its sub-directories as well should be watched
+#[derive(Debug)]
+pub enum RecursiveMode {
+    /// Watch all sub-directories as well, including directories created after installing the watch
+    Recursive,
+
+    /// Watch only the provided directory
+    NonRecursive,
+}
+
+impl RecursiveMode {
+    fn is_recursive(&self) -> bool  {
+        match *self {
+            RecursiveMode::Recursive => true,
+            RecursiveMode::NonRecursive => false,
+        }
+    }
+}
+
 /// Type that can deliver file activity notifications
 ///
 /// Watcher is implemented per platform using the best implementation available on that platform. In
@@ -234,7 +253,7 @@ pub trait Watcher: Sized {
     /// Begin watching a new path
     ///
     /// If the path is a directory, events will be delivered for all files in that tree.
-    fn watch<P: AsRef<Path>>(&mut self, P) -> Result<()>;
+    fn watch<P: AsRef<Path>>(&mut self, P, RecursiveMode) -> Result<()>;
 
     /// Stop watching a path
     ///

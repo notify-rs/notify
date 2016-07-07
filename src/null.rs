@@ -4,7 +4,7 @@
 
 use std::sync::mpsc::Sender;
 use std::path::Path;
-use super::{Event, Result, Watcher};
+use super::{Event, Result, Watcher, RecursiveMode};
 
 /// Stub `Watcher` implementation
 ///
@@ -16,7 +16,7 @@ impl Watcher for NullWatcher {
         Ok(NullWatcher)
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         Ok(())
     }
 

@@ -8,7 +8,7 @@ use std::sync::{Arc, RwLock};
 use std::sync::mpsc::Sender;
 use std::fs;
 use std::thread;
-use super::{Error, Event, op, Result, Watcher};
+use super::{Error, Event, op, Result, Watcher, RecursiveMode};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use self::walkdir::WalkDir;
@@ -141,7 +141,7 @@ impl Watcher for PollWatcher {
         PollWatcher::with_delay(tx, 10)
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         (*self.watches).write().unwrap().insert(path.as_ref().to_path_buf());
         Ok(())
     }

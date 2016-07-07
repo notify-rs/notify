@@ -16,7 +16,7 @@ use std::fs::metadata;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::thread::Builder as ThreadBuilder;
-use super::{Error, Event, op, Op, Result, Watcher};
+use super::{Error, Event, op, Op, Result, Watcher, RecursiveMode};
 
 mod flags;
 
@@ -28,12 +28,12 @@ pub struct INotifyWatcher(mio::Sender<EventLoopMsg>);
 struct INotifyHandler {
     inotify: Option<INotify>,
     tx: Sender<Event>,
-    watches: HashMap<PathBuf, (Watch, flags::Mask)>,
+    watches: HashMap<PathBuf, (Watch, flags::Mask, bool)>,
     paths: HashMap<Watch, PathBuf>,
 }
 
 enum EventLoopMsg {
-    AddWatch(PathBuf, Sender<Result<()>>),
+    AddWatch(PathBuf, RecursiveMode, Sender<Result<()>>),
     RemoveWatch(PathBuf, Sender<Result<()>>),
     Shutdown,
 }
@@ -50,13 +50,16 @@ impl mio::Handler for INotifyHandler {
             INOTIFY => {
                 assert!(events.is_readable());
 
+                let mut add_watches = Vec::new();
+                let mut remove_watches = Vec::new();
+
                 if let Some(ref mut inotify) = self.inotify {
                     match inotify.available_events() {
                         Ok(events) => {
                             assert!(!events.is_empty());
 
                             for e in events {
-                                handle_event(e.clone(), &self.tx, &self.paths)
+                                handle_event(e.clone(), &self.tx, &self.watches, &self.paths, &mut add_watches, &mut remove_watches);
                             }
                         }
                         Err(e) => {
@@ -67,6 +70,14 @@ impl mio::Handler for INotifyHandler {
                         }
                     }
                 }
+
+                for path in remove_watches {
+                    let _ = self.remove_watch(path, true);
+                }
+
+                for path in add_watches {
+                    let _ = self.add_watch(path, true, false);
+                }
             }
             _ => unreachable!(),
         }
@@ -74,20 +85,17 @@ impl mio::Handler for INotifyHandler {
 
     fn notify(&mut self, event_loop: &mut EventLoop<INotifyHandler>, msg: EventLoopMsg) {
         match msg {
-            EventLoopMsg::AddWatch(path, tx) => {
-                let _ = tx.send(self.add_watch_recursively(path));
+            EventLoopMsg::AddWatch(path, recursive_mode, tx) => {
+                let _ = tx.send(self.add_watch(path, recursive_mode.is_recursive(), true));
             }
             EventLoopMsg::RemoveWatch(path, tx) => {
-                let _ = tx.send(self.remove_watch(path));
+                let _ = tx.send(self.remove_watch(path, false));
             }
             EventLoopMsg::Shutdown => {
-                for path in self.watches.clone().keys() {
-                    let _ = self.remove_watch(path.to_owned());
-                }
+                let _ = self.remove_all_watches();
                 if let Some(inotify) = self.inotify.take() {
                     let _ = inotify.close();
                 }
-
                 event_loop.shutdown();
             }
         }
@@ -107,42 +115,44 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 }
 
 impl INotifyHandler {
-    fn add_watch_recursively(&mut self, path: PathBuf) -> Result<()> {
-        match metadata(&path) {
-            Err(e) => return Err(Error::Io(e)),
-            Ok(m) => {
-                if !m.is_dir() {
-                    return self.add_watch(path);
-                }
-            }
+    fn add_watch(&mut self, path: PathBuf, is_recursive: bool, mut watch_self: bool) -> Result<()> {
+        let metadata = try!(metadata(&path).map_err(Error::Io));
+
+        if !metadata.is_dir() || !is_recursive {
+            return self.add_single_watch(path, false, true);
         }
 
         for entry in WalkDir::new(path)
                          .follow_links(true)
                          .into_iter()
                          .filter_map(|e| filter_dir(e)) {
-            try!(self.add_watch(entry.path().to_path_buf()));
+            try!(self.add_single_watch(entry.path().to_path_buf(), is_recursive, watch_self));
+            watch_self = false;
         }
 
         Ok(())
     }
 
-    fn add_watch(&mut self, path: PathBuf) -> Result<()> {
-        let mut watching = flags::IN_ATTRIB | flags::IN_CREATE | flags::IN_DELETE |
-                           flags::IN_DELETE_SELF | flags::IN_MODIFY |
-                           flags::IN_MOVED_FROM |
-                           flags::IN_MOVED_TO | flags::IN_MOVE_SELF;
-        if let Some(p) = self.watches.get(&path) {
-            watching.insert(p.1);
-            watching.insert(flags::IN_MASK_ADD);
+    fn add_single_watch(&mut self, path: PathBuf, is_recursive: bool, watch_self: bool) -> Result<()> {
+        let mut flags = flags::IN_ATTRIB | flags::IN_CREATE | flags::IN_DELETE |
+                        flags::IN_MODIFY | flags::IN_MOVED_FROM | flags::IN_MOVED_TO;
+
+        if watch_self {
+            flags.insert(flags::IN_DELETE_SELF);
+            flags.insert(flags::IN_MOVE_SELF);
+        }
+
+        if let Some(&(_, old_flags, _)) = self.watches.get(&path) {
+            flags.insert(old_flags);
+            flags.insert(flags::IN_MASK_ADD);
         }
 
         if let Some(ref inotify) = self.inotify {
-            match inotify.add_watch(&path, watching.bits()) {
+            match inotify.add_watch(&path, flags.bits()) {
                 Err(e) => Err(Error::Io(e)),
                 Ok(w) => {
-                    watching.remove(flags::IN_MASK_ADD);
-                    self.watches.insert(path.clone(), (w, watching));
+                    flags.remove(flags::IN_MASK_ADD);
+                    self.watches.insert(path.clone(), (w, flags, is_recursive));
                     self.paths.insert(w, path);
                     Ok(())
                 }
@@ -152,53 +162,53 @@ impl INotifyHandler {
         }
     }
 
-    fn remove_watch(&mut self, path: PathBuf) -> Result<()> {
+    fn remove_watch(&mut self, path: PathBuf, remove_recursive: bool) -> Result<()> {
         match self.watches.remove(&path) {
-            None => Err(Error::WatchNotFound),
-            Some(p) => {
-                let w = p.0;
+            None => return Err(Error::WatchNotFound),
+            Some((w, _, is_recursive)) => {
                 if let Some(ref inotify) = self.inotify {
-                    match inotify.rm_watch(w) {
-                        Err(e) => Err(Error::Io(e)),
-                        Ok(_) => {
-                            // Nothing depends on the value being gone
-                            // from here now that inotify isn't watching.
+                    try!(inotify.rm_watch(w).map_err(Error::Io));
+                    self.paths.remove(&w);
+
+                    if is_recursive || remove_recursive {
+                        let mut remove_list = Vec::new();
+                        for (w, p) in &self.paths {
+                            if p.starts_with(&path) {
+                                try!(inotify.rm_watch(*w).map_err(Error::Io));
+                                self.watches.remove(p);
+                                remove_list.push(*w);
+                            }
+                        }
+                        for w in remove_list {
                             self.paths.remove(&w);
-                            Ok(())
                         }
                     }
-                } else {
-                    Ok(())
                 }
             }
         }
+        Ok(())
+    }
+
+    fn remove_all_watches(&mut self) -> Result<()> {
+        if let Some(ref inotify) = self.inotify {
+            for w in self.paths.keys() {
+                try!(inotify.rm_watch(*w).map_err(Error::Io));
+            }
+            self.watches.clear();
+            self.paths.clear();
+        }
+        Ok(())
     }
 }
 
 #[inline]
 fn handle_event(event: wrapper::Event,
                 tx: &Sender<Event>,
-                paths: &HashMap<Watch, PathBuf>) {
-    let mut o = Op::empty();
-    if event.is_create() || event.is_moved_to() {
-        o.insert(op::CREATE);
-    }
-    if event.is_delete_self() || event.is_delete() {
-        o.insert(op::REMOVE);
-    }
-    if event.is_modify() {
-        o.insert(op::WRITE);
-    }
-    if event.is_move_self() || event.is_moved_from() {
-        o.insert(op::RENAME);
-    }
-    if event.is_attrib() {
-        o.insert(op::CHMOD);
-    }
-    if event.is_ignored() {
-        o.insert(op::IGNORED);
-    }
-
+                watches: &HashMap<PathBuf, (Watch, flags::Mask, bool)>,
+                paths: &HashMap<Watch, PathBuf>,
+                add_watches: &mut Vec<PathBuf>,
+                remove_watches: &mut Vec<PathBuf>)
+{
     let path = if event.name.is_empty() {
         match paths.get(&event.wd) {
             Some(p) => Some(p.clone()),
@@ -207,6 +217,50 @@ fn handle_event(event: wrapper::Event,
     } else {
         paths.get(&event.wd).map(|root| root.join(&event.name))
     };
+
+    let mut o = Op::empty();
+    if event.is_create() || event.is_moved_to() {
+        o.insert(op::CREATE);
+
+        if let Some(ref path) = path {
+            if event.is_dir() {
+                if let Some(parent_path) = path.parent() {
+                    if let Some(&(_, _, is_recursive)) = watches.get(parent_path) {
+                        if is_recursive {
+                            (*add_watches).push(path.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if event.is_delete_self() || event.is_delete() {
+        o.insert(op::REMOVE);
+
+        if let Some(ref path) = path {
+            if event.is_dir() {
+                (*remove_watches).push(path.to_owned());
+            }
+        }
+    }
+    if event.is_modify() {
+        o.insert(op::WRITE);
+    }
+    if event.is_move_self() || event.is_moved_from() {
+        o.insert(op::RENAME);
+
+        if let Some(ref path) = path {
+            if event.is_dir() {
+                (*remove_watches).push(path.to_owned());
+            }
+        }
+    }
+    if event.is_attrib() {
+        o.insert(op::CHMOD);
+    }
+    if event.is_ignored() {
+        o.insert(op::IGNORED);
+    }
 
     let _ = tx.send(Event {
         path: path,
@@ -248,9 +302,9 @@ impl Watcher for INotifyWatcher {
             .map_err(Error::Io)
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         let (tx, rx) = mpsc::channel();
-        let msg = EventLoopMsg::AddWatch(path.as_ref().to_owned(), tx);
+        let msg = EventLoopMsg::AddWatch(path.as_ref().to_owned(), recursive_mode, tx);
 
         // we expect the event loop to live and reply => unwraps must not panic
         self.0.send(msg).unwrap();

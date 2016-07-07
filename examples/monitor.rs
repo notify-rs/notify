@@ -1,20 +1,8 @@
 extern crate notify;
 
-use notify::op::CREATE;
-use notify::{RecommendedWatcher, Watcher};
+use notify::{RecommendedWatcher, Watcher, RecursiveMode};
 use std::path::Path;
 use std::sync::mpsc::channel;
-
-#[cfg(target_os="linux")]
-fn add_watch<P: AsRef<Path>>(watcher: &mut RecommendedWatcher, path: P) -> notify::Result<()> {
-    watcher.watch(path)
-}
-
-// OS X and Windows already monitor the entire file tree, including newly created directories
-#[cfg(not(target_os="linux"))]
-fn add_watch<P: AsRef<Path>>(watcher: &mut RecommendedWatcher, path: P) -> notify::Result<()> {
-    Ok(())
-}
 
 fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
     // Create a channel to receive the events.
@@ -26,20 +14,12 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
-    try!(watcher.watch(path));
+    try!(watcher.watch(path, RecursiveMode::Recursive));
 
     // This is a simple loop, but you may want to use more complex logic here,
     // for example to handle I/O.
     loop {
         match rx.recv() {
-          Ok(notify::Event{path:Some(path), op:Ok(CREATE)}) => {
-              println!("{:?} {:?}", CREATE, path);
-              if path.is_dir() {
-                  if let Err(e) = add_watch(&mut watcher, path) {
-                      println!("error adding watch {}", e);
-                  }
-              }
-          },
           Ok(notify::Event{path:Some(path), op:Ok(op)}) => {
               println!("{:?} {:?}", op, path);
           },

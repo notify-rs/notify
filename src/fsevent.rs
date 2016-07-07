@@ -20,9 +20,10 @@ use std::str::from_utf8;
 use std::ffi::CStr;
 use std::convert::AsRef;
 use std::thread;
+use std::collections::HashMap;
 
 use std::sync::mpsc::{channel, Sender, Receiver};
-use super::{Error, Event, op, Result, Watcher};
+use super::{Error, Event, op, Result, Watcher, RecursiveMode};
 use std::path::{Path, PathBuf};
 use libc;
 
@@ -35,6 +36,7 @@ pub struct FsEventWatcher {
     sender: Sender<Event>,
     runloop: Option<usize>,
     context: Option<Box<StreamContextInfo>>,
+    recursive_info: HashMap<PathBuf, bool>,
 }
 
 // CFMutableArrayRef is a type alias to *mut libc::c_void, so FsEventWatcher is not Send/Sync
@@ -67,6 +69,7 @@ fn translate_flags(flags: fse::StreamFlags) -> op::Op {
 struct StreamContextInfo {
     sender: Sender<Event>,
     done: Receiver<()>,
+    recursive_info: HashMap<PathBuf, bool>,
 }
 
 impl FsEventWatcher {
@@ -103,9 +106,10 @@ impl FsEventWatcher {
         self.context = None;
     }
 
-    fn remove_path(&mut self, source: &str) {
+    fn remove_path<P: AsRef<Path>>(&mut self, path: P) {
+        let str_path = path.as_ref().to_str().unwrap();
         unsafe {
-            let cf_path = cf::str_path_to_cfstring_ref(source);
+            let cf_path = cf::str_path_to_cfstring_ref(str_path);
 
             for idx in 0..cf::CFArrayGetCount(self.paths) {
                 let item = cf::CFArrayGetValueAtIndex(self.paths, idx);
@@ -115,15 +119,18 @@ impl FsEventWatcher {
                 }
             }
         }
+        self.recursive_info.remove(path.as_ref());
     }
 
     // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
-    fn append_path(&mut self, source: &str) {
+    fn append_path<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) {
+        let str_path = path.as_ref().to_str().unwrap();
         unsafe {
-            let cf_path = cf::str_path_to_cfstring_ref(source);
+            let cf_path = cf::str_path_to_cfstring_ref(str_path);
             cf::CFArrayAppendValue(self.paths, cf_path);
             cf::CFRelease(cf_path);
         }
+        self.recursive_info.insert(path.as_ref().to_path_buf().canonicalize().unwrap(), recursive_mode.is_recursive());
     }
 
     #[doc(hidden)]
@@ -139,6 +146,7 @@ impl FsEventWatcher {
         let info = StreamContextInfo {
             sender: self.sender.clone(),
             done: done_rx,
+            recursive_info: self.recursive_info.clone(),
         };
 
         self.context = Some(Box::new(info));
@@ -220,12 +228,34 @@ pub unsafe extern "C" fn callback(
                                    .as_ref());
 
         let path = PathBuf::from(from_utf8(i).ok().expect("Invalid UTF8 string."));
-        let event = Event {
-            op: Ok(translate_flags(flag)),
-            path: Some(path),
-        };
 
-        (*info).sender.send(event).ok().expect("error while sending event");
+        let mut handle_event = false;
+        if !handle_event {
+            for (p, r) in &(*info).recursive_info {
+                if path.starts_with(p) {
+                    if *r {
+                        handle_event = true;
+                        break;
+                    } else if &path == p {
+                        handle_event = true;
+                        break;
+                    } else if let Some(parent_path) = path.parent() {
+                        if parent_path == p {
+                            handle_event = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if handle_event {
+            let event = Event {
+                op: Ok(translate_flags(flag)),
+                path: Some(path),
+            };
+            (*info).sender.send(event).ok().expect("error while sending event");
+        }
     }
 }
 
@@ -242,18 +272,19 @@ impl Watcher for FsEventWatcher {
             sender: tx,
             runloop: None,
             context: None,
+            recursive_info: HashMap::new(),
         })
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         self.stop();
-        self.append_path(&path.as_ref().to_str().unwrap());
+        self.append_path(path, recursive_mode);
         self.run()
     }
 
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         self.stop();
-        self.remove_path(&path.as_ref().to_str().unwrap());
+        self.remove_path(path);
         // ignore return error: may be empty path list
         let _ = self.run();
         Ok(())
@@ -278,7 +309,7 @@ fn test_fsevent_watcher_drop() {
 
     {
         let mut watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
-        watcher.watch("../../").unwrap();
+        watcher.watch("../../", RecursiveMode::Recursive).unwrap();
         thread::sleep_ms(2_000);
         println!("is running -> {}", watcher.is_running());
 
