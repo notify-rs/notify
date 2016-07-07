@@ -3,79 +3,22 @@ extern crate tempdir;
 extern crate tempfile;
 extern crate time;
 
+mod utils;
+
 use notify::*;
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, channel, Sender, Receiver, TryRecvError};
+use std::path::Path;
+use std::sync::mpsc::{self, channel, Sender};
 use tempdir::TempDir;
 use tempfile::NamedTempFile;
 use std::fs;
 use std::thread;
 use std::time::Duration;
 
+use utils::*;
+
 #[cfg(not(target_os="windows"))]
 use std::os::unix::fs::PermissionsExt;
-
-#[cfg(not(target_os="windows"))]
-const TIMEOUT_S: f64 = 0.1;
-#[cfg(target_os="windows")]
-const TIMEOUT_S: f64 = 3.0; // windows can take a while
-
-fn recv_events(rx: Receiver<Event>) ->  Vec<(PathBuf, Op)> {
-    let deadline = time::precise_time_s() + TIMEOUT_S;
-
-    let mut evs: Vec<(PathBuf, Op)> = Vec::new();
-
-    while time::precise_time_s() < deadline {
-        match rx.try_recv() {
-            Ok(Event{path: Some(path), op: Ok(op)}) => {
-                evs.push((path, op));
-            },
-            Ok(Event{path: None, ..})  => (),
-            Ok(Event{op: Err(e), ..}) => panic!("unexpected event err: {:?}", e),
-            Err(TryRecvError::Empty) => (),
-            Err(e) => panic!("unexpected channel err: {:?}", e)
-        }
-    }
-    evs
-}
-
-// FSEvent tends to emit events multiple times and aggregate events,
-// so just check that all expected events arrive for each path,
-// and make sure the paths are in the correct order
-fn inflate_events(input: Vec<(PathBuf, Op)>) -> Vec<(PathBuf, Op)> {
-    let mut output = Vec::new();
-    let mut path = None;
-    let mut ops = Op::empty();
-    for (e_p, e_op) in input {
-        let p = match path {
-            Some(p) => p,
-            None => e_p.clone()
-        };
-        if p == e_p {
-            // ops |= e_op;
-            ops = Op::from_bits_truncate(ops.bits() | e_op.bits());
-        } else {
-            output.push((p, ops));
-            ops = e_op;
-        }
-        path = Some(e_p);
-    }
-    if let Some(p) = path {
-        output.push((p, ops));
-    }
-    output
-}
-
-#[cfg(not(target_os="macos"))]
-fn canonicalize(path: &Path) -> PathBuf {
-    path.to_owned()
-}
-
-#[cfg(target_os="macos")]
-fn canonicalize(path: &Path) -> PathBuf {
-    path.canonicalize().expect("failed to canonalize path").to_owned()
-}
 
 #[cfg(not(target_os="windows"))]
 fn chmod(path: &Path) -> io::Result<()> {
@@ -201,71 +144,6 @@ fn watch_dir_recommended() {
 #[test]
 fn watch_single_file_poll() {
     validate_watch_single_file(PollWatcher::new);
-}
-
-#[cfg(target_os = "linux")]
-#[test]
-fn new_inotify() {
-    let (tx, _) = channel();
-    let w: Result<INotifyWatcher> = Watcher::new(tx);
-    assert!(w.is_ok());
-}
-
-#[cfg(target_os = "macos")]
-#[test]
-fn new_fsevent() {
-    let (tx, _) = channel();
-    let w: Result<FsEventWatcher> = Watcher::new(tx);
-    assert!(w.is_ok());
-}
-
-#[test]
-fn new_null() {
-    let (tx, _) = channel();
-    let w: Result<NullWatcher> = Watcher::new(tx);
-    assert!(w.is_ok());
-}
-
-#[test]
-fn new_poll() {
-    let (tx, _) = channel();
-    let w: Result<PollWatcher> = Watcher::new(tx);
-    assert!(w.is_ok());
-}
-
-#[test]
-fn new_recommended() {
-    let (tx, _) = channel();
-    let w: Result<RecommendedWatcher> = Watcher::new(tx);
-    assert!(w.is_ok());
-}
-
-// if this test builds, it means RecommendedWatcher is Send.
-#[test]
-fn test_watcher_send() {
-    let (tx, _) = channel();
-
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
-
-    thread::spawn(move || {
-        watcher.watch(".").unwrap();
-    }).join().unwrap();
-}
-
-// if this test builds, it means RecommendedWatcher is Sync.
-#[test]
-fn test_watcher_sync() {
-    use std::sync::{ Arc, RwLock };
-
-    let (tx, _) = channel();
-
-    let watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
-    let watcher = Arc::new(RwLock::new(watcher));
-
-    thread::spawn(move || {
-        let mut watcher = watcher.write().unwrap();
-        watcher.watch(".").unwrap();
-    }).join().unwrap();
 }
 
 #[test]
