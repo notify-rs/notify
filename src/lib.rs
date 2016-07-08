@@ -150,7 +150,7 @@ pub mod op {
 /// When using the poll watcher, `op` may be Err in the case where getting metadata for the path
 /// fails.
 ///
-/// When using the INotifyWatcher, `op` may be Err if activity is detected on the file and there is
+/// When using the `INotifyWatcher`, `op` may be Err if activity is detected on the file and there is
 /// an error reading from inotify.
 #[derive(Debug)]
 pub struct Event {
@@ -200,7 +200,7 @@ impl fmt::Display for Error {
     }
 }
 
-/// Type alias to use this library's Error type in a Result
+/// Type alias to use this library's `Error` type in a Result
 pub type Result<T> = StdResult<T, Error>;
 
 impl StdError for Error {
@@ -247,19 +247,26 @@ impl RecursiveMode {
 /// addition to such event driven implementations, a polling implementation is also provided that
 /// should work on any platform.
 pub trait Watcher: Sized {
-    /// Create a new Watcher
-    fn new(Sender<Event>) -> Result<Self>;
-
-    /// Begin watching a new path
+    /// Create a new Watcher.
     ///
-    /// If the path is a directory, events will be delivered for all files in that tree.
-    fn watch<P: AsRef<Path>>(&mut self, P, RecursiveMode) -> Result<()>;
+    /// Events will be sent using the provided `tx`.
+    fn new(tx: Sender<Event>) -> Result<Self>;
 
-    /// Stop watching a path
+    /// Begin watching a new path.
     ///
-    /// Returns an Error in the case that Path has not been watched or if failing to remove the
-    /// watch fails.
-    fn unwatch<P: AsRef<Path>>(&mut self, P) -> Result<()>;
+    /// If the `path` is a directory, `recursive_mode` will be evaluated.
+    /// If `recursive_mode` is `RecursiveMode::Recursive` events will be delivered for all files in that tree.
+    /// Otherwise only the directory and it's immediate children will be watched.
+    ///
+    /// If the `path` is a file, `recursive_mode` will be ignored and events will be delivered only for the file.
+    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()>;
+
+    /// Stop watching a path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error in the case that `path` has not been watched or if removing the watch fails.
+    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()>;
 }
 
 /// The recommended `Watcher` implementation for the current platform
@@ -275,7 +282,9 @@ pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub type RecommendedWatcher = PollWatcher;
 
-/// Convenience method for creating the `RecommendedWatcher` for the current platform
+/// Convenience method for creating the `RecommendedWatcher` for the current platform.
+///
+/// Events will be sent using the provided `tx`.
 pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher> {
     Watcher::new(tx)
 }

@@ -102,7 +102,7 @@ impl mio::Handler for INotifyHandler {
     }
 }
 
-/// return DirEntry when it is a directory
+/// return `DirEntry` when it is a directory
 fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry> {
     if let Ok(e) = e {
         if let Ok(metadata) = e.metadata() {
