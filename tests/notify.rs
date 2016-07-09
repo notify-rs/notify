@@ -61,17 +61,17 @@ fn validate_watch_single_file<F, W>(ctor: F) where
 
     if cfg!(target_os="windows") {
         // Windows does not support chmod
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::WRITE),
             (path, op::REMOVE)
         ]);
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path, op::CREATE | op::REMOVE | op::WRITE)
         ]);
     } else if cfg!(target_os="linux") {
         // Only linux supports ignored
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::WRITE),
             (path.clone(), op::CHMOD),
             (path.clone(), op::REMOVE),
@@ -107,7 +107,7 @@ fn validate_watch_dir<F, W>(ctor: F) where
 
     if cfg!(target_os="windows") {
         // Windows may sneak a write event in there
-        let mut actual = recv_events(rx);
+        let mut actual = recv_events(&rx);
         actual.retain(|&(_, op)| op != op::WRITE);
         assert_eq!(actual, vec![
             (f111_path.clone(), op::CREATE),
@@ -115,12 +115,12 @@ fn validate_watch_dir<F, W>(ctor: F) where
             (f111_path, op::REMOVE)
         ]);
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (f21_path, op::CREATE),
             (f111_path, op::CREATE | op::REMOVE)
         ]);
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (f111_path.clone(), op::CREATE),
             (f21_path, op::CREATE),
             (f111_path, op::REMOVE)
@@ -167,9 +167,9 @@ fn create_file() {
     fs::File::create(path.as_path()).expect("failed to create file");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![(path, op::CREATE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE)]);
     } else {
-        assert_eq!(recv_events(rx), vec![(path, op::CREATE)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::CREATE)]);
     }
 }
 
@@ -200,9 +200,9 @@ fn write_file() {
     }
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![(path, op::CREATE | op::WRITE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE | op::WRITE)]);
     } else {
-        assert_eq!(recv_events(rx), vec![(path, op::WRITE)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::WRITE)]);
     }
 }
 
@@ -234,13 +234,13 @@ fn modify_file() {
     }
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(rx), vec![(path, op::WRITE)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::WRITE)]);
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![(path, op::CREATE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE)]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
-        assert_eq!(recv_events(rx), vec![(path, op::CHMOD)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::CHMOD)]);
     }
 }
 
@@ -267,9 +267,9 @@ fn delete_file() {
     fs::remove_file(path.as_path()).expect("failed to remove file");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![(path, op::CREATE | op::REMOVE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE | op::REMOVE)]);
     } else {
-        assert_eq!(recv_events(rx), vec![(path, op::REMOVE)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::REMOVE)]);
     }
 }
 
@@ -299,12 +299,12 @@ fn rename_file() {
     fs::rename(path1.as_path(), path2.as_path()).expect("failed to rename file");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1, op::CREATE | op::RENAME),
             (path2, op::RENAME)
         ]);
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1, op::RENAME),
             (path2, op::CREATE)
         ]);
@@ -345,17 +345,17 @@ fn move_out_create_file() {
     fs::File::create(path2.as_path()).expect("failed to create file");
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1a, op::REMOVE),
             (path2, op::CREATE)
         ]);
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1a, op::CREATE | op::RENAME),
             (path2, op::CREATE)
         ]);
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1a, op::RENAME),
             (path2, op::CREATE)
         ]);
@@ -392,19 +392,19 @@ fn create_write_modify_file() {
     chmod(path.as_path()).expect("failed to chmod file");
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::CREATE),
             (path.clone(), op::WRITE),
             (path, op::WRITE)
         ]);
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path.clone(), op::CREATE | op::WRITE)
         ]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::CREATE),
             (path.clone(), op::WRITE),
             (path, op::CHMOD)
@@ -439,18 +439,18 @@ fn create_rename_overwrite_file() {
 
     if cfg!(target_os="windows") {
         // Windows interprets a move that overwrites a file as a delete of the source file and a write to the file that is being overwritten
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1.clone(), op::CREATE),
             (path1, op::REMOVE),
             (path2, op::WRITE)
         ]);
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1, op::CREATE | op::RENAME),
             (path2, op::CREATE | op::RENAME)
         ]);
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1.clone(), op::CREATE),
             (path1, op::RENAME),
             (path2, op::CREATE)
@@ -487,13 +487,13 @@ fn rename_rename_file() {
     fs::rename(path2.as_path(), path3.as_path()).expect("failed to rename file");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1, op::CREATE | op::RENAME),
             (path2, op::RENAME),
             (path3, op::RENAME)
         ]);
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1, op::RENAME),
             (path2.clone(), op::CREATE),
             (path2, op::RENAME),
@@ -523,9 +523,9 @@ fn create_directory() {
     fs::create_dir(path.as_path()).expect("failed to create directory");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![(path, op::CREATE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE)]);
     } else {
-        assert_eq!(recv_events(rx), vec![(path, op::CREATE)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::CREATE)]);
     }
 }
 
@@ -553,14 +553,14 @@ fn modify_directory() {
     chmod(path.as_path()).expect("failed to chmod directory");
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(rx), vec![(path, op::WRITE)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::WRITE)]);
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![(path, op::CREATE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE)]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
         // TODO: emit chmod event only once
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::CHMOD),
             (path, op::CHMOD)
         ]);
@@ -591,18 +591,18 @@ fn delete_directory() {
     fs::remove_dir(path.as_path()).expect("failed to remove directory");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path, op::CREATE | op::REMOVE)
         ]);
     } else if cfg!(target_os="linux") {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::REMOVE), // excessive remove event
             (path.clone(), op::IGNORED),
             (path, op::REMOVE)
         ]);
         panic!("linux emits an excessive remove event because it is watching for IN_DELETE_SELF");
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::REMOVE)
         ]);
     }
@@ -634,7 +634,7 @@ fn rename_directory() {
     fs::rename(path1.as_path(), path2.as_path()).expect("failed to rename directory");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1, op::CREATE | op::RENAME),
             (path2, op::RENAME)
         ]);
@@ -646,7 +646,7 @@ fn rename_directory() {
         ]);
         panic!("linux emits an excessive move event because it is watching for IN_MOVE_SELF");
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1, op::RENAME),
             (path2, op::CREATE)
         ]);
@@ -687,17 +687,17 @@ fn move_out_create_directory() {
     fs::File::create(path2.as_path()).expect("failed to create file");
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1a, op::REMOVE),
             (path2, op::CREATE)
         ]);
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1a, op::CREATE | op::RENAME),
             (path2, op::CREATE)
         ]);
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1a, op::RENAME),
             (path2, op::CREATE)
         ]);
@@ -734,18 +734,18 @@ fn create_rename_overwrite_directory() {
     fs::rename(path1.as_path(), path2.as_path()).expect("failed to rename directory");
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1.clone(), op::CREATE),
             (path1, op::RENAME),
             (path2, op::CREATE)
         ]);
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1, op::CREATE | op::RENAME),
             (path2, op::CREATE | op::RENAME)
         ]);
     } else if cfg!(target_os="linux") {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1.clone(), op::CREATE),
             (path1, op::RENAME),
             (path2.clone(), op::CREATE),
@@ -788,7 +788,7 @@ fn rename_rename_directory() {
     fs::rename(path2.as_path(), path3.as_path()).expect("failed to rename directory");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1, op::CREATE | op::RENAME),
             (path2, op::RENAME),
             (path3, op::RENAME)
@@ -804,7 +804,7 @@ fn rename_rename_directory() {
         ]);
         panic!("linux emits an excessive move event because it is watching for IN_MOVE_SELF");
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1, op::RENAME),
             (path2.clone(), op::CREATE),
             (path2, op::RENAME),

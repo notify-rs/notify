@@ -10,7 +10,7 @@ const TIMEOUT_S: f64 = 0.1;
 #[cfg(target_os="windows")]
 const TIMEOUT_S: f64 = 3.0; // windows can take a while
 
-pub fn recv_events(rx: Receiver<Event>) ->  Vec<(PathBuf, Op)> {
+pub fn recv_events(rx: &Receiver<Event>) ->  Vec<(PathBuf, Op)> {
     let deadline = time::precise_time_s() + TIMEOUT_S;
 
     let mut evs: Vec<(PathBuf, Op)> = Vec::new();
