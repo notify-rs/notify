@@ -163,7 +163,7 @@ impl PollWatcher {
 
 impl Watcher for PollWatcher {
     fn new(tx: Sender<Event>) -> Result<PollWatcher> {
-        PollWatcher::with_delay(tx, 10)
+        PollWatcher::with_delay(tx, 10_000)
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
