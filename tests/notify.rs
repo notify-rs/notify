@@ -3,79 +3,22 @@ extern crate tempdir;
 extern crate tempfile;
 extern crate time;
 
+mod utils;
+
 use notify::*;
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, channel, Sender, Receiver, TryRecvError};
+use std::path::Path;
+use std::sync::mpsc::{self, channel, Sender};
 use tempdir::TempDir;
 use tempfile::NamedTempFile;
 use std::fs;
 use std::thread;
 use std::time::Duration;
 
+use utils::*;
+
 #[cfg(not(target_os="windows"))]
 use std::os::unix::fs::PermissionsExt;
-
-#[cfg(not(target_os="windows"))]
-const TIMEOUT_S: f64 = 0.1;
-#[cfg(target_os="windows")]
-const TIMEOUT_S: f64 = 3.0; // windows can take a while
-
-fn recv_events(rx: Receiver<Event>) ->  Vec<(PathBuf, Op)> {
-    let deadline = time::precise_time_s() + TIMEOUT_S;
-
-    let mut evs: Vec<(PathBuf, Op)> = Vec::new();
-
-    while time::precise_time_s() < deadline {
-        match rx.try_recv() {
-            Ok(Event{path: Some(path), op: Ok(op)}) => {
-                evs.push((path, op));
-            },
-            Ok(Event{path: None, ..})  => (),
-            Ok(Event{op: Err(e), ..}) => panic!("unexpected event err: {:?}", e),
-            Err(TryRecvError::Empty) => (),
-            Err(e) => panic!("unexpected channel err: {:?}", e)
-        }
-    }
-    evs
-}
-
-// FSEvent tends to emit events multiple times and aggregate events,
-// so just check that all expected events arrive for each path,
-// and make sure the paths are in the correct order
-fn inflate_events(input: Vec<(PathBuf, Op)>) -> Vec<(PathBuf, Op)> {
-    let mut output = Vec::new();
-    let mut path = None;
-    let mut ops = Op::empty();
-    for (e_p, e_op) in input {
-        let p = match path {
-            Some(p) => p,
-            None => e_p.clone()
-        };
-        if p == e_p {
-            // ops |= e_op;
-            ops = Op::from_bits_truncate(ops.bits() | e_op.bits());
-        } else {
-            output.push((p, ops));
-            ops = e_op;
-        }
-        path = Some(e_p);
-    }
-    if let Some(p) = path {
-        output.push((p, ops));
-    }
-    output
-}
-
-#[cfg(not(target_os="macos"))]
-fn canonicalize(path: &Path) -> PathBuf {
-    path.to_owned()
-}
-
-#[cfg(target_os="macos")]
-fn canonicalize(path: &Path) -> PathBuf {
-    path.canonicalize().expect("failed to canonalize path").to_owned()
-}
 
 #[cfg(not(target_os="windows"))]
 fn chmod(path: &Path) -> io::Result<()> {
@@ -99,7 +42,7 @@ fn validate_watch_single_file<F, W>(ctor: F) where
     // Flushing doesn't help.  So make sure it is closed before we validate.
     let path = {
         let mut file = NamedTempFile::new().unwrap();
-        w.watch(file.path()).unwrap();
+        w.watch(file.path(), RecursiveMode::Recursive).unwrap();
 
         // make some files that should be exlcuded from watch. this works because tempfile creates
         // them all in the same directory.
@@ -118,17 +61,17 @@ fn validate_watch_single_file<F, W>(ctor: F) where
 
     if cfg!(target_os="windows") {
         // Windows does not support chmod
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::WRITE),
             (path, op::REMOVE)
         ]);
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path, op::CREATE | op::REMOVE | op::WRITE)
         ]);
     } else if cfg!(target_os="linux") {
         // Only linux supports ignored
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::WRITE),
             (path.clone(), op::CHMOD),
             (path.clone(), op::REMOVE),
@@ -154,7 +97,7 @@ fn validate_watch_dir<F, W>(ctor: F) where
         thread::sleep(Duration::from_millis(10));
     }
 
-    w.watch(dir.path()).unwrap();
+    w.watch(dir.path(), RecursiveMode::Recursive).unwrap();
 
     let f111 = NamedTempFile::new_in(dir11.path()).unwrap();
     let f111_path = canonicalize(f111.path());
@@ -164,7 +107,7 @@ fn validate_watch_dir<F, W>(ctor: F) where
 
     if cfg!(target_os="windows") {
         // Windows may sneak a write event in there
-        let mut actual = recv_events(rx);
+        let mut actual = recv_events(&rx);
         actual.retain(|&(_, op)| op != op::WRITE);
         assert_eq!(actual, vec![
             (f111_path.clone(), op::CREATE),
@@ -172,12 +115,12 @@ fn validate_watch_dir<F, W>(ctor: F) where
             (f111_path, op::REMOVE)
         ]);
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (f21_path, op::CREATE),
             (f111_path, op::CREATE | op::REMOVE)
         ]);
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (f111_path.clone(), op::CREATE),
             (f21_path, op::CREATE),
             (f111_path, op::REMOVE)
@@ -203,71 +146,6 @@ fn watch_single_file_poll() {
     validate_watch_single_file(PollWatcher::new);
 }
 
-#[cfg(target_os = "linux")]
-#[test]
-fn new_inotify() {
-    let (tx, _) = channel();
-    let w: Result<INotifyWatcher> = Watcher::new(tx);
-    assert!(w.is_ok());
-}
-
-#[cfg(target_os = "macos")]
-#[test]
-fn new_fsevent() {
-    let (tx, _) = channel();
-    let w: Result<FsEventWatcher> = Watcher::new(tx);
-    assert!(w.is_ok());
-}
-
-#[test]
-fn new_null() {
-    let (tx, _) = channel();
-    let w: Result<NullWatcher> = Watcher::new(tx);
-    assert!(w.is_ok());
-}
-
-#[test]
-fn new_poll() {
-    let (tx, _) = channel();
-    let w: Result<PollWatcher> = Watcher::new(tx);
-    assert!(w.is_ok());
-}
-
-#[test]
-fn new_recommended() {
-    let (tx, _) = channel();
-    let w: Result<RecommendedWatcher> = Watcher::new(tx);
-    assert!(w.is_ok());
-}
-
-// if this test builds, it means RecommendedWatcher is Send.
-#[test]
-fn test_watcher_send() {
-    let (tx, _) = channel();
-
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
-
-    thread::spawn(move || {
-        watcher.watch(".").unwrap();
-    }).join().unwrap();
-}
-
-// if this test builds, it means RecommendedWatcher is Sync.
-#[test]
-fn test_watcher_sync() {
-    use std::sync::{ Arc, RwLock };
-
-    let (tx, _) = channel();
-
-    let watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
-    let watcher = Arc::new(RwLock::new(watcher));
-
-    thread::spawn(move || {
-        let mut watcher = watcher.write().unwrap();
-        watcher.watch(".").unwrap();
-    }).join().unwrap();
-}
-
 #[test]
 fn create_file() {
     let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
@@ -280,7 +158,7 @@ fn create_file() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -289,9 +167,9 @@ fn create_file() {
     fs::File::create(path.as_path()).expect("failed to create file");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![(path, op::CREATE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE)]);
     } else {
-        assert_eq!(recv_events(rx), vec![(path, op::CREATE)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::CREATE)]);
     }
 }
 
@@ -309,7 +187,7 @@ fn write_file() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -322,9 +200,9 @@ fn write_file() {
     }
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![(path, op::CREATE | op::WRITE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE | op::WRITE)]);
     } else {
-        assert_eq!(recv_events(rx), vec![(path, op::WRITE)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::WRITE)]);
     }
 }
 
@@ -343,7 +221,7 @@ fn modify_file() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -356,13 +234,13 @@ fn modify_file() {
     }
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(rx), vec![(path, op::WRITE)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::WRITE)]);
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![(path, op::CREATE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE)]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
-        assert_eq!(recv_events(rx), vec![(path, op::CHMOD)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::CHMOD)]);
     }
 }
 
@@ -380,7 +258,7 @@ fn delete_file() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -389,9 +267,9 @@ fn delete_file() {
     fs::remove_file(path.as_path()).expect("failed to remove file");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![(path, op::CREATE | op::REMOVE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE | op::REMOVE)]);
     } else {
-        assert_eq!(recv_events(rx), vec![(path, op::REMOVE)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::REMOVE)]);
     }
 }
 
@@ -412,7 +290,7 @@ fn rename_file() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -421,12 +299,12 @@ fn rename_file() {
     fs::rename(path1.as_path(), path2.as_path()).expect("failed to rename file");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1, op::CREATE | op::RENAME),
             (path2, op::RENAME)
         ]);
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1, op::RENAME),
             (path2, op::CREATE)
         ]);
@@ -457,7 +335,7 @@ fn move_out_create_file() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(sub_dir1.into_path()).expect("failed to watch directory");
+    watcher.watch(sub_dir1.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -467,17 +345,17 @@ fn move_out_create_file() {
     fs::File::create(path2.as_path()).expect("failed to create file");
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(rx), vec![
-            (path1a, op::REMOVE),
+        assert_eq!(recv_events(&rx), vec![
+            (path1a, op::REMOVE), // windows interprets a move out of the watched directory as a remove
             (path2, op::CREATE)
         ]);
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1a, op::CREATE | op::RENAME),
             (path2, op::CREATE)
         ]);
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1a, op::RENAME),
             (path2, op::CREATE)
         ]);
@@ -500,7 +378,7 @@ fn create_write_modify_file() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -514,19 +392,19 @@ fn create_write_modify_file() {
     chmod(path.as_path()).expect("failed to chmod file");
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::CREATE),
             (path.clone(), op::WRITE),
             (path, op::WRITE)
         ]);
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path.clone(), op::CREATE | op::WRITE)
         ]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::CREATE),
             (path.clone(), op::WRITE),
             (path, op::CHMOD)
@@ -550,7 +428,7 @@ fn create_rename_overwrite_file() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -561,18 +439,18 @@ fn create_rename_overwrite_file() {
 
     if cfg!(target_os="windows") {
         // Windows interprets a move that overwrites a file as a delete of the source file and a write to the file that is being overwritten
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1.clone(), op::CREATE),
             (path1, op::REMOVE),
             (path2, op::WRITE)
         ]);
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1, op::CREATE | op::RENAME),
             (path2, op::CREATE | op::RENAME)
         ]);
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1.clone(), op::CREATE),
             (path1, op::RENAME),
             (path2, op::CREATE)
@@ -599,7 +477,7 @@ fn rename_rename_file() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -609,13 +487,13 @@ fn rename_rename_file() {
     fs::rename(path2.as_path(), path3.as_path()).expect("failed to rename file");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1, op::CREATE | op::RENAME),
             (path2, op::RENAME),
             (path3, op::RENAME)
         ]);
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1, op::RENAME),
             (path2.clone(), op::CREATE),
             (path2, op::RENAME),
@@ -636,7 +514,7 @@ fn create_directory() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -645,9 +523,9 @@ fn create_directory() {
     fs::create_dir(path.as_path()).expect("failed to create directory");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![(path, op::CREATE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE)]);
     } else {
-        assert_eq!(recv_events(rx), vec![(path, op::CREATE)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::CREATE)]);
     }
 }
 
@@ -666,7 +544,7 @@ fn modify_directory() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -675,14 +553,14 @@ fn modify_directory() {
     chmod(path.as_path()).expect("failed to chmod directory");
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(rx), vec![(path, op::WRITE)]);
+        assert_eq!(recv_events(&rx), vec![(path, op::WRITE)]);
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![(path, op::CREATE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE)]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
         // TODO: emit chmod event only once
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::CHMOD),
             (path, op::CHMOD)
         ]);
@@ -704,7 +582,7 @@ fn delete_directory() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -713,18 +591,16 @@ fn delete_directory() {
     fs::remove_dir(path.as_path()).expect("failed to remove directory");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path, op::CREATE | op::REMOVE)
         ]);
     } else if cfg!(target_os="linux") {
-        assert_eq!(recv_events(rx), vec![
-            (path.clone(), op::REMOVE), // excessive remove event
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::IGNORED),
             (path, op::REMOVE)
         ]);
-        panic!("linux emits an excessive remove event because it is watching for IN_DELETE_SELF");
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path.clone(), op::REMOVE)
         ]);
     }
@@ -747,7 +623,7 @@ fn rename_directory() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -756,19 +632,12 @@ fn rename_directory() {
     fs::rename(path1.as_path(), path2.as_path()).expect("failed to rename directory");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1, op::CREATE | op::RENAME),
             (path2, op::RENAME)
         ]);
-    } else if cfg!(target_os="linux") {
-        assert_eq!(recv_events(rx), vec![
-            (path1.clone(), op::RENAME),
-            (path2, op::CREATE),
-            (path1, op::RENAME) // excessive move event
-        ]);
-        panic!("linux emits an excessive move event because it is watching for IN_MOVE_SELF");
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1, op::RENAME),
             (path2, op::CREATE)
         ]);
@@ -799,7 +668,7 @@ fn move_out_create_directory() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(sub_dir1.into_path()).expect("failed to watch directory");
+    watcher.watch(sub_dir1.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -809,17 +678,17 @@ fn move_out_create_directory() {
     fs::File::create(path2.as_path()).expect("failed to create file");
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(rx), vec![
-            (path1a, op::REMOVE),
+        assert_eq!(recv_events(&rx), vec![
+            (path1a, op::REMOVE), // windows interprets a move out of the watched directory as a remove
             (path2, op::CREATE)
         ]);
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1a, op::CREATE | op::RENAME),
             (path2, op::CREATE)
         ]);
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1a, op::RENAME),
             (path2, op::CREATE)
         ]);
@@ -846,7 +715,7 @@ fn create_rename_overwrite_directory() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -856,26 +725,24 @@ fn create_rename_overwrite_directory() {
     fs::rename(path1.as_path(), path2.as_path()).expect("failed to rename directory");
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1.clone(), op::CREATE),
             (path1, op::RENAME),
             (path2, op::CREATE)
         ]);
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1, op::CREATE | op::RENAME),
             (path2, op::CREATE | op::RENAME)
         ]);
     } else if cfg!(target_os="linux") {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1.clone(), op::CREATE),
             (path1, op::RENAME),
             (path2.clone(), op::CREATE),
             (path2.clone(), op::CHMOD),
-            (path2.clone(), op::REMOVE),
             (path2, op::IGNORED),
         ]);
-        panic!("linux emits remove events after file has been overwritten");
     } else {
         unimplemented!();
     }
@@ -900,7 +767,7 @@ fn rename_rename_directory() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path()).expect("failed to watch directory");
+    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
         thread::sleep(Duration::from_millis(100));
@@ -910,23 +777,13 @@ fn rename_rename_directory() {
     fs::rename(path2.as_path(), path3.as_path()).expect("failed to rename directory");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(rx)), vec![
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
             (path1, op::CREATE | op::RENAME),
             (path2, op::RENAME),
             (path3, op::RENAME)
         ]);
-    } else if cfg!(target_os="linux") {
-        assert_eq!(recv_events(rx), vec![
-            (path1.clone(), op::RENAME),
-            (path2.clone(), op::CREATE),
-            (path1.clone(), op::RENAME), // excessive move event
-            (path2, op::RENAME),
-            (path3, op::CREATE),
-            (path1, op::RENAME), // excessive move event + the path of the watch has not been updated to path3
-        ]);
-        panic!("linux emits an excessive move event because it is watching for IN_MOVE_SELF");
     } else {
-        assert_eq!(recv_events(rx), vec![
+        assert_eq!(recv_events(&rx), vec![
             (path1, op::RENAME),
             (path2.clone(), op::CREATE),
             (path2, op::RENAME),

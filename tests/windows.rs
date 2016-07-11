@@ -37,7 +37,7 @@ fn shutdown() {
 
         for d in &dirs { // need the ref, otherwise its a move and the dir will be dropped!
             //println!("{:?}", d.path());
-            w.watch(d.path()).unwrap();
+            w.watch(d.path(), RecursiveMode::Recursive).unwrap();
         }
 
         // unwatch half of the directories, let the others get stopped when we go out of scope
@@ -76,7 +76,7 @@ fn watch_deleted_fails() {
 
     let (tx, _) = channel();
     let mut w = ReadDirectoryChangesWatcher::new(tx).unwrap();
-    match w.watch(pb.as_path()) {
+    match w.watch(pb.as_path(), RecursiveMode::Recursive) {
         Ok(x) => panic!("Should have failed, but got: {:?}", x),
         Err(_) => ()
     }
@@ -91,11 +91,11 @@ fn watch_server_can_be_awakened() {
     let d = TempDir::new("rsnotifytest").unwrap();
     let d2 = TempDir::new("rsnotifytest").unwrap();
 
-    match w.watch(d.path()) {
+    match w.watch(d.path(), RecursiveMode::Recursive) {
         Ok(_) => (),
         Err(e) => panic!("Oops: {:?}", e)
     }
-    match w.watch(d2.path()) {
+    match w.watch(d2.path(), RecursiveMode::Recursive) {
         Ok(_) => (),
         Err(e) => panic!("Oops: {:?}", e)
     }
@@ -130,7 +130,7 @@ fn memtest_manual() {
         {
             let (meta_tx,_) = channel();
             let mut w = ReadDirectoryChangesWatcher::create(tx,meta_tx).unwrap();
-            w.watch(d.path()).unwrap();
+            w.watch(d.path(), RecursiveMode::Recursive).unwrap();
             thread::sleep_ms(1); // this should make us run pretty hot but not insane
         }
         check_for_error(&rx);
