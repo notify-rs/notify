@@ -1,136 +1,20 @@
 extern crate notify;
 extern crate tempdir;
-extern crate tempfile;
 extern crate time;
 
 mod utils;
 
 use notify::*;
-use std::io::Write;
-use std::sync::mpsc::{self, channel, Sender};
+use std::sync::mpsc;
 use tempdir::TempDir;
-use tempfile::NamedTempFile;
 
 use utils::*;
-
-fn validate_watch_single_file<F, W>(ctor: F) where
-    F: Fn(Sender<Event>) -> Result<W>, W: Watcher
-{
-    let (tx, rx) = channel();
-    let mut w = ctor(tx).unwrap();
-
-    // While the file is open, windows won't report modified events for it.
-    // Flushing doesn't help.  So make sure it is closed before we validate.
-    let path = {
-        let mut file = NamedTempFile::new().unwrap();
-        w.watch(file.path(), RecursiveMode::Recursive).unwrap();
-
-        // make some files that should be exlcuded from watch. this works because tempfile creates
-        // them all in the same directory.
-        let mut excluded_file = NamedTempFile::new().unwrap();
-        let another_excluded_file = NamedTempFile::new().unwrap();
-        let _ = another_excluded_file; // eliminate warning
-        excluded_file.write_all(b"shouldn't get an event for this").expect("failed to write to file");
-        excluded_file.sync_all().expect("failed to sync file");
-
-        file.write_all(b"foo").expect("failed to write to file");
-        file.sync_all().expect("failed to sync file");
-        canonicalize(file.path())
-    };
-
-    // make sure that ONLY the target path is in the list of received events
-
-    if cfg!(target_os="windows") {
-        // Windows does not support chmod
-        assert_eq!(recv_events(&rx), vec![
-            (path.clone(), op::WRITE),
-            (path, op::REMOVE)
-        ]);
-    } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (path, op::CREATE | op::REMOVE | op::WRITE)
-        ]);
-    } else if cfg!(target_os="linux") {
-        // Only linux supports ignored
-        assert_eq!(recv_events(&rx), vec![
-            (path.clone(), op::WRITE),
-            (path.clone(), op::CHMOD),
-            (path.clone(), op::REMOVE),
-            (path, op::IGNORED)
-        ]);
-    } else {
-        unimplemented!();
-    }
-}
-
-fn validate_watch_dir<F, W>(ctor: F) where
-    F: Fn(Sender<Event>) -> Result<W>, W: Watcher
-{
-    let dir = TempDir::new("dir").unwrap();
-    let dir1 = TempDir::new_in(dir.path(), "dir1").unwrap();
-    let dir2 = TempDir::new_in(dir.path(), "dir2").unwrap();
-    let dir11 = TempDir::new_in(dir1.path(), "dir11").unwrap();
-    let (tx, rx) = channel();
-    let mut w = ctor(tx).unwrap();
-
-    // OSX FsEvent needs some time to discard old events from its log.
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
-
-    w.watch(dir.path(), RecursiveMode::Recursive).unwrap();
-
-    let f111 = NamedTempFile::new_in(dir11.path()).unwrap();
-    let f111_path = canonicalize(f111.path());
-    let f21 = NamedTempFile::new_in(dir2.path()).unwrap();
-    let f21_path = canonicalize(f21.path());
-    f111.close().unwrap();
-
-    if cfg!(target_os="windows") {
-        // Windows may sneak a write event in there
-        let mut actual = recv_events(&rx);
-        actual.retain(|&(_, op)| op != op::WRITE);
-        assert_eq!(actual, vec![
-            (f111_path.clone(), op::CREATE),
-            (f21_path, op::CREATE),
-            (f111_path, op::REMOVE)
-        ]);
-    } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (f21_path, op::CREATE),
-            (f111_path, op::CREATE | op::REMOVE)
-        ]);
-    } else {
-        assert_eq!(recv_events(&rx), vec![
-            (f111_path.clone(), op::CREATE),
-            (f21_path, op::CREATE),
-            (f111_path, op::REMOVE)
-        ]);
-    }
-}
-
-#[test]
-fn watch_single_file_recommended() {
-    validate_watch_single_file(RecommendedWatcher::new);
-}
-
-#[test]
-fn watch_dir_recommended() {
-    validate_watch_dir(RecommendedWatcher::new);
-}
-
-// Currently broken on OSX because relative filename are sent.
-// Also panics on random Linux test passes.
-#[cfg(broken)]
-#[test]
-fn watch_single_file_poll() {
-    validate_watch_single_file(PollWatcher::new);
-}
 
 #[test]
 fn create_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
+    // OSX FsEvent needs some time to discard old events from its log.
     if cfg!(target_os="macos") {
         sleep(10);
     }

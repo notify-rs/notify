@@ -7,7 +7,7 @@ use tempdir::TempDir;
 use notify::*;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::thread;
 use std::time::Duration;
@@ -65,16 +65,6 @@ pub fn inflate_events(input: Vec<(PathBuf, Op)>) -> Vec<(PathBuf, Op)> {
         output.push((p, ops));
     }
     output
-}
-
-#[cfg(not(target_os="macos"))]
-pub fn canonicalize(path: &Path) -> PathBuf {
-    path.to_owned()
-}
-
-#[cfg(target_os="macos")]
-pub fn canonicalize(path: &Path) -> PathBuf {
-    path.canonicalize().expect("failed to canonalize path").to_owned()
 }
 
 // Sleep for `duration` in milliseconds
