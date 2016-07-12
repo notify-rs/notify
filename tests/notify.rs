@@ -6,31 +6,12 @@ extern crate time;
 mod utils;
 
 use notify::*;
-use std::io::{self, Write};
-use std::path::Path;
+use std::io::Write;
 use std::sync::mpsc::{self, channel, Sender};
 use tempdir::TempDir;
 use tempfile::NamedTempFile;
-use std::fs;
-use std::thread;
-use std::time::Duration;
 
 use utils::*;
-
-#[cfg(not(target_os="windows"))]
-use std::os::unix::fs::PermissionsExt;
-
-#[cfg(not(target_os="windows"))]
-fn chmod(path: &Path) -> io::Result<()> {
-    fs::set_permissions(path, fs::Permissions::from_mode(777))
-}
-
-#[cfg(target_os="windows")]
-fn chmod(path: &Path) -> io::Result<()> {
-    let mut permissions = try!(fs::metadata(path)).permissions();
-    permissions.set_readonly(true);
-    fs::set_permissions(path, permissions)
-}
 
 fn validate_watch_single_file<F, W>(ctor: F) where
     F: Fn(Sender<Event>) -> Result<W>, W: Watcher
@@ -94,7 +75,7 @@ fn validate_watch_dir<F, W>(ctor: F) where
 
     // OSX FsEvent needs some time to discard old events from its log.
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     w.watch(dir.path(), RecursiveMode::Recursive).unwrap();
@@ -148,165 +129,175 @@ fn watch_single_file_poll() {
 
 #[test]
 fn create_file() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path = canonicalize(temp_dir.path());
-    path.push("new_file.bin");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    fs::File::create(path.as_path()).expect("failed to create file");
+    tdir.create("file1");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
+            (tdir.mkpath("file1"), op::CREATE),
+        ]);
     } else {
-        assert_eq!(recv_events(&rx), vec![(path, op::CREATE)]);
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("file1"), op::CREATE),
+        ]);
     }
 }
 
 #[test]
 fn write_file() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path = canonicalize(temp_dir.path());
-    path.push("file.bin");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    let mut file = fs::File::create(path.as_path()).expect("failed to create file");
+    tdir.create_all(vec![
+        "file1"
+    ]);
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    file.write("some data".as_bytes()).expect("failed to write to file");
-    file.sync_all().expect("failed to sync file");
-    if cfg!(target_os="macos") {
-        drop(file); // file needs to be closed for fsevent
-    }
+    tdir.write("file1");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE | op::WRITE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
+            (tdir.mkpath("file1"), op::CREATE | op::WRITE),
+        ]);
     } else {
-        assert_eq!(recv_events(&rx), vec![(path, op::WRITE)]);
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("file1"), op::WRITE),
+        ]);
     }
 }
 
 #[test]
 #[ignore]
 fn modify_file() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path = canonicalize(temp_dir.path());
-    path.push("file.bin");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    fs::File::create(path.as_path()).expect("failed to create file");
+    tdir.create_all(vec![
+        "file1"
+    ]);
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    chmod(path.as_path()).expect("failed to chmod file");
+    tdir.chmod("file1");
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(&rx), vec![(path, op::WRITE)]);
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("file1"), op::WRITE),
+        ]);
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
+            (tdir.mkpath("file1"), op::CREATE),
+        ]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
-        assert_eq!(recv_events(&rx), vec![(path, op::CHMOD)]);
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("file1"), op::CHMOD),
+        ]);
     }
 }
 
 #[test]
 fn delete_file() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path = canonicalize(temp_dir.path());
-    path.push("file.bin");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    fs::File::create(path.as_path()).expect("failed to create file");
+    tdir.create_all(vec![
+        "file1"
+    ]);
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    fs::remove_file(path.as_path()).expect("failed to remove file");
+    tdir.remove("file1");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE | op::REMOVE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
+            (tdir.mkpath("file1"), op::CREATE | op::REMOVE),
+        ]);
     } else {
-        assert_eq!(recv_events(&rx), vec![(path, op::REMOVE)]);
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("file1"), op::REMOVE),
+        ]);
     }
 }
 
 #[test]
 #[ignore]
 fn rename_file() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path1 = canonicalize(temp_dir.path());
-    path1.push("file1.bin");
-    let mut path2 = canonicalize(temp_dir.path());
-    path2.push("file2.bin");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    fs::File::create(path1.as_path()).expect("failed to create file");
+    tdir.create_all(vec![
+        "file1a"
+    ]);
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    fs::rename(path1.as_path(), path2.as_path()).expect("failed to rename file");
+    tdir.rename("file1a", "file1b");
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (path1, op::CREATE | op::RENAME),
-            (path2, op::RENAME)
+            (tdir.mkpath("file1a"), op::CREATE | op::RENAME),
+            (tdir.mkpath("file1b"), op::RENAME)
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (path1, op::RENAME),
-            (path2, op::CREATE)
+            (tdir.mkpath("file1a"), op::RENAME),
+            (tdir.mkpath("file1b"), op::CREATE)
         ]);
     }
     if cfg!(not(target_os="windows")) {
@@ -317,47 +308,41 @@ fn rename_file() {
 #[test]
 #[ignore]
 fn move_out_create_file() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let sub_dir1 = TempDir::new_in(temp_dir.path(), "sub_dir1").expect("failed to create temporary directory");
-    let sub_dir2 = TempDir::new_in(temp_dir.path(), "sub_dir2").expect("failed to create temporary directory");
-    let mut path1a = canonicalize(sub_dir1.path());
-    path1a.push("file1.bin");
-    let mut path1b = canonicalize(sub_dir2.path());
-    path1b.push("file1.bin");
-    let mut path2 = canonicalize(sub_dir1.path());
-    path2.push("file2.bin");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    fs::File::create(path1a.as_path()).expect("failed to create file");
+    tdir.create_all(vec![
+        "watch_dir/file1"
+    ]);
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(sub_dir1.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    fs::rename(path1a.as_path(), path1b.as_path()).expect("failed to rename file");
-    fs::File::create(path2.as_path()).expect("failed to create file");
+    tdir.rename("watch_dir/file1", "file1b");
+    tdir.create("watch_dir/file1");
 
     if cfg!(target_os="windows") {
         assert_eq!(recv_events(&rx), vec![
-            (path1a, op::REMOVE), // windows interprets a move out of the watched directory as a remove
-            (path2, op::CREATE)
+            (tdir.mkpath("watch_dir/file1"), op::REMOVE), // windows interprets a move out of the watched directory as a remove
+            (tdir.mkpath("watch_dir/file1"), op::CREATE)
         ]);
     } else if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (path1a, op::CREATE | op::RENAME),
-            (path2, op::CREATE)
+            (tdir.mkpath("watch_dir/file1"), op::CREATE | op::RENAME),
+            (tdir.mkpath("watch_dir/file1"), op::CREATE)
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (path1a, op::RENAME),
-            (path2, op::CREATE)
+            (tdir.mkpath("watch_dir/file1"), op::RENAME),
+            (tdir.mkpath("watch_dir/file1"), op::CREATE)
         ]);
     }
     if cfg!(not(target_os="windows")) {
@@ -368,92 +353,85 @@ fn move_out_create_file() {
 #[test]
 #[ignore]
 fn create_write_modify_file() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path = canonicalize(temp_dir.path());
-    path.push("new_file.bin");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    let mut file = fs::File::create(path.as_path()).expect("failed to create file");
-    file.write("some data".as_bytes()).expect("failed to write to file");
-    if cfg!(target_os="macos") {
-        drop(file); // file needs to be closed for fsevent
-    }
-    chmod(path.as_path()).expect("failed to chmod file");
+    tdir.create("file1");
+    tdir.write("file1");
+    tdir.chmod("file1");
 
     if cfg!(target_os="windows") {
         assert_eq!(recv_events(&rx), vec![
-            (path.clone(), op::CREATE),
-            (path.clone(), op::WRITE),
-            (path, op::WRITE)
+            (tdir.mkpath("file1"), op::CREATE),
+            (tdir.mkpath("file1"), op::WRITE),
+            (tdir.mkpath("file1"), op::WRITE),
         ]);
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (path.clone(), op::CREATE | op::WRITE)
+            (tdir.mkpath("file1"), op::CREATE | op::WRITE),
         ]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (path.clone(), op::CREATE),
-            (path.clone(), op::WRITE),
-            (path, op::CHMOD)
+            (tdir.mkpath("file1"), op::CREATE),
+            (tdir.mkpath("file1"), op::WRITE),
+            (tdir.mkpath("file1"), op::CHMOD),
         ]);
     }
 }
 
 #[test]
 fn create_rename_overwrite_file() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path1 = canonicalize(temp_dir.path());
-    path1.push("file1.bin");
-    let mut path2 = canonicalize(temp_dir.path());
-    path2.push("file2.bin");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    fs::File::create(path2.as_path()).expect("failed to create file");
+    tdir.create_all(vec![
+        "file1b",
+    ]);
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    fs::File::create(path1.as_path()).expect("failed to create file");
-    fs::rename(path1.as_path(), path2.as_path()).expect("failed to rename file");
+    tdir.create("file1a");
+    tdir.rename("file1a", "file1b");
 
     if cfg!(target_os="windows") {
         // Windows interprets a move that overwrites a file as a delete of the source file and a write to the file that is being overwritten
         assert_eq!(recv_events(&rx), vec![
-            (path1.clone(), op::CREATE),
-            (path1, op::REMOVE),
-            (path2, op::WRITE)
+            (tdir.mkpath("file1a"), op::CREATE),
+            (tdir.mkpath("file1a"), op::REMOVE),
+            (tdir.mkpath("file1b"), op::WRITE)
         ]);
     } else if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (path1, op::CREATE | op::RENAME),
-            (path2, op::CREATE | op::RENAME)
+            (tdir.mkpath("file1a"), op::CREATE | op::RENAME),
+            (tdir.mkpath("file1b"), op::CREATE | op::RENAME)
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (path1.clone(), op::CREATE),
-            (path1, op::RENAME),
-            (path2, op::CREATE)
+            (tdir.mkpath("file1a"), op::CREATE),
+            (tdir.mkpath("file1a"), op::RENAME),
+            (tdir.mkpath("file1b"), op::CREATE)
         ]);
     }
 }
@@ -461,108 +439,110 @@ fn create_rename_overwrite_file() {
 #[test]
 #[ignore]
 fn rename_rename_file() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path1 = canonicalize(temp_dir.path());
-    path1.push("file1.bin");
-    let mut path2 = canonicalize(temp_dir.path());
-    path2.push("file2.bin");
-    let mut path3 = canonicalize(temp_dir.path());
-    path3.push("file3.bin");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    fs::File::create(path1.as_path()).expect("failed to create file");
+    tdir.create_all(vec![
+        "file1a",
+    ]);
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    fs::rename(path1.as_path(), path2.as_path()).expect("failed to rename file");
-    fs::rename(path2.as_path(), path3.as_path()).expect("failed to rename file");
+    tdir.rename("file1a", "file1b");
+    tdir.rename("file1b", "file1c");
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (path1, op::CREATE | op::RENAME),
-            (path2, op::RENAME),
-            (path3, op::RENAME)
+            (tdir.mkpath("file1a"), op::CREATE | op::RENAME),
+            (tdir.mkpath("file1b"), op::RENAME),
+            (tdir.mkpath("file1c"), op::RENAME)
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (path1, op::RENAME),
-            (path2.clone(), op::CREATE),
-            (path2, op::RENAME),
-            (path3, op::CREATE)
+            (tdir.mkpath("file1a"), op::RENAME),
+            (tdir.mkpath("file1b"), op::CREATE),
+            (tdir.mkpath("file1b"), op::RENAME),
+            (tdir.mkpath("file1c"), op::CREATE)
         ]);
     }
 }
 
 #[test]
 fn create_directory() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path = canonicalize(temp_dir.path());
-    path.push("new_dir");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    fs::create_dir(path.as_path()).expect("failed to create directory");
+    tdir.create("dir1");
 
     if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
+            (tdir.mkpath("dir1"), op::CREATE),
+        ]);
     } else {
-        assert_eq!(recv_events(&rx), vec![(path, op::CREATE)]);
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("dir1"), op::CREATE),
+        ]);
     }
 }
 
 #[test]
 #[ignore]
 fn modify_directory() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path = canonicalize(temp_dir.path());
-    path.push("dir");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    fs::create_dir(path.as_path()).expect("failed to create directory");
+    tdir.create_all(vec![
+        "dir1",
+    ]);
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    chmod(path.as_path()).expect("failed to chmod directory");
+    tdir.chmod("dir1");
 
     if cfg!(target_os="windows") {
-        assert_eq!(recv_events(&rx), vec![(path, op::WRITE)]);
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("dir1"), op::WRITE),
+        ]);
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
-        assert_eq!(inflate_events(recv_events(&rx)), vec![(path, op::CREATE)]);
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
+            (tdir.mkpath("dir1"), op::CREATE),
+        ]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
         // TODO: emit chmod event only once
         assert_eq!(recv_events(&rx), vec![
-            (path.clone(), op::CHMOD),
-            (path, op::CHMOD)
+            (tdir.mkpath("dir1"), op::CHMOD),
+            (tdir.mkpath("dir1"), op::CHMOD),
         ]);
     }
 }
@@ -570,38 +550,38 @@ fn modify_directory() {
 #[test]
 #[ignore]
 fn delete_directory() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path = canonicalize(temp_dir.path());
-    path.push("dir");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    fs::create_dir(path.as_path()).expect("failed to create directory");
+    tdir.create_all(vec![
+        "dir1",
+    ]);
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    fs::remove_dir(path.as_path()).expect("failed to remove directory");
+    tdir.remove("dir1");
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (path, op::CREATE | op::REMOVE)
+            (tdir.mkpath("dir1"), op::CREATE | op::REMOVE),
         ]);
     } else if cfg!(target_os="linux") {
         assert_eq!(recv_events(&rx), vec![
-            (path.clone(), op::IGNORED),
-            (path, op::REMOVE)
+            (tdir.mkpath("dir1"), op::IGNORED),
+            (tdir.mkpath("dir1"), op::REMOVE),
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (path.clone(), op::REMOVE)
+            (tdir.mkpath("dir1").clone(), op::REMOVE),
         ]);
     }
 }
@@ -609,37 +589,35 @@ fn delete_directory() {
 #[test]
 #[ignore]
 fn rename_directory() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path1 = canonicalize(temp_dir.path());
-    path1.push("dir1");
-    let mut path2 = canonicalize(temp_dir.path());
-    path2.push("dir2");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    fs::create_dir(path1.as_path()).expect("failed to create directory");
+    tdir.create_all(vec![
+        "dir1a",
+    ]);
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    fs::rename(path1.as_path(), path2.as_path()).expect("failed to rename directory");
+    tdir.rename("dir1a", "dir1b");
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (path1, op::CREATE | op::RENAME),
-            (path2, op::RENAME)
+            (tdir.mkpath("dir1a"), op::CREATE | op::RENAME),
+            (tdir.mkpath("dir1b"), op::RENAME),
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (path1, op::RENAME),
-            (path2, op::CREATE)
+            (tdir.mkpath("dir1a"), op::RENAME),
+            (tdir.mkpath("dir1b"), op::CREATE),
         ]);
     }
     if cfg!(not(target_os="windows")) {
@@ -650,47 +628,41 @@ fn rename_directory() {
 #[test]
 #[ignore]
 fn move_out_create_directory() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let sub_dir1 = TempDir::new_in(temp_dir.path(), "sub_dir1").expect("failed to create temporary directory");
-    let sub_dir2 = TempDir::new_in(temp_dir.path(), "sub_dir2").expect("failed to create temporary directory");
-    let mut path1a = canonicalize(sub_dir1.path());
-    path1a.push("dir1.bin");
-    let mut path1b = canonicalize(sub_dir2.path());
-    path1b.push("dir1.bin");
-    let mut path2 = canonicalize(sub_dir1.path());
-    path2.push("dir2.bin");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    fs::File::create(path1a.as_path()).expect("failed to create file");
+    tdir.create_all(vec![
+        "watch_dir/dir1",
+    ]);
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(sub_dir1.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    fs::rename(path1a.as_path(), path1b.as_path()).expect("failed to rename file");
-    fs::File::create(path2.as_path()).expect("failed to create file");
+    tdir.rename("watch_dir/dir1", "dir1b");
+    tdir.create("watch_dir/dir1");
 
     if cfg!(target_os="windows") {
         assert_eq!(recv_events(&rx), vec![
-            (path1a, op::REMOVE), // windows interprets a move out of the watched directory as a remove
-            (path2, op::CREATE)
+            (tdir.mkpath("watch_dir/dir1"), op::REMOVE), // windows interprets a move out of the watched directory as a remove
+            (tdir.mkpath("watch_dir/dir1"), op::CREATE),
         ]);
     } else if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (path1a, op::CREATE | op::RENAME),
-            (path2, op::CREATE)
+            (tdir.mkpath("watch_dir/dir1"), op::CREATE | op::RENAME),
+            (tdir.mkpath("watch_dir/dir1"), op::CREATE),
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (path1a, op::RENAME),
-            (path2, op::CREATE)
+            (tdir.mkpath("watch_dir/dir1"), op::RENAME),
+            (tdir.mkpath("watch_dir/dir1"), op::CREATE),
         ]);
     }
     if cfg!(not(target_os="windows")) {
@@ -701,47 +673,45 @@ fn move_out_create_directory() {
 #[test]
 #[ignore]
 fn create_rename_overwrite_directory() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path1 = canonicalize(temp_dir.path());
-    path1.push("dir1");
-    let mut path2 = canonicalize(temp_dir.path());
-    path2.push("dir2");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    fs::create_dir(path2.as_path()).expect("failed to create directory");
+    tdir.create_all(vec![
+        "dir1b",
+    ]);
 
     if cfg!(target_os="macos") {
-        thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    fs::create_dir(path1.as_path()).expect("failed to create directory");
-    fs::rename(path1.as_path(), path2.as_path()).expect("failed to rename directory");
+    tdir.create("dir1a");
+    tdir.rename("dir1a", "dir1b");
 
     if cfg!(target_os="windows") {
         assert_eq!(recv_events(&rx), vec![
-            (path1.clone(), op::CREATE),
-            (path1, op::RENAME),
-            (path2, op::CREATE)
+            (tdir.mkpath("dir1a"), op::CREATE),
+            (tdir.mkpath("dir1b"), op::RENAME),
+            (tdir.mkpath("dir1b"), op::CREATE),
         ]);
     } else if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (path1, op::CREATE | op::RENAME),
-            (path2, op::CREATE | op::RENAME)
+            (tdir.mkpath("dir1a"), op::CREATE | op::RENAME),
+            (tdir.mkpath("dir1b"), op::CREATE | op::RENAME),
         ]);
     } else if cfg!(target_os="linux") {
         assert_eq!(recv_events(&rx), vec![
-            (path1.clone(), op::CREATE),
-            (path1, op::RENAME),
-            (path2.clone(), op::CREATE),
-            (path2.clone(), op::CHMOD),
-            (path2, op::IGNORED),
+            (tdir.mkpath("dir1a"), op::CREATE),
+            (tdir.mkpath("dir1a"), op::RENAME),
+            (tdir.mkpath("dir1b"), op::CREATE),
+            (tdir.mkpath("dir1b"), op::CHMOD),
+            (tdir.mkpath("dir1b"), op::IGNORED),
         ]);
     } else {
         unimplemented!();
@@ -751,43 +721,39 @@ fn create_rename_overwrite_directory() {
 #[test]
 #[ignore]
 fn rename_rename_directory() {
-    let temp_dir = TempDir::new("temp_dir").expect("failed to create temporary directory");
-    let mut path1 = canonicalize(temp_dir.path());
-    path1.push("dir1");
-    let mut path2 = canonicalize(temp_dir.path());
-    path2.push("dir2");
-    let mut path3 = canonicalize(temp_dir.path());
-    path3.push("dir3");
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    fs::create_dir(path1.as_path()).expect("failed to create directory");
+    tdir.create_all(vec![
+        "dir1a",
+    ]);
 
     if cfg!(target_os="macos") {
-    	thread::sleep(Duration::from_millis(10));
+        sleep(10);
     }
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
-    watcher.watch(temp_dir.into_path(), RecursiveMode::Recursive).expect("failed to watch directory");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     if cfg!(target_os="windows") {
-        thread::sleep(Duration::from_millis(100));
+        sleep(100);
     }
 
-    fs::rename(path1.as_path(), path2.as_path()).expect("failed to rename directory");
-    fs::rename(path2.as_path(), path3.as_path()).expect("failed to rename directory");
+    tdir.rename("dir1a", "dir1b");
+    tdir.rename("dir1b", "dir1c");
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (path1, op::CREATE | op::RENAME),
-            (path2, op::RENAME),
-            (path3, op::RENAME)
+            (tdir.mkpath("dir1a"), op::CREATE | op::RENAME),
+            (tdir.mkpath("dir1b"), op::RENAME),
+            (tdir.mkpath("dir1c"), op::RENAME),
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (path1, op::RENAME),
-            (path2.clone(), op::CREATE),
-            (path2, op::RENAME),
-            (path3, op::CREATE)
+            (tdir.mkpath("dir1a"), op::RENAME),
+            (tdir.mkpath("dir1b"), op::CREATE),
+            (tdir.mkpath("dir1b"), op::RENAME),
+            (tdir.mkpath("dir1c"), op::CREATE),
         ]);
     }
 }
