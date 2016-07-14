@@ -6,7 +6,8 @@ authors = [
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
   "Michael Maurizi <michael.maurizi@gmail.com>",
   "Pierre Baillet <oct@zoy.org>",
-  "Joe Wilm <joe@jwilm.com>"
+  "Joe Wilm <joe@jwilm.com>",
+  "Daniel Faust <hessijames@gmail.com>"
 ]
 
 description = "Cross-platform filesystem notification library"
