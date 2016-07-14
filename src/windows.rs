@@ -18,7 +18,6 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::thread;
-use std::env;
 use std::os::raw::c_void;
 
 use super::{Event, Error, op, Op, Result, Watcher, RecursiveMode};
@@ -414,12 +413,7 @@ impl Watcher for ReadDirectoryChangesWatcher {
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
-        let pb = if path.as_ref().is_absolute() {
-            path.as_ref().to_owned()
-        } else {
-            let p = try!(env::current_dir().map_err(Error::Io));
-            p.join(path)
-        };
+        let pb = try!(path.as_ref().canonicalize().map_err(Error::Io));
         // path must exist and be either a file or directory
         if !pb.is_dir() && !pb.is_file() {
             return Err(Error::Generic("Input watch path is neither a file nor a directory."
@@ -429,12 +423,7 @@ impl Watcher for ReadDirectoryChangesWatcher {
     }
 
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        let pb = if path.as_ref().is_absolute() {
-            path.as_ref().to_owned()
-        } else {
-            let p = try!(env::current_dir().map_err(Error::Io));
-            p.join(path)
-        };
+        let pb = try!(path.as_ref().canonicalize().map_err(Error::Io));
         let res = self.tx
                       .send(Action::Unwatch(pb))
                       .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()));
