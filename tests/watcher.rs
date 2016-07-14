@@ -9,6 +9,8 @@ use notify::*;
 use std::sync::mpsc;
 use tempdir::TempDir;
 use std::thread;
+use std::env;
+use std::path::Path;
 
 use utils::*;
 
@@ -75,6 +77,31 @@ fn test_watcher_sync() {
         let mut watcher = watcher.write().unwrap();
         watcher.watch(".", RecursiveMode::Recursive).unwrap();
     }).join().unwrap();
+}
+
+#[test]
+fn watch_relative() {
+    // both of the following tests set the same environment variable, so they must not run in parallel
+    { // watch_relative_directory
+        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        tdir.create("dir1");
+
+        env::set_current_dir(tdir.path()).expect("failed to change working directory");
+
+        let (tx, rx) = mpsc::channel();
+        let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+        watcher.watch("dir1", RecursiveMode::Recursive).expect("failed to watch directory");
+    }
+    { // watch_relative_file
+        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        tdir.create("file1");
+
+        env::set_current_dir(tdir.path()).expect("failed to change working directory");
+
+        let (tx, rx) = mpsc::channel();
+        let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+        watcher.watch("file1", RecursiveMode::Recursive).expect("failed to watch file");
+    }
 }
 
 #[test]

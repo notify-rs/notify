@@ -1,6 +1,11 @@
 # v3.0.0
 
 
+#### Bug Fixes
+
+* **windows watcher:** Fix watching files on windows using relative paths (closes [#90](https://github.com/passcod/rsnotify/issues/90))
+
+
 #### Features
 
 * **poll watcher:** Implement CREATE and DELETE for PollWatcher
