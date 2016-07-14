@@ -61,6 +61,18 @@ fn main() {
 }
 ```
 
+## Migration
+
+### From v2.x to v3.x
+
+* The watch(..) function used to watch a file or a directory now takes an additional argument.
+In order to use that argument you first need to import notify::RecursiveMode via the `use` keyword.
+To keep the old behavior, use RecursiveMode::Recursive, for more information see the docs.
+* The inotify back-end used to add watches recursively to a directory but it wouldn't remove them recursively.
+From v3.0.0 on inotify removes watches recursively if they were added recursively.
+* The inotify back-end didn't use to watch newly created directories.
+From v3.0.0 on inotify watches newly created directories if their parent directories were added recursively.
+
 ## Platforms
 
 - Linux / Android: inotify
