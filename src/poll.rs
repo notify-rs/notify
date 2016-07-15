@@ -71,6 +71,7 @@ impl PollWatcher {
                                 let _ = tx.send(Event {
                                     path: Some(watch.clone()),
                                     op: Err(Error::Io(e)),
+                                    cookie: None,
                                 });
                                 continue;
                             }
@@ -86,6 +87,7 @@ impl PollWatcher {
                                                 let _ = tx.send(Event {
                                                     path: Some(watch.clone()),
                                                     op: Ok(op::WRITE),
+                                                    cookie: None,
                                                 });
                                             }
                                         }
@@ -108,6 +110,7 @@ impl PollWatcher {
                                                 let _ = tx.send(Event {
                                                     path: Some(path.to_path_buf()),
                                                     op: Err(Error::Io(e.into())),
+                                                    cookie: None,
                                                 });
                                             }
                                             Ok(m) => {
@@ -117,6 +120,7 @@ impl PollWatcher {
                                                         let _ = tx.send(Event {
                                                             path: Some(path.to_path_buf()),
                                                             op: Ok(op::CREATE),
+                                                            cookie: None,
                                                         });
                                                     }
                                                     Some(PathData{mtime: old_mtime, ..}) => {
@@ -124,6 +128,7 @@ impl PollWatcher {
                                                             let _ = tx.send(Event {
                                                                 path: Some(path.to_path_buf()),
                                                                 op: Ok(op::WRITE),
+                                                                cookie: None,
                                                             });
                                                         }
                                                     }
@@ -143,6 +148,7 @@ impl PollWatcher {
                                 let _ = tx.send(Event {
                                     path: Some(path.clone()),
                                     op: Ok(op::REMOVE),
+                                    cookie: None,
                                 });
                                 removed.push(path.clone());
                             }
@@ -177,6 +183,7 @@ impl Watcher for PollWatcher {
                     let _ = self.tx.send(Event {
                         path: Some(watch.clone()),
                         op: Err(Error::Io(e)),
+                        cookie: None,
                     });
                 }
                 Ok(metadata) => {
@@ -204,6 +211,7 @@ impl Watcher for PollWatcher {
                                     let _ = self.tx.send(Event {
                                         path: Some(path.to_path_buf()),
                                         op: Err(Error::Io(e.into())),
+                                        cookie: None,
                                     });
                                 }
                                 Ok(m) => {

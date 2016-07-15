@@ -20,7 +20,7 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
     // for example to handle I/O.
     loop {
         match rx.recv() {
-          Ok(notify::Event{path:Some(path), op:Ok(op)}) => {
+          Ok(notify::Event{path:Some(path), op:Ok(op), cookie:None}) => {
               println!("{:?} {:?}", op, path);
           },
           Err(e) => println!("watch error {}", e),

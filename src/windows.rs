@@ -24,6 +24,8 @@ use super::{Event, Error, op, Op, Result, Watcher, RecursiveMode};
 
 const BUF_SIZE: u32 = 16384;
 
+static mut COOKIE_COUNTER: u32 = 0;
+
 #[derive(Clone)]
 struct ReadData {
     dir: PathBuf, // directory that is being watched
@@ -276,6 +278,16 @@ fn start_read(rd: &ReadData, tx: &Sender<Event>, handle: HANDLE) {
     }
 }
 
+fn send_pending_rename_event(event: Option<Event>, tx: &Sender<Event>) {
+    if let Some(e) = event {
+        let _ = tx.send(Event {
+            path: e.path,
+            op: Ok(op::REMOVE),
+            cookie: None,
+        });
+    }
+}
+
 unsafe extern "system" fn handle_event(error_code: u32,
                                        _bytes_written: u32,
                                        overlapped: LPOVERLAPPED) {
@@ -291,6 +303,8 @@ unsafe extern "system" fn handle_event(error_code: u32,
 
     // Get the next request queued up as soon as possible
     start_read(&request.data, &request.tx, request.handle);
+
+    let mut rename_event = None;
 
     // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length string
     // as its last member.  Each struct contains an offset for getting the next entry in the buffer
@@ -311,21 +325,48 @@ unsafe extern "system" fn handle_event(error_code: u32,
         };
 
         if !skip {
-            let op = match (*cur_entry).Action {
-                winnt::FILE_ACTION_ADDED => op::CREATE,
-                winnt::FILE_ACTION_REMOVED => op::REMOVE,
-                winnt::FILE_ACTION_MODIFIED => op::WRITE,
-                winnt::FILE_ACTION_RENAMED_OLD_NAME |
-                winnt::FILE_ACTION_RENAMED_NEW_NAME => op::RENAME,
-                _ => Op::empty(),
-            };
+            if (*cur_entry).Action == winnt::FILE_ACTION_RENAMED_OLD_NAME {
+                send_pending_rename_event(rename_event, &request.tx);
+                COOKIE_COUNTER = COOKIE_COUNTER.wrapping_add(1);
+                rename_event = Some(Event {
+                    path: Some(path),
+                    op: Ok(op::RENAME),
+                    cookie: Some(COOKIE_COUNTER),
+                });
+            } else {
+                let mut o = Op::empty();
+                let mut c = None;
 
+                match (*cur_entry).Action {
+                    winnt::FILE_ACTION_RENAMED_NEW_NAME => {
+                        if let Some(e) = rename_event {
+                            if let Some(cookie) = e.cookie {
+                                let _ = request.tx.send(e);
+                                o.insert(op::RENAME);
+                                c = Some(cookie);
+                            } else {
+                                o.insert(op::CREATE);
+                            }
+                        } else {
+                            o.insert(op::CREATE);
+                        }
+                        rename_event = None;
+                    },
+                    winnt::FILE_ACTION_ADDED => o.insert(op::CREATE),
+                    winnt::FILE_ACTION_REMOVED => o.insert(op::REMOVE),
+                    winnt::FILE_ACTION_MODIFIED => o.insert(op::WRITE),
+                    _ => ()
+                };
 
-            let evt = Event {
-                path: Some(path),
-                op: Ok(op),
-            };
-            let _ = request.tx.send(evt);
+                send_pending_rename_event(rename_event, &request.tx);
+                rename_event = None;
+
+                let _ = request.tx.send(Event {
+                    path: Some(path),
+                    op: Ok(o),
+                    cookie: c,
+                });
+            }
         }
 
         if (*cur_entry).NextEntryOffset == 0 {
@@ -334,6 +375,8 @@ unsafe extern "system" fn handle_event(error_code: u32,
         cur_offset = cur_offset.offset((*cur_entry).NextEntryOffset as isize);
         cur_entry = mem::transmute(cur_offset);
     }
+
+    send_pending_rename_event(rename_event, &request.tx);
 }
 
 pub struct ReadDirectoryChangesWatcher {

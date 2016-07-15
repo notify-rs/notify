@@ -38,6 +38,41 @@ enum EventLoopMsg {
     Shutdown,
 }
 
+#[inline]
+fn send_pending_rename_event(event: Option<Event>, tx: &Sender<Event>) {
+    if let Some(e) = event {
+        let _ = tx.send(Event {
+            path: e.path,
+            op: Ok(op::REMOVE),
+            cookie: None,
+        });
+    }
+}
+
+#[inline]
+fn add_watch_by_event(path: &Option<PathBuf>, event: &wrapper::Event, watches: &HashMap<PathBuf, (Watch, flags::Mask, bool)>, add_watches: &mut Vec<PathBuf>) {
+    if let Some(ref path) = *path {
+        if event.is_dir() {
+            if let Some(parent_path) = path.parent() {
+                if let Some(&(_, _, is_recursive)) = watches.get(parent_path) {
+                    if is_recursive {
+                        add_watches.push(path.to_owned());
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[inline]
+fn remove_watch_by_event(path: &Option<PathBuf>, event: &wrapper::Event, remove_watches: &mut Vec<PathBuf>) {
+    if let Some(ref path) = *path {
+        if event.is_dir() {
+            remove_watches.push(path.to_owned());
+        }
+    }
+}
+
 impl mio::Handler for INotifyHandler {
     type Timeout = ();
     type Message = EventLoopMsg;
@@ -58,14 +93,84 @@ impl mio::Handler for INotifyHandler {
                         Ok(events) => {
                             assert!(!events.is_empty());
 
-                            for e in events {
-                                handle_event(e.clone(), &self.tx, &self.watches, &self.paths, &mut add_watches, &mut remove_watches);
+                            let mut rename_event = None;
+
+                            for event in events {
+                                let path = if event.name.is_empty() {
+                                    match self.paths.get(&event.wd) {
+                                        Some(p) => Some(p.clone()),
+                                        None => None,
+                                    }
+                                } else {
+                                    self.paths.get(&event.wd).map(|root| root.join(&event.name))
+                                };
+
+                                if event.is_moved_from() {
+                                    send_pending_rename_event(rename_event, &self.tx);
+                                    remove_watch_by_event(&path, event, &mut remove_watches);
+                                    rename_event = Some(Event {
+                                        path: path,
+                                        op: Ok(op::RENAME),
+                                        cookie: Some(event.cookie),
+                                    });
+                                } else {
+                                    let mut o = Op::empty();
+                                    let mut c = None;
+                                    if event.is_moved_to() {
+                                        if let Some(e) = rename_event {
+                                            if e.cookie == Some(event.cookie) {
+                                                let _ = self.tx.send(e);
+                                                o.insert(op::RENAME);
+                                                c = Some(event.cookie);
+                                            } else {
+                                                o.insert(op::CREATE);
+                                            }
+                                        } else {
+                                            o.insert(op::CREATE);
+                                        }
+                                        rename_event = None;
+                                        add_watch_by_event(&path, event, &self.watches, &mut add_watches);
+                                    }
+                                    if event.is_move_self() {
+                                        o.insert(op::RENAME);
+                                        remove_watch_by_event(&path, event, &mut remove_watches);
+                                    }
+                                    if event.is_create() {
+                                        o.insert(op::CREATE);
+                                        add_watch_by_event(&path, event, &self.watches, &mut add_watches);
+                                    }
+                                    if event.is_delete_self() || event.is_delete() {
+                                        o.insert(op::REMOVE);
+                                        remove_watch_by_event(&path, event, &mut remove_watches);
+                                    }
+                                    if event.is_modify() {
+                                        o.insert(op::WRITE);
+                                    }
+                                    if event.is_attrib() {
+                                        o.insert(op::CHMOD);
+                                    }
+                                    if event.is_ignored() {
+                                        o.insert(op::IGNORED);
+                                    }
+
+                                    send_pending_rename_event(rename_event, &self.tx);
+                                    rename_event = None;
+
+                                    let _ = self.tx.send(Event {
+                                        path: path,
+                                        op: Ok(o),
+                                        cookie: c,
+                                    });
+                                }
                             }
+
+                            send_pending_rename_event(rename_event, &self.tx);
                         }
                         Err(e) => {
                             let _ = self.tx.send(Event {
                                 path: None,
                                 op: Err(Error::Io(e)),
+                                cookie: None,
                             });
                         }
                     }
@@ -199,73 +304,6 @@ impl INotifyHandler {
         }
         Ok(())
     }
-}
-
-#[inline]
-fn handle_event(event: wrapper::Event,
-                tx: &Sender<Event>,
-                watches: &HashMap<PathBuf, (Watch, flags::Mask, bool)>,
-                paths: &HashMap<Watch, PathBuf>,
-                add_watches: &mut Vec<PathBuf>,
-                remove_watches: &mut Vec<PathBuf>)
-{
-    let path = if event.name.is_empty() {
-        match paths.get(&event.wd) {
-            Some(p) => Some(p.clone()),
-            None => None,
-        }
-    } else {
-        paths.get(&event.wd).map(|root| root.join(&event.name))
-    };
-
-    let mut o = Op::empty();
-    if event.is_create() || event.is_moved_to() {
-        o.insert(op::CREATE);
-
-        if let Some(ref path) = path {
-            if event.is_dir() {
-                if let Some(parent_path) = path.parent() {
-                    if let Some(&(_, _, is_recursive)) = watches.get(parent_path) {
-                        if is_recursive {
-                            (*add_watches).push(path.to_owned());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if event.is_delete_self() || event.is_delete() {
-        o.insert(op::REMOVE);
-
-        if let Some(ref path) = path {
-            if event.is_dir() {
-                (*remove_watches).push(path.to_owned());
-            }
-        }
-    }
-    if event.is_modify() {
-        o.insert(op::WRITE);
-    }
-    if event.is_move_self() || event.is_moved_from() {
-        o.insert(op::RENAME);
-
-        if let Some(ref path) = path {
-            if event.is_dir() {
-                (*remove_watches).push(path.to_owned());
-            }
-        }
-    }
-    if event.is_attrib() {
-        o.insert(op::CHMOD);
-    }
-    if event.is_ignored() {
-        o.insert(op::IGNORED);
-    }
-
-    let _ = tx.send(Event {
-        path: path,
-        op: Ok(o),
-    });
 }
 
 impl Watcher for INotifyWatcher {

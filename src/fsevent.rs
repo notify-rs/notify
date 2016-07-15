@@ -65,6 +65,16 @@ fn translate_flags(flags: fse::StreamFlags) -> op::Op {
     ret
 }
 
+fn send_pending_rename_event(event: Option<Event>, tx: &Sender<Event>) {
+    if let Some(e) = event {
+        let _ = tx.send(Event {
+            path: e.path,
+            op: e.op,
+            cookie: None,
+        });
+    }
+}
+
 struct StreamContextInfo {
     sender: Sender<Event>,
     done: Receiver<()>,
@@ -219,11 +229,14 @@ pub unsafe extern "C" fn callback(
     let flags = slice::from_raw_parts_mut(e_ptr, num);
     let ids = slice::from_raw_parts_mut(i_ptr, num);
 
+    let mut rename_event: Option<Event> = None;
+
     for p in 0..num {
         let i = CStr::from_ptr(paths[p]).to_bytes();
         let flag = fse::StreamFlags::from_bits(flags[p] as u32)
                        .expect(format!("Unable to decode StreamFlags: {}", flags[p] as u32)
                                    .as_ref());
+        let id = ids[p];
 
         let path = PathBuf::from(from_utf8(i).expect("Invalid UTF8 string."));
 
@@ -243,13 +256,45 @@ pub unsafe extern "C" fn callback(
         }
 
         if handle_event {
-            let event = Event {
-                op: Ok(translate_flags(flag)),
-                path: Some(path),
-            };
-            (*info).sender.send(event).ok().expect("error while sending event");
+            if flag.contains(fse::ITEM_RENAMED) {
+                if let Some(e) = rename_event {
+                    if e.cookie == Some((id - 1) as u32) {
+                        let _ = (*info).sender.send(e);
+                        let _ = (*info).sender.send(Event {
+                            op: Ok(translate_flags(flag)),
+                            path: Some(path),
+                            cookie: Some((id - 1) as u32),
+                        });
+                        rename_event = None;
+                    } else {
+                        send_pending_rename_event(Some(e), &(*info).sender);
+                        rename_event = Some(Event {
+                            path: Some(path),
+                            op: Ok(translate_flags(flag)),
+                            cookie: Some(id as u32),
+                        });
+                    }
+                } else {
+                    rename_event = Some(Event {
+                        path: Some(path),
+                        op: Ok(translate_flags(flag)),
+                        cookie: Some(id as u32),
+                    });
+                }
+            } else {
+                send_pending_rename_event(rename_event, &(*info).sender);
+                rename_event = None;
+
+                let _ = (*info).sender.send(Event {
+                    op: Ok(translate_flags(flag)),
+                    path: Some(path),
+                    cookie: None,
+                });
+            }
         }
     }
+
+    send_pending_rename_event(rename_event, &(*info).sender);
 }
 
 

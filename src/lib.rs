@@ -159,6 +159,9 @@ pub struct Event {
 
     /// Operation detected on Path
     pub op: Result<Op>,
+
+    /// Unique cookie associating related rename events
+    pub cookie: Option<u32>,
 }
 
 unsafe impl Send for Event {}
