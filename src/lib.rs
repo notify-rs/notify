@@ -128,7 +128,7 @@ pub mod op {
         /// Detected actions for which an Event is delivered
         ///
         /// Multiple actions may be delivered in a single event.
-        flags Op: u32 {
+        pub flags Op: u32 {
             /// Permissions changed
             const CHMOD   = 0b000001,
             /// Created

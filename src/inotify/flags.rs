@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 bitflags! {
-  flags Mask: u32 {
+  pub flags Mask: u32 {
     #[doc = " Event: File was accessed."]
     #[doc = " "]
     #[doc = " When monitoring a directory, the event may occur both for the"]

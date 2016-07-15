@@ -57,8 +57,7 @@ pub fn inflate_events(input: Vec<(PathBuf, Op, Option<u32>)>) -> Vec<(PathBuf, O
             None => e_c
         };
         if p == e_p && c == e_c {
-            // ops |= e_o;
-            ops = Op::from_bits_truncate(ops.bits() | e_o.bits());
+            ops |= e_o;
         } else {
             output.push((p, ops, cookie));
             ops = e_o;
