@@ -125,7 +125,7 @@ impl INotifyHandler {
         for entry in WalkDir::new(path)
                          .follow_links(true)
                          .into_iter()
-                         .filter_map(|e| filter_dir(e)) {
+                         .filter_map(filter_dir) {
             try!(self.add_single_watch(entry.path().to_path_buf(), is_recursive, watch_self));
             watch_self = false;
         }

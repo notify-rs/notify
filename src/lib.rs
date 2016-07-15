@@ -154,10 +154,10 @@ pub mod op {
 /// an error reading from inotify.
 #[derive(Debug)]
 pub struct Event {
-    /// Path where Event originated
+    /// Path where `Event` originated
     pub path: Option<PathBuf>,
 
-    /// Operation detected on Path.
+    /// Operation detected on Path
     pub op: Result<Op>,
 }
 

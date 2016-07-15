@@ -5,6 +5,7 @@ extern crate time;
 
 use notify::*;
 use std::thread;
+use std::time::Duration;
 use std::sync::mpsc::{channel, Receiver};
 use tempdir::TempDir;
 
@@ -45,7 +46,7 @@ fn shutdown() {
             w.unwatch(d.path()).unwrap();
         }
 
-        thread::sleep_ms(2000); // sleep to unhook the watches
+        thread::sleep(Duration::from_millis(2000)); // sleep to unhook the watches
     }
 
     check_for_error(&rx);
@@ -60,7 +61,7 @@ fn shutdown() {
                 _ => ()
             }
         }
-        thread::sleep_ms(50); // don't burn cpu, can take some time for completion events to fire
+        thread::sleep(Duration::from_millis(50)); // don't burn cpu, can take some time for completion events to fire
     }
 
     assert_eq!(watchers_shutdown,dir_count);
@@ -110,7 +111,7 @@ fn watch_server_can_be_awakened() {
                 _ => ()
             }
         }
-        thread::sleep_ms(50);
+        thread::sleep(Duration::from_millis(50));
     }
 
     if !awakened {
@@ -131,7 +132,7 @@ fn memtest_manual() {
             let (meta_tx,_) = channel();
             let mut w = ReadDirectoryChangesWatcher::create(tx,meta_tx).unwrap();
             w.watch(d.path(), RecursiveMode::Recursive).unwrap();
-            thread::sleep_ms(1); // this should make us run pretty hot but not insane
+            thread::sleep(Duration::from_millis(1)); // this should make us run pretty hot but not insane
         }
         check_for_error(&rx);
     }

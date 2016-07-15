@@ -6,7 +6,7 @@
 //! sends these notifications "in bulk", possibly notifying the client of changes to several
 //! directories in a single callback.
 //!
-//! See also https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/
+//! For more information see the [FSEvents API reference](https://developer.apple.com/library/mac/documentation/Darwin/FSEvents_API/FSEvents_Ref/).
 
 #![allow(non_upper_case_globals, dead_code)]
 extern crate fsevent as fse;
@@ -15,7 +15,6 @@ use fsevent_sys::core_foundation as cf;
 use fsevent_sys::fsevent as fs;
 use std::slice;
 use std::mem::transmute;
-use std::slice::from_raw_parts_mut;
 use std::str::from_utf8;
 use std::ffi::CStr;
 use std::convert::AsRef;
@@ -186,14 +185,13 @@ impl FsEventWatcher {
 
                 // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
                 rl_tx.send(cur_runloop as *mut libc::c_void as usize)
-                     .ok()
                      .expect("Unable to send runloop to watcher");
                 cf::CFRunLoopRun();
                 fs::FSEventStreamStop(stream);
                 fs::FSEventStreamInvalidate(stream);
                 fs::FSEventStreamRelease(stream);
             }
-            done_tx.send(()).ok().expect("error while signal run loop is done");
+            done_tx.send(()).expect("error while signal run loop is done");
         });
         // block until runloop has been set
         self.runloop = Some(rl_rx.recv().unwrap());
@@ -221,29 +219,24 @@ pub unsafe extern "C" fn callback(
     let flags = slice::from_raw_parts_mut(e_ptr, num);
     let ids = slice::from_raw_parts_mut(i_ptr, num);
 
-    for p in (0..num) {
+    for p in 0..num {
         let i = CStr::from_ptr(paths[p]).to_bytes();
         let flag = fse::StreamFlags::from_bits(flags[p] as u32)
                        .expect(format!("Unable to decode StreamFlags: {}", flags[p] as u32)
                                    .as_ref());
 
-        let path = PathBuf::from(from_utf8(i).ok().expect("Invalid UTF8 string."));
+        let path = PathBuf::from(from_utf8(i).expect("Invalid UTF8 string."));
 
         let mut handle_event = false;
-        if !handle_event {
-            for (p, r) in &(*info).recursive_info {
-                if path.starts_with(p) {
-                    if *r {
+        for (p, r) in &(*info).recursive_info {
+            if path.starts_with(p) {
+                if *r || &path == p {
+                    handle_event = true;
+                    break;
+                } else if let Some(parent_path) = path.parent() {
+                    if parent_path == p {
                         handle_event = true;
                         break;
-                    } else if &path == p {
-                        handle_event = true;
-                        break;
-                    } else if let Some(parent_path) = path.parent() {
-                        if parent_path == p {
-                            handle_event = true;
-                            break;
-                        }
                     }
                 }
             }
@@ -300,25 +293,25 @@ impl Drop for FsEventWatcher {
     }
 }
 
-
-
 #[test]
 fn test_fsevent_watcher_drop() {
     use super::*;
+    use std::time::Duration;
+
     let (tx, rx) = channel();
 
     {
         let mut watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
         watcher.watch("../../", RecursiveMode::Recursive).unwrap();
-        thread::sleep_ms(2_000);
+        thread::sleep(Duration::from_millis(2000));
         println!("is running -> {}", watcher.is_running());
 
-        thread::sleep_ms(1_000);
+        thread::sleep(Duration::from_millis(1000));
         watcher.unwatch("../..").unwrap();
         println!("is running -> {}", watcher.is_running());
     }
 
-    thread::sleep_ms(1_000);
+    thread::sleep(Duration::from_millis(1000));
 
     // if drop() works, this loop will quit after all Sender freed
     // otherwise will block forever

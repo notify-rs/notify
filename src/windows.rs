@@ -1,7 +1,7 @@
 #![warn(missing_docs)]
 //! Watcher implementation for Windows' directory management APIs
 //!
-//! See https://msdn.microsoft.com/en-us/library/windows/desktop/aa363950(v=vs.85).aspx
+//! For more information see the [ReadDirectoryChangesW reference](https://msdn.microsoft.com/en-us/library/windows/desktop/aa363950(v=vs.85).aspx).
 
 extern crate kernel32;
 
