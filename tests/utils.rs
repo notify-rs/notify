@@ -39,7 +39,7 @@ pub fn recv_events(rx: &Receiver<Event>) ->  Vec<(PathBuf, Op, Option<u32>)> {
     evs
 }
 
-// FSEvent tends to emit events multiple times and aggregate events,
+// FSEvents tends to emit events multiple times and aggregate events,
 // so just check that all expected events arrive for each path,
 // and make sure the paths are in the correct order
 pub fn inflate_events(input: Vec<(PathBuf, Op, Option<u32>)>) -> Vec<(PathBuf, Op, Option<u32>)> {

@@ -1,6 +1,6 @@
-//! Watcher implementation for Darwin's FSEvent API
+//! Watcher implementation for Darwin's FSEvents API
 //!
-//! The FSEvent API provides a mechanism to notify clients about directories they ought to re-scan
+//! The FSEvents API provides a mechanism to notify clients about directories they ought to re-scan
 //! in order to keep their internal data structures up-to-date with respect to the true state of the
 //! file system. (For example, when files or directories are created, modified, or removed.) It
 //! sends these notifications "in bulk", possibly notifying the client of changes to several
@@ -26,7 +26,7 @@ use super::{Error, Event, op, Result, Watcher, RecursiveMode};
 use std::path::{Path, PathBuf};
 use libc;
 
-/// FSEvent-based `Watcher` implementation
+/// FSEvents-based `Watcher` implementation
 pub struct FsEventWatcher {
     paths: cf::CFMutableArrayRef,
     since_when: fs::FSEventStreamEventId,

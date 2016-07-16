@@ -49,15 +49,15 @@
 //! ## Platforms
 //!
 //! - Linux / Android: inotify
-//! - OS X: FSEvent
+//! - OS X: FSEvents
 //! - Windows: ReadDirectoryChangesW
 //! - All platforms: polling
 //!
 //! ## Limitations
 //!
-//! ### FSEvent
+//! ### FSEvents
 //!
-//! Due to the inner security model of FSEvent (see
+//! Due to the inner security model of FSEvents (see
 //! [FileSystemEventSecurity](https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html)),
 //! some event cannot be observed easily when trying to follow files that do not belong to you. In
 //! this case, reverting to the pollwatcher can fix the issue, with a slight performance cost.
