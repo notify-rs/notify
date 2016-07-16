@@ -35,6 +35,7 @@ pub fn recv_events(rx: &Receiver<Event>) ->  Vec<(PathBuf, Op, Option<u32>)> {
             Err(TryRecvError::Empty) => (),
             Err(e) => panic!("unexpected channel err: {:?}", e)
         }
+        thread::sleep(Duration::from_millis(1));
     }
     evs
 }
