@@ -12,7 +12,7 @@ use utils::*;
 const TIMEOUT_S: f64 = 5.0;
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_create_delete_file_0() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -37,7 +37,7 @@ fn fsevents_create_delete_file_0() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_create_delete_file_1() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -66,7 +66,7 @@ fn fsevents_create_delete_file_1() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_create_delete_file_2() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -95,7 +95,7 @@ fn fsevents_create_delete_file_2() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_create_delete_file_4() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -124,7 +124,7 @@ fn fsevents_create_delete_file_4() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_create_delete_file_8() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -153,7 +153,7 @@ fn fsevents_create_delete_file_8() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_create_delete_file_16() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -182,7 +182,7 @@ fn fsevents_create_delete_file_16() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_create_delete_file_32() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -211,7 +211,7 @@ fn fsevents_create_delete_file_32() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_create_delete_file_64() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -240,7 +240,7 @@ fn fsevents_create_delete_file_64() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_rename_rename_file_0() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -268,7 +268,7 @@ fn fsevents_rename_rename_file_0() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_rename_rename_file_10() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -298,7 +298,7 @@ fn fsevents_rename_rename_file_10() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_rename_rename_file_20() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -328,7 +328,7 @@ fn fsevents_rename_rename_file_20() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_rename_rename_back_file_0() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -355,7 +355,7 @@ fn fsevents_rename_rename_back_file_0() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_rename_rename_back_file_10() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -385,7 +385,7 @@ fn fsevents_rename_rename_back_file_10() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_rename_rename_back_file_20() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -415,7 +415,7 @@ fn fsevents_rename_rename_back_file_20() {
 }
 
 #[test]
-#[cfg(feature = "timing")]
+#[cfg(feature = "timing_tests")]
 fn fsevents_rename_rename_back_file_sleep() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
