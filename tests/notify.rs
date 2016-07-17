@@ -480,14 +480,9 @@ fn delete_directory() {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
             (tdir.mkpath("dir1"), op::CREATE | op::REMOVE, None), // excessive create event
         ]);
-    } else if cfg!(target_os="linux") {
-        assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("dir1"), op::IGNORED, None),
-            (tdir.mkpath("dir1"), op::REMOVE, None),
-        ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("dir1").clone(), op::REMOVE, None),
+            (tdir.mkpath("dir1"), op::REMOVE, None),
         ]);
     }
 }
@@ -610,7 +605,6 @@ fn create_rename_overwrite_directory() {
             (tdir.mkpath("dir1a"), op::RENAME, Some(cookies[0])),
             (tdir.mkpath("dir1b"), op::RENAME, Some(cookies[0])),
             (tdir.mkpath("dir1b"), op::CHMOD, None),
-            (tdir.mkpath("dir1b"), op::IGNORED, None),
         ]);
     } else {
         unimplemented!();

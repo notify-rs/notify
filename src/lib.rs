@@ -181,8 +181,6 @@ pub mod op {
             const RENAME  = 0b001000,
             /// Written
             const WRITE   = 0b010000,
-            /// Watch has been ignored by the implementation
-            const IGNORED = 0b100000,
         }
     }
 }

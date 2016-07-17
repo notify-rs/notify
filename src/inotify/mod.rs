@@ -149,18 +149,17 @@ impl mio::Handler for INotifyHandler {
                                     if event.is_attrib() {
                                         o.insert(op::CHMOD);
                                     }
-                                    if event.is_ignored() {
-                                        o.insert(op::IGNORED);
+
+                                    if !event.is_ignored() {
+                                        send_pending_rename_event(rename_event, &self.tx);
+                                        rename_event = None;
+
+                                        let _ = self.tx.send(Event {
+                                            path: path,
+                                            op: Ok(o),
+                                            cookie: c,
+                                        });
                                     }
-
-                                    send_pending_rename_event(rename_event, &self.tx);
-                                    rename_event = None;
-
-                                    let _ = self.tx.send(Event {
-                                        path: path,
-                                        op: Ok(o),
-                                        cookie: c,
-                                    });
                                 }
                             }
 

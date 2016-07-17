@@ -10,6 +10,7 @@
 
 * **poll watcher:** Implement CREATE and DELETE for PollWatcher
 * **fsevents watcher:** Report ITEM_CHANGE_OWNER as CHMOD events
+* **inotify watcher:** Skip IGNORED events
 
 
 #### Breaking Changes
