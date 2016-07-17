@@ -1,10 +1,7 @@
-extern crate notify;
-extern crate time;
-extern crate tempdir;
-
+use time;
 use tempdir::TempDir;
-
 use notify::*;
+
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;

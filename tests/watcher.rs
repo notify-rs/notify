@@ -1,6 +1,5 @@
 extern crate notify;
 extern crate tempdir;
-extern crate tempfile;
 extern crate time;
 
 mod utils;

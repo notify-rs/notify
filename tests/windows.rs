@@ -1,139 +1,144 @@
+#![allow(dead_code)]
+
 extern crate notify;
 extern crate tempdir;
-extern crate tempfile;
 extern crate time;
 
-use notify::*;
-use std::thread;
-use std::time::Duration;
-use std::sync::mpsc::{channel, Receiver};
-use tempdir::TempDir;
+#[cfg(target_os = "windows")]
+mod windows_tests {
+    use super::notify::*;
+    use super::tempdir::TempDir;
+    use super::time;
+    use std::thread;
+    use std::time::Duration;
+    use std::sync::mpsc;
 
-fn check_for_error(rx:&Receiver<notify::Event>) {
-    while let Ok(res) = rx.try_recv() {
-        match res.op {
-            Err(e) => panic!("unexpected err: {:?}: {:?}", e, res.path),
-            _ => ()
-        }
-    };
-}
-#[cfg(target_os="windows")]
-#[test]
-fn shutdown() {
-    // create a watcher for n directories.  start the watcher, then shut it down.  inspect
-    // the watcher to make sure that it received final callbacks for all n watchers.
-    let dir_count = 100;
-
-    // to get meta events, we have to pass in the meta channel
-    let (meta_tx,meta_rx) = channel();
-    let (tx, rx) = channel();
-    {
-        let mut dirs:Vec<tempdir::TempDir> = Vec::new();
-        let mut w = ReadDirectoryChangesWatcher::create(tx,meta_tx).unwrap();
-
-        for _ in 0..dir_count {
-            let d = TempDir::new("rsnotifytest").unwrap();
-            dirs.push(d);
-        }
-
-        for d in &dirs { // need the ref, otherwise its a move and the dir will be dropped!
-            //println!("{:?}", d.path());
-            w.watch(d.path(), RecursiveMode::Recursive).unwrap();
-        }
-
-        // unwatch half of the directories, let the others get stopped when we go out of scope
-        for d in &dirs[0..dir_count/2] {
-            w.unwatch(d.path()).unwrap();
-        }
-
-        thread::sleep(Duration::from_millis(2000)); // sleep to unhook the watches
-    }
-
-    check_for_error(&rx);
-
-    const TIMEOUT_S: f64 = 60.0;  // give it PLENTY of time before we declare failure
-    let deadline = time::precise_time_s() + TIMEOUT_S;
-    let mut watchers_shutdown = 0;
-    while watchers_shutdown != dir_count && time::precise_time_s() < deadline {
-        if let Ok(actual) = meta_rx.try_recv() {
-            match actual {
-                notify::windows::MetaEvent::SingleWatchComplete => watchers_shutdown += 1,
-                _ => ()
+    fn wait_for_disconnect(rx: &mpsc::Receiver<Event>) {
+        loop {
+            match rx.try_recv() {
+                Err(mpsc::TryRecvError::Disconnected) => break,
+                Err(mpsc::TryRecvError::Empty) => (),
+                Ok(res) => {
+                    match res.op {
+                        Err(e) => panic!("unexpected err: {:?}: {:?}", e, res.path),
+                        _ => (),
+                    }
+                }
             }
+            thread::sleep(Duration::from_millis(10));
         }
-        thread::sleep(Duration::from_millis(50)); // don't burn cpu, can take some time for completion events to fire
     }
 
-    assert_eq!(watchers_shutdown,dir_count);
-}
+    #[test]
+    fn shutdown() {
+        // create a watcher for n directories.  start the watcher, then shut it down.  inspect
+        // the watcher to make sure that it received final callbacks for all n watchers.
+        let dir_count = 100;
 
-#[cfg(target_os="windows")]
-#[test]
-fn watch_deleted_fails() {
-    let pb = {
-        let d = TempDir::new("rsnotifytest").unwrap();
-        d.path().to_path_buf()
-    };
-
-    let (tx, _) = channel();
-    let mut w = ReadDirectoryChangesWatcher::new(tx).unwrap();
-    match w.watch(pb.as_path(), RecursiveMode::Recursive) {
-        Ok(x) => panic!("Should have failed, but got: {:?}", x),
-        Err(_) => ()
-    }
-}
-
-#[cfg(target_os="windows")]
-#[test]
-fn watch_server_can_be_awakened() {
-    let (tx, _) = channel();
-    let (meta_tx,meta_rx) = channel();
-    let mut w = ReadDirectoryChangesWatcher::create(tx,meta_tx).unwrap();
-    let d = TempDir::new("rsnotifytest").unwrap();
-    let d2 = TempDir::new("rsnotifytest").unwrap();
-
-    match w.watch(d.path(), RecursiveMode::Recursive) {
-        Ok(_) => (),
-        Err(e) => panic!("Oops: {:?}", e)
-    }
-    match w.watch(d2.path(), RecursiveMode::Recursive) {
-        Ok(_) => (),
-        Err(e) => panic!("Oops: {:?}", e)
-    }
-    // should be at least one awaken in there
-    const TIMEOUT_S: f64 = 5.0;
-    let deadline = time::precise_time_s() + TIMEOUT_S;
-    let mut awakened = false;
-    while time::precise_time_s() < deadline {
-        if let Ok(actual) = meta_rx.try_recv() {
-            match actual {
-                notify::windows::MetaEvent::WatcherAwakened => awakened = true,
-                _ => ()
-            }
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
-
-    if !awakened {
-        panic!("Failed to awaken");
-    }
-}
-
-#[cfg(target_os="windows")]
-#[test]
-#[ignore]
-// repeatedly watch and unwatch a directory; make sure process memory does not increase.
-// you use task manager to watch the memory; it will fluctuate a bit, but should not leak overall
-fn memtest_manual() {
-    loop {
-        let (tx, rx) = channel();
-        let d = TempDir::new("rsnotifytest").unwrap();
+        // to get meta events, we have to pass in the meta channel
+        let (meta_tx, meta_rx) = mpsc::channel();
+        let (tx, rx) = mpsc::channel();
         {
-            let (meta_tx,_) = channel();
-            let mut w = ReadDirectoryChangesWatcher::create(tx,meta_tx).unwrap();
-            w.watch(d.path(), RecursiveMode::Recursive).unwrap();
-            thread::sleep(Duration::from_millis(1)); // this should make us run pretty hot but not insane
+            let mut dirs: Vec<TempDir> = Vec::new();
+            let mut w = ReadDirectoryChangesWatcher::create(tx, meta_tx).unwrap();
+
+            for _ in 0..dir_count {
+                let d = TempDir::new("rsnotifytest").unwrap();
+                dirs.push(d);
+            }
+
+            // need the ref, otherwise it's a move and the dir will be dropped!
+            for d in &dirs {
+                w.watch(d.path(), RecursiveMode::Recursive).unwrap();
+            }
+
+            // unwatch half of the directories, let the others get stopped when we go out of scope
+            for d in &dirs[0..dir_count / 2] {
+                w.unwatch(d.path()).unwrap();
+            }
+
+            thread::sleep(Duration::from_millis(2000)); // sleep to unhook the watches
         }
-        check_for_error(&rx);
+
+        wait_for_disconnect(&rx);
+
+        const TIMEOUT_S: f64 = 60.0;  // give it PLENTY of time before we declare failure
+        let deadline = time::precise_time_s() + TIMEOUT_S;
+
+        let mut watchers_shutdown = 0;
+        while watchers_shutdown != dir_count && time::precise_time_s() < deadline {
+            if let Ok(actual) = meta_rx.try_recv() {
+                match actual {
+                    windows::MetaEvent::SingleWatchComplete =>  watchers_shutdown += 1,
+                    _ => (),
+                }
+            }
+            thread::sleep(Duration::from_millis(1)); // don't burn cpu, can take some time for completion events to fire
+        }
+
+        assert_eq!(dir_count, watchers_shutdown);
+    }
+
+    #[test]
+    fn watch_deleted_fails() {
+        let pb = {
+            let d = TempDir::new("rsnotifytest").unwrap();
+            d.path().to_path_buf()
+        };
+
+        let (tx, _) = mpsc::channel();
+        let mut w = ReadDirectoryChangesWatcher::new(tx).unwrap();
+        match w.watch(pb.as_path(), RecursiveMode::Recursive) {
+            Ok(x) => panic!("Should have failed, but got: {:?}", x),
+            Err(_) => (),
+        }
+    }
+
+    #[test]
+    fn watch_server_can_be_awakened() {
+        let (tx, _) = mpsc::channel();
+        let (meta_tx, meta_rx) = mpsc::channel();
+        let mut w = ReadDirectoryChangesWatcher::create(tx, meta_tx).unwrap();
+
+        let d = TempDir::new("rsnotifytest").unwrap();
+        w.watch(d.path(), RecursiveMode::Recursive).unwrap();
+
+        // should be at least one awaken in there
+        const TIMEOUT_S: f64 = 5.0;
+        let deadline = time::precise_time_s() + TIMEOUT_S;
+
+        let mut awakened = false;
+        while !awakened && time::precise_time_s() < deadline {
+            if let Ok(actual) = meta_rx.try_recv() {
+                match actual {
+                    windows::MetaEvent::WatcherAwakened => awakened = true,
+                    _ => (),
+                }
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        assert!(awakened);
+    }
+
+    #[test]
+    #[cfg(feature = "manual_tests")]
+    // repeatedly watch and unwatch a directory; make sure process memory does not increase.
+    // you use task manager to watch the memory; it will fluctuate a bit, but should not leak overall
+    fn memtest_manual() {
+        let mut i = 0;
+        loop {
+            let (tx, rx) = mpsc::channel();
+            let d = TempDir::new("rsnotifytest").unwrap();
+            {
+                let (meta_tx, _) = mpsc::channel();
+                let mut w = ReadDirectoryChangesWatcher::create(tx, meta_tx).unwrap();
+                w.watch(d.path(), RecursiveMode::Recursive).unwrap();
+                thread::sleep(Duration::from_millis(1)); // this should make us run pretty hot but not insane
+            }
+            wait_for_disconnect(&rx);
+            i += 1;
+            println!("memtest {}", i);
+        }
     }
 }
