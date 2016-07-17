@@ -122,14 +122,56 @@ pub mod windows;
 pub mod null;
 pub mod poll;
 
-/// Contains the Op type which describes the actions for which an event is delivered
+/// Contains the `Op` type which describes the actions for an event.
+///
+/// `notify` aims to provide unified behavior across platforms. This however is not always possible
+/// due to the underlying technology of the various operating systems. So there are some issues
+/// `notify`-API users will have to take care of themself, depending on their needs.
+///
+/// # Chmod
+///
+/// __Linux, OS X__
+///
+/// On Linux and OS X the `CHMOD` event is emitted whenever attributes or extended attributes change.
+///
+/// __Windows__
+///
+/// On Windows a `WRITE` event is emitted when attributes change. This makes it impossible to
+/// distinguish between writes to a file or its metadata.
+///
+/// # Rename
+///
+/// __Linux, Windows__
+///
+/// A rename with both the source and the destination path inside a watched directory produces
+/// two `RENAME` events. The first event contains the source path, the second contains
+/// the destination path. Both events share the same cookie.
+///
+/// A rename that originates inside of a watched directory but ends outside of a watched directory
+/// produces a `DELETE` event.
+///
+/// A rename that originates outside of a watched directory and ends inside of a watched directory
+/// produces a `CREATE` event.
+///
+/// __OS X__
+///
+/// A `RENAME` event is produced whenever a file or directory is moved. This includes moves within
+/// the watched directory as well as moves into or out of the watched directory. It is up to the
+/// API user to determin what exactly happend. Usually when a move within a watched directory occures,
+/// the cookie is set for both connected events. This can however fail eg. if a file gets renamed
+/// multiple times without a delay (test `fsevents_rename_rename_file_0`). So in some cases rename
+/// cannot be catched properly but would be interpreted as a sequence of events where
+/// a file or directory is moved out of the watched directory and a different file or directory is
+/// moved in.
 pub mod op {
     bitflags! {
-        /// Detected actions for which an Event is delivered
+        /// Holds a set of bit flags representing the actions for the event.
+        ///
+        /// For a list of possible values, see `notify::op`.
         ///
         /// Multiple actions may be delivered in a single event.
         pub flags Op: u32 {
-            /// Permissions changed
+            /// Attributes changed
             const CHMOD   = 0b000001,
             /// Created
             const CREATE  = 0b000010,
@@ -146,21 +188,25 @@ pub mod op {
 }
 
 /// Event delivered when action occurs on a watched path
-///
-/// When using the poll watcher, `op` may be Err in the case where getting metadata for the path
-/// fails.
-///
-/// When using the `INotifyWatcher`, `op` may be Err if activity is detected on the file and there is
-/// an error reading from inotify.
 #[derive(Debug)]
 pub struct Event {
-    /// Path where `Event` originated
+    /// Path where the event originated.
     pub path: Option<PathBuf>,
 
-    /// Operation detected on Path
+    /// Operation detected on that path.
+    ///
+    /// When using the `PollWatcher`, `op` may be `Err` if reading metadata for the path fails.
+    ///
+    /// When using the `INotifyWatcher`, `op` may be `Err` if activity is detected on the file and there is
+    /// an error reading from inotify.
     pub op: Result<Op>,
 
-    /// Unique cookie associating related rename events
+    /// Unique cookie associating related events (for `RENAME` events).
+    ///
+    /// If two consecutive `RENAME` events share the same cookie, it means that the first event holds
+    /// the old path, and the second event holds the new path of the renamed file or directory.
+    ///
+    /// For details on handling `RENAME` events with the `FsEventWatcher` have a look at `notify::op` documentation.
     pub cookie: Option<u32>,
 }
 
