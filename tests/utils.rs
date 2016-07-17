@@ -20,8 +20,8 @@ const TIMEOUT_S: f64 = 0.1;
 #[cfg(target_os="windows")]
 const TIMEOUT_S: f64 = 3.0; // windows can take a while
 
-pub fn recv_events(rx: &Receiver<Event>) ->  Vec<(PathBuf, Op, Option<u32>)> {
-    let deadline = time::precise_time_s() + TIMEOUT_S;
+pub fn recv_events_with_timeout(rx: &Receiver<Event>, timeout: f64) ->  Vec<(PathBuf, Op, Option<u32>)> {
+    let deadline = time::precise_time_s() + timeout;
 
     let mut evs = Vec::new();
 
@@ -38,6 +38,10 @@ pub fn recv_events(rx: &Receiver<Event>) ->  Vec<(PathBuf, Op, Option<u32>)> {
         thread::sleep(Duration::from_millis(1));
     }
     evs
+}
+
+pub fn recv_events(rx: &Receiver<Event>) ->  Vec<(PathBuf, Op, Option<u32>)> {
+    recv_events_with_timeout(rx, TIMEOUT_S)
 }
 
 // FSEvents tends to emit events multiple times and aggregate events,
