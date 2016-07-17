@@ -126,7 +126,7 @@ fn modify_file() {
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("file1"), op::CREATE, None),
+            (tdir.mkpath("file1"), op::CHMOD | op::CREATE, None),
         ]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
@@ -277,7 +277,7 @@ fn create_write_modify_file() {
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("file1"), op::CREATE | op::WRITE, None),
+            (tdir.mkpath("file1"), op::CHMOD | op::CREATE | op::WRITE, None),
         ]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
@@ -441,7 +441,7 @@ fn modify_directory() {
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("dir1"), op::CREATE, None),
+            (tdir.mkpath("dir1"), op::CHMOD | op::CREATE, None),
         ]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
