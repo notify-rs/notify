@@ -255,6 +255,14 @@ pub unsafe extern "C" fn callback(
             }
         }
 
+        if flag.contains(fse::MUST_SCAN_SUBDIRS) {
+            let _ = (*info).sender.send(Event {
+                path: None,
+                op: Ok(op::RESCAN),
+                cookie: None,
+            });
+        }
+
         if handle_event {
             if flag.contains(fse::ITEM_RENAMED) {
                 if let Some(e) = rename_event {

@@ -17,6 +17,9 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::thread::Builder as ThreadBuilder;
 use super::{Error, Event, op, Op, Result, Watcher, RecursiveMode};
+// test inotify_queue_overflow
+// use std::thread;
+// use std::time::Duration;
 
 mod flags;
 
@@ -88,6 +91,9 @@ impl mio::Handler for INotifyHandler {
                 let mut add_watches = Vec::new();
                 let mut remove_watches = Vec::new();
 
+                // test inotify_queue_overflow
+                // thread::sleep(Duration::from_millis(100));
+
                 if let Some(ref mut inotify) = self.inotify {
                     match inotify.available_events() {
                         Ok(events) => {
@@ -96,6 +102,14 @@ impl mio::Handler for INotifyHandler {
                             let mut rename_event = None;
 
                             for event in events {
+                                if event.is_queue_overflow() {
+                                    let _ = self.tx.send(Event {
+                                        path: None,
+                                        op: Ok(op::RESCAN),
+                                        cookie: None,
+                                    });
+                                }
+
                                 let path = if event.name.is_empty() {
                                     match self.paths.get(&event.wd) {
                                         Some(p) => Some(p.clone()),

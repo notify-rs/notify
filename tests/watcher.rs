@@ -10,6 +10,13 @@ use tempdir::TempDir;
 use std::thread;
 use std::env;
 
+#[cfg(all(feature = "manual_tests", target_os="linux"))]
+use std::time::Duration;
+#[cfg(all(feature = "manual_tests", target_os="linux"))]
+use std::io::prelude::*;
+#[cfg(all(feature = "manual_tests", target_os="linux"))]
+use std::fs::File;
+
 use utils::*;
 
 #[cfg(target_os="linux")]
@@ -100,6 +107,48 @@ fn watch_relative() {
         let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
         watcher.watch("file1", RecursiveMode::Recursive).expect("failed to watch file");
     }
+}
+
+#[test]
+#[cfg(all(feature = "manual_tests", target_os="linux"))]
+// Test preparation:
+// 1. Run `sudo echo 10 > /proc/sys/fs/inotify/max_queued_events`
+// 2. Uncomment the lines near "test inotify_queue_overflow" in inotify watcher
+fn inotify_queue_overflow() {
+    let mut max_queued_events = String::new();
+    let mut f = File::open("/proc/sys/fs/inotify/max_queued_events").expect("failed to open max_queued_events");
+    f.read_to_string(&mut max_queued_events).expect("failed to read max_queued_events");
+    assert_eq!(max_queued_events.trim(), "10");
+
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
+
+    for i in 0..20 {
+        let filename = format!("file{}", i);
+        tdir.create(&filename);
+        tdir.remove(&filename);
+    }
+
+    sleep(100);
+
+    let deadline = time::precise_time_s() + 5.0;
+
+    let mut rescan_found = false;
+    while !rescan_found && time::precise_time_s() < deadline {
+        match rx.try_recv() {
+            Ok(Event{op: Ok(op::RESCAN), ..}) => rescan_found = true,
+            Ok(Event{op: Err(e), ..}) => panic!("unexpected event err: {:?}", e),
+            Ok(e) => (),
+            Err(mpsc::TryRecvError::Empty) => (),
+            Err(e) => panic!("unexpected channel err: {:?}", e)
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    assert!(rescan_found);
 }
 
 #[test]

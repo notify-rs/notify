@@ -163,6 +163,23 @@ pub mod poll;
 /// cannot be catched properly but would be interpreted as a sequence of events where
 /// a file or directory is moved out of the watched directory and a different file or directory is
 /// moved in.
+///
+/// # Rescan
+///
+/// Indicates that an error occured and the watched directories need to be rescanned.
+/// This can happen if the internal event queue has overflown and some events were dropped.
+/// Or with FSEvents if events were coalesced hierarchically.
+///
+/// __Windows__
+///
+/// At the moment `RESCAN` events aren't emitted on Windows.
+///
+/// __Queue size__
+///
+/// Linux: `/proc/sys/fs/inotify/max_queued_events`
+///
+/// Windows: 16384 Bytes. The actual amount of events that fit into the queue depends on the
+/// legth of the paths.
 pub mod op {
     bitflags! {
         /// Holds a set of bit flags representing the actions for the event.
@@ -181,6 +198,8 @@ pub mod op {
             const RENAME  = 0b001000,
             /// Written
             const WRITE   = 0b010000,
+            /// Directories need to be rescanned
+            const RESCAN  = 0b100000,
         }
     }
 }
