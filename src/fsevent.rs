@@ -6,7 +6,7 @@
 //! sends these notifications "in bulk", possibly notifying the client of changes to several
 //! directories in a single callback.
 //!
-//! For more information see the [FSEvents API reference](https://developer.apple.com/library/mac/documentation/Darwin/FSEvents_API/FSEvents_Ref/).
+//! For more information see the [FSEvents API reference](https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/).
 
 #![allow(non_upper_case_globals, dead_code)]
 extern crate fsevent as fse;
