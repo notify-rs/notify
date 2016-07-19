@@ -80,21 +80,6 @@ mod windows_tests {
     }
 
     #[test]
-    fn watch_deleted_fails() {
-        let pb = {
-            let d = TempDir::new("rsnotifytest").unwrap();
-            d.path().to_path_buf()
-        };
-
-        let (tx, _) = mpsc::channel();
-        let mut w = ReadDirectoryChangesWatcher::new(tx).unwrap();
-        match w.watch(pb.as_path(), RecursiveMode::Recursive) {
-            Ok(x) => panic!("Should have failed, but got: {:?}", x),
-            Err(_) => (),
-        }
-    }
-
-    #[test]
     fn watch_server_can_be_awakened() {
         let (tx, _) = mpsc::channel();
         let (meta_tx, meta_rx) = mpsc::channel();
