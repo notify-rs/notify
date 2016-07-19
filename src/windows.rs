@@ -466,7 +466,11 @@ impl Watcher for ReadDirectoryChangesWatcher {
     }
 
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        let pb = try!(path.as_ref().canonicalize().map_err(Error::Io));
+        let pb = if let Ok(canonicalized_path) = path.as_ref().canonicalize() {
+            canonicalized_path
+        } else {
+            path.as_ref().to_owned()
+        };
         let res = self.tx
                       .send(Action::Unwatch(pb))
                       .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()));
