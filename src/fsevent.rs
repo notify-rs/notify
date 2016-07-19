@@ -115,7 +115,7 @@ impl FsEventWatcher {
         self.context = None;
     }
 
-    fn remove_path<P: AsRef<Path>>(&mut self, path: P) {
+    fn remove_path<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         let str_path = path.as_ref().to_str().unwrap();
         unsafe {
             let cf_path = cf::str_path_to_cfstring_ref(str_path);
@@ -128,7 +128,15 @@ impl FsEventWatcher {
                 }
             }
         }
-        self.recursive_info.remove(path.as_ref());
+        let p = if let Ok(canonicalized_path) = path.as_ref().canonicalize() {
+            canonicalized_path
+        } else {
+            path.as_ref().to_owned()
+        };
+        match self.recursive_info.remove(&p) {
+            Some(_) => Ok(()),
+            None => Err(Error::WatchNotFound),
+        }
     }
 
     // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
@@ -330,10 +338,10 @@ impl Watcher for FsEventWatcher {
 
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         self.stop();
-        self.remove_path(path);
+        let result = self.remove_path(path);
         // ignore return error: may be empty path list
         let _ = self.run();
-        Ok(())
+        result
     }
 }
 
