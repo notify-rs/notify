@@ -147,7 +147,6 @@ impl mio::Handler for INotifyHandler {
                                     }
                                     if event.is_move_self() {
                                         o.insert(op::RENAME);
-                                        remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                                     }
                                     if event.is_create() {
                                         o.insert(op::CREATE);
