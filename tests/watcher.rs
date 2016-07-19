@@ -96,6 +96,16 @@ fn watch_relative() {
         let (tx, _) = mpsc::channel();
         let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
         watcher.watch("dir1", RecursiveMode::Recursive).expect("failed to watch directory");
+
+        watcher.unwatch("dir1").expect("failed to unwatch directory");
+
+        if cfg!(not(target_os="windows")) {
+            match watcher.unwatch("dir1") {
+                Err(Error::WatchNotFound) => (),
+                Err(e) => panic!("{:?}", e),
+                Ok(o) => panic!("{:?}", o),
+            }
+        }
     }
     { // watch_relative_file
         let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
@@ -106,6 +116,16 @@ fn watch_relative() {
         let (tx, _) = mpsc::channel();
         let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
         watcher.watch("file1", RecursiveMode::Recursive).expect("failed to watch file");
+
+        watcher.unwatch("file1").expect("failed to unwatch file");
+
+        if cfg!(not(target_os="windows")) {
+            match watcher.unwatch("file1") {
+                Err(Error::WatchNotFound) => (),
+                Err(e) => panic!("{:?}", e),
+                Ok(o) => panic!("{:?}", o),
+            }
+        }
     }
 }
 
