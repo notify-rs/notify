@@ -107,6 +107,7 @@ mod windows_tests {
     }
 
     #[test]
+    #[ignore]
     #[cfg(feature = "manual_tests")]
     // repeatedly watch and unwatch a directory; make sure process memory does not increase.
     // you use task manager to watch the memory; it will fluctuate a bit, but should not leak overall
