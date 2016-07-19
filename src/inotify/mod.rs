@@ -68,9 +68,9 @@ fn add_watch_by_event(path: &Option<PathBuf>, event: &wrapper::Event, watches: &
 }
 
 #[inline]
-fn remove_watch_by_event(path: &Option<PathBuf>, event: &wrapper::Event, remove_watches: &mut Vec<PathBuf>) {
+fn remove_watch_by_event(path: &Option<PathBuf>, watches: &HashMap<PathBuf, (Watch, flags::Mask, bool)>, remove_watches: &mut Vec<PathBuf>) {
     if let Some(ref path) = *path {
-        if event.is_dir() {
+        if watches.contains_key(path) {
             remove_watches.push(path.to_owned());
         }
     }
@@ -121,7 +121,7 @@ impl mio::Handler for INotifyHandler {
 
                                 if event.is_moved_from() {
                                     send_pending_rename_event(rename_event, &self.tx);
-                                    remove_watch_by_event(&path, event, &mut remove_watches);
+                                    remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                                     rename_event = Some(Event {
                                         path: path,
                                         op: Ok(op::RENAME),
@@ -147,7 +147,7 @@ impl mio::Handler for INotifyHandler {
                                     }
                                     if event.is_move_self() {
                                         o.insert(op::RENAME);
-                                        remove_watch_by_event(&path, event, &mut remove_watches);
+                                        remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                                     }
                                     if event.is_create() {
                                         o.insert(op::CREATE);
@@ -155,7 +155,7 @@ impl mio::Handler for INotifyHandler {
                                     }
                                     if event.is_delete_self() || event.is_delete() {
                                         o.insert(op::REMOVE);
-                                        remove_watch_by_event(&path, event, &mut remove_watches);
+                                        remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                                     }
                                     if event.is_modify() {
                                         o.insert(op::WRITE);
