@@ -163,7 +163,7 @@ impl mio::Handler for INotifyHandler {
                                         o.insert(op::CHMOD);
                                     }
 
-                                    if !event.is_ignored() {
+                                    if !o.is_empty() {
                                         send_pending_rename_event(rename_event, &self.tx);
                                         rename_event = None;
 

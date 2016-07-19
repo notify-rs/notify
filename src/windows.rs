@@ -327,12 +327,21 @@ unsafe extern "system" fn handle_event(error_code: u32,
         if !skip {
             if (*cur_entry).Action == winnt::FILE_ACTION_RENAMED_OLD_NAME {
                 send_pending_rename_event(rename_event, &request.tx);
-                COOKIE_COUNTER = COOKIE_COUNTER.wrapping_add(1);
-                rename_event = Some(Event {
-                    path: Some(path),
-                    op: Ok(op::RENAME),
-                    cookie: Some(COOKIE_COUNTER),
-                });
+                if request.data.file.is_some() {
+                    let _ = request.tx.send(Event {
+                        path: Some(path),
+                        op: Ok(op::RENAME),
+                        cookie: None,
+                    });
+                    rename_event = None;
+                } else {
+                    COOKIE_COUNTER = COOKIE_COUNTER.wrapping_add(1);
+                    rename_event = Some(Event {
+                        path: Some(path),
+                        op: Ok(op::RENAME),
+                        cookie: Some(COOKIE_COUNTER),
+                    });
+                }
             } else {
                 let mut o = Op::empty();
                 let mut c = None;

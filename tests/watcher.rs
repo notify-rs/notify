@@ -840,3 +840,186 @@ fn self_delete_directory() {
         }
     }
 }
+
+#[test]
+#[ignore]
+fn self_rename_file() {
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    tdir.create_all(vec![
+        "file1",
+    ]);
+
+    if cfg!(target_os="macos") {
+        sleep(10);
+    }
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    watcher.watch(&tdir.mkpath("file1"), RecursiveMode::Recursive).expect("failed to watch file");
+
+    if cfg!(target_os="windows") {
+        sleep(100);
+    }
+
+    tdir.rename("file1", "file2");
+
+    let actual = if cfg!(target_os="macos") {
+        inflate_events(recv_events(&rx))
+    } else {
+        recv_events(&rx)
+    };
+
+    if cfg!(target_os="macos") {
+        assert_eq!(actual, vec![
+            (tdir.mkpath("file1"), op::CREATE | op::RENAME, None),
+        ]);
+    } else {
+        assert_eq!(actual, vec![
+            (tdir.mkpath("file1"), op::RENAME, None),
+        ]);
+    }
+
+    tdir.write("file2");
+
+    let actual = if cfg!(target_os="macos") {
+        inflate_events(recv_events(&rx))
+    } else {
+        recv_events(&rx)
+    };
+
+    if cfg!(target_os="windows") {
+        assert_eq!(actual, vec![]);
+        panic!("windows back-end should update file watch path");
+    } else if cfg!(target_os="macos") {
+        // macos doesn't watch files, but paths
+        assert_eq!(actual, vec![]);
+    } else {
+        assert_eq!(actual, vec![
+            (tdir.mkpath("file1"), op::WRITE, None), // path doesn't get updated
+        ]);
+    }
+
+    tdir.create("file1");
+
+    if cfg!(target_os="windows") {
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("file1"), op::CREATE, None),
+        ]);
+        panic!("windows back-end should update file watch path");
+    } else if cfg!(target_os="macos") {
+        // macos doesn't watch files, but paths
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("file1"), op::CREATE | op::RENAME, None), // excessive rename event
+        ]);
+    } else {
+        assert_eq!(recv_events(&rx), vec![]);
+    }
+
+    watcher.unwatch(&tdir.mkpath("file1")).expect("failed to unwatch file"); // use old path to unwatch
+
+    let result = watcher.unwatch(&tdir.mkpath("file1"));
+    if cfg!(target_os="windows") {
+        match result {
+            Err(e) => panic!("{:?}", e),
+            Ok(()) => (),
+        }
+    } else {
+        match result {
+            Err(Error::WatchNotFound) => (),
+            Err(e) => panic!("{:?}", e),
+            Ok(o) => panic!("{:?}", o),
+        }
+    }
+}
+
+#[test]
+fn self_rename_directory() {
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    tdir.create_all(vec![
+        "dir1",
+    ]);
+
+    if cfg!(target_os="macos") {
+        sleep(10);
+    }
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    watcher.watch(&tdir.mkpath("dir1"), RecursiveMode::Recursive).expect("failed to watch directory");
+
+    if cfg!(target_os="windows") {
+        sleep(100);
+    }
+
+    tdir.rename("dir1", "dir2");
+
+    let actual = if cfg!(target_os="macos") {
+        inflate_events(recv_events(&rx))
+    } else {
+        recv_events(&rx)
+    };
+
+    if cfg!(target_os="windows") {
+        assert_eq!(actual, vec![]);
+    } else if cfg!(target_os="macos") {
+        assert_eq!(actual, vec![
+            (tdir.mkpath("dir1"), op::CREATE | op::RENAME, None), // excessive create event
+        ]);
+    } else {
+        assert_eq!(actual, vec![
+            (tdir.mkpath("dir1"), op::RENAME, None),
+        ]);
+    }
+
+    tdir.create("dir2/file1");
+
+    let actual = if cfg!(target_os="macos") {
+        inflate_events(recv_events(&rx))
+    } else {
+        recv_events(&rx)
+    };
+
+    if cfg!(target_os="macos") {
+        // macos doesn't watch files, but paths
+        assert_eq!(actual, vec![]);
+    } else {
+        assert_eq!(actual, vec![
+            (tdir.mkpath("dir1/file1"), op::CREATE, None), // path doesn't get updated
+        ]);
+    }
+
+    tdir.create("dir1");
+
+    let actual = if cfg!(target_os="macos") {
+        inflate_events(recv_events(&rx))
+    } else {
+        recv_events(&rx)
+    };
+
+    if cfg!(target_os="macos") {
+        // macos doesn't watch files, but paths
+        assert_eq!(actual, vec![
+            (tdir.mkpath("dir1"), op::CREATE | op::RENAME, None), // excessive rename event
+        ]);
+    } else {
+        assert_eq!(actual, vec![]);
+    }
+
+    watcher.unwatch(&tdir.mkpath("dir1")).expect("failed to unwatch directory"); // use old path to unwatch
+
+    let result = watcher.unwatch(&tdir.mkpath("dir1"));
+    if cfg!(target_os="windows") {
+        match result {
+            Err(e) => panic!("{:?}", e),
+            Ok(()) => (),
+        }
+    } else {
+        match result {
+            Err(Error::WatchNotFound) => (),
+            Err(e) => panic!("{:?}", e),
+            Ok(o) => panic!("{:?}", o),
+        }
+    }
+}
