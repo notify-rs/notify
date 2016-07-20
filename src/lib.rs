@@ -82,8 +82,6 @@
 #![deny(missing_docs)]
 
 #[macro_use]
-extern crate log;
-#[macro_use]
 extern crate bitflags;
 #[cfg(target_os="linux")]
 extern crate mio;
