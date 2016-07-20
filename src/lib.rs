@@ -124,7 +124,8 @@ pub mod poll;
 ///
 /// `notify` aims to provide unified behavior across platforms. This however is not always possible
 /// due to the underlying technology of the various operating systems. So there are some issues
-/// `notify`-API users will have to take care of themself, depending on their needs.
+/// `notify`-API users will have to take care of themselves, depending on their needs.
+///
 ///
 /// # Chmod
 ///
@@ -135,9 +136,51 @@ pub mod poll;
 /// __Windows__
 ///
 /// On Windows a `WRITE` event is emitted when attributes change. This makes it impossible to
-/// distinguish between writes to a file or its metadata.
+/// distinguish between writes to a file or its meta data.
+///
+///
+/// # Create
+///
+/// A `CREATE` event is emitted whenever a new file or directory is created.
+///
+///
+/// # Remove
+///
+/// ## Remove file or directory within a watched directory
+///
+/// A `REMOVE` event is emitted whenever a file or directory is removed.
+///
+/// ## Remove watched file or directory itself
+///
+/// With the exception of Windows a `REMOVE` event is emitted whenever the watched file or directory
+/// itself is removed. The behavior after the remove differs between platforms though.
+///
+/// __Linux__
+///
+/// When a watched file or directory is removed, its watch gets destroyed and no new events will be sent.
+///
+/// __Windows__
+///
+/// If a watched directory is removed, an empty event is emitted.
+///
+/// When watching a single file on Windows, the file path will continue to be watched until either
+/// the watch is removed by the API user or the parent directory gets removed.
+///
+/// When watching a directory on Windows, the watch will get destroyed and no new events will be sent.
+///
+/// __OS X__
+///
+/// While Linux and Windows monitor "inodes", OS X monitors "paths". So a watch stays active even
+/// after the watched file or directory has been removed and it will emit events in case a new file
+/// or directory is created in its place.
+///
 ///
 /// # Rename
+///
+/// A `RENAME` event is emitted whenever a file or directory has been renamed or moved to a
+/// different directory.
+///
+/// ## Rename file or directory within a watched directory
 ///
 /// __Linux, Windows__
 ///
@@ -155,16 +198,56 @@ pub mod poll;
 ///
 /// A `RENAME` event is produced whenever a file or directory is moved. This includes moves within
 /// the watched directory as well as moves into or out of the watched directory. It is up to the
-/// API user to determin what exactly happend. Usually when a move within a watched directory occures,
+/// API user to determine what exactly happened. Usually when a move within a watched directory occurs,
 /// the cookie is set for both connected events. This can however fail eg. if a file gets renamed
 /// multiple times without a delay (test `fsevents_rename_rename_file_0`). So in some cases rename
-/// cannot be catched properly but would be interpreted as a sequence of events where
-/// a file or directory is moved out of the watched directory and a different file or directory is
-/// moved in.
+/// cannot be caught properly but would be interpreted as a sequence of events where
+/// a file or directory is moved out of the watched directory and a different file or directory is moved in.
+///
+/// ## Rename watched file or directory itself
+///
+/// With the exception of Windows a `RENAME` event is emitted whenever the watched file or directory
+/// itself is renamed. The behavior after the rename differs between platforms though. Depending on
+/// the platform either the moved file or directory will continue to be watched or the old path.
+/// If the moved file or directory will continue to be watched, the paths of emitted events will
+/// still be prefixed with the old path though.
+///
+/// __Linux__
+///
+/// Linux will continue to watch the moved file or directory. Events will contain paths prefixed
+/// with the old path.
+///
+/// __Windows__
+///
+/// Currently there is no event emitted when a watched directory is renamed. But the directory will
+/// continue to be watched and events will contain paths prefixed with the old path.
+///
+/// When renaming a watched file, a `RENAME` event is emitted but the old path will continue to be watched.
+///
+/// __OS X__
+///
+/// OS X will continue to watch the (now non-existing) path.
+///
+/// ## Rename parent directory of watched file or directory
+///
+/// Currently no event will be emitted when any parent directory of the watched file or directory
+/// is renamed. Depending on the platform either the moved file or directory will continue to be
+/// watched or the old path. If the moved file or directory will continue to be watched, the paths
+/// of emitted events will still be prefixed with the old path though.
+///
+/// __Linux, Windows__
+///
+/// Linux and Windows will continue to watch the moved file or directory. Events will contain paths
+/// prefixed with the old path.
+///
+/// __OS X__
+///
+/// OS X will continue to watch the (now non-existing) path.
+///
 ///
 /// # Rescan
 ///
-/// Indicates that an error occured and the watched directories need to be rescanned.
+/// A `RESCAN` event indicates that an error occurred and the watched directories need to be rescanned.
 /// This can happen if the internal event queue has overflown and some events were dropped.
 /// Or with FSEvents if events were coalesced hierarchically.
 ///
@@ -177,7 +260,16 @@ pub mod poll;
 /// Linux: `/proc/sys/fs/inotify/max_queued_events`
 ///
 /// Windows: 16384 Bytes. The actual amount of events that fit into the queue depends on the
-/// legth of the paths.
+/// length of the paths.
+///
+///
+/// # Write
+///
+/// A `WRITE` event is emitted whenever a file has been written to.
+///
+/// __Windows__
+///
+/// On Windows a `WRITE` event is emitted when attributes change.
 pub mod op {
     bitflags! {
         /// Holds a set of bit flags representing the actions for the event.
@@ -210,7 +302,7 @@ pub struct Event {
 
     /// Operation detected on that path.
     ///
-    /// When using the `PollWatcher`, `op` may be `Err` if reading metadata for the path fails.
+    /// When using the `PollWatcher`, `op` may be `Err` if reading meta data for the path fails.
     ///
     /// When using the `INotifyWatcher`, `op` may be `Err` if activity is detected on the file and there is
     /// an error reading from inotify.
