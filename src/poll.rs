@@ -37,17 +37,17 @@ pub struct PollWatcher {
 
 impl PollWatcher {
     /// Create a PollWatcher which polls every `delay` milliseconds
-    pub fn with_delay(tx: Sender<Event>, delay: u32) -> Result<PollWatcher> {
+    pub fn with_delay_ms(tx: Sender<Event>, delay: u32) -> Result<PollWatcher> {
         let mut p = PollWatcher {
             tx: tx,
             watches: Arc::new(Mutex::new(HashMap::new())),
             open: Arc::new(RwLock::new(true)),
         };
-        p.run(delay);
+        p.run(Duration::from_millis(delay as u64));
         Ok(p)
     }
 
-    fn run(&mut self, delay: u32) {
+    fn run(&mut self, delay: Duration) {
         let tx = self.tx.clone();
         let watches = self.watches.clone();
         let open = self.open.clone();
@@ -158,9 +158,7 @@ impl PollWatcher {
                         }
                     }
 
-                    if delay != 0 {
-                        thread::sleep(Duration::from_millis(delay as u64));
-                    }
+                    thread::sleep(delay);
                 }
             }
         });
@@ -169,7 +167,7 @@ impl PollWatcher {
 
 impl Watcher for PollWatcher {
     fn new(tx: Sender<Event>) -> Result<PollWatcher> {
-        PollWatcher::with_delay(tx, 10_000)
+        PollWatcher::with_delay_ms(tx, 30_000)
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {

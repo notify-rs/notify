@@ -452,7 +452,7 @@ fn poll_watch_recursive_create_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher = PollWatcher::with_delay(tx, 50).expect("failed to create poll watcher");
+    let mut watcher = PollWatcher::with_delay_ms(tx, 50).expect("failed to create poll watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep(1100); // PollWatcher has only a resolution of 1 second
@@ -484,7 +484,7 @@ fn poll_watch_recursive_move() {
     ]);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher = PollWatcher::with_delay(tx, 50).expect("failed to create poll watcher");
+    let mut watcher = PollWatcher::with_delay_ms(tx, 50).expect("failed to create poll watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep(1100); // PollWatcher has only a resolution of 1 second
@@ -539,7 +539,7 @@ fn poll_watch_recursive_move_in() {
     ]);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher = PollWatcher::with_delay(tx, 50).expect("failed to create poll watcher");
+    let mut watcher = PollWatcher::with_delay_ms(tx, 50).expect("failed to create poll watcher");
     watcher.watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep(1100); // PollWatcher has only a resolution of 1 second
@@ -577,7 +577,7 @@ fn poll_watch_recursive_move_out() {
     ]);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher = PollWatcher::with_delay(tx, 50).expect("failed to create poll watcher");
+    let mut watcher = PollWatcher::with_delay_ms(tx, 50).expect("failed to create poll watcher");
     watcher.watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep(1100); // PollWatcher has only a resolution of 1 second
@@ -617,7 +617,7 @@ fn poll_watch_nonrecursive() {
     ]);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher = PollWatcher::with_delay(tx, 50).expect("failed to create poll watcher");
+    let mut watcher = PollWatcher::with_delay_ms(tx, 50).expect("failed to create poll watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::NonRecursive).expect("failed to watch directory");
 
     sleep(1100); // PollWatcher has only a resolution of 1 second
@@ -648,7 +648,7 @@ fn poll_watch_file() {
     ]);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher = PollWatcher::with_delay(tx, 50).expect("failed to create poll watcher");
+    let mut watcher = PollWatcher::with_delay_ms(tx, 50).expect("failed to create poll watcher");
     watcher.watch(tdir.mkpath("file1"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep(1100); // PollWatcher has only a resolution of 1 second

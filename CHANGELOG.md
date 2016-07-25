@@ -8,7 +8,9 @@
 
 #### Features
 
-* **poll watcher:** Implement CREATE and DELETE for PollWatcher
+* **poll watcher:**
+  * Implement CREATE and DELETE for PollWatcher
+  * Add `with_delay_ms` constructor
 * **fsevents watcher:** Report ITEM_CHANGE_OWNER as CHMOD events
 * **inotify watcher:** Skip IGNORED events
 
