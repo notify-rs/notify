@@ -19,8 +19,12 @@ use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::thread;
 use std::os::raw::c_void;
+use std::time::Duration;
+use std::sync::{Arc, Mutex};
 
 use super::{Event, Error, op, Op, Result, Watcher, RecursiveMode};
+
+use super::debounce::{self, Debounce, EventTx};
 
 const BUF_SIZE: u32 = 16384;
 
@@ -35,7 +39,7 @@ struct ReadData {
 }
 
 struct ReadDirectoryRequest {
-    tx: Sender<Event>,
+    event_tx: Arc<Mutex<EventTx>>,
     buffer: [u8; BUF_SIZE as usize],
     handle: HANDLE,
     data: ReadData,
@@ -59,7 +63,7 @@ struct WatchState {
 
 struct ReadDirectoryChangesServer {
     rx: Receiver<Action>,
-    tx: Sender<Event>,
+    event_tx: Arc<Mutex<EventTx>>,
     meta_tx: Sender<MetaEvent>,
     cmd_tx: Sender<Result<PathBuf>>,
     watches: HashMap<PathBuf, WatchState>,
@@ -67,7 +71,7 @@ struct ReadDirectoryChangesServer {
 }
 
 impl ReadDirectoryChangesServer {
-    fn start(event_tx: Sender<Event>,
+    fn start(event_tx: EventTx,
              meta_tx: Sender<MetaEvent>,
              cmd_tx: Sender<Result<PathBuf>>,
              wakeup_sem: HANDLE)
@@ -79,8 +83,8 @@ impl ReadDirectoryChangesServer {
         thread::spawn(move || {
             let wakeup_sem = sem_temp as HANDLE;
             let server = ReadDirectoryChangesServer {
-                tx: event_tx,
                 rx: action_rx,
+                event_tx: Arc::new(Mutex::new(event_tx)),
                 meta_tx: meta_tx,
                 cmd_tx: cmd_tx,
                 watches: HashMap::new(),
@@ -199,7 +203,7 @@ impl ReadDirectoryChangesServer {
             complete_sem: semaphore,
         };
         self.watches.insert(path.clone(), ws);
-        start_read(&rd, &self.tx, handle);
+        start_read(&rd, self.event_tx.clone(), handle);
         Ok(path.to_path_buf())
     }
 
@@ -224,9 +228,9 @@ fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
     let _ = meta_tx.send(MetaEvent::SingleWatchComplete);
 }
 
-fn start_read(rd: &ReadData, tx: &Sender<Event>, handle: HANDLE) {
+fn start_read(rd: &ReadData, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
     let mut request = Box::new(ReadDirectoryRequest {
-        tx: tx.clone(),
+        event_tx: event_tx,
         handle: handle,
         buffer: [0u8; BUF_SIZE as usize],
         data: rd.clone(),
@@ -278,9 +282,9 @@ fn start_read(rd: &ReadData, tx: &Sender<Event>, handle: HANDLE) {
     }
 }
 
-fn send_pending_rename_event(event: Option<Event>, tx: &Sender<Event>) {
+fn send_pending_rename_event(event: Option<Event>, event_tx: &mut EventTx) {
     if let Some(e) = event {
-        let _ = tx.send(Event {
+        event_tx.send(Event {
             path: e.path,
             op: Ok(op::REMOVE),
             cookie: None,
@@ -302,90 +306,93 @@ unsafe extern "system" fn handle_event(error_code: u32,
     }
 
     // Get the next request queued up as soon as possible
-    start_read(&request.data, &request.tx, request.handle);
+    start_read(&request.data, request.event_tx.clone(), request.handle);
 
-    let mut rename_event = None;
+    let event_tx_lock = request.event_tx.lock();
+    if let Ok(mut event_tx) = event_tx_lock {
+        let mut rename_event = None;
 
-    // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length string
-    // as its last member.  Each struct contains an offset for getting the next entry in the buffer
-    let mut cur_offset: *const u8 = request.buffer.as_ptr();
-    let mut cur_entry: *const FILE_NOTIFY_INFORMATION = mem::transmute(cur_offset);
-    loop {
-        // filename length is size in bytes, so / 2
-        let len = (*cur_entry).FileNameLength as usize / 2;
-        let encoded_path: &[u16] = slice::from_raw_parts((*cur_entry).FileName.as_ptr(), len);
-        // prepend root to get a full path
-        let path = request.data.dir.join(PathBuf::from(OsString::from_wide(encoded_path)));
+        // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length string
+        // as its last member.  Each struct contains an offset for getting the next entry in the buffer
+        let mut cur_offset: *const u8 = request.buffer.as_ptr();
+        let mut cur_entry: *const FILE_NOTIFY_INFORMATION = mem::transmute(cur_offset);
+        loop {
+            // filename length is size in bytes, so / 2
+            let len = (*cur_entry).FileNameLength as usize / 2;
+            let encoded_path: &[u16] = slice::from_raw_parts((*cur_entry).FileName.as_ptr(), len);
+            // prepend root to get a full path
+            let path = request.data.dir.join(PathBuf::from(OsString::from_wide(encoded_path)));
 
-        // if we are watching a single file, ignore the event unless the path is exactly
-        // the watched file
-        let skip = match request.data.file {
-            None => false,
-            Some(ref watch_path) => *watch_path != path,
-        };
+            // if we are watching a single file, ignore the event unless the path is exactly
+            // the watched file
+            let skip = match request.data.file {
+                None => false,
+                Some(ref watch_path) => *watch_path != path,
+            };
 
-        if !skip {
-            if (*cur_entry).Action == winnt::FILE_ACTION_RENAMED_OLD_NAME {
-                send_pending_rename_event(rename_event, &request.tx);
-                if request.data.file.is_some() {
-                    let _ = request.tx.send(Event {
-                        path: Some(path),
-                        op: Ok(op::RENAME),
-                        cookie: None,
-                    });
-                    rename_event = None;
+            if !skip {
+                if (*cur_entry).Action == winnt::FILE_ACTION_RENAMED_OLD_NAME {
+                    send_pending_rename_event(rename_event, &mut event_tx);
+                    if request.data.file.is_some() {
+                        event_tx.send(Event {
+                            path: Some(path),
+                            op: Ok(op::RENAME),
+                            cookie: None,
+                        });
+                        rename_event = None;
+                    } else {
+                        COOKIE_COUNTER = COOKIE_COUNTER.wrapping_add(1);
+                        rename_event = Some(Event {
+                            path: Some(path),
+                            op: Ok(op::RENAME),
+                            cookie: Some(COOKIE_COUNTER),
+                        });
+                    }
                 } else {
-                    COOKIE_COUNTER = COOKIE_COUNTER.wrapping_add(1);
-                    rename_event = Some(Event {
-                        path: Some(path),
-                        op: Ok(op::RENAME),
-                        cookie: Some(COOKIE_COUNTER),
-                    });
-                }
-            } else {
-                let mut o = Op::empty();
-                let mut c = None;
+                    let mut o = Op::empty();
+                    let mut c = None;
 
-                match (*cur_entry).Action {
-                    winnt::FILE_ACTION_RENAMED_NEW_NAME => {
-                        if let Some(e) = rename_event {
-                            if let Some(cookie) = e.cookie {
-                                let _ = request.tx.send(e);
-                                o.insert(op::RENAME);
-                                c = Some(cookie);
+                    match (*cur_entry).Action {
+                        winnt::FILE_ACTION_RENAMED_NEW_NAME => {
+                            if let Some(e) = rename_event {
+                                if let Some(cookie) = e.cookie {
+                                    event_tx.send(e);
+                                    o.insert(op::RENAME);
+                                    c = Some(cookie);
+                                } else {
+                                    o.insert(op::CREATE);
+                                }
                             } else {
                                 o.insert(op::CREATE);
                             }
-                        } else {
-                            o.insert(op::CREATE);
-                        }
-                        rename_event = None;
-                    },
-                    winnt::FILE_ACTION_ADDED => o.insert(op::CREATE),
-                    winnt::FILE_ACTION_REMOVED => o.insert(op::REMOVE),
-                    winnt::FILE_ACTION_MODIFIED => o.insert(op::WRITE),
-                    _ => ()
-                };
+                            rename_event = None;
+                        },
+                        winnt::FILE_ACTION_ADDED => o.insert(op::CREATE),
+                        winnt::FILE_ACTION_REMOVED => o.insert(op::REMOVE),
+                        winnt::FILE_ACTION_MODIFIED => o.insert(op::WRITE),
+                        _ => ()
+                    };
 
-                send_pending_rename_event(rename_event, &request.tx);
-                rename_event = None;
+                    send_pending_rename_event(rename_event, &mut event_tx);
+                    rename_event = None;
 
-                let _ = request.tx.send(Event {
-                    path: Some(path),
-                    op: Ok(o),
-                    cookie: c,
-                });
+                    event_tx.send(Event {
+                        path: Some(path),
+                        op: Ok(o),
+                        cookie: c,
+                    });
+                }
             }
+
+            if (*cur_entry).NextEntryOffset == 0 {
+                break;
+            }
+            cur_offset = cur_offset.offset((*cur_entry).NextEntryOffset as isize);
+            cur_entry = mem::transmute(cur_offset);
         }
 
-        if (*cur_entry).NextEntryOffset == 0 {
-            break;
-        }
-        cur_offset = cur_offset.offset((*cur_entry).NextEntryOffset as isize);
-        cur_entry = mem::transmute(cur_offset);
+        send_pending_rename_event(rename_event, &mut event_tx);
     }
-
-    send_pending_rename_event(rename_event, &request.tx);
 }
 
 pub struct ReadDirectoryChangesWatcher {
@@ -395,7 +402,7 @@ pub struct ReadDirectoryChangesWatcher {
 }
 
 impl ReadDirectoryChangesWatcher {
-    pub fn create(event_tx: Sender<Event>,
+    pub fn create(tx: Sender<Event>,
                   meta_tx: Sender<MetaEvent>)
                   -> Result<ReadDirectoryChangesWatcher> {
         let (cmd_tx, cmd_rx) = channel();
@@ -406,6 +413,37 @@ impl ReadDirectoryChangesWatcher {
         if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
             return Err(Error::Generic("Failed to create wakeup semaphore.".to_owned()));
         }
+
+        let event_tx = EventTx::Raw {
+            tx: tx,
+        };
+
+        let action_tx = ReadDirectoryChangesServer::start(event_tx, meta_tx, cmd_tx, wakeup_sem);
+
+        Ok(ReadDirectoryChangesWatcher {
+            tx: action_tx,
+            cmd_rx: cmd_rx,
+            wakeup_sem: wakeup_sem,
+        })
+    }
+
+    pub fn create_debounced(tx: Sender<debounce::Event>,
+                  meta_tx: Sender<MetaEvent>,
+                  delay: Duration)
+                  -> Result<ReadDirectoryChangesWatcher> {
+        let (cmd_tx, cmd_rx) = channel();
+
+        let wakeup_sem = unsafe {
+            kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut())
+        };
+        if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
+            return Err(Error::Generic("Failed to create wakeup semaphore.".to_owned()));
+        }
+
+        let event_tx = EventTx::Debounced {
+            tx: tx.clone(),
+            debounce: Debounce::new(delay, tx),
+        };
 
         let action_tx = ReadDirectoryChangesServer::start(event_tx, meta_tx, cmd_tx, wakeup_sem);
 
@@ -458,10 +496,16 @@ impl ReadDirectoryChangesWatcher {
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
-    fn new(event_tx: Sender<Event>) -> Result<ReadDirectoryChangesWatcher> {
+    fn new(tx: Sender<Event>) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
         let (meta_tx, _) = channel();
-        ReadDirectoryChangesWatcher::create(event_tx, meta_tx)
+        ReadDirectoryChangesWatcher::create(tx, meta_tx)
+    }
+
+    fn debounced(tx: Sender<debounce::Event>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
+        // create dummy channel for meta event
+        let (meta_tx, _) = channel();
+        ReadDirectoryChangesWatcher::create_debounced(tx, meta_tx, delay)
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {

@@ -17,11 +17,13 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::thread::Builder as ThreadBuilder;
 use super::{Error, Event, op, Op, Result, Watcher, RecursiveMode};
+use std::time::Duration;
 // test inotify_queue_overflow
 // use std::thread;
-// use std::time::Duration;
 
 mod flags;
+
+use super::debounce::{self, Debounce, EventTx};
 
 const INOTIFY: mio::Token = mio::Token(0);
 
@@ -30,7 +32,7 @@ pub struct INotifyWatcher(mio::Sender<EventLoopMsg>);
 
 struct INotifyHandler {
     inotify: Option<INotify>,
-    tx: Sender<Event>,
+    event_tx: EventTx,
     watches: HashMap<PathBuf, (Watch, flags::Mask, bool)>,
     paths: HashMap<Watch, PathBuf>,
 }
@@ -42,9 +44,9 @@ enum EventLoopMsg {
 }
 
 #[inline]
-fn send_pending_rename_event(event: Option<Event>, tx: &Sender<Event>) {
+fn send_pending_rename_event(event: Option<Event>, event_tx: &mut EventTx) {
     if let Some(e) = event {
-        let _ = tx.send(Event {
+        event_tx.send(Event {
             path: e.path,
             op: Ok(op::REMOVE),
             cookie: None,
@@ -103,7 +105,7 @@ impl mio::Handler for INotifyHandler {
 
                             for event in events {
                                 if event.is_queue_overflow() {
-                                    let _ = self.tx.send(Event {
+                                    self.event_tx.send(Event {
                                         path: None,
                                         op: Ok(op::RESCAN),
                                         cookie: None,
@@ -120,7 +122,7 @@ impl mio::Handler for INotifyHandler {
                                 };
 
                                 if event.is_moved_from() {
-                                    send_pending_rename_event(rename_event, &self.tx);
+                                    send_pending_rename_event(rename_event, &mut self.event_tx);
                                     remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                                     rename_event = Some(Event {
                                         path: path,
@@ -133,7 +135,7 @@ impl mio::Handler for INotifyHandler {
                                     if event.is_moved_to() {
                                         if let Some(e) = rename_event {
                                             if e.cookie == Some(event.cookie) {
-                                                let _ = self.tx.send(e);
+                                                self.event_tx.send(e);
                                                 o.insert(op::RENAME);
                                                 c = Some(event.cookie);
                                             } else {
@@ -164,10 +166,10 @@ impl mio::Handler for INotifyHandler {
                                     }
 
                                     if !o.is_empty() {
-                                        send_pending_rename_event(rename_event, &self.tx);
+                                        send_pending_rename_event(rename_event, &mut self.event_tx);
                                         rename_event = None;
 
-                                        let _ = self.tx.send(Event {
+                                        self.event_tx.send(Event {
                                             path: path,
                                             op: Ok(o),
                                             cookie: c,
@@ -176,10 +178,10 @@ impl mio::Handler for INotifyHandler {
                                 }
                             }
 
-                            send_pending_rename_event(rename_event, &self.tx);
+                            send_pending_rename_event(rename_event, &mut self.event_tx);
                         }
                         Err(e) => {
-                            let _ = self.tx.send(Event {
+                            self.event_tx.send(Event {
                                 path: None,
                                 op: Err(Error::Io(e)),
                                 cookie: None,
@@ -328,7 +330,45 @@ impl Watcher for INotifyWatcher {
 
                 let handler = INotifyHandler {
                     inotify: Some(inotify),
-                    tx: tx,
+                    event_tx: EventTx::Raw {
+                        tx: tx,
+                    },
+                    watches: HashMap::new(),
+                    paths: HashMap::new(),
+                };
+
+                event_loop.register(&evented_inotify,
+                                    INOTIFY,
+                                    mio::EventSet::readable(),
+                                    mio::PollOpt::level())
+                          .map(|_| (event_loop, handler))
+            })
+            .map(|(mut event_loop, mut handler)| {
+                let channel = event_loop.channel();
+
+                ThreadBuilder::new()
+                    .name("INotify Watcher".to_owned())
+                    .spawn(move || event_loop.run(&mut handler))
+                    .unwrap();
+
+                INotifyWatcher(channel)
+            })
+            .map_err(Error::Io)
+    }
+
+    fn debounced(tx: Sender<debounce::Event>, delay: Duration) -> Result<INotifyWatcher> {
+        INotify::init()
+            .and_then(|inotify| EventLoop::new().map(|l| (inotify, l)))
+            .and_then(|(inotify, mut event_loop)| {
+                let inotify_fd = inotify.fd;
+                let evented_inotify = mio::unix::EventedFd(&inotify_fd);
+
+                let handler = INotifyHandler {
+                    inotify: Some(inotify),
+                    event_tx: EventTx::Debounced {
+                        tx: tx.clone(),
+                        debounce: Debounce::new(delay, tx),
+                    },
                     watches: HashMap::new(),
                     paths: HashMap::new(),
                 };

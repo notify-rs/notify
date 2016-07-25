@@ -8,6 +8,7 @@
 
 #### Features
 
+* Add debounced event notification interface (closes [#63](https://github.com/passcod/rsnotify/issues/63))
 * **poll watcher:**
   * Implement CREATE and DELETE for PollWatcher
   * Add `with_delay_ms` constructor

@@ -20,11 +20,15 @@ use std::ffi::CStr;
 use std::convert::AsRef;
 use std::thread;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use std::sync::mpsc::{channel, Sender, Receiver};
 use super::{Error, Event, op, Result, Watcher, RecursiveMode};
 use std::path::{Path, PathBuf};
 use libc;
+
+use super::debounce::{self, Debounce, EventTx};
 
 /// FSEvents-based `Watcher` implementation
 pub struct FsEventWatcher {
@@ -32,7 +36,7 @@ pub struct FsEventWatcher {
     since_when: fs::FSEventStreamEventId,
     latency: cf::CFTimeInterval,
     flags: fs::FSEventStreamCreateFlags,
-    sender: Sender<Event>,
+    event_tx: Arc<Mutex<EventTx>>,
     runloop: Option<usize>,
     context: Option<Box<StreamContextInfo>>,
     recursive_info: HashMap<PathBuf, bool>,
@@ -65,9 +69,9 @@ fn translate_flags(flags: fse::StreamFlags) -> op::Op {
     ret
 }
 
-fn send_pending_rename_event(event: Option<Event>, tx: &Sender<Event>) {
+fn send_pending_rename_event(event: Option<Event>, event_tx: &mut EventTx) {
     if let Some(e) = event {
-        let _ = tx.send(Event {
+        event_tx.send(Event {
             path: e.path,
             op: e.op,
             cookie: None,
@@ -76,7 +80,7 @@ fn send_pending_rename_event(event: Option<Event>, tx: &Sender<Event>) {
 }
 
 struct StreamContextInfo {
-    sender: Sender<Event>,
+    event_tx: Arc<Mutex<EventTx>>,
     done: Receiver<()>,
     recursive_info: HashMap<PathBuf, bool>,
 }
@@ -161,7 +165,7 @@ impl FsEventWatcher {
         let (done_tx, done_rx) = channel();
 
         let info = StreamContextInfo {
-            sender: self.sender.clone(),
+            event_tx: self.event_tx.clone(),
             done: done_rx,
             recursive_info: self.recursive_info.clone(),
         };
@@ -237,53 +241,61 @@ pub unsafe extern "C" fn callback(
     let flags = slice::from_raw_parts_mut(e_ptr, num);
     let ids = slice::from_raw_parts_mut(i_ptr, num);
 
-    let mut rename_event: Option<Event> = None;
+    if let Ok(mut event_tx) = (*info).event_tx.lock() {
+        let mut rename_event: Option<Event> = None;
 
-    for p in 0..num {
-        let i = CStr::from_ptr(paths[p]).to_bytes();
-        let flag = fse::StreamFlags::from_bits(flags[p] as u32)
-                       .expect(format!("Unable to decode StreamFlags: {}", flags[p] as u32)
-                                   .as_ref());
-        let id = ids[p];
+        for p in 0..num {
+            let i = CStr::from_ptr(paths[p]).to_bytes();
+            let flag = fse::StreamFlags::from_bits(flags[p] as u32)
+                        .expect(format!("Unable to decode StreamFlags: {}", flags[p] as u32)
+                                    .as_ref());
+            let id = ids[p];
 
-        let path = PathBuf::from(from_utf8(i).expect("Invalid UTF8 string."));
+            let path = PathBuf::from(from_utf8(i).expect("Invalid UTF8 string."));
 
-        let mut handle_event = false;
-        for (p, r) in &(*info).recursive_info {
-            if path.starts_with(p) {
-                if *r || &path == p {
-                    handle_event = true;
-                    break;
-                } else if let Some(parent_path) = path.parent() {
-                    if parent_path == p {
+            let mut handle_event = false;
+            for (p, r) in &(*info).recursive_info {
+                if path.starts_with(p) {
+                    if *r || &path == p {
                         handle_event = true;
                         break;
+                    } else if let Some(parent_path) = path.parent() {
+                        if parent_path == p {
+                            handle_event = true;
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        if flag.contains(fse::MUST_SCAN_SUBDIRS) {
-            let _ = (*info).sender.send(Event {
-                path: None,
-                op: Ok(op::RESCAN),
-                cookie: None,
-            });
-        }
+            if flag.contains(fse::MUST_SCAN_SUBDIRS) {
+                event_tx.send(Event {
+                    path: None,
+                    op: Ok(op::RESCAN),
+                    cookie: None,
+                });
+            }
 
-        if handle_event {
-            if flag.contains(fse::ITEM_RENAMED) {
-                if let Some(e) = rename_event {
-                    if e.cookie == Some((id - 1) as u32) {
-                        let _ = (*info).sender.send(e);
-                        let _ = (*info).sender.send(Event {
-                            op: Ok(translate_flags(flag)),
-                            path: Some(path),
-                            cookie: Some((id - 1) as u32),
-                        });
-                        rename_event = None;
+            if handle_event {
+                if flag.contains(fse::ITEM_RENAMED) {
+                    if let Some(e) = rename_event {
+                        if e.cookie == Some((id - 1) as u32) {
+                            event_tx.send(e);
+                            event_tx.send(Event {
+                                op: Ok(translate_flags(flag)),
+                                path: Some(path),
+                                cookie: Some((id - 1) as u32),
+                            });
+                            rename_event = None;
+                        } else {
+                            send_pending_rename_event(Some(e), &mut event_tx);
+                            rename_event = Some(Event {
+                                path: Some(path),
+                                op: Ok(translate_flags(flag)),
+                                cookie: Some(id as u32),
+                            });
+                        }
                     } else {
-                        send_pending_rename_event(Some(e), &(*info).sender);
                         rename_event = Some(Event {
                             path: Some(path),
                             op: Ok(translate_flags(flag)),
@@ -291,26 +303,20 @@ pub unsafe extern "C" fn callback(
                         });
                     }
                 } else {
-                    rename_event = Some(Event {
-                        path: Some(path),
+                    send_pending_rename_event(rename_event, &mut event_tx);
+                    rename_event = None;
+
+                    event_tx.send(Event {
                         op: Ok(translate_flags(flag)),
-                        cookie: Some(id as u32),
+                        path: Some(path),
+                        cookie: None,
                     });
                 }
-            } else {
-                send_pending_rename_event(rename_event, &(*info).sender);
-                rename_event = None;
-
-                let _ = (*info).sender.send(Event {
-                    op: Ok(translate_flags(flag)),
-                    path: Some(path),
-                    cookie: None,
-                });
             }
         }
-    }
 
-    send_pending_rename_event(rename_event, &(*info).sender);
+        send_pending_rename_event(rename_event, &mut event_tx);
+    }
 }
 
 
@@ -323,7 +329,27 @@ impl Watcher for FsEventWatcher {
             since_when: fs::kFSEventStreamEventIdSinceNow,
             latency: 0.0,
             flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
-            sender: tx,
+            event_tx: Arc::new(Mutex::new(EventTx::Raw {
+                tx: tx,
+            })),
+            runloop: None,
+            context: None,
+            recursive_info: HashMap::new(),
+        })
+    }
+
+    fn debounced(tx: Sender<debounce::Event>, delay: Duration) -> Result<FsEventWatcher> {
+        Ok(FsEventWatcher {
+            paths: unsafe {
+                cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
+            },
+            since_when: fs::kFSEventStreamEventIdSinceNow,
+            latency: 0.0,
+            flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
+            event_tx: Arc::new(Mutex::new(EventTx::Debounced {
+                tx: tx.clone(),
+                debounce: Debounce::new(delay, tx),
+            })),
             runloop: None,
             context: None,
             recursive_info: HashMap::new(),

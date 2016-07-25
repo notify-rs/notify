@@ -1105,6 +1105,11 @@ fn parent_rename_file() {
 #[test]
 #[ignore]
 fn parent_rename_directory() {
+    // removing the parent directory doesn't work on windows
+    if cfg!(target_os="windows") {
+        panic!("cannot remove parent directory on windows");
+    }
+
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
     tdir.create_all(vec![
@@ -1118,10 +1123,6 @@ fn parent_rename_directory() {
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
     watcher.watch(&tdir.mkpath("dir1/watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
-
-    if cfg!(target_os="windows") {
-        sleep(100);
-    }
 
     tdir.rename("dir1", "dir2");
 
@@ -1164,16 +1165,9 @@ fn parent_rename_directory() {
     watcher.unwatch(&tdir.mkpath("dir1/watch_dir")).expect("failed to unwatch directory"); // use old path to unwatch
 
     let result = watcher.unwatch(&tdir.mkpath("dir1/watch_dir"));
-    if cfg!(target_os="windows") {
-        match result {
-            Err(e) => panic!("{:?}", e),
-            Ok(()) => (),
-        }
-    } else {
-        match result {
-            Err(Error::WatchNotFound) => (),
-            Err(e) => panic!("{:?}", e),
-            Ok(o) => panic!("{:?}", o),
-        }
+    match result {
+        Err(Error::WatchNotFound) => (),
+        Err(e) => panic!("{:?}", e),
+        Ok(o) => panic!("{:?}", o),
     }
 }

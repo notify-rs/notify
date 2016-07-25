@@ -100,6 +100,7 @@ use std::convert::AsRef;
 use std::fmt;
 use std::error::Error as StdError;
 use std::result::Result as StdResult;
+use std::time::Duration;
 
 #[cfg(target_os="macos")]
 pub use self::fsevent::FsEventWatcher;
@@ -119,6 +120,8 @@ pub mod windows;
 
 pub mod null;
 pub mod poll;
+
+pub mod debounce;
 
 /// Contains the `Op` type which describes the actions for an event.
 ///
@@ -407,6 +410,34 @@ pub trait Watcher: Sized {
     ///
     /// Events will be sent using the provided `tx`.
     fn new(tx: Sender<Event>) -> Result<Self>;
+
+    /// Create a new _debounced_ Watcher with a `delay`.
+    ///
+    /// Events won't be sent immediately but after the specified delay.
+    ///
+    /// # Advantages
+    ///
+    /// This has the advantage that a lot of logic can be offloaded to `notify`.
+    ///
+    /// For example you won't have to handle `RENAME` events yourself by piecing the two parts of rename events together.
+    /// Instead you will just receive a `Rename{from: PathBuf, to: PathBuf}` event.
+    ///
+    /// Also `notify` will detect the beginning and the end of write operations. As soon as something is written to a file,
+    /// a `NoticeWrite` event is emitted. If no new event arrived until after the specified `delay`, a `Write` event is emitted.
+    ///
+    /// A practical example would be the safe-saving of a file. Where a temporary file is created and written to.
+    /// And only when everything has been written to that file it is renamed to overwrite the file that was meant to be saved.
+    /// Instead of receiving a `CREATE` event for the temporary file, `WRITE` events to that file
+    /// and a `RENAME` event from the temporary file to the file being saved, you will just receive a `Write` event.
+    ///
+    /// If you use a delay of more than 30 seconds, you can avoid receiving repetitions of previous events on OS X.
+    ///
+    /// # Disadvantages
+    ///
+    /// Your application might not feel as responsive.
+    ///
+    /// If a file is saved very slowly, you might receive a `Write` event even though the file is still being written to.
+    fn debounced(tx: Sender<debounce::Event>, delay: Duration) -> Result<Self>;
 
     /// Begin watching a new path.
     ///

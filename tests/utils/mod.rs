@@ -99,8 +99,11 @@ pub trait TestHelpers {
     fn create_all(&self, paths: Vec<&str>);
     /// Rename file or directory.
     fn rename(&self, a: &str, b: &str);
+    /// Toggle "other" rights on linux and os x and "readonly" on windows
     fn chmod(&self, p: &str);
+    /// Write some data to a file
     fn write(&self, p: &str);
+    /// Remove file or directory
     fn remove(&self, p: &str);
 }
 
@@ -143,14 +146,24 @@ impl TestHelpers for TempDir {
     #[cfg(not(target_os="windows"))]
     fn chmod(&self, p: &str) {
         let path = self.mkpath(p);
-        fs::set_permissions(path, fs::Permissions::from_mode(777)).expect("failed to chmod file or directory");
+        let mut permissions = fs::metadata(&path).expect("failed to get metadata").permissions();
+        let u = (permissions.mode() / 100) % 10;
+        let g = (permissions.mode() / 10) % 10;
+        let o = if permissions.mode() % 10 == 0 {
+            g
+        } else {
+            0
+        };
+        permissions.set_mode(u * 100 + g * 10 + o);
+        fs::set_permissions(path, permissions).expect("failed to chmod file or directory");
     }
 
     #[cfg(target_os="windows")]
     fn chmod(&self, p: &str) {
         let path = self.mkpath(p);
         let mut permissions = fs::metadata(&path).expect("failed to get metadata").permissions();
-        permissions.set_readonly(true);
+        let r = permissions.readonly();
+        permissions.set_readonly(!r);
         fs::set_permissions(path, permissions).expect("failed to chmod file or directory");
     }
 

@@ -568,6 +568,11 @@ fn move_out_create_directory() {
 #[test]
 #[ignore]
 fn create_rename_overwrite_directory() {
+    // overwriting directories doesn't work on windows
+    if cfg!(target_os="windows") {
+        panic!("cannot overwrite directory on windows");
+    }
+
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
     tdir.create_all(vec![
@@ -589,9 +594,7 @@ fn create_rename_overwrite_directory() {
     tdir.create("dir1a");
     tdir.rename("dir1a", "dir1b");
 
-    if cfg!(target_os="windows") {
-        panic!("I/O error when trying to overwrite directory")
-    } else if cfg!(target_os="macos") {
+    if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
             (tdir.mkpath("dir1a"), op::CREATE | op::RENAME, None),
             (tdir.mkpath("dir1b"), op::CREATE | op::RENAME, None),
