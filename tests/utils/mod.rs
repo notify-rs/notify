@@ -90,6 +90,20 @@ pub fn sleep(duration: u64) {
     thread::sleep(Duration::from_millis(duration));
 }
 
+// Sleep for `duration` in milliseconds if running on OS X
+pub fn sleep_macos(duration: u64) {
+    if cfg!(target_os = "macos") {
+        thread::sleep(Duration::from_millis(duration));
+    }
+}
+
+// Sleep for `duration` in milliseconds if running on Windows
+pub fn sleep_windows(duration: u64) {
+    if cfg!(target_os = "windows") {
+        thread::sleep(Duration::from_millis(duration));
+    }
+}
+
 pub trait TestHelpers {
     /// Return path relative to the TempDir. Directory separator must be a forward slash, and will be converted to the platform's native separator.
     fn mkpath(&self, p: &str) -> PathBuf;

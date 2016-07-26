@@ -38,9 +38,7 @@ fn recv_events_debounced(rx: &mpsc::Receiver<debounce::Event>) -> Vec<debounce::
 fn create_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -61,9 +59,7 @@ fn write_file() {
         "file1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -85,9 +81,7 @@ fn write_long_file() {
         "file1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -116,9 +110,7 @@ fn modify_file() {
         "file1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -147,9 +139,7 @@ fn delete_file() {
         "file1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -171,9 +161,7 @@ fn rename_file() {
         "file1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -191,9 +179,7 @@ fn rename_file() {
 fn create_write_modify_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -212,18 +198,14 @@ fn create_write_modify_file() {
 fn create_delete_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     tdir.create("file1");
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
     tdir.remove("file1");
 
     assert_eq!(recv_events_debounced(&rx), vec![]);
@@ -237,18 +219,14 @@ fn delete_create_file() {
         "file1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     tdir.remove("file1");
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
     tdir.create("file1");
 
     assert_eq!(recv_events_debounced(&rx), vec![
@@ -261,9 +239,7 @@ fn delete_create_file() {
 fn create_rename_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -281,22 +257,16 @@ fn create_rename_file() {
 fn create_rename_delete_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     tdir.create("file1");
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
     tdir.rename("file1", "file2");
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
     tdir.remove("file2");
 
     assert_eq!(recv_events_debounced(&rx), vec![]);
@@ -310,9 +280,7 @@ fn create_rename_overwrite_file() {
         "file2",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -347,9 +315,7 @@ fn write_rename_file() {
         "file1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -374,18 +340,14 @@ fn rename_write_file() {
         "file1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     tdir.rename("file1", "file2");
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
     tdir.write("file2");
 
     assert_eq!(recv_events_debounced(&rx), vec![
@@ -404,9 +366,7 @@ fn modify_rename_file() {
         "file1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -440,18 +400,14 @@ fn rename_modify_file() {
         "file1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     tdir.rename("file1", "file2");
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
     tdir.chmod("file2");
 
     if cfg!(target_os="windows") {
@@ -479,18 +435,14 @@ fn rename_rename_file() {
         "file1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     tdir.rename("file1", "file2");
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
     tdir.rename("file2", "file3");
 
     assert_eq!(recv_events_debounced(&rx), vec![
@@ -507,9 +459,7 @@ fn write_delete_file() {
         "file1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -529,9 +479,7 @@ fn write_delete_file() {
 fn create_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -552,9 +500,7 @@ fn modify_directory() {
         "dir1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -583,9 +529,7 @@ fn delete_directory() {
         "dir1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -607,9 +551,7 @@ fn rename_directory() {
         "dir1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -627,9 +569,7 @@ fn rename_directory() {
 fn create_modify_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -647,18 +587,14 @@ fn create_modify_directory() {
 fn create_delete_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     tdir.create("dir1");
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
     tdir.remove("dir1");
 
     assert_eq!(recv_events_debounced(&rx), vec![]);
@@ -672,18 +608,14 @@ fn delete_create_directory() {
         "dir1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     tdir.remove("dir1");
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
     tdir.create("dir1");
 
     assert_eq!(recv_events_debounced(&rx), vec![
@@ -696,9 +628,7 @@ fn delete_create_directory() {
 fn create_rename_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -716,22 +646,16 @@ fn create_rename_directory() {
 fn create_rename_delete_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     tdir.create("dir1");
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
     tdir.rename("dir1", "dir2");
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
     tdir.remove("dir2");
 
     assert_eq!(recv_events_debounced(&rx), vec![]);
@@ -751,9 +675,7 @@ fn create_rename_overwrite_directory() {
         "dir2",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -782,9 +704,7 @@ fn modify_rename_directory() {
         "dir1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
@@ -819,18 +739,14 @@ fn rename_modify_directory() {
         "dir1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     tdir.rename("dir1", "dir2");
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
     tdir.chmod("dir2");
 
     if cfg!(target_os="windows") {
@@ -858,18 +774,14 @@ fn rename_rename_directory() {
         "dir1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     tdir.rename("dir1", "dir2");
-    if cfg!(target_os="macos") {
-        sleep(10);
-    }
+    sleep_macos(10);
     tdir.rename("dir2", "dir3");
 
     assert_eq!(recv_events_debounced(&rx), vec![
@@ -886,9 +798,7 @@ fn modify_delete_directory() {
         "dir1",
     ]);
 
-    if cfg!(target_os="macos") {
-        sleep(35_000);
-    }
+    sleep_macos(35_000);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::debounced(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
