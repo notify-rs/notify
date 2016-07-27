@@ -202,3 +202,15 @@ impl TestHelpers for TempDir {
         }
     }
 }
+
+macro_rules! assert_eq_any {
+    ($left:expr, $right1:expr, $right2:expr) => ({
+        match (&($left), &($right1), &($right2)) {
+            (left_val, right1_val, right2_val) => {
+                if *left_val != *right1_val && *left_val != *right2_val {
+                    panic!("assertion failed: `(left != right1 or right2)` (left: `{:?}`, right1: `{:?}`, right2: `{:?}`)", left_val, right1_val, right2_val)
+                }
+            }
+        }
+    })
+}

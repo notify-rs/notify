@@ -4,6 +4,7 @@ extern crate notify;
 extern crate tempdir;
 extern crate time;
 
+#[macro_use]
 mod utils;
 
 use notify::*;
@@ -749,16 +750,29 @@ fn rename_modify_directory() {
     sleep_macos(10);
     tdir.chmod("dir2");
 
+    let actual = recv_events_debounced(&rx);
+
     if cfg!(target_os="windows") {
         // windows cannot distinguish between chmod and write
-        assert_eq!(recv_events_debounced(&rx), vec![
+        assert_eq!(actual, vec![
             debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
             debounce::Event::NoticeWrite{path: tdir.mkpath("dir2")}, // TODO unnecessary
             debounce::Event::Rename{from: tdir.mkpath("dir1"), to: tdir.mkpath("dir2")},
             debounce::Event::Write{path: tdir.mkpath("dir2")},
         ]);
+    } else if cfg!(target_os="linux") {
+        assert_eq_any!(actual, vec![
+            debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
+            debounce::Event::Rename{from: tdir.mkpath("dir1"), to: tdir.mkpath("dir2")},
+            debounce::Event::Chmod{path: tdir.mkpath("dir2")},
+        ], vec![
+            debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
+            debounce::Event::Rename{from: tdir.mkpath("dir1"), to: tdir.mkpath("dir2")},
+            debounce::Event::Chmod{path: tdir.mkpath("dir2")},
+            debounce::Event::Chmod{path: tdir.mkpath("dir1")}, // excessive chmod event
+        ]);
     } else {
-        assert_eq!(recv_events_debounced(&rx), vec![
+        assert_eq!(actual, vec![
             debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
             debounce::Event::Rename{from: tdir.mkpath("dir1"), to: tdir.mkpath("dir2")},
             debounce::Event::Chmod{path: tdir.mkpath("dir2")},
