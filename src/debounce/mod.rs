@@ -17,52 +17,50 @@ pub type OperationsBuffer = Arc<Mutex<HashMap<PathBuf, (Option<op::Op>, Option<P
 #[derive(Debug)]
 /// Events emitted by `notify` in _debounced_ mode.
 pub enum Event {
-    /// `NoticeWrite` is emitted imediatelly after the first write event for `path`.
+    /// `NoticeWrite` is emitted imediatelly after the first write event for the path.
     ///
-    /// If you are reading form that file, you should probably close it imediatelly and discard all data you read from it.
-    NoticeWrite{path: PathBuf},
-    /// `NoticeRemove` is emitted imediatelly after a remove or rename event for `path`.
+    /// If you are reading from that file, you should probably close it imediatelly and discard all data you read from it.
+    NoticeWrite(PathBuf),
+    /// `NoticeRemove` is emitted imediatelly after a remove or rename event for the path.
     ///
     /// The file will continue to exist until its last file handle is closed.
-    NoticeRemove{path: PathBuf},
-    /// `Create` is emitted when a file or directory has been created and no events were detected for the `path` within the specified time frame.
+    NoticeRemove(PathBuf),
+    /// `Create` is emitted when a file or directory has been created and no events were detected for the path within the specified time frame.
     ///
-    /// `Create` events have a higher priority over `Write` and `Chmod`.
+    /// `Create` events have a higher priority than `Write` and `Chmod`.
     /// These events will not be emitted if they are detected before the `Create` event has been emitted.
-    Create{path: PathBuf},
-    /// `Write` is emitted when a file has been written to and no events were detected for the `path` within the specified time frame.
+    Create(PathBuf),
+    /// `Write` is emitted when a file has been written to and no events were detected for the path within the specified time frame.
     ///
-    /// `Write` events have a higher priority over `Chmod`.
+    /// `Write` events have a higher priority than `Chmod`.
     /// `Chmod` will not be emitted if it's detected before the `Write` event has been emitted.
-    Write{path: PathBuf},
-    /// `Chmod` is emitted when attributes have been changed and no events were detected for the `path` within the specified time frame.
-    Chmod{path: PathBuf},
-    /// `Remove` is emitted when a file or directory has been removed and no events were detected for the `path` within the specified time frame.
-    Remove{path: PathBuf},
-    /// `Rename` is emitted when a file or directory has been moved within a watched directory and no events were detected for the `to` path within the specified time frame.
+    Write(PathBuf),
+    /// `Chmod` is emitted when attributes have been changed and no events were detected for the path within the specified time frame.
+    Chmod(PathBuf),
+    /// `Remove` is emitted when a file or directory has been removed and no events were detected for the path within the specified time frame.
+    Remove(PathBuf),
+    /// `Rename` is emitted when a file or directory has been moved within a watched directory and no events were detected for the new path within the specified time frame.
     ///
-    /// `from` contains the source path, `to` the destination path.
-    Rename{from: PathBuf, to: PathBuf},
+    /// The first path contains the source, the second path the destination.
+    Rename(PathBuf, PathBuf),
     /// `Rescan` is emitted imediatelly after a problem has been detected that makes it necessary to re-scan the watched directories.
     Rescan,
     /// `Error` is emitted imediatelly after a error has been detected.
     ///
-    /// `path` may contain a path for which the error was detected.
-    ///
-    /// `error` contains the error.
-    Error{path: Option<PathBuf>, error: Error},
+    ///  This event may contain a path for which the error was detected.
+    Error(Error, Option<PathBuf>),
 }
 
 impl PartialEq for Event {
     fn eq(&self, other: &Event) -> bool {
         match (self, other) {
-            (&Event::NoticeWrite{path: ref a}, &Event::NoticeWrite{path: ref b}) |
-            (&Event::NoticeRemove{path: ref a}, &Event::NoticeRemove{path: ref b}) |
-            (&Event::Create{path: ref a}, &Event::Create{path: ref b}) |
-            (&Event::Write{path: ref a}, &Event::Write{path: ref b}) |
-            (&Event::Chmod{path: ref a}, &Event::Chmod{path: ref b}) |
-            (&Event::Remove{path: ref a}, &Event::Remove{path: ref b}) => a == b,
-            (&Event::Rename{from: ref a1, to: ref a2}, &Event::Rename{from: ref b1, to: ref b2}) => (a1 == b1 && a2 == b2),
+            (&Event::NoticeWrite(ref a), &Event::NoticeWrite(ref b)) |
+            (&Event::NoticeRemove(ref a), &Event::NoticeRemove(ref b)) |
+            (&Event::Create(ref a), &Event::Create(ref b)) |
+            (&Event::Write(ref a), &Event::Write(ref b)) |
+            (&Event::Chmod(ref a), &Event::Chmod(ref b)) |
+            (&Event::Remove(ref a), &Event::Remove(ref b)) => a == b,
+            (&Event::Rename(ref a1, ref a2), &Event::Rename(ref b1, ref b2)) => (a1 == b1 && a2 == b2),
             (&Event::Rescan, &Event::Rescan) => true,
             _ => false,
         }
@@ -100,10 +98,7 @@ impl EventTx {
                         // TODO panic!("path is None: {:?} ({:?})", _op, _cookie);
                     }
                     (path, Err(e), _) => {
-                        let _ = tx.send(Event::Error {
-                            path: path,
-                            error: e,
-                        });
+                        let _ = tx.send(Event::Error(e, path));
                     }
                 }
             }
@@ -119,10 +114,7 @@ impl EventTx {
                         // TODO panic!("path is None: {:?} ({:?})", _op, _cookie);
                     }
                     (path, Err(e), _) => {
-                        let _ = tx.send(Event::Error {
-                            path: path,
-                            error: e,
-                        });
+                        let _ = tx.send(Event::Error(e, path));
                     }
                 }
             }
@@ -191,7 +183,7 @@ impl Debounce {
                             Some(op::WRITE) | // change to remove event
                             Some(op::CHMOD) => { // change to remove event
                                 *operation = Some(op::REMOVE);
-                                let _ = self.tx.send(Event::NoticeRemove{path: path.clone()});
+                                let _ = self.tx.send(Event::NoticeRemove(path.clone()));
                                 restart_timer(timer_id, path, &mut self.timer);
                             }
                             Some(op::RENAME) => {
@@ -269,7 +261,7 @@ impl Debounce {
                     Some(op::RENAME) | // file has been renamed before, upgrade to write event
                     None => { // operations_buffer entry didn't exist
                         *operation = Some(op::WRITE);
-                        let _ = self.tx.send(Event::NoticeWrite{path: path.clone()});
+                        let _ = self.tx.send(Event::NoticeWrite(path.clone()));
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
                     // writing to a deleted file is impossible
@@ -343,13 +335,13 @@ impl Debounce {
                         }
                         Some(op::WRITE) | // keep write event
                         Some(op::CHMOD) => { // keep chmod event
-                            let _ = self.tx.send(Event::NoticeRemove{path: path.clone()});
+                            let _ = self.tx.send(Event::NoticeRemove(path.clone()));
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
                         None => {
                             // operations_buffer entry didn't exist
                             *operation = Some(op::RENAME);
-                            let _ = self.tx.send(Event::NoticeRemove{path: path.clone()});
+                            let _ = self.tx.send(Event::NoticeRemove(path.clone()));
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
                         // renaming a deleted file is impossible
@@ -377,7 +369,7 @@ impl Debounce {
                         Some(op::CHMOD) | // change to remove event
                         None => { // operations_buffer entry didn't exist
                             *operation = Some(op::REMOVE);
-                            let _ = self.tx.send(Event::NoticeRemove{path: path.clone()});
+                            let _ = self.tx.send(Event::NoticeRemove(path.clone()));
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
                         Some(op::RENAME) => {

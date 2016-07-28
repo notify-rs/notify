@@ -48,7 +48,7 @@ fn create_file() {
     tdir.create("file1");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::Create{path: tdir.mkpath("file1")},
+        debounce::Event::Create(tdir.mkpath("file1")),
     ]);
 }
 
@@ -69,8 +69,8 @@ fn write_file() {
     tdir.write("file1");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::NoticeWrite{path: tdir.mkpath("file1")},
-        debounce::Event::Write{path: tdir.mkpath("file1")},
+        debounce::Event::NoticeWrite(tdir.mkpath("file1")),
+        debounce::Event::Write(tdir.mkpath("file1")),
     ]);
 }
 
@@ -98,8 +98,8 @@ fn write_long_file() {
     tdir.write("file1");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::NoticeWrite{path: tdir.mkpath("file1")},
-        debounce::Event::Write{path: tdir.mkpath("file1")},
+        debounce::Event::NoticeWrite(tdir.mkpath("file1")),
+        debounce::Event::Write(tdir.mkpath("file1")),
     ]);
 }
 
@@ -122,12 +122,12 @@ fn modify_file() {
     if cfg!(target_os="windows") {
         // windows cannot distinguish between chmod and write
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::NoticeWrite{path: tdir.mkpath("file1")},
-            debounce::Event::Write{path: tdir.mkpath("file1")},
+            debounce::Event::NoticeWrite(tdir.mkpath("file1")),
+            debounce::Event::Write(tdir.mkpath("file1")),
         ]);
     } else {
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::Chmod{path: tdir.mkpath("file1")},
+            debounce::Event::Chmod(tdir.mkpath("file1")),
         ]);
     }
 }
@@ -149,8 +149,8 @@ fn delete_file() {
     tdir.remove("file1");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::NoticeRemove{path: tdir.mkpath("file1")},
-        debounce::Event::Remove{path: tdir.mkpath("file1")},
+        debounce::Event::NoticeRemove(tdir.mkpath("file1")),
+        debounce::Event::Remove(tdir.mkpath("file1")),
     ]);
 }
 
@@ -171,8 +171,8 @@ fn rename_file() {
     tdir.rename("file1", "file2");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::NoticeRemove{path: tdir.mkpath("file1")},
-        debounce::Event::Rename{from: tdir.mkpath("file1"), to: tdir.mkpath("file2")},
+        debounce::Event::NoticeRemove(tdir.mkpath("file1")),
+        debounce::Event::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
     ]);
 }
 
@@ -191,7 +191,7 @@ fn create_write_modify_file() {
     tdir.chmod("file1");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::Create{path: tdir.mkpath("file1")},
+        debounce::Event::Create(tdir.mkpath("file1")),
     ]);
 }
 
@@ -231,8 +231,8 @@ fn delete_create_file() {
     tdir.create("file1");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::NoticeRemove{path: tdir.mkpath("file1")},
-        debounce::Event::Write{path: tdir.mkpath("file1")},
+        debounce::Event::NoticeRemove(tdir.mkpath("file1")),
+        debounce::Event::Write(tdir.mkpath("file1")),
     ]);
 }
 
@@ -250,7 +250,7 @@ fn create_rename_file() {
     tdir.rename("file1", "file2");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::Create{path: tdir.mkpath("file2")},
+        debounce::Event::Create(tdir.mkpath("file2")),
     ]);
 }
 
@@ -293,17 +293,17 @@ fn create_rename_overwrite_file() {
     if cfg!(target_os="windows") {
         // Windows interprets a move that overwrites a file as a delete of the source file and a write to the file that is being overwritten
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::NoticeWrite{path: tdir.mkpath("file2")},
-            debounce::Event::Write{path: tdir.mkpath("file2")},
+            debounce::Event::NoticeWrite(tdir.mkpath("file2")),
+            debounce::Event::Write(tdir.mkpath("file2")),
         ]);
     } else if cfg!(target_os="macos") {
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::NoticeRemove{path: tdir.mkpath("file2")},
-            debounce::Event::Create{path: tdir.mkpath("file2")}, // even though the file is being overwritten, that can't be detected
+            debounce::Event::NoticeRemove(tdir.mkpath("file2")),
+            debounce::Event::Create(tdir.mkpath("file2")), // even though the file is being overwritten, that can't be detected
         ]);
     } else {
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::Create{path: tdir.mkpath("file2")}, // even though the file is being overwritten, that can't be detected
+            debounce::Event::Create(tdir.mkpath("file2")), // even though the file is being overwritten, that can't be detected
         ]);
     }
 }
@@ -326,10 +326,10 @@ fn write_rename_file() {
     tdir.rename("file1", "file2");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::NoticeWrite{path: tdir.mkpath("file1")},
-        debounce::Event::NoticeRemove{path: tdir.mkpath("file1")},
-        debounce::Event::Rename{from: tdir.mkpath("file1"), to: tdir.mkpath("file2")},
-        debounce::Event::Write{path: tdir.mkpath("file2")},
+        debounce::Event::NoticeWrite(tdir.mkpath("file1")),
+        debounce::Event::NoticeRemove(tdir.mkpath("file1")),
+        debounce::Event::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
+        debounce::Event::Write(tdir.mkpath("file2")),
     ]);
 }
 
@@ -352,10 +352,10 @@ fn rename_write_file() {
     tdir.write("file2");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::NoticeRemove{path: tdir.mkpath("file1")},
-        debounce::Event::NoticeWrite{path: tdir.mkpath("file2")}, // TODO not necessary
-        debounce::Event::Rename{from: tdir.mkpath("file1"), to: tdir.mkpath("file2")},
-        debounce::Event::Write{path: tdir.mkpath("file2")},
+        debounce::Event::NoticeRemove(tdir.mkpath("file1")),
+        debounce::Event::NoticeWrite(tdir.mkpath("file2")), // TODO not necessary
+        debounce::Event::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
+        debounce::Event::Write(tdir.mkpath("file2")),
     ]);
 }
 
@@ -379,16 +379,16 @@ fn modify_rename_file() {
     if cfg!(target_os="windows") {
         // windows cannot distinguish between chmod and write
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::NoticeWrite{path: tdir.mkpath("file1")},
-            debounce::Event::NoticeRemove{path: tdir.mkpath("file1")},
-            debounce::Event::Rename{from: tdir.mkpath("file1"), to: tdir.mkpath("file2")},
-            debounce::Event::Write{path: tdir.mkpath("file2")},
+            debounce::Event::NoticeWrite(tdir.mkpath("file1")),
+            debounce::Event::NoticeRemove(tdir.mkpath("file1")),
+            debounce::Event::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
+            debounce::Event::Write(tdir.mkpath("file2")),
         ]);
     } else {
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::NoticeRemove{path: tdir.mkpath("file1")},
-            debounce::Event::Rename{from: tdir.mkpath("file1"), to: tdir.mkpath("file2")},
-            debounce::Event::Chmod{path: tdir.mkpath("file2")},
+            debounce::Event::NoticeRemove(tdir.mkpath("file1")),
+            debounce::Event::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
+            debounce::Event::Chmod(tdir.mkpath("file2")),
         ]);
     }
 }
@@ -414,16 +414,16 @@ fn rename_modify_file() {
     if cfg!(target_os="windows") {
         // windows cannot distinguish between chmod and write
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::NoticeRemove{path: tdir.mkpath("file1")},
-            debounce::Event::NoticeWrite{path: tdir.mkpath("file2")}, // TODO unnecessary
-            debounce::Event::Rename{from: tdir.mkpath("file1"), to: tdir.mkpath("file2")},
-            debounce::Event::Write{path: tdir.mkpath("file2")},
+            debounce::Event::NoticeRemove(tdir.mkpath("file1")),
+            debounce::Event::NoticeWrite(tdir.mkpath("file2")), // TODO unnecessary
+            debounce::Event::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
+            debounce::Event::Write(tdir.mkpath("file2")),
         ]);
     } else {
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::NoticeRemove{path: tdir.mkpath("file1")},
-            debounce::Event::Rename{from: tdir.mkpath("file1"), to: tdir.mkpath("file2")},
-            debounce::Event::Chmod{path: tdir.mkpath("file2")},
+            debounce::Event::NoticeRemove(tdir.mkpath("file1")),
+            debounce::Event::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
+            debounce::Event::Chmod(tdir.mkpath("file2")),
         ]);
     }
 }
@@ -447,8 +447,8 @@ fn rename_rename_file() {
     tdir.rename("file2", "file3");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::NoticeRemove{path: tdir.mkpath("file1")},
-        debounce::Event::Rename{from: tdir.mkpath("file1"), to: tdir.mkpath("file3")},
+        debounce::Event::NoticeRemove(tdir.mkpath("file1")),
+        debounce::Event::Rename(tdir.mkpath("file1"), tdir.mkpath("file3")),
     ]);
 }
 
@@ -470,9 +470,9 @@ fn write_delete_file() {
     tdir.remove("file1");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::NoticeWrite{path: tdir.mkpath("file1")},
-        debounce::Event::NoticeRemove{path: tdir.mkpath("file1")},
-        debounce::Event::Remove{path: tdir.mkpath("file1")},
+        debounce::Event::NoticeWrite(tdir.mkpath("file1")),
+        debounce::Event::NoticeRemove(tdir.mkpath("file1")),
+        debounce::Event::Remove(tdir.mkpath("file1")),
     ]);
 }
 
@@ -489,7 +489,7 @@ fn create_directory() {
     tdir.create("dir1");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::Create{path: tdir.mkpath("dir1")},
+        debounce::Event::Create(tdir.mkpath("dir1")),
     ]);
 }
 
@@ -512,12 +512,12 @@ fn modify_directory() {
     if cfg!(target_os="windows") {
         // windows cannot distinguish between chmod and write
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::NoticeWrite{path: tdir.mkpath("dir1")},
-            debounce::Event::Write{path: tdir.mkpath("dir1")},
+            debounce::Event::NoticeWrite(tdir.mkpath("dir1")),
+            debounce::Event::Write(tdir.mkpath("dir1")),
         ]);
     } else {
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::Chmod{path: tdir.mkpath("dir1")},
+            debounce::Event::Chmod(tdir.mkpath("dir1")),
         ]);
     }
 }
@@ -539,8 +539,8 @@ fn delete_directory() {
     tdir.remove("dir1");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
-        debounce::Event::Remove{path: tdir.mkpath("dir1")},
+        debounce::Event::NoticeRemove(tdir.mkpath("dir1")),
+        debounce::Event::Remove(tdir.mkpath("dir1")),
     ]);
 }
 
@@ -561,8 +561,8 @@ fn rename_directory() {
     tdir.rename("dir1", "dir2");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
-        debounce::Event::Rename{from: tdir.mkpath("dir1"), to: tdir.mkpath("dir2")},
+        debounce::Event::NoticeRemove(tdir.mkpath("dir1")),
+        debounce::Event::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
     ]);
 }
 
@@ -580,7 +580,7 @@ fn create_modify_directory() {
     tdir.chmod("dir1");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::Create{path: tdir.mkpath("dir1")},
+        debounce::Event::Create(tdir.mkpath("dir1")),
     ]);
 }
 
@@ -620,8 +620,8 @@ fn delete_create_directory() {
     tdir.create("dir1");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
-        debounce::Event::Write{path: tdir.mkpath("dir1")},
+        debounce::Event::NoticeRemove(tdir.mkpath("dir1")),
+        debounce::Event::Write(tdir.mkpath("dir1")),
     ]);
 }
 
@@ -639,7 +639,7 @@ fn create_rename_directory() {
     tdir.rename("dir1", "dir2");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::Create{path: tdir.mkpath("dir2")},
+        debounce::Event::Create(tdir.mkpath("dir2")),
     ]);
 }
 
@@ -687,12 +687,12 @@ fn create_rename_overwrite_directory() {
 
     if cfg!(target_os="macos") {
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::NoticeRemove{path: tdir.mkpath("dir2")}, // even though the directory is being overwritten, that can't be detected
-            debounce::Event::Create{path: tdir.mkpath("dir2")}, // even though the directory is being overwritten, that can't be detected
+            debounce::Event::NoticeRemove(tdir.mkpath("dir2")), // even though the directory is being overwritten, that can't be detected
+            debounce::Event::Create(tdir.mkpath("dir2")), // even though the directory is being overwritten, that can't be detected
         ]);
     } else {
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::Create{path: tdir.mkpath("dir2")}, // even though the directory is being overwritten, that can't be detected
+            debounce::Event::Create(tdir.mkpath("dir2")), // even though the directory is being overwritten, that can't be detected
         ]);
     }
 }
@@ -718,16 +718,16 @@ fn modify_rename_directory() {
     if cfg!(target_os="windows") {
         // windows cannot distinguish between chmod and write
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::NoticeWrite{path: tdir.mkpath("dir1")},
-            debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
-            debounce::Event::Rename{from: tdir.mkpath("dir1"), to: tdir.mkpath("dir2")},
-            debounce::Event::Write{path: tdir.mkpath("dir2")},
+            debounce::Event::NoticeWrite(tdir.mkpath("dir1")),
+            debounce::Event::NoticeRemove(tdir.mkpath("dir1")),
+            debounce::Event::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
+            debounce::Event::Write(tdir.mkpath("dir2")),
         ]);
     } else {
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
-            debounce::Event::Rename{from: tdir.mkpath("dir1"), to: tdir.mkpath("dir2")},
-            debounce::Event::Chmod{path: tdir.mkpath("dir2")},
+            debounce::Event::NoticeRemove(tdir.mkpath("dir1")),
+            debounce::Event::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
+            debounce::Event::Chmod(tdir.mkpath("dir2")),
         ]);
     }
 }
@@ -755,27 +755,27 @@ fn rename_modify_directory() {
     if cfg!(target_os="windows") {
         // windows cannot distinguish between chmod and write
         assert_eq!(actual, vec![
-            debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
-            debounce::Event::NoticeWrite{path: tdir.mkpath("dir2")}, // TODO unnecessary
-            debounce::Event::Rename{from: tdir.mkpath("dir1"), to: tdir.mkpath("dir2")},
-            debounce::Event::Write{path: tdir.mkpath("dir2")},
+            debounce::Event::NoticeRemove(tdir.mkpath("dir1")),
+            debounce::Event::NoticeWrite(tdir.mkpath("dir2")), // TODO unnecessary
+            debounce::Event::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
+            debounce::Event::Write(tdir.mkpath("dir2")),
         ]);
     } else if cfg!(target_os="linux") {
         assert_eq_any!(actual, vec![
-            debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
-            debounce::Event::Rename{from: tdir.mkpath("dir1"), to: tdir.mkpath("dir2")},
-            debounce::Event::Chmod{path: tdir.mkpath("dir2")},
+            debounce::Event::NoticeRemove(tdir.mkpath("dir1")),
+            debounce::Event::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
+            debounce::Event::Chmod(tdir.mkpath("dir2")),
         ], vec![
-            debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
-            debounce::Event::Rename{from: tdir.mkpath("dir1"), to: tdir.mkpath("dir2")},
-            debounce::Event::Chmod{path: tdir.mkpath("dir2")},
-            debounce::Event::Chmod{path: tdir.mkpath("dir1")}, // excessive chmod event
+            debounce::Event::NoticeRemove(tdir.mkpath("dir1")),
+            debounce::Event::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
+            debounce::Event::Chmod(tdir.mkpath("dir2")),
+            debounce::Event::Chmod(tdir.mkpath("dir1")), // excessive chmod event
         ]);
     } else {
         assert_eq!(actual, vec![
-            debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
-            debounce::Event::Rename{from: tdir.mkpath("dir1"), to: tdir.mkpath("dir2")},
-            debounce::Event::Chmod{path: tdir.mkpath("dir2")},
+            debounce::Event::NoticeRemove(tdir.mkpath("dir1")),
+            debounce::Event::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
+            debounce::Event::Chmod(tdir.mkpath("dir2")),
         ]);
     }
 }
@@ -799,8 +799,8 @@ fn rename_rename_directory() {
     tdir.rename("dir2", "dir3");
 
     assert_eq!(recv_events_debounced(&rx), vec![
-        debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
-        debounce::Event::Rename{from: tdir.mkpath("dir1"), to: tdir.mkpath("dir3")},
+        debounce::Event::NoticeRemove(tdir.mkpath("dir1")),
+        debounce::Event::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir3")),
     ]);
 }
 
@@ -825,14 +825,14 @@ fn modify_delete_directory() {
     if cfg!(target_os="windows") {
         // windows cannot distinguish between chmod and write
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::NoticeWrite{path: tdir.mkpath("dir1")},
-            debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
-            debounce::Event::Remove{path: tdir.mkpath("dir1")},
+            debounce::Event::NoticeWrite(tdir.mkpath("dir1")),
+            debounce::Event::NoticeRemove(tdir.mkpath("dir1")),
+            debounce::Event::Remove(tdir.mkpath("dir1")),
         ]);
     } else {
         assert_eq!(recv_events_debounced(&rx), vec![
-            debounce::Event::NoticeRemove{path: tdir.mkpath("dir1")},
-            debounce::Event::Remove{path: tdir.mkpath("dir1")},
+            debounce::Event::NoticeRemove(tdir.mkpath("dir1")),
+            debounce::Event::Remove(tdir.mkpath("dir1")),
         ]);
     }
 }
