@@ -21,18 +21,16 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
     // for example to handle I/O.
     loop {
         match rx.recv() {
-            Ok(event) => {
-                println!("{:?}", event);
-            }
-            Err(e) => println!("watch error {}", e)
+            Ok(event) => println!("{:?}", event),
+            Err(e) => println!("watch error: {}", e),
         }
     }
 }
 
 fn main() {
-    let path = std::env::args().nth(1).unwrap();
+    let path = std::env::args().nth(1).expect("Argument 1 needs to be a path");
     println!("watching {}", path);
-    if let Err(err) = watch(path) {
-        println!("Error!: {:?}", err)
+    if let Err(e) = watch(path) {
+        println!("error: {:?}", e)
     }
 }

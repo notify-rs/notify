@@ -20,19 +20,17 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
     // for example to handle I/O.
     loop {
         match rx.recv() {
-          Ok(notify::Event{path:Some(path), op:Ok(op), cookie:None}) => {
-              println!("{:?} {:?}", op, path);
-          },
-          Err(e) => println!("watch error {}", e),
-          _ => ()
+          Ok(notify::Event{path: Some(path), op: Ok(op), cookie}) => println!("{:?} {:?} ({:?})", op, path, cookie),
+          Ok(event) => println!("broken event: {:?}", event),
+          Err(e) => println!("watch error: {:?}", e),
         }
     }
 }
 
 fn main() {
-    let path = std::env::args().nth(1).unwrap();
+    let path = std::env::args().nth(1).expect("Argument 1 needs to be a path");
     println!("watching {}", path);
-    if let Err(err) = watch(path) {
-      println!("Error!: {:?}", err)
+    if let Err(e) = watch(path) {
+        println!("error: {:?}", e)
     }
 }
