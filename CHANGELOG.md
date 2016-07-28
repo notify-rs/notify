@@ -20,6 +20,7 @@
 
 * Add RecursiveMode switch to Watcher::watch(..) (closes [#60](https://github.com/passcod/rsnotify/issues/60), [#61](https://github.com/passcod/rsnotify/issues/61))
 * Track move events using a cookie
+* Remove Error::NotImplemented since it wasn't used
 * **fsevents watcher:** Return error when trying to unwatch non-existing file or directory
 
 

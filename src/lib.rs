@@ -333,11 +333,6 @@ pub enum Error {
     /// I/O errors
     Io(io::Error),
 
-    /// Something isn't implemented in notify
-    ///
-    /// TODO this isn't used and should be removed
-    NotImplemented,
-
     /// The provided path does not exist
     PathNotFound,
 
@@ -350,7 +345,6 @@ impl fmt::Display for Error {
         let error = String::from(match *self {
             Error::PathNotFound => "No path was found.",
             Error::WatchNotFound => "No watch was found.",
-            Error::NotImplemented => "Not implemented.",
             Error::Generic(ref err) => err.as_ref(),
             Error::Io(ref err) => err.description(),
         });
@@ -367,7 +361,6 @@ impl StdError for Error {
         match *self {
             Error::PathNotFound => "No path was found",
             Error::WatchNotFound => "No watch was found",
-            Error::NotImplemented => "Not implemented",
             Error::Generic(_) => "Generic error",
             Error::Io(_) => "I/O Error",
         }
