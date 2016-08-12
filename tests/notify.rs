@@ -48,9 +48,14 @@ fn create_file() {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
             (tdir.mkpath("file1"), op::CREATE, None),
         ]);
+    } else if cfg!(target_os="windows") {
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("file1"), op::CREATE, None)
+        ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
             (tdir.mkpath("file1"), op::CREATE, None),
+            (tdir.mkpath("file1"), op::CLOSE_WRITE, None)
         ]);
     }
 }
@@ -77,9 +82,14 @@ fn write_file() {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
             (tdir.mkpath("file1"), op::CREATE | op::WRITE, None), // excessive create event
         ]);
+    } else if cfg!(target_os="windows") {
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("file1"), op::WRITE, None)
+        ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
             (tdir.mkpath("file1"), op::WRITE, None),
+            (tdir.mkpath("file1"), op::CLOSE_WRITE, None)
         ]);
     }
 }
@@ -297,8 +307,9 @@ fn create_rename_overwrite_file() {
         assert_eq!(cookies.len(), 1);
         assert_eq!(actual, vec![
             (tdir.mkpath("file1a"), op::CREATE, None),
+            (tdir.mkpath("file1a"), op::CLOSE_WRITE, None),
             (tdir.mkpath("file1a"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("file1b"), op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("file1b"), op::RENAME, Some(cookies[0]))
         ]);
     }
 }
