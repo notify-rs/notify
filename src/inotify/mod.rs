@@ -161,6 +161,9 @@ impl mio::Handler for INotifyHandler {
                                     if event.is_modify() {
                                         o.insert(op::WRITE);
                                     }
+                                    if event.is_close_write() {
+                                        o.insert(op::CLOSEWRITE);
+                                    }
                                     if event.is_attrib() {
                                         o.insert(op::CHMOD);
                                     }
