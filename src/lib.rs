@@ -291,8 +291,10 @@ pub mod op {
             const RENAME  = 0b001000,
             /// Written
             const WRITE   = 0b010000,
+            /// Written
+            const CLOSEWRITE   = 0b100000,
             /// Directories need to be rescanned
-            const RESCAN  = 0b100000,
+            const RESCAN  = 0b1000000,
         }
     }
 }
