@@ -161,6 +161,9 @@ impl mio::Handler for INotifyHandler {
                                     if event.is_modify() {
                                         o.insert(op::WRITE);
                                     }
+                                    if event.is_close_write() {
+                                        o.insert(op::CLOSE_WRITE);
+                                    }
                                     if event.is_attrib() {
                                         o.insert(op::CHMOD);
                                     }
@@ -253,7 +256,7 @@ impl INotifyHandler {
     }
 
     fn add_single_watch(&mut self, path: PathBuf, is_recursive: bool, watch_self: bool) -> Result<()> {
-        let mut flags = flags::IN_ATTRIB | flags::IN_CREATE | flags::IN_DELETE |
+        let mut flags = flags::IN_ATTRIB | flags::IN_CREATE | flags::IN_DELETE | flags::IN_CLOSE_WRITE | 
                         flags::IN_MODIFY | flags::IN_MOVED_FROM | flags::IN_MOVED_TO;
 
         if watch_self {
