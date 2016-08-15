@@ -34,6 +34,10 @@ pub enum Event {
     ///
     /// `Write` events have a higher priority than `Chmod`.
     /// `Chmod` will not be emitted if it's detected before the `Write` event has been emitted.
+    ///
+    /// Upon receiving a `Create` event for a directory, it is necessary to scan the newly created directory for contents.
+    /// The directory can contain files or directories if those contents were created before the directory could be watched,
+    /// or if the directory was moved into the watched directory.
     Write(PathBuf),
     /// `Chmod` is emitted when attributes have been changed and no events were detected for the path within the specified time frame.
     Chmod(PathBuf),

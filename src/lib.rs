@@ -142,10 +142,19 @@ pub mod debounce;
 /// distinguish between writes to a file or its meta data.
 ///
 ///
+/// # Close-Write
+///
+/// A `CLOSE_WRITE` event is emitted whenever a file that was opened for writing has been closed.
+/// __This event is only available on Linux__.
+///
+///
 /// # Create
 ///
 /// A `CREATE` event is emitted whenever a new file or directory is created.
 ///
+/// Upon receiving a `Create` event for a directory, it is necessary to scan the newly created directory for contents.
+/// The directory can contain files or directories if those contents were created before the directory could be watched,
+/// or if the directory was moved into the watched directory.
 ///
 /// # Remove
 ///
@@ -282,19 +291,19 @@ pub mod op {
         /// Multiple actions may be delivered in a single event.
         pub flags Op: u32 {
             /// Attributes changed
-            const CHMOD   = 0b000001,
+            const CHMOD       = 0b0000001,
             /// Created
-            const CREATE  = 0b000010,
+            const CREATE      = 0b0000010,
             /// Removed
-            const REMOVE  = 0b000100,
+            const REMOVE      = 0b0000100,
             /// Renamed
-            const RENAME  = 0b001000,
+            const RENAME      = 0b0001000,
             /// Written
-            const WRITE   = 0b010000,
-            /// Written
-            const CLOSE_WRITE   = 0b100000,
+            const WRITE       = 0b0010000,
+            /// File opened for writing was closed
+            const CLOSE_WRITE = 0b0100000,
             /// Directories need to be rescanned
-            const RESCAN  = 0b1000000,
+            const RESCAN      = 0b1000000,
         }
     }
 }
