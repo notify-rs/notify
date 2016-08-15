@@ -13,7 +13,7 @@
   * Implement CREATE and DELETE for PollWatcher
   * Add `with_delay_ms` constructor
 * **fsevents watcher:** Report ITEM_CHANGE_OWNER as CHMOD events
-* **inotify watcher:** Skip IGNORED events
+* **inotify watcher:** Emit CLOSE_WRITE events (closes [#93](https://github.com/passcod/rsnotify/pull/93))
 
 
 #### Breaking Changes
@@ -22,6 +22,15 @@
 * Track move events using a cookie
 * Remove Error::NotImplemented since it wasn't used
 * **fsevents watcher:** Return error when trying to unwatch non-existing file or directory
+* **inotify watcher:** Remove IGNORED events
+
+
+### v2.6.3
+
+
+#### Bug Fixes
+
+* Bump fsevents version (closes [#91](https://github.com/passcod/rsnotify/pull/91))
 
 
 ### v2.6.2
