@@ -11,7 +11,7 @@ authors = [
 ]
 
 description = "Cross-platform filesystem notification library"
-documentation = "https://crates.fyi/crates/notify"
+documentation = "https://docs.rs/notify"
 homepage = "https://github.com/passcod/rsnotify"
 repository = "https://github.com/passcod/rsnotify.git"
 
