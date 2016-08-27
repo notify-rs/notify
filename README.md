@@ -12,11 +12,15 @@
 
 _Cross-platform filesystem notification library for Rust._
 
-## Install
+## Documentation
+
+[https://docs.rs/notify](https://docs.rs/notify)
+
+## Installation
 
 ```toml
 [dependencies]
-notify = "2.6.2"
+notify = "2.6.3"
 ```
 
 ## Usage
