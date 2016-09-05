@@ -19,6 +19,8 @@ use std::fs::File;
 
 use utils::*;
 
+const NETWORK_PATH: &'static str = ""; // eg.: \\\\MY-PC\\Users\\MyName
+
 #[cfg(target_os="linux")]
 #[test]
 fn new_inotify() {
@@ -125,6 +127,100 @@ fn watch_relative() {
                 Err(e) => panic!("{:?}", e),
                 Ok(o) => panic!("{:?}", o),
             }
+        }
+    }
+    if cfg!(target_os = "windows") && !NETWORK_PATH.is_empty()
+    { // watch_relative_network_directory
+        let tdir = TempDir::new_in(NETWORK_PATH, "temp_dir").expect("failed to create temporary directory");
+        tdir.create("dir1");
+
+        env::set_current_dir(tdir.path()).expect("failed to change working directory");
+
+        let (tx, _) = mpsc::channel();
+        let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+        watcher.watch("dir1", RecursiveMode::Recursive).expect("failed to watch directory");
+
+        watcher.unwatch("dir1").expect("failed to unwatch directory");
+
+        if cfg!(not(target_os="windows")) {
+            match watcher.unwatch("dir1") {
+                Err(Error::WatchNotFound) => (),
+                Err(e) => panic!("{:?}", e),
+                Ok(o) => panic!("{:?}", o),
+            }
+        }
+    }
+    if cfg!(target_os = "windows") && !NETWORK_PATH.is_empty()
+    { // watch_relative_network_file
+        let tdir = TempDir::new_in(NETWORK_PATH, "temp_dir").expect("failed to create temporary directory");
+        tdir.create("file1");
+
+        env::set_current_dir(tdir.path()).expect("failed to change working directory");
+
+        let (tx, _) = mpsc::channel();
+        let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+        watcher.watch("file1", RecursiveMode::Recursive).expect("failed to watch file");
+
+        watcher.unwatch("file1").expect("failed to unwatch file");
+
+        if cfg!(not(target_os="windows")) {
+            match watcher.unwatch("file1") {
+                Err(Error::WatchNotFound) => (),
+                Err(e) => panic!("{:?}", e),
+                Ok(o) => panic!("{:?}", o),
+            }
+        }
+    }
+}
+
+#[test]
+#[cfg(target_os = "windows")]
+fn watch_absolute_network_directory() {
+    if NETWORK_PATH.is_empty() {
+        return
+    }
+
+    let tdir = TempDir::new_in(NETWORK_PATH, "temp_dir").expect("failed to create temporary directory");
+    tdir.create("dir1");
+
+    let (tx, _) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    watcher.watch(tdir.mkpath("dir1"), RecursiveMode::Recursive).expect("failed to watch directory");
+
+    watcher.unwatch(tdir.mkpath("dir1")).expect("failed to unwatch directory");
+
+    if cfg!(not(target_os="windows")) {
+        match watcher.unwatch(tdir.mkpath("dir1")) {
+            Err(Error::WatchNotFound) => (),
+            Err(e) => panic!("{:?}", e),
+            Ok(o) => panic!("{:?}", o),
+        }
+    }
+}
+
+#[test]
+#[cfg(target_os = "windows")]
+fn watch_absolute_network_file() {
+    if NETWORK_PATH.is_empty() {
+        return
+    }
+
+    let tdir = TempDir::new_in(NETWORK_PATH, "temp_dir").expect("failed to create temporary directory");
+    tdir.create("file1");
+
+    env::set_current_dir(tdir.path()).expect("failed to change working directory");
+
+    let (tx, _) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    watcher.watch(tdir.mkpath("file1"), RecursiveMode::Recursive).expect("failed to watch file");
+
+    watcher.unwatch(tdir.mkpath("file1")).expect("failed to unwatch file");
+
+    if cfg!(not(target_os="windows")) {
+        match watcher.unwatch(tdir.mkpath("file1")) {
+            Err(Error::WatchNotFound) => (),
+            Err(e) => panic!("{:?}", e),
+            Ok(o) => panic!("{:?}", o),
         }
     }
 }
