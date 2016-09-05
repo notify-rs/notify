@@ -323,10 +323,16 @@ fn watch_recursive_move_in() {
             (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::CREATE, None)
         ]);
         panic!("move event should be a create event");
+    } else if cfg!(target_os="linux") {
+        assert_eq!(actual, vec![
+            (tdir.mkpath("watch_dir/dir1b"), op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::CLOSE_WRITE, None),
+        ]);
     } else {
         assert_eq!(actual, vec![
             (tdir.mkpath("watch_dir/dir1b"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::CREATE, None)
+            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::CREATE, None),
         ]);
     }
 }
@@ -370,6 +376,12 @@ fn watch_recursive_move_out() {
             (tdir.mkpath("watch_dir/dir1a"), op::CREATE | op::RENAME, None) // excessive create event, fsevent interprets a move_out as a rename event
         ]);
         panic!("move event should be a remove event");
+    } else if cfg!(target_os="linux") {
+        assert_eq!(actual, vec![
+            (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::CLOSE_WRITE, None),
+            (tdir.mkpath("watch_dir/dir1a"), op::REMOVE, None),
+        ]);
     } else {
         assert_eq!(actual, vec![
             (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::CREATE, None),
@@ -899,6 +911,11 @@ fn self_rename_file() {
     } else if cfg!(target_os="macos") {
         // macos doesn't watch files, but paths
         assert_eq!(actual, vec![]);
+    } else if cfg!(target_os="linux") {
+        assert_eq!(actual, vec![
+            (tdir.mkpath("file1"), op::WRITE, None), // path doesn't get updated
+            (tdir.mkpath("file1"), op::CLOSE_WRITE, None), // path doesn't get updated
+        ]);
     } else {
         assert_eq!(actual, vec![
             (tdir.mkpath("file1"), op::WRITE, None), // path doesn't get updated
@@ -1123,6 +1140,11 @@ fn parent_rename_directory() {
     if cfg!(target_os="macos") {
         // macos doesn't watch files, but paths
         assert_eq!(actual, vec![]);
+    } else if cfg!(target_os="linux") {
+        assert_eq!(actual, vec![
+            (tdir.mkpath("dir1/watch_dir/file1"), op::CREATE, None), // path doesn't get updated
+            (tdir.mkpath("dir1/watch_dir/file1"), op::CLOSE_WRITE, None), // path doesn't get updated
+        ]);
     } else {
         assert_eq!(actual, vec![
             (tdir.mkpath("dir1/watch_dir/file1"), op::CREATE, None), // path doesn't get updated

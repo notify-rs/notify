@@ -218,15 +218,21 @@ fn move_out_create_file() {
     tdir.rename("watch_dir/file1", "file1b");
     tdir.create("watch_dir/file1");
 
-     if cfg!(target_os="macos") {
+    if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
             (tdir.mkpath("watch_dir/file1"), op::CREATE | op::RENAME, None), // fsevent interprets a move_out as a rename event
         ]);
         panic!("move event should be a remove event; fsevent conflates rename and create events");
+    } else if cfg!(target_os="linux") {
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("watch_dir/file1"), op::REMOVE, None),
+            (tdir.mkpath("watch_dir/file1"), op::CREATE, None),
+            (tdir.mkpath("watch_dir/file1"), op::CLOSE_WRITE, None),
+        ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
             (tdir.mkpath("watch_dir/file1"), op::REMOVE, None),
-            (tdir.mkpath("watch_dir/file1"), op::CREATE, None)
+            (tdir.mkpath("watch_dir/file1"), op::CREATE, None),
         ]);
     }
 }
@@ -260,10 +266,12 @@ fn create_write_modify_file() {
             (tdir.mkpath("file1"), op::CHMOD | op::CREATE | op::WRITE, None),
         ]);
         panic!("macos cannot distinguish between chmod and create");
-    } else {
+    } else if cfg!(target_os="linux") {
         assert_eq!(recv_events(&rx), vec![
             (tdir.mkpath("file1"), op::CREATE, None),
+            (tdir.mkpath("file1"), op::CLOSE_WRITE, None),
             (tdir.mkpath("file1"), op::WRITE, None),
+            (tdir.mkpath("file1"), op::CLOSE_WRITE, None),
             (tdir.mkpath("file1"), op::CHMOD, None),
         ]);
     }
