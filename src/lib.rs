@@ -312,6 +312,12 @@ pub mod op {
 #[derive(Debug)]
 pub struct Event {
     /// Path where the event originated.
+    ///
+    /// `path` is always abolute, even if a relative path is used to _watch_ a file or directory.
+    ///
+    /// On __OS X__ the path is always canonicalized.
+    ///
+    /// Keep in mind that the path may be false if the watched file or directory or any parent directory is renamed. (See: [notify::op](op/index.html#rename))
     pub path: Option<PathBuf>,
 
     /// Operation detected on that path.

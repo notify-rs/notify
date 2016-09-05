@@ -22,7 +22,9 @@
 * Track move events using a cookie
 * Remove Error::NotImplemented since it wasn't used
 * **fsevents watcher:** Return error when trying to unwatch non-existing file or directory
-* **inotify watcher:** Remove IGNORED events
+* **inotify watcher:**
+  * Remove IGNORED events
+  * Always emit events with absolute paths, even if a relative path is used to watch a file or directory
 
 
 ### v2.6.3

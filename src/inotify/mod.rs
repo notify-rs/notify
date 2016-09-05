@@ -18,6 +18,7 @@ use std::sync::mpsc::{self, Sender};
 use std::thread::Builder as ThreadBuilder;
 use super::{Error, Event, op, Op, Result, Watcher, RecursiveMode};
 use std::time::Duration;
+use std::env;
 // test inotify_queue_overflow
 // use std::thread;
 
@@ -256,7 +257,7 @@ impl INotifyHandler {
     }
 
     fn add_single_watch(&mut self, path: PathBuf, is_recursive: bool, watch_self: bool) -> Result<()> {
-        let mut flags = flags::IN_ATTRIB | flags::IN_CREATE | flags::IN_DELETE | flags::IN_CLOSE_WRITE | 
+        let mut flags = flags::IN_ATTRIB | flags::IN_CREATE | flags::IN_DELETE | flags::IN_CLOSE_WRITE |
                         flags::IN_MODIFY | flags::IN_MOVED_FROM | flags::IN_MOVED_TO;
 
         if watch_self {
@@ -396,8 +397,14 @@ impl Watcher for INotifyWatcher {
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
+        let pb = if path.as_ref().is_absolute() {
+            path.as_ref().to_owned()
+        } else {
+            let p = try!(env::current_dir().map_err(Error::Io));
+            p.join(path)
+        };
         let (tx, rx) = mpsc::channel();
-        let msg = EventLoopMsg::AddWatch(path.as_ref().to_owned(), recursive_mode, tx);
+        let msg = EventLoopMsg::AddWatch(pb, recursive_mode, tx);
 
         // we expect the event loop to live and reply => unwraps must not panic
         self.0.send(msg).unwrap();
@@ -405,8 +412,14 @@ impl Watcher for INotifyWatcher {
     }
 
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+        let pb = if path.as_ref().is_absolute() {
+            path.as_ref().to_owned()
+        } else {
+            let p = try!(env::current_dir().map_err(Error::Io));
+            p.join(path)
+        };
         let (tx, rx) = mpsc::channel();
-        let msg = EventLoopMsg::RemoveWatch(path.as_ref().to_owned(), tx);
+        let msg = EventLoopMsg::RemoveWatch(pb, tx);
 
         // we expect the event loop to live and reply => unwraps must not panic
         self.0.send(msg).unwrap();
