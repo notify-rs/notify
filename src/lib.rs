@@ -145,6 +145,7 @@ pub mod debounce;
 /// # Close-Write
 ///
 /// A `CLOSE_WRITE` event is emitted whenever a file that was opened for writing has been closed.
+///
 /// __This event is only available on Linux__.
 ///
 ///
@@ -286,7 +287,7 @@ pub mod op {
     bitflags! {
         /// Holds a set of bit flags representing the actions for the event.
         ///
-        /// For a list of possible values, see `notify::op`.
+        /// For a list of possible values, have a look at the [notify::op](index.html) documentation.
         ///
         /// Multiple actions may be delivered in a single event.
         pub flags Op: u32 {
@@ -333,7 +334,7 @@ pub struct Event {
     /// If two consecutive `RENAME` events share the same cookie, it means that the first event holds
     /// the old path, and the second event holds the new path of the renamed file or directory.
     ///
-    /// For details on handling `RENAME` events with the `FsEventWatcher` have a look at `notify::op` documentation.
+    /// For details on handling `RENAME` events with the `FsEventWatcher` have a look at the [notify::op](op/index.html) documentation.
     pub cookie: Option<u32>,
 }
 
