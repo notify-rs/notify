@@ -27,9 +27,6 @@ notify = "2.6.3"
 
 ```rust
 extern crate notify;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::sync_channel;
-use std::thread;
 use notify::{RecommendedWatcher, Watcher};
 use std::sync::mpsc::channel;
 
