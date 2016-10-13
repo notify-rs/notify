@@ -8,13 +8,10 @@
 [![Travis](https://img.shields.io/travis/passcod/rsnotify.svg?style=flat-square)](https://travis-ci.org/passcod/rsnotify) <sup>(Linux and OS X)</sup>
 
 [![Code of Conduct](https://img.shields.io/badge/contributor-covenant-123456.svg?style=flat-square)](http://contributor-covenant.org/version/1/3/0/)
+[![Documentation](https://img.shields.io/badge/documentation-docs.rs-df3600.svg?style=flat-square)](https://docs.rs/notify)
 
 
 _Cross-platform filesystem notification library for Rust._
-
-## Documentation
-
-[https://docs.rs/notify](https://docs.rs/notify)
 
 ## Installation
 
