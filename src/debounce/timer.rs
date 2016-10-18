@@ -1,4 +1,4 @@
-use super::super::op;
+use super::super::{op, DebouncedEvent};
 
 use std::sync::mpsc;
 use std::thread;
@@ -8,7 +8,7 @@ use std::collections::{BinaryHeap, HashSet};
 use std::path::PathBuf;
 use std::cmp::Ordering;
 
-use debounce::{self, OperationsBuffer};
+use debounce::OperationsBuffer;
 
 enum Action {
     Schedule(ScheduledEvent),
@@ -39,12 +39,12 @@ struct ScheduleWorker {
     request_source: mpsc::Receiver<Action>,
     schedule: BinaryHeap<ScheduledEvent>,
     ignore: HashSet<u64>,
-    tx: mpsc::Sender<debounce::Event>,
+    tx: mpsc::Sender<DebouncedEvent>,
     operations_buffer: OperationsBuffer,
 }
 
 impl ScheduleWorker {
-    fn new(trigger: Arc<Condvar>, request_source: mpsc::Receiver<Action>, tx: mpsc::Sender<debounce::Event>, operations_buffer: OperationsBuffer) -> ScheduleWorker {
+    fn new(trigger: Arc<Condvar>, request_source: mpsc::Receiver<Action>, tx: mpsc::Sender<DebouncedEvent>, operations_buffer: OperationsBuffer) -> ScheduleWorker {
         ScheduleWorker{
             trigger: trigger,
             request_source: request_source,
@@ -86,18 +86,18 @@ impl ScheduleWorker {
                     if let Some((op, from_path, _)) = op_buf.remove(&path) {
                         let is_partial_rename = from_path.is_none();
                         if let Some(from_path) = from_path {
-                            self.tx.send(debounce::Event::Rename(from_path, path.clone())).unwrap();
+                            self.tx.send(DebouncedEvent::Rename(from_path, path.clone())).unwrap();
                         }
                         let message = match op {
-                            Some(op::CREATE) => Some(debounce::Event::Create(path)),
-                            Some(op::WRITE) => Some(debounce::Event::Write(path)),
-                            Some(op::CHMOD) => Some(debounce::Event::Chmod(path)),
-                            Some(op::REMOVE) => Some(debounce::Event::Remove(path)),
+                            Some(op::CREATE) => Some(DebouncedEvent::Create(path)),
+                            Some(op::WRITE) => Some(DebouncedEvent::Write(path)),
+                            Some(op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
+                            Some(op::REMOVE) => Some(DebouncedEvent::Remove(path)),
                             Some(op::RENAME) if is_partial_rename => {
                                 if path.exists() {
-                                    Some(debounce::Event::Create(path))
+                                    Some(DebouncedEvent::Create(path))
                                 } else {
-                                    Some(debounce::Event::Remove(path))
+                                    Some(DebouncedEvent::Remove(path))
                                 }
                             },
                             _ => None
@@ -155,7 +155,7 @@ pub struct WatchTimer {
 }
 
 impl WatchTimer {
-    pub fn new(tx: mpsc::Sender<debounce::Event>, operations_buffer: OperationsBuffer, delay: Duration) -> WatchTimer {
+    pub fn new(tx: mpsc::Sender<DebouncedEvent>, operations_buffer: OperationsBuffer, delay: Duration) -> WatchTimer {
         let (schedule_tx, schedule_rx) = mpsc::channel();
         let trigger = Arc::new(Condvar::new());
 

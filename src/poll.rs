@@ -8,8 +8,8 @@ use std::sync::{Arc, RwLock, Mutex};
 use std::sync::mpsc::Sender;
 use std::fs;
 use std::thread;
-use super::{Error, Event, op, Result, Watcher, RecursiveMode};
-use super::debounce::{self, Debounce, EventTx};
+use super::{Error, RawEvent, DebouncedEvent, op, Result, Watcher, RecursiveMode};
+use super::debounce::{Debounce, EventTx};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use self::walkdir::WalkDir;
@@ -38,7 +38,7 @@ pub struct PollWatcher {
 
 impl PollWatcher {
     /// Create a PollWatcher which polls every `delay` milliseconds
-    pub fn with_delay_ms(tx: Sender<Event>, delay: u32) -> Result<PollWatcher> {
+    pub fn with_delay_ms(tx: Sender<RawEvent>, delay: u32) -> Result<PollWatcher> {
         let mut p = PollWatcher {
             event_tx: EventTx::Raw {
                 tx: tx.clone(),
@@ -74,7 +74,7 @@ impl PollWatcher {
                     for (watch, &mut WatchData{is_recursive, ref mut paths}) in watches.iter_mut() {
                         match fs::metadata(watch) {
                             Err(e) => {
-                                event_tx.send(Event {
+                                event_tx.send(RawEvent {
                                     path: Some(watch.clone()),
                                     op: Err(Error::Io(e)),
                                     cookie: None,
@@ -90,7 +90,7 @@ impl PollWatcher {
                                         }
                                         Some(PathData{mtime: old_mtime, ..}) => {
                                             if mtime > old_mtime {
-                                                event_tx.send(Event {
+                                                event_tx.send(RawEvent {
                                                     path: Some(watch.clone()),
                                                     op: Ok(op::WRITE),
                                                     cookie: None,
@@ -113,7 +113,7 @@ impl PollWatcher {
 
                                         match entry.metadata() {
                                             Err(e) => {
-                                                event_tx.send(Event {
+                                                event_tx.send(RawEvent {
                                                     path: Some(path.to_path_buf()),
                                                     op: Err(Error::Io(e.into())),
                                                     cookie: None,
@@ -123,7 +123,7 @@ impl PollWatcher {
                                                 let mtime = FileTime::from_last_modification_time(&m).seconds();
                                                 match paths.insert(path.to_path_buf(), PathData{mtime: mtime, last_check: current_time}) {
                                                     None => {
-                                                        event_tx.send(Event {
+                                                        event_tx.send(RawEvent {
                                                             path: Some(path.to_path_buf()),
                                                             op: Ok(op::CREATE),
                                                             cookie: None,
@@ -131,7 +131,7 @@ impl PollWatcher {
                                                     }
                                                     Some(PathData{mtime: old_mtime, ..}) => {
                                                         if mtime > old_mtime {
-                                                            event_tx.send(Event {
+                                                            event_tx.send(RawEvent {
                                                                 path: Some(path.to_path_buf()),
                                                                 op: Ok(op::WRITE),
                                                                 cookie: None,
@@ -151,7 +151,7 @@ impl PollWatcher {
                         let mut removed = Vec::new();
                         for (path, &PathData{last_check, ..}) in paths.iter() {
                             if last_check < current_time {
-                                event_tx.send(Event {
+                                event_tx.send(RawEvent {
                                     path: Some(path.clone()),
                                     op: Ok(op::REMOVE),
                                     cookie: None,
@@ -172,11 +172,11 @@ impl PollWatcher {
 }
 
 impl Watcher for PollWatcher {
-    fn new(tx: Sender<Event>) -> Result<PollWatcher> {
+    fn new_raw(tx: Sender<RawEvent>) -> Result<PollWatcher> {
         PollWatcher::with_delay_ms(tx, 30_000)
     }
 
-    fn debounced(tx: Sender<debounce::Event>, delay: Duration) -> Result<PollWatcher> {
+    fn new_debounced(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<PollWatcher> {
         let mut p = PollWatcher {
             event_tx: EventTx::DebouncedTx {
                 tx: tx.clone(),
@@ -200,7 +200,7 @@ impl Watcher for PollWatcher {
 
             match fs::metadata(path) {
                 Err(e) => {
-                    self.event_tx.send(Event {
+                    self.event_tx.send(RawEvent {
                         path: Some(watch.clone()),
                         op: Err(Error::Io(e)),
                         cookie: None,
@@ -228,7 +228,7 @@ impl Watcher for PollWatcher {
 
                             match entry.metadata() {
                                 Err(e) => {
-                                    self.event_tx.send(Event {
+                                    self.event_tx.send(RawEvent {
                                         path: Some(path.to_path_buf()),
                                         op: Err(Error::Io(e.into())),
                                         cookie: None,

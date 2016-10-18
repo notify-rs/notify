@@ -5,7 +5,7 @@
 use std::sync::mpsc::Sender;
 use std::path::Path;
 use std::time::Duration;
-use super::{Event, Result, Watcher, RecursiveMode, debounce};
+use super::{RawEvent, DebouncedEvent, Result, Watcher, RecursiveMode};
 
 /// Stub `Watcher` implementation
 ///
@@ -13,11 +13,11 @@ use super::{Event, Result, Watcher, RecursiveMode, debounce};
 pub struct NullWatcher;
 
 impl Watcher for NullWatcher {
-    fn new(tx: Sender<Event>) -> Result<NullWatcher> {
+    fn new_raw(tx: Sender<RawEvent>) -> Result<NullWatcher> {
         Ok(NullWatcher)
     }
 
-    fn debounced(tx: Sender<debounce::Event>, delay: Duration) -> Result<NullWatcher> {
+    fn new_debounced(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<NullWatcher> {
         Ok(NullWatcher)
     }
 

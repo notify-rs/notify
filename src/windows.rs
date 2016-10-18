@@ -23,9 +23,9 @@ use std::os::raw::c_void;
 use std::time::Duration;
 use std::sync::{Arc, Mutex};
 
-use super::{Event, Error, op, Op, Result, Watcher, RecursiveMode};
+use super::{RawEvent, DebouncedEvent, Error, op, Op, Result, Watcher, RecursiveMode};
 
-use super::debounce::{self, Debounce, EventTx};
+use super::debounce::{Debounce, EventTx};
 
 const BUF_SIZE: u32 = 16384;
 
@@ -283,9 +283,9 @@ fn start_read(rd: &ReadData, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
     }
 }
 
-fn send_pending_rename_event(event: Option<Event>, event_tx: &mut EventTx) {
+fn send_pending_rename_event(event: Option<RawEvent>, event_tx: &mut EventTx) {
     if let Some(e) = event {
-        event_tx.send(Event {
+        event_tx.send(RawEvent {
             path: e.path,
             op: Ok(op::REMOVE),
             cookie: None,
@@ -335,7 +335,7 @@ unsafe extern "system" fn handle_event(error_code: u32,
                 if (*cur_entry).Action == winnt::FILE_ACTION_RENAMED_OLD_NAME {
                     send_pending_rename_event(rename_event, &mut event_tx);
                     if request.data.file.is_some() {
-                        event_tx.send(Event {
+                        event_tx.send(RawEvent {
                             path: Some(path),
                             op: Ok(op::RENAME),
                             cookie: None,
@@ -343,7 +343,7 @@ unsafe extern "system" fn handle_event(error_code: u32,
                         rename_event = None;
                     } else {
                         COOKIE_COUNTER = COOKIE_COUNTER.wrapping_add(1);
-                        rename_event = Some(Event {
+                        rename_event = Some(RawEvent {
                             path: Some(path),
                             op: Ok(op::RENAME),
                             cookie: Some(COOKIE_COUNTER),
@@ -377,7 +377,7 @@ unsafe extern "system" fn handle_event(error_code: u32,
                     send_pending_rename_event(rename_event, &mut event_tx);
                     rename_event = None;
 
-                    event_tx.send(Event {
+                    event_tx.send(RawEvent {
                         path: Some(path),
                         op: Ok(o),
                         cookie: c,
@@ -403,7 +403,7 @@ pub struct ReadDirectoryChangesWatcher {
 }
 
 impl ReadDirectoryChangesWatcher {
-    pub fn create(tx: Sender<Event>,
+    pub fn create(tx: Sender<RawEvent>,
                   meta_tx: Sender<MetaEvent>)
                   -> Result<ReadDirectoryChangesWatcher> {
         let (cmd_tx, cmd_rx) = channel();
@@ -428,7 +428,7 @@ impl ReadDirectoryChangesWatcher {
         })
     }
 
-    pub fn create_debounced(tx: Sender<debounce::Event>,
+    pub fn create_debounced(tx: Sender<DebouncedEvent>,
                   meta_tx: Sender<MetaEvent>,
                   delay: Duration)
                   -> Result<ReadDirectoryChangesWatcher> {
@@ -497,13 +497,13 @@ impl ReadDirectoryChangesWatcher {
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
-    fn new(tx: Sender<Event>) -> Result<ReadDirectoryChangesWatcher> {
+    fn new_raw(tx: Sender<RawEvent>) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
         let (meta_tx, _) = channel();
         ReadDirectoryChangesWatcher::create(tx, meta_tx)
     }
 
-    fn debounced(tx: Sender<debounce::Event>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
+    fn new_debounced(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
         let (meta_tx, _) = channel();
         ReadDirectoryChangesWatcher::create_debounced(tx, meta_tx, delay)

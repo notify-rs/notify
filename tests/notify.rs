@@ -37,7 +37,7 @@ fn create_file() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -71,7 +71,7 @@ fn write_file() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -106,7 +106,7 @@ fn modify_file() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -143,7 +143,7 @@ fn delete_file() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -172,7 +172,7 @@ fn rename_file() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -210,7 +210,7 @@ fn move_out_create_file() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -245,7 +245,7 @@ fn create_write_modify_file() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -288,7 +288,7 @@ fn create_rename_overwrite_file() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -333,7 +333,7 @@ fn rename_rename_file() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -370,7 +370,7 @@ fn create_directory() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -400,7 +400,7 @@ fn modify_directory() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -438,7 +438,7 @@ fn delete_directory() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -467,7 +467,7 @@ fn rename_directory() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -505,7 +505,7 @@ fn move_out_create_directory() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -543,7 +543,7 @@ fn create_rename_overwrite_directory() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -582,7 +582,7 @@ fn rename_rename_directory() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);

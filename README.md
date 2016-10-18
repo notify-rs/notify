@@ -33,7 +33,7 @@ fn watch() -> notify::Result<()> {
 
   // Automatically select the best implementation for your platform.
   // You can also access each implementation directly e.g. INotifyWatcher.
-  let mut watcher: RecommendedWatcher = try!(Watcher::new(tx));
+  let mut watcher: RecommendedWatcher = try!(Watcher::new_raw(tx));
 
   // Add a path to be watched. All files and directories at that path and
   // below will be monitored for changes.
@@ -43,7 +43,7 @@ fn watch() -> notify::Result<()> {
   // for example to handle I/O.
   loop {
       match rx.recv() {
-        Ok(notify::Event{ path: Some(path),op:Ok(op) }) => {
+        Ok(notify::RawEvent{ path: Some(path),op:Ok(op) }) => {
             println!("{:?} {:?}", op, path);
         },
         Err(e) => println!("watch error {}", e),
@@ -63,9 +63,11 @@ fn main() {
 
 ### From v2.x to v3.x
 
+* `notify` now provides two APIs, a _raw_ and a _debounced_ API. In order to keep the old behavior, use the _raw_ API.
+Replace every occurrence of `Watcher::new` with `Watcher::new_raw` and `Event` with `RawEvent`. Or see the docs for how to use the _debounced_ API.
 * The watch(..) function used to watch a file or a directory now takes an additional argument.
-In order to use that argument you first need to import notify::RecursiveMode via the `use` keyword.
-To keep the old behavior, use RecursiveMode::Recursive, for more information see the docs.
+In order to use that argument you first need to import `RecursiveMode` via the `use` keyword.
+To keep the old behavior, use `RecursiveMode::Recursive`, for more information see the docs.
 * The inotify back-end used to add watches recursively to a directory but it wouldn't remove them recursively.
 From v3.0.0 on inotify removes watches recursively if they were added recursively.
 * The inotify back-end didn't use to watch newly created directories.

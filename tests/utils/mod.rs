@@ -17,18 +17,18 @@ const TIMEOUT_S: f64 = 0.1;
 #[cfg(target_os="windows")]
 const TIMEOUT_S: f64 = 3.0; // windows can take a while
 
-pub fn recv_events_with_timeout(rx: &Receiver<Event>, timeout: f64) ->  Vec<(PathBuf, Op, Option<u32>)> {
+pub fn recv_events_with_timeout(rx: &Receiver<RawEvent>, timeout: f64) ->  Vec<(PathBuf, Op, Option<u32>)> {
     let deadline = time::precise_time_s() + timeout;
 
     let mut evs = Vec::new();
 
     while time::precise_time_s() < deadline {
         match rx.try_recv() {
-            Ok(Event{path: Some(path), op: Ok(op), cookie}) => {
+            Ok(RawEvent{path: Some(path), op: Ok(op), cookie}) => {
                 evs.push((path, op, cookie));
             },
-            Ok(Event{path: None, ..})  => (),
-            Ok(Event{op: Err(e), ..}) => panic!("unexpected event err: {:?}", e),
+            Ok(RawEvent{path: None, ..})  => (),
+            Ok(RawEvent{op: Err(e), ..}) => panic!("unexpected event err: {:?}", e),
             Err(TryRecvError::Empty) => (),
             Err(e) => panic!("unexpected channel err: {:?}", e)
         }
@@ -37,7 +37,7 @@ pub fn recv_events_with_timeout(rx: &Receiver<Event>, timeout: f64) ->  Vec<(Pat
     evs
 }
 
-pub fn recv_events(rx: &Receiver<Event>) ->  Vec<(PathBuf, Op, Option<u32>)> {
+pub fn recv_events(rx: &Receiver<RawEvent>) ->  Vec<(PathBuf, Op, Option<u32>)> {
     recv_events_with_timeout(rx, TIMEOUT_S)
 }
 

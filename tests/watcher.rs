@@ -25,7 +25,7 @@ const NETWORK_PATH: &'static str = ""; // eg.: \\\\MY-PC\\Users\\MyName
 #[test]
 fn new_inotify() {
     let (tx, _) = mpsc::channel();
-    let w: Result<INotifyWatcher> = Watcher::new(tx);
+    let w: Result<INotifyWatcher> = Watcher::new_raw(tx);
     assert!(w.is_ok());
 }
 
@@ -33,28 +33,28 @@ fn new_inotify() {
 #[test]
 fn new_fsevent() {
     let (tx, _) = mpsc::channel();
-    let w: Result<FsEventWatcher> = Watcher::new(tx);
+    let w: Result<FsEventWatcher> = Watcher::new_raw(tx);
     assert!(w.is_ok());
 }
 
 #[test]
 fn new_null() {
     let (tx, _) = mpsc::channel();
-    let w: Result<NullWatcher> = Watcher::new(tx);
+    let w: Result<NullWatcher> = Watcher::new_raw(tx);
     assert!(w.is_ok());
 }
 
 #[test]
 fn new_poll() {
     let (tx, _) = mpsc::channel();
-    let w: Result<PollWatcher> = Watcher::new(tx);
+    let w: Result<PollWatcher> = Watcher::new_raw(tx);
     assert!(w.is_ok());
 }
 
 #[test]
 fn new_recommended() {
     let (tx, _) = mpsc::channel();
-    let w: Result<RecommendedWatcher> = Watcher::new(tx);
+    let w: Result<RecommendedWatcher> = Watcher::new_raw(tx);
     assert!(w.is_ok());
 }
 
@@ -63,7 +63,7 @@ fn new_recommended() {
 fn test_watcher_send() {
     let (tx, _) = mpsc::channel();
 
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).unwrap();
 
     thread::spawn(move || {
         watcher.watch(".", RecursiveMode::Recursive).unwrap();
@@ -77,7 +77,7 @@ fn test_watcher_sync() {
 
     let (tx, _) = mpsc::channel();
 
-    let watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
+    let watcher: RecommendedWatcher = Watcher::new_raw(tx).unwrap();
     let watcher = Arc::new(RwLock::new(watcher));
 
     thread::spawn(move || {
@@ -96,7 +96,7 @@ fn watch_relative() {
         env::set_current_dir(tdir.path()).expect("failed to change working directory");
 
         let (tx, _) = mpsc::channel();
-        let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+        let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
         watcher.watch("dir1", RecursiveMode::Recursive).expect("failed to watch directory");
 
         watcher.unwatch("dir1").expect("failed to unwatch directory");
@@ -116,7 +116,7 @@ fn watch_relative() {
         env::set_current_dir(tdir.path()).expect("failed to change working directory");
 
         let (tx, _) = mpsc::channel();
-        let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+        let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
         watcher.watch("file1", RecursiveMode::Recursive).expect("failed to watch file");
 
         watcher.unwatch("file1").expect("failed to unwatch file");
@@ -137,7 +137,7 @@ fn watch_relative() {
         env::set_current_dir(tdir.path()).expect("failed to change working directory");
 
         let (tx, _) = mpsc::channel();
-        let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+        let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
         watcher.watch("dir1", RecursiveMode::Recursive).expect("failed to watch directory");
 
         watcher.unwatch("dir1").expect("failed to unwatch directory");
@@ -158,7 +158,7 @@ fn watch_relative() {
         env::set_current_dir(tdir.path()).expect("failed to change working directory");
 
         let (tx, _) = mpsc::channel();
-        let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+        let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
         watcher.watch("file1", RecursiveMode::Recursive).expect("failed to watch file");
 
         watcher.unwatch("file1").expect("failed to unwatch file");
@@ -184,7 +184,7 @@ fn watch_absolute_network_directory() {
     tdir.create("dir1");
 
     let (tx, _) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("dir1"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     watcher.unwatch(tdir.mkpath("dir1")).expect("failed to unwatch directory");
@@ -211,7 +211,7 @@ fn watch_absolute_network_file() {
     env::set_current_dir(tdir.path()).expect("failed to change working directory");
 
     let (tx, _) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("file1"), RecursiveMode::Recursive).expect("failed to watch file");
 
     watcher.unwatch(tdir.mkpath("file1")).expect("failed to unwatch file");
@@ -239,7 +239,7 @@ fn inotify_queue_overflow() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     for i in 0..20 {
@@ -255,8 +255,8 @@ fn inotify_queue_overflow() {
     let mut rescan_found = false;
     while !rescan_found && time::precise_time_s() < deadline {
         match rx.try_recv() {
-            Ok(Event{op: Ok(op::RESCAN), ..}) => rescan_found = true,
-            Ok(Event{op: Err(e), ..}) => panic!("unexpected event err: {:?}", e),
+            Ok(RawEvent{op: Ok(op::RESCAN), ..}) => rescan_found = true,
+            Ok(RawEvent{op: Err(e), ..}) => panic!("unexpected event err: {:?}", e),
             Ok(e) => (),
             Err(mpsc::TryRecvError::Empty) => (),
             Err(e) => panic!("unexpected channel err: {:?}", e)
@@ -274,7 +274,7 @@ fn watch_recursive_create_directory() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -327,7 +327,7 @@ fn watch_recursive_move() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -393,7 +393,7 @@ fn watch_recursive_move_in() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&tdir.mkpath("watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -445,7 +445,7 @@ fn watch_recursive_move_out() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -497,7 +497,7 @@ fn watch_nonrecursive() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("."), RecursiveMode::NonRecursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -535,7 +535,7 @@ fn watch_file() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(tdir.mkpath("file1"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -641,6 +641,12 @@ fn poll_watch_recursive_move() {
     }
 }
 
+// Windows:
+// thread 'poll_watch_recursive_move' panicked at 'assertion failed: `(left == right)` (left: `[("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1a", REMOVE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1a\\file1", REMOVE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b\\file1", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b\\file2", CREATE, None)]`, right: `[("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1a", REMOVE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1a\\file1", REMOVE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b\\file1", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b\\file2", CREATE, None)]`)', tests\watcher.rs:623
+
+// Windows:
+// thread 'poll_watch_recursive_move' panicked at 'unexpected event err: Io(Error { repr: Os { code: 3, message: "The system cannot find the path specified." } })', tests\utils/mod.rs:31
+
 #[test]
 fn poll_watch_recursive_move_in() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
@@ -679,6 +685,9 @@ fn poll_watch_recursive_move_in() {
         ]);
     }
 }
+
+// Windows (2x):
+// thread 'poll_watch_recursive_move_in' panicked at 'assertion failed: `(left == right)` (left: `[("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1\\file1", CREATE, None)]`, right: `[("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1\\file1", CREATE, None)]`)', tests\watcher.rs:666
 
 #[test]
 fn poll_watch_recursive_move_out() {
@@ -719,6 +728,9 @@ fn poll_watch_recursive_move_out() {
         (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::REMOVE, None),
     ]);
 }
+
+// Windows:
+// thread 'poll_watch_recursive_move_out' panicked at 'failed to rename file or directory: Error { repr: Os { code: 5, message: "Access is denied." } }', ../src/libcore\result.rs:788
 
 #[test]
 fn poll_watch_nonrecursive() {
@@ -781,7 +793,7 @@ fn watch_nonexisting() {
     sleep_macos(10);
 
     let (tx, _) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&tdir.mkpath("file1"), RecursiveMode::Recursive).expect("failed to watch file");
 }
 
@@ -796,7 +808,7 @@ fn unwatch_file() {
     sleep_macos(10);
 
     let (tx, _) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&tdir.mkpath("file1"), RecursiveMode::Recursive).expect("failed to watch file");
 
     match watcher.unwatch(&tdir.mkpath("file1")) {
@@ -816,7 +828,7 @@ fn unwatch_directory() {
     sleep_macos(10);
 
     let (tx, _) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&tdir.mkpath("dir1"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     match watcher.unwatch(&tdir.mkpath("dir1")) {
@@ -833,7 +845,7 @@ fn unwatch_nonexisting() {
     sleep_macos(10);
 
     let (tx, _) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
 
     match watcher.unwatch(&tdir.mkpath("file1")) {
         Err(Error::WatchNotFound) => (),
@@ -853,7 +865,7 @@ fn self_delete_file() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&tdir.mkpath("file1"), RecursiveMode::Recursive).expect("failed to watch file");
 
     sleep_windows(100);
@@ -906,7 +918,7 @@ fn self_delete_directory() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&tdir.mkpath("dir1"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -970,7 +982,7 @@ fn self_rename_file() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&tdir.mkpath("file1"), RecursiveMode::Recursive).expect("failed to watch file");
 
     sleep_windows(100);
@@ -1050,7 +1062,7 @@ fn self_rename_directory() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&tdir.mkpath("dir1"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -1142,7 +1154,7 @@ fn parent_rename_file() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&tdir.mkpath("dir1/file1"), RecursiveMode::Recursive).expect("failed to watch file");
 
     sleep_windows(100);
@@ -1218,7 +1230,7 @@ fn parent_rename_directory() {
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&tdir.mkpath("dir1/watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
 
     tdir.rename("dir1", "dir2");

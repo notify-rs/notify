@@ -3,7 +3,6 @@ extern crate notify;
 use notify::{RecommendedWatcher, Watcher, RecursiveMode};
 use std::path::Path;
 use std::sync::mpsc::channel;
-use std::time::Duration;
 
 fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
     // Create a channel to receive the events.
@@ -11,7 +10,7 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
 
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
-    let mut watcher: RecommendedWatcher = try!(Watcher::debounced(tx, Duration::from_secs(2)));
+    let mut watcher: RecommendedWatcher = try!(Watcher::new_raw(tx));
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
@@ -21,8 +20,9 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
     // for example to handle I/O.
     loop {
         match rx.recv() {
-            Ok(event) => println!("{:?}", event),
-            Err(e) => println!("watch error: {}", e),
+            Ok(notify::RawEvent{path: Some(path), op: Ok(op), cookie}) => println!("{:?} {:?} ({:?})", op, path, cookie),
+            Ok(event) => println!("broken event: {:?}", event),
+            Err(e) => println!("watch error: {:?}", e),
         }
     }
 }

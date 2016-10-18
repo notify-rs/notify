@@ -16,12 +16,12 @@ use utils::*;
 const NETWORK_PATH: &'static str = ""; // eg.: \\\\MY-PC\\Users\\MyName
 
 #[cfg(target_os = "windows")]
-fn recv_events_simple(rx: &Receiver<Event>) ->  Vec<(PathBuf, Op, Option<u32>)> {
+fn recv_events_simple(rx: &Receiver<RawEvent>) ->  Vec<(PathBuf, Op, Option<u32>)> {
     recv_events(&rx)
 }
 
 #[cfg(target_os = "macos")]
-fn recv_events_simple(rx: &Receiver<Event>) ->  Vec<(PathBuf, Op, Option<u32>)> {
+fn recv_events_simple(rx: &Receiver<RawEvent>) ->  Vec<(PathBuf, Op, Option<u32>)> {
     let mut events = Vec::new();
     for (path, op, cookie) in inflate_events(recv_events(&rx)) {
         if op == (op::CREATE | op::WRITE) {
@@ -34,7 +34,7 @@ fn recv_events_simple(rx: &Receiver<Event>) ->  Vec<(PathBuf, Op, Option<u32>)> 
 }
 
 #[cfg(target_os = "linux")]
-fn recv_events_simple(rx: &Receiver<Event>) ->  Vec<(PathBuf, Op, Option<u32>)> {
+fn recv_events_simple(rx: &Receiver<RawEvent>) ->  Vec<(PathBuf, Op, Option<u32>)> {
     let mut events = recv_events(&rx);
     events.retain(|&(_, op, _)| op != op::CLOSE_WRITE);
     events
@@ -52,7 +52,7 @@ fn watch_relative() {
         env::set_current_dir(tdir.path()).expect("failed to change working directory");
 
         let (tx, rx) = mpsc::channel();
-        let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+        let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
         watcher.watch("dir1", RecursiveMode::Recursive).expect("failed to watch directory");
 
         sleep_windows(100);
@@ -76,7 +76,7 @@ fn watch_relative() {
         env::set_current_dir(tdir.path()).expect("failed to change working directory");
 
         let (tx, rx) = mpsc::channel();
-        let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+        let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
         watcher.watch("file1", RecursiveMode::Recursive).expect("failed to watch file");
 
         sleep_windows(100);
@@ -101,7 +101,7 @@ fn watch_relative() {
         env::set_current_dir(tdir.path()).expect("failed to change working directory");
 
         let (tx, rx) = mpsc::channel();
-        let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+        let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
         watcher.watch("dir1", RecursiveMode::Recursive).expect("failed to watch directory");
 
         sleep_windows(100);
@@ -120,7 +120,7 @@ fn watch_relative() {
         env::set_current_dir(tdir.path()).expect("failed to change working directory");
 
         let (tx, rx) = mpsc::channel();
-        let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+        let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
         watcher.watch("file1", RecursiveMode::Recursive).expect("failed to watch file");
 
         sleep_windows(100);
@@ -142,7 +142,7 @@ fn watch_absolute_directory() {
 
     let watch_path = tdir.path().join("dir1");
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&watch_path, RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -167,7 +167,7 @@ fn watch_absolute_file() {
 
     let watch_path = tdir.path().join("file1");
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&watch_path, RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -197,7 +197,7 @@ fn watch_absolute_network_directory() {
 
     let watch_path = tdir.path().join("dir1");
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&watch_path, RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -221,7 +221,7 @@ fn watch_absolute_network_file() {
 
     let watch_path = tdir.path().join("file1");
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&watch_path, RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -242,7 +242,7 @@ fn watch_canonicalized_directory() {
 
     let watch_path = tdir.path().canonicalize().expect("failed to canonicalize path").join("dir1");
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&watch_path, RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -261,7 +261,7 @@ fn watch_canonicalized_file() {
 
     let watch_path = tdir.path().canonicalize().expect("failed to canonicalize path").join("file1");
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&watch_path, RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -285,7 +285,7 @@ fn watch_canonicalized_network_directory() {
 
     let watch_path = tdir.path().canonicalize().expect("failed to canonicalize path").join("dir1");
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&watch_path, RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);
@@ -309,7 +309,7 @@ fn watch_canonicalized_network_file() {
 
     let watch_path = tdir.path().canonicalize().expect("failed to canonicalize path").join("file1");
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx).expect("failed to create recommended watcher");
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
     watcher.watch(&watch_path, RecursiveMode::Recursive).expect("failed to watch directory");
 
     sleep_windows(100);

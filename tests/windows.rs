@@ -13,7 +13,7 @@ mod windows_tests {
     use std::time::Duration;
     use std::sync::mpsc;
 
-    fn wait_for_disconnect(rx: &mpsc::Receiver<Event>) {
+    fn wait_for_disconnect(rx: &mpsc::Receiver<RawEvent>) {
         loop {
             match rx.try_recv() {
                 Err(mpsc::TryRecvError::Disconnected) => break,

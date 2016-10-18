@@ -13,38 +13,77 @@
 //!
 //! # Examples
 //!
-//! Basic usage
+//! `notify` provides two APIs, a _raw_ and a _debounced_ API.
+//! The _raw_ API emits file changes as soon as they happen, while the _debounced_ API has a delay and tries to prevent duplicate events and simplifies transactions like _safe-saves_.
+//! For more details, see [`Watcher::new_raw`](trait.Watcher.html#tymethod.new_raw) and [`Watcher::new_debounced`](trait.Watcher.html#tymethod.new_debounced).
+//!
+//! Debounced API
 //!
 //! ```no_run
 //! extern crate notify;
 //!
-//! use notify::{RecommendedWatcher, Error, Watcher, RecursiveMode};
+//! use notify::{Watcher, RecursiveMode, debounced_watcher};
+//! use std::sync::mpsc::channel;
+//! use std::time::Duration;
+//!
+//! fn main() {
+//!     // Create a channel to receive the events.
+//!     let (tx, rx) = channel();
+//!
+//!     // Create a watcher object, delivering debounced events.
+//!     // The notification back-end is selected based on the platform.
+//!     let mut watcher = debounced_watcher(tx, Duration::from_secs(10)).unwrap();
+//!
+//!     // Add a path to be watched. All files and directories at that path and
+//!     // below will be monitored for changes.
+//!     watcher.watch("/home/test/notify", RecursiveMode::Recursive).unwrap();
+//!
+//!     loop {
+//!         match rx.recv() {
+//!            Ok(event) => println!("{:?}", event),
+//!            Err(e) => println!("watch error: {:?}", e),
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! Using the _debounced_ API is easy, all possible events are described in the [`DebouncedEvent`](enum.DebouncedEvent.html) documentation.
+//! But in order to understand the subtleties of the event delivery, you should read the [`op`](op/index.html) documentation as well.
+//!
+//! Raw API
+//!
+//! ```no_run
+//! extern crate notify;
+//!
+//! use notify::{Watcher, RecursiveMode, RawEvent, raw_watcher};
 //! use std::sync::mpsc::channel;
 //!
 //! fn main() {
-//!   // Create a channel to receive the events.
-//!   let (tx, rx) = channel();
+//!     // Create a channel to receive the events.
+//!     let (tx, rx) = channel();
 //!
-//!   // Automatically select the best implementation for your platform.
-//!   // You can also access each implementation directly e.g. INotifyWatcher.
-//!   let w: Result<RecommendedWatcher, Error> = Watcher::new(tx);
+//!     // Create a watcher object, delivering raw events.
+//!     // The notification back-end is selected based on the platform.
+//!     let mut watcher = raw_watcher(tx).unwrap();
 //!
-//!   match w {
-//!     Ok(mut watcher) => {
-//!       // Add a path to be watched. All files and directories at that path and
-//!       // below will be monitored for changes.
-//!       watcher.watch("/home/test/notify", RecursiveMode::Recursive);
+//!     // Add a path to be watched. All files and directories at that path and
+//!     // below will be monitored for changes.
+//!     watcher.watch("/home/test/notify", RecursiveMode::Recursive).unwrap();
 //!
-//!       // You'll probably want to do that in a loop. The type to match for is
-//!       // notify::Event, look at src/lib.rs for details.
-//!       match rx.recv() {
-//!         _ => println!("Recv.")
-//!       }
-//!     },
-//!     Err(_) => println!("Error")
-//!   }
+//!     loop {
+//!         match rx.recv() {
+//!            Ok(RawEvent{path: Some(path), op: Ok(op), cookie}) => {
+//!                println!("{:?} {:?} ({:?})", op, path, cookie)
+//!            },
+//!            Ok(event) => println!("broken event: {:?}", event),
+//!            Err(e) => println!("watch error: {:?}", e),
+//!         }
+//!     }
 //! }
 //! ```
+//!
+//! The event structure is described in the [`RawEvent`](struct.RawEvent.html) documentation,
+//! all possible operations delivered in an event are described in the [`op`](op/index.html) documentation.
 //!
 //! ## Platforms
 //!
@@ -121,7 +160,7 @@ pub mod windows;
 pub mod null;
 pub mod poll;
 
-pub mod debounce;
+mod debounce;
 
 /// Contains the `Op` type which describes the actions for an event.
 ///
@@ -309,9 +348,9 @@ pub mod op {
     }
 }
 
-/// Event delivered when action occurs on a watched path
+/// Event delivered when action occurs on a watched path in _raw_ mode
 #[derive(Debug)]
-pub struct Event {
+pub struct RawEvent {
     /// Path where the event originated.
     ///
     /// `path` is always abolute, even if a relative path is used to _watch_ a file or directory.
@@ -338,7 +377,64 @@ pub struct Event {
     pub cookie: Option<u32>,
 }
 
-unsafe impl Send for Event {}
+unsafe impl Send for RawEvent {}
+
+#[derive(Debug)]
+/// Event delivered when action occurs on a watched path in _debounced_ mode
+pub enum DebouncedEvent {
+    /// `NoticeWrite` is emitted imediatelly after the first write event for the path.
+    ///
+    /// If you are reading from that file, you should probably close it imediatelly and discard all data you read from it.
+    NoticeWrite(PathBuf),
+    /// `NoticeRemove` is emitted imediatelly after a remove or rename event for the path.
+    ///
+    /// The file will continue to exist until its last file handle is closed.
+    NoticeRemove(PathBuf),
+    /// `Create` is emitted when a file or directory has been created and no events were detected for the path within the specified time frame.
+    ///
+    /// `Create` events have a higher priority than `Write` and `Chmod`.
+    /// These events will not be emitted if they are detected before the `Create` event has been emitted.
+    Create(PathBuf),
+    /// `Write` is emitted when a file has been written to and no events were detected for the path within the specified time frame.
+    ///
+    /// `Write` events have a higher priority than `Chmod`.
+    /// `Chmod` will not be emitted if it's detected before the `Write` event has been emitted.
+    ///
+    /// Upon receiving a `Create` event for a directory, it is necessary to scan the newly created directory for contents.
+    /// The directory can contain files or directories if those contents were created before the directory could be watched,
+    /// or if the directory was moved into the watched directory.
+    Write(PathBuf),
+    /// `Chmod` is emitted when attributes have been changed and no events were detected for the path within the specified time frame.
+    Chmod(PathBuf),
+    /// `Remove` is emitted when a file or directory has been removed and no events were detected for the path within the specified time frame.
+    Remove(PathBuf),
+    /// `Rename` is emitted when a file or directory has been moved within a watched directory and no events were detected for the new path within the specified time frame.
+    ///
+    /// The first path contains the source, the second path the destination.
+    Rename(PathBuf, PathBuf),
+    /// `Rescan` is emitted imediatelly after a problem has been detected that makes it necessary to re-scan the watched directories.
+    Rescan,
+    /// `Error` is emitted imediatelly after a error has been detected.
+    ///
+    ///  This event may contain a path for which the error was detected.
+    Error(Error, Option<PathBuf>),
+}
+
+impl PartialEq for DebouncedEvent {
+    fn eq(&self, other: &DebouncedEvent) -> bool {
+        match (self, other) {
+            (&DebouncedEvent::NoticeWrite(ref a), &DebouncedEvent::NoticeWrite(ref b)) |
+            (&DebouncedEvent::NoticeRemove(ref a), &DebouncedEvent::NoticeRemove(ref b)) |
+            (&DebouncedEvent::Create(ref a), &DebouncedEvent::Create(ref b)) |
+            (&DebouncedEvent::Write(ref a), &DebouncedEvent::Write(ref b)) |
+            (&DebouncedEvent::Chmod(ref a), &DebouncedEvent::Chmod(ref b)) |
+            (&DebouncedEvent::Remove(ref a), &DebouncedEvent::Remove(ref b)) => a == b,
+            (&DebouncedEvent::Rename(ref a1, ref a2), &DebouncedEvent::Rename(ref b1, ref b2)) => (a1 == b1 && a2 == b2),
+            (&DebouncedEvent::Rescan, &DebouncedEvent::Rescan) => true,
+            _ => false,
+        }
+    }
+}
 
 /// Errors generated from the `notify` crate
 #[derive(Debug)]
@@ -417,12 +513,12 @@ impl RecursiveMode {
 /// addition to such event driven implementations, a polling implementation is also provided that
 /// should work on any platform.
 pub trait Watcher: Sized {
-    /// Create a new Watcher.
+    /// Create a new watcher in _raw_ mode.
     ///
-    /// Events will be sent using the provided `tx`.
-    fn new(tx: Sender<Event>) -> Result<Self>;
+    /// Events will be sent using the provided `tx` immediately after they occurred.
+    fn new_raw(tx: Sender<RawEvent>) -> Result<Self>;
 
-    /// Create a new _debounced_ Watcher with a `delay`.
+    /// Create a new _debounced_ watcher with a `delay`.
     ///
     /// Events won't be sent immediately but after the specified delay.
     ///
@@ -448,7 +544,7 @@ pub trait Watcher: Sized {
     /// Your application might not feel as responsive.
     ///
     /// If a file is saved very slowly, you might receive a `Write` event even though the file is still being written to.
-    fn debounced(tx: Sender<debounce::Event>, delay: Duration) -> Result<Self>;
+    fn new_debounced(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<Self>;
 
     /// Begin watching a new path.
     ///
@@ -480,11 +576,18 @@ pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub type RecommendedWatcher = PollWatcher;
 
-/// Convenience method for creating the `RecommendedWatcher` for the current platform.
+/// Convenience method for creating the `RecommendedWatcher` for the current platform in _raw_ mode.
 ///
-/// Events will be sent using the provided `tx`.
-pub fn new(tx: Sender<Event>) -> Result<RecommendedWatcher> {
-    Watcher::new(tx)
+/// See [`Watcher::new_raw`](trait.Watcher.html#tymethod.new_raw).
+pub fn raw_watcher(tx: Sender<RawEvent>) -> Result<RecommendedWatcher> {
+    Watcher::new_raw(tx)
+}
+
+/// Convenience method for creating the `RecommendedWatcher` for the current platform in _debounced_ mode.
+///
+/// See [`Watcher::new_debounced`](trait.Watcher.html#tymethod.new_debounced).
+pub fn debounced_watcher(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<RecommendedWatcher> {
+    Watcher::new_debounced(tx, delay)
 }
 
 

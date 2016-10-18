@@ -24,11 +24,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use std::sync::mpsc::{channel, Sender, Receiver};
-use super::{Error, Event, op, Result, Watcher, RecursiveMode};
+use super::{Error, RawEvent, DebouncedEvent, op, Result, Watcher, RecursiveMode};
 use std::path::{Path, PathBuf};
 use libc;
 
-use super::debounce::{self, Debounce, EventTx};
+use super::debounce::{Debounce, EventTx};
 
 /// FSEvents-based `Watcher` implementation
 pub struct FsEventWatcher {
@@ -69,9 +69,9 @@ fn translate_flags(flags: fse::StreamFlags) -> op::Op {
     ret
 }
 
-fn send_pending_rename_event(event: Option<Event>, event_tx: &mut EventTx) {
+fn send_pending_rename_event(event: Option<RawEvent>, event_tx: &mut EventTx) {
     if let Some(e) = event {
-        event_tx.send(Event {
+        event_tx.send(RawEvent {
             path: e.path,
             op: e.op,
             cookie: None,
@@ -242,7 +242,7 @@ pub unsafe extern "C" fn callback(
     let ids = slice::from_raw_parts_mut(i_ptr, num);
 
     if let Ok(mut event_tx) = (*info).event_tx.lock() {
-        let mut rename_event: Option<Event> = None;
+        let mut rename_event: Option<RawEvent> = None;
 
         for p in 0..num {
             let i = CStr::from_ptr(paths[p]).to_bytes();
@@ -269,7 +269,7 @@ pub unsafe extern "C" fn callback(
             }
 
             if flag.contains(fse::MUST_SCAN_SUBDIRS) {
-                event_tx.send(Event {
+                event_tx.send(RawEvent {
                     path: None,
                     op: Ok(op::RESCAN),
                     cookie: None,
@@ -281,7 +281,7 @@ pub unsafe extern "C" fn callback(
                     if let Some(e) = rename_event {
                         if e.cookie == Some((id - 1) as u32) {
                             event_tx.send(e);
-                            event_tx.send(Event {
+                            event_tx.send(RawEvent {
                                 op: Ok(translate_flags(flag)),
                                 path: Some(path),
                                 cookie: Some((id - 1) as u32),
@@ -289,14 +289,14 @@ pub unsafe extern "C" fn callback(
                             rename_event = None;
                         } else {
                             send_pending_rename_event(Some(e), &mut event_tx);
-                            rename_event = Some(Event {
+                            rename_event = Some(RawEvent {
                                 path: Some(path),
                                 op: Ok(translate_flags(flag)),
                                 cookie: Some(id as u32),
                             });
                         }
                     } else {
-                        rename_event = Some(Event {
+                        rename_event = Some(RawEvent {
                             path: Some(path),
                             op: Ok(translate_flags(flag)),
                             cookie: Some(id as u32),
@@ -306,7 +306,7 @@ pub unsafe extern "C" fn callback(
                     send_pending_rename_event(rename_event, &mut event_tx);
                     rename_event = None;
 
-                    event_tx.send(Event {
+                    event_tx.send(RawEvent {
                         op: Ok(translate_flags(flag)),
                         path: Some(path),
                         cookie: None,
@@ -321,7 +321,7 @@ pub unsafe extern "C" fn callback(
 
 
 impl Watcher for FsEventWatcher {
-    fn new(tx: Sender<Event>) -> Result<FsEventWatcher> {
+    fn new_raw(tx: Sender<RawEvent>) -> Result<FsEventWatcher> {
         Ok(FsEventWatcher {
             paths: unsafe {
                 cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
@@ -338,7 +338,7 @@ impl Watcher for FsEventWatcher {
         })
     }
 
-    fn debounced(tx: Sender<debounce::Event>, delay: Duration) -> Result<FsEventWatcher> {
+    fn new_debounced(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<FsEventWatcher> {
         Ok(FsEventWatcher {
             paths: unsafe {
                 cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
@@ -388,7 +388,7 @@ fn test_fsevent_watcher_drop() {
     let (tx, rx) = channel();
 
     {
-        let mut watcher: RecommendedWatcher = Watcher::new(tx).unwrap();
+        let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).unwrap();
         watcher.watch("../../", RecursiveMode::Recursive).unwrap();
         thread::sleep(Duration::from_millis(2000));
         println!("is running -> {}", watcher.is_running());
