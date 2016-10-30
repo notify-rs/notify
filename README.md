@@ -1,30 +1,34 @@
 # Notify
 
-[![Crate version](https://img.shields.io/crates/v/notify.svg?style=flat-square)](https://crates.io/crates/notify)
-[![Crate license](https://img.shields.io/crates/l/notify.svg?style=flat-square)](https://creativecommons.org/publicdomain/zero/1.0/)
-![Crate download count](https://img.shields.io/crates/d/notify.svg?style=flat-square)
+[![Crate version](https://img.shields.io/crates/v/notify.svg?style=flat-square)][crate]
+[![Crate license](https://img.shields.io/crates/l/notify.svg?style=flat-square)][cc0]
+[![Crate download count](https://img.shields.io/crates/d/notify.svg?style=flat-square)][crate]
 
-[![Appveyor](https://img.shields.io/appveyor/ci/passcod/rsnotify.svg?style=flat-square)](https://ci.appveyor.com/project/passcod/rsnotify) <sup>(Windows)</sup>
-[![Travis](https://img.shields.io/travis/passcod/rsnotify.svg?style=flat-square)](https://travis-ci.org/passcod/rsnotify) <sup>(Linux and OS X)</sup>
+[![Appveyor](https://img.shields.io/appveyor/ci/passcod/rsnotify.svg?style=flat-square)][build-windows] <sup>(Windows)</sup>
+[![Travis](https://img.shields.io/travis/passcod/rsnotify.svg?style=flat-square)][build-unix] <sup>(Linux and OS X)</sup>
 
-[![Code of Conduct](https://img.shields.io/badge/contributor-covenant-123456.svg?style=flat-square)](http://contributor-covenant.org/version/1/3/0/)
-[![Documentation](https://img.shields.io/badge/documentation-docs.rs-df3600.svg?style=flat-square)](https://docs.rs/notify)
+[![Code of Conduct](https://img.shields.io/badge/contributor-covenant-123456.svg?style=flat-square)][coc]
+[![Documentation](https://img.shields.io/badge/documentation-docs.rs-df3600.svg?style=flat-square)][docs]
 
 
 _Cross-platform filesystem notification library for Rust._
+
+
+As used by: [cargo watch], [cobalt], [handlebars-iron], [rdiff], and
+[watchexec]. (Want to be added to this list? Open a pull request!)
 
 ## Installation
 
 ```toml
 [dependencies]
-notify = "2.6.3"
+notify = "3.0.0"
 ```
 
 ## Usage
 
 ```rust
 extern crate notify;
-use notify::{RecommendedWatcher, Watcher};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
 
 fn watch() -> notify::Result<()> {
@@ -33,17 +37,17 @@ fn watch() -> notify::Result<()> {
 
   // Automatically select the best implementation for your platform.
   // You can also access each implementation directly e.g. INotifyWatcher.
-  let mut watcher: RecommendedWatcher = try!(Watcher::new_raw(tx));
+  let mut watcher: RecommendedWatcher = try!(Watcher::new(tx));
 
   // Add a path to be watched. All files and directories at that path and
   // below will be monitored for changes.
-  try!(watcher.watch("/home/test/notify"));
+  try!(watcher.watch("/home/test/notify", RecursiveMode::Recursive));
 
   // This is a simple loop, but you may want to use more complex logic here,
   // for example to handle I/O.
   loop {
       match rx.recv() {
-        Ok(notify::RawEvent{ path: Some(path),op:Ok(op) }) => {
+        Ok(notify::Event{ path: Some(path),op:Ok(op) }) => {
             println!("{:?} {:?}", op, path);
         },
         Err(e) => println!("watch error {}", e),
@@ -59,19 +63,38 @@ fn main() {
 }
 ```
 
-## Migration
+## Version 2.x
 
-### From v2.x to v3.x
+The documentation for the previous major version is [available on
+docs.rs][docs-v2]. While version 2.x will no longer be maintained and we
+encourage all library authors to switch to version 3 (a short guide is provided
+below), it is still a dependency of many packages. Here is a list of changes
+you may need to take note of:
 
-* `notify` now provides two APIs, a _raw_ and a _debounced_ API. In order to keep the old behavior, use the _raw_ API.
-Replace every occurrence of `Watcher::new` with `Watcher::new_raw` and `Event` with `RawEvent`. Or see the docs for how to use the _debounced_ API.
-* The watch(..) function used to watch a file or a directory now takes an additional argument.
-In order to use that argument you first need to import `RecursiveMode` via the `use` keyword.
-To keep the old behavior, use `RecursiveMode::Recursive`, for more information see the docs.
-* The inotify back-end used to add watches recursively to a directory but it wouldn't remove them recursively.
-From v3.0.0 on inotify removes watches recursively if they were added recursively.
-* The inotify back-end didn't use to watch newly created directories.
-From v3.0.0 on inotify watches newly created directories if their parent directories were added recursively.
+- Notify 2.x by default provided the events immediately as reported from the
+  backend API. Notify 3.x by default [debounces the events][docs-debounce] (if
+  the backend reports two similar events in close succession, Notify will only
+  report one). The old behaviour may be obtained through the
+  `Watcher::new_raw()` function and `RawEvent` type, see [the
+  documentation][docs-raw].
+
+- Notify 2.x always tried to watch paths recursively in the case of
+  directories. Notify 3.x gives you the choice of what mode you'd like to use
+  per-watch, using the [`RecursiveMode`][docs-recursivemode] enum. The
+  `watch(...)` function thus takes the mode as a second argument.
+
+- Notify 2.x had two behaviour bugs with the **inotify** backend, that are
+  corrected in Notify 3.x. Nonetheless, these are breaking changes:
+
+  * **inotify** did not _remove_ watches recursively; and
+  * **inotify** did not watch _newly created folders_.
+
+To upgrade to Notify 3.x with minimal behaviour change:
+
+- Replace `Watcher::new` with `Watcher::new_raw`.
+- Replace `Event` with `EventRaw`.
+- Import `notify::RecursiveMode` and add `RecursiveMode::Recursive` as second
+  argument to the `watch()` function.
 
 ## Platforms
 
@@ -80,11 +103,12 @@ From v3.0.0 on inotify watches newly created directories if their parent directo
 - Windows: ReadDirectoryChangesW
 - All platforms: polling
 
-## Limitations
-
 ### FSEvents
 
-Due to the inner security model of FSEvents (see [FileSystemEventSecurity](https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html)), some event cannot be observed easily when trying to follow files that do not belong to you. In this case, reverting to the pollwatcher can fix the issue, with a slight performance cost.
+Due to the inner security model of FSEvents (see [FileSystemEventSecurity]),
+some event cannot be observed easily when trying to follow files that do not
+belong to you. In this case, reverting to the pollwatcher can fix the issue,
+with a slight performance cost.
 
 ## Todo
 
@@ -95,10 +119,30 @@ Pull requests and bug reports happily accepted!
 
 ## Origins
 
-Inspired by Go's [fsnotify](https://github.com/go-fsnotify/fsnotify), born out
-of need for [cargo watch](https://github.com/passcod/cargo-watch), and general
-frustration at the non-existence of C/Rust cross-platform notify libraries.
+Inspired by Go's [fsnotify] and Node.js's [Chokidar], born out of need for
+[cargo watch], and general frustration at the non-existence of C/Rust
+cross-platform notify libraries.
 
-Written by [Félix Saparelli](https://passcod.name) and awesome
-[contributors](https://github.com/passcod/rsnotify/graphs/contributors),
-and released in the Public Domain using the Creative Commons Zero Declaration.
+Written by [Félix Saparelli] and awesome [contributors], and released in the
+Public Domain using the [Creative Commons Zero Declaration][cc0].
+
+[Chokidar]: https://github.com/paulmillr/chokidar
+[FileSystemEventSecurity]: https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html
+[Félix Saparelli]: https://passcod.name
+[build-unix]: https://travis-ci.org/passcod/rsnotify
+[build-windows]: https://ci.appveyor.com/project/passcod/rsnotify
+[cargo watch]: https://github.com/passcod/cargo-watch
+[cc0]: https://creativecommons.org/publicdomain/zero/1.0/
+[cobalt]: https://github.com/cobalt-org/cobalt.rs
+[coc]: http://contributor-covenant.org/version/1/4/
+[contributors]: https://github.com/passcod/rsnotify/graphs/contributors
+[crate]: https://crates.io/crates/notify
+[docs-debounced]:
+[docs-raw]:
+[docs-recursivemode]:
+[docs-v2]: https://docs.rs/notify/2
+[docs]: https://docs.rs/notify
+[fsnotify]: https://github.com/go-fsnotify/fsnotify
+[handlebars-iron]: https://github.com/sunng87/handlebars-iron
+[rdiff]: https://github.com/dyule/rdiff
+[watchexec]: https://github.com/mattgreen/watchexec

@@ -1,23 +1,22 @@
 //! Generic Watcher implementation based on polling
 //!
 //! Checks the `watch`ed paths periodically to detect changes. This implementation only uses
-//! cross-platform APIs; it should function on any platform that the Rust standard library does.
-
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Mutex};
-use std::sync::mpsc::Sender;
-use std::fs;
-use std::thread;
-use super::{Error, RawEvent, DebouncedEvent, op, Result, Watcher, RecursiveMode};
-use super::debounce::{Debounce, EventTx};
-use std::path::{Path, PathBuf};
-use std::time::Duration;
-use self::walkdir::WalkDir;
+//! Rust stdlib APIs and should work on all of the platforms it supports.
 
 use filetime::FileTime;
+use self::walkdir::WalkDir;
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock, Mutex};
+use std::sync::mpsc::Sender;
+use std::thread;
+use std::time::Duration;
+use super::{Error, RawEvent, DebouncedEvent, op, Result, Watcher, RecursiveMode};
+use super::debounce::{Debounce, EventTx};
 
-extern crate walkdir;
 extern crate time;
+extern crate walkdir;
 
 struct PathData {
     mtime: u64,
@@ -40,15 +39,11 @@ impl PollWatcher {
     /// Create a PollWatcher which polls every `delay` milliseconds
     pub fn with_delay_ms(tx: Sender<RawEvent>, delay: u32) -> Result<PollWatcher> {
         let mut p = PollWatcher {
-            event_tx: EventTx::Raw {
-                tx: tx.clone(),
-            },
+            event_tx: EventTx::Raw { tx: tx.clone() },
             watches: Arc::new(Mutex::new(HashMap::new())),
             open: Arc::new(RwLock::new(true)),
         };
-        let event_tx = EventTx::Raw {
-            tx: tx,
-        };
+        let event_tx = EventTx::Raw { tx: tx };
         p.run(Duration::from_millis(delay as u64), event_tx);
         Ok(p)
     }
@@ -71,7 +66,8 @@ impl PollWatcher {
                 if let Ok(mut watches) = watches.lock() {
                     let current_time = time::precise_time_s();
 
-                    for (watch, &mut WatchData{is_recursive, ref mut paths}) in watches.iter_mut() {
+                    for (watch, &mut WatchData { is_recursive, ref mut paths }) in
+                        watches.iter_mut() {
                         match fs::metadata(watch) {
                             Err(e) => {
                                 event_tx.send(RawEvent {
@@ -83,12 +79,17 @@ impl PollWatcher {
                             }
                             Ok(metadata) => {
                                 if !metadata.is_dir() {
-                                    let mtime = FileTime::from_last_modification_time(&metadata).seconds();
-                                    match paths.insert(watch.clone(), PathData{mtime: mtime, last_check: current_time}) {
+                                    let mtime = FileTime::from_last_modification_time(&metadata)
+                                        .seconds();
+                                    match paths.insert(watch.clone(),
+                                                       PathData {
+                                                           mtime: mtime,
+                                                           last_check: current_time,
+                                                       }) {
                                         None => {
                                             unreachable!();
                                         }
-                                        Some(PathData{mtime: old_mtime, ..}) => {
+                                        Some(PathData { mtime: old_mtime, .. }) => {
                                             if mtime > old_mtime {
                                                 event_tx.send(RawEvent {
                                                     path: Some(watch.clone()),
@@ -99,16 +100,12 @@ impl PollWatcher {
                                         }
                                     }
                                 } else {
-                                    let depth = if is_recursive {
-                                        usize::max_value()
-                                    } else {
-                                        1
-                                    };
+                                    let depth = if is_recursive { usize::max_value() } else { 1 };
                                     for entry in WalkDir::new(watch)
-                                                        .follow_links(true)
-                                                        .max_depth(depth)
-                                                        .into_iter()
-                                                        .filter_map(|e| e.ok()) {
+                                        .follow_links(true)
+                                        .max_depth(depth)
+                                        .into_iter()
+                                        .filter_map(|e| e.ok()) {
                                         let path = entry.path();
 
                                         match entry.metadata() {
@@ -120,8 +117,14 @@ impl PollWatcher {
                                                 });
                                             }
                                             Ok(m) => {
-                                                let mtime = FileTime::from_last_modification_time(&m).seconds();
-                                                match paths.insert(path.to_path_buf(), PathData{mtime: mtime, last_check: current_time}) {
+                                                let mtime =
+                                                    FileTime::from_last_modification_time(&m)
+                                                        .seconds();
+                                                match paths.insert(path.to_path_buf(),
+                                                                   PathData {
+                                                                       mtime: mtime,
+                                                                       last_check: current_time,
+                                                                   }) {
                                                     None => {
                                                         event_tx.send(RawEvent {
                                                             path: Some(path.to_path_buf()),
@@ -129,7 +132,7 @@ impl PollWatcher {
                                                             cookie: None,
                                                         });
                                                     }
-                                                    Some(PathData{mtime: old_mtime, ..}) => {
+                                                    Some(PathData { mtime: old_mtime, .. }) => {
                                                         if mtime > old_mtime {
                                                             event_tx.send(RawEvent {
                                                                 path: Some(path.to_path_buf()),
@@ -147,9 +150,9 @@ impl PollWatcher {
                         }
                     }
 
-                    for (_, &mut WatchData{ref mut paths, ..}) in watches.iter_mut() {
+                    for (_, &mut WatchData { ref mut paths, .. }) in watches.iter_mut() {
                         let mut removed = Vec::new();
-                        for (path, &PathData{last_check, ..}) in paths.iter() {
+                        for (path, &PathData { last_check, .. }) in paths.iter() {
                             if last_check < current_time {
                                 event_tx.send(RawEvent {
                                     path: Some(path.clone()),
@@ -176,11 +179,9 @@ impl Watcher for PollWatcher {
         PollWatcher::with_delay_ms(tx, 30_000)
     }
 
-    fn new_debounced(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<PollWatcher> {
+    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<PollWatcher> {
         let mut p = PollWatcher {
-            event_tx: EventTx::DebouncedTx {
-                tx: tx.clone(),
-            },
+            event_tx: EventTx::DebouncedTx { tx: tx.clone() },
             watches: Arc::new(Mutex::new(HashMap::new())),
             open: Arc::new(RwLock::new(true)),
         };
@@ -210,8 +211,16 @@ impl Watcher for PollWatcher {
                     if !metadata.is_dir() {
                         let mut paths = HashMap::new();
                         let mtime = FileTime::from_last_modification_time(&metadata).seconds();
-                        paths.insert(watch.clone(), PathData{mtime: mtime, last_check: current_time});
-                        watches.insert(watch, WatchData{is_recursive: recursive_mode.is_recursive(), paths: paths});
+                        paths.insert(watch.clone(),
+                                     PathData {
+                                         mtime: mtime,
+                                         last_check: current_time,
+                                     });
+                        watches.insert(watch,
+                                       WatchData {
+                                           is_recursive: recursive_mode.is_recursive(),
+                                           paths: paths,
+                                       });
                     } else {
                         let mut paths = HashMap::new();
                         let depth = if recursive_mode.is_recursive() {
@@ -220,10 +229,10 @@ impl Watcher for PollWatcher {
                             1
                         };
                         for entry in WalkDir::new(watch.clone())
-                                            .follow_links(true)
-                                            .max_depth(depth)
-                                            .into_iter()
-                                            .filter_map(|e| e.ok()) {
+                            .follow_links(true)
+                            .max_depth(depth)
+                            .into_iter()
+                            .filter_map(|e| e.ok()) {
                             let path = entry.path();
 
                             match entry.metadata() {
@@ -236,11 +245,19 @@ impl Watcher for PollWatcher {
                                 }
                                 Ok(m) => {
                                     let mtime = FileTime::from_last_modification_time(&m).seconds();
-                                    paths.insert(path.to_path_buf(), PathData{mtime: mtime, last_check: current_time});
+                                    paths.insert(path.to_path_buf(),
+                                                 PathData {
+                                                     mtime: mtime,
+                                                     last_check: current_time,
+                                                 });
                                 }
                             }
                         }
-                        watches.insert(watch, WatchData{is_recursive: recursive_mode.is_recursive(), paths: paths});
+                        watches.insert(watch,
+                                       WatchData {
+                                           is_recursive: recursive_mode.is_recursive(),
+                                           paths: paths,
+                                       });
                     }
                 }
             }

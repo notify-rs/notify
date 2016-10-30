@@ -17,7 +17,7 @@ impl Watcher for NullWatcher {
         Ok(NullWatcher)
     }
 
-    fn new_debounced(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<NullWatcher> {
+    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<NullWatcher> {
         Ok(NullWatcher)
     }
 

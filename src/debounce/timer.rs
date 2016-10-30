@@ -44,8 +44,12 @@ struct ScheduleWorker {
 }
 
 impl ScheduleWorker {
-    fn new(trigger: Arc<Condvar>, request_source: mpsc::Receiver<Action>, tx: mpsc::Sender<DebouncedEvent>, operations_buffer: OperationsBuffer) -> ScheduleWorker {
-        ScheduleWorker{
+    fn new(trigger: Arc<Condvar>,
+           request_source: mpsc::Receiver<Action>,
+           tx: mpsc::Sender<DebouncedEvent>,
+           operations_buffer: OperationsBuffer)
+           -> ScheduleWorker {
+        ScheduleWorker {
             trigger: trigger,
             request_source: request_source,
             schedule: BinaryHeap::new(),
@@ -60,13 +64,13 @@ impl ScheduleWorker {
             match action {
                 Action::Schedule(event) => self.schedule.push(event),
                 Action::Ignore(ignore_id) => {
-                    for &ScheduledEvent{ref id, ..} in &self.schedule {
+                    for &ScheduledEvent { ref id, .. } in &self.schedule {
                         if *id == ignore_id {
                             self.ignore.insert(ignore_id);
                             break;
                         }
                     }
-                },
+                }
             }
         }
     }
@@ -80,7 +84,7 @@ impl ScheduleWorker {
     }
 
     fn fire_event(&mut self) {
-        if let Some(ScheduledEvent{id, path, ..}) = self.schedule.pop() {
+        if let Some(ScheduledEvent { id, path, .. }) = self.schedule.pop() {
             if !self.ignore.remove(&id) {
                 if let Ok(ref mut op_buf) = self.operations_buffer.lock() {
                     if let Some((op, from_path, _)) = op_buf.remove(&path) {
@@ -99,8 +103,8 @@ impl ScheduleWorker {
                                 } else {
                                     Some(DebouncedEvent::Remove(path))
                                 }
-                            },
-                            _ => None
+                            }
+                            _ => None,
                         };
                         if let Some(m) = message {
                             let _ = self.tx.send(m);
@@ -126,7 +130,10 @@ impl ScheduleWorker {
 
     fn run(&mut self) {
         let m = Mutex::new(());
-        let mut g = m.lock().unwrap(); // unwrap is safe because the mutex can't be poisoned, since we just created it
+
+        // Unwrapping is safe because the mutex can't be poisoned,
+        // since we just created it.
+        let mut g = m.lock().unwrap();
 
         loop {
             self.drain_request_queue();
@@ -137,7 +144,8 @@ impl ScheduleWorker {
 
             let wait_duration = self.duration_until_next_event();
 
-            // unwrap is safe because the mutex can't be poisoned, since we haven't shared it with another thread
+            // Unwrapping is safe because the mutex can't be poisoned,
+            // since we haven't shared it with another thread.
             g = if let Some(wait_duration) = wait_duration {
                 self.trigger.wait_timeout(g, wait_duration).unwrap().0
             } else {
@@ -155,7 +163,10 @@ pub struct WatchTimer {
 }
 
 impl WatchTimer {
-    pub fn new(tx: mpsc::Sender<DebouncedEvent>, operations_buffer: OperationsBuffer, delay: Duration) -> WatchTimer {
+    pub fn new(tx: mpsc::Sender<DebouncedEvent>,
+               operations_buffer: OperationsBuffer,
+               delay: Duration)
+               -> WatchTimer {
         let (schedule_tx, schedule_rx) = mpsc::channel();
         let trigger = Arc::new(Condvar::new());
 
@@ -175,11 +186,13 @@ impl WatchTimer {
     pub fn schedule(&mut self, path: PathBuf) -> u64 {
         self.counter = self.counter.wrapping_add(1);
 
-        self.schedule_tx.send(Action::Schedule(ScheduledEvent {
-            id: self.counter,
-            when: Instant::now() + self.delay,
-            path: path,
-        })).expect("Failed to send a request to the global scheduling worker");
+        self.schedule_tx
+            .send(Action::Schedule(ScheduledEvent {
+                id: self.counter,
+                when: Instant::now() + self.delay,
+                path: path,
+            }))
+            .expect("Failed to send a request to the global scheduling worker");
 
         self.trigger.notify_one();
 
@@ -187,6 +200,8 @@ impl WatchTimer {
     }
 
     pub fn ignore(&self, id: u64) {
-        self.schedule_tx.send(Action::Ignore(id)).expect("Failed to send a request to the global scheduling worker");
+        self.schedule_tx
+            .send(Action::Ignore(id))
+            .expect("Failed to send a request to the global scheduling worker");
     }
 }

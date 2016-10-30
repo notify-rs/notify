@@ -1,33 +1,33 @@
 //! Watcher implementation for Darwin's FSEvents API
 //!
 //! The FSEvents API provides a mechanism to notify clients about directories they ought to re-scan
-//! in order to keep their internal data structures up-to-date with respect to the true state of the
-//! file system. (For example, when files or directories are created, modified, or removed.) It
+//! in order to keep their internal data structures up-to-date with respect to the true state of
+//! the file system. (For example, when files or directories are created, modified, or removed.) It
 //! sends these notifications "in bulk", possibly notifying the client of changes to several
 //! directories in a single callback.
 //!
-//! For more information see the [FSEvents API reference](https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/).
+//! For more information see the [FSEvents API reference][ref].
+//!
+//! [ref]: https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/
 
 #![allow(non_upper_case_globals, dead_code)]
 extern crate fsevent as fse;
 
 use fsevent_sys::core_foundation as cf;
 use fsevent_sys::fsevent as fs;
-use std::slice;
-use std::mem::transmute;
-use std::str::from_utf8;
-use std::ffi::CStr;
-use std::convert::AsRef;
-use std::thread;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-
-use std::sync::mpsc::{channel, Sender, Receiver};
-use super::{Error, RawEvent, DebouncedEvent, op, Result, Watcher, RecursiveMode};
-use std::path::{Path, PathBuf};
 use libc;
-
+use std::collections::HashMap;
+use std::convert::AsRef;
+use std::ffi::CStr;
+use std::mem::transmute;
+use std::path::{Path, PathBuf};
+use std::slice;
+use std::str::from_utf8;
+use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{channel, Sender, Receiver};
+use std::thread;
+use std::time::Duration;
+use super::{Error, RawEvent, DebouncedEvent, op, Result, Watcher, RecursiveMode};
 use super::debounce::{Debounce, EventTx};
 
 /// FSEvents-based `Watcher` implementation
@@ -43,9 +43,9 @@ pub struct FsEventWatcher {
 }
 
 // CFMutableArrayRef is a type alias to *mut libc::c_void, so FsEventWatcher is not Send/Sync
-// automatically.
-// It's Send because the pointer is not used in other threads.
+// automatically. It's Send because the pointer is not used in other threads.
 unsafe impl Send for FsEventWatcher {}
+
 // It's Sync because all methods that change the mutable state use `&mut self`.
 unsafe impl Sync for FsEventWatcher {}
 
@@ -87,15 +87,11 @@ struct StreamContextInfo {
 
 impl FsEventWatcher {
     #[inline]
-    #[doc(hidden)]
-    // TODO should not be pub
-    pub fn is_running(&self) -> bool {
+    fn is_running(&self) -> bool {
         self.runloop.is_some()
     }
 
-    #[doc(hidden)]
-    // TODO should not be pub
-    pub fn stop(&mut self) {
+    fn stop(&mut self) {
         if !self.is_running() {
             return;
         }
@@ -151,12 +147,11 @@ impl FsEventWatcher {
             cf::CFArrayAppendValue(self.paths, cf_path);
             cf::CFRelease(cf_path);
         }
-        self.recursive_info.insert(path.as_ref().to_path_buf().canonicalize().unwrap(), recursive_mode.is_recursive());
+        self.recursive_info.insert(path.as_ref().to_path_buf().canonicalize().unwrap(),
+                                   recursive_mode.is_recursive());
     }
 
-    #[doc(hidden)]
-    // TODO should not be pub
-    pub fn run(&mut self) -> Result<()> {
+    fn run(&mut self) -> Result<()> {
         if unsafe { cf::CFArrayGetCount(self.paths) } == 0 {
             return Err(Error::PathNotFound);
         }
@@ -207,7 +202,7 @@ impl FsEventWatcher {
 
                 // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
                 rl_tx.send(cur_runloop as *mut libc::c_void as usize)
-                     .expect("Unable to send runloop to watcher");
+                    .expect("Unable to send runloop to watcher");
                 cf::CFRunLoopRun();
                 fs::FSEventStreamStop(stream);
                 fs::FSEventStreamInvalidate(stream);
@@ -247,8 +242,7 @@ pub unsafe extern "C" fn callback(
         for p in 0..num {
             let i = CStr::from_ptr(paths[p]).to_bytes();
             let flag = fse::StreamFlags::from_bits(flags[p] as u32)
-                        .expect(format!("Unable to decode StreamFlags: {}", flags[p] as u32)
-                                    .as_ref());
+                .expect(format!("Unable to decode StreamFlags: {}", flags[p] as u32).as_ref());
             let id = ids[p];
 
             let path = PathBuf::from(from_utf8(i).expect("Invalid UTF8 string."));
@@ -329,16 +323,14 @@ impl Watcher for FsEventWatcher {
             since_when: fs::kFSEventStreamEventIdSinceNow,
             latency: 0.0,
             flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
-            event_tx: Arc::new(Mutex::new(EventTx::Raw {
-                tx: tx,
-            })),
+            event_tx: Arc::new(Mutex::new(EventTx::Raw { tx: tx })),
             runloop: None,
             context: None,
             recursive_info: HashMap::new(),
         })
     }
 
-    fn new_debounced(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<FsEventWatcher> {
+    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<FsEventWatcher> {
         Ok(FsEventWatcher {
             paths: unsafe {
                 cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)

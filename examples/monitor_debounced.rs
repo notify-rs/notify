@@ -11,7 +11,7 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
 
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
-    let mut watcher: RecommendedWatcher = try!(Watcher::new_debounced(tx, Duration::from_secs(2)));
+    let mut watcher: RecommendedWatcher = try!(Watcher::new(tx, Duration::from_secs(2)));
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.

@@ -1,7 +1,9 @@
 #![warn(missing_docs)]
 //! Watcher implementation for Windows' directory management APIs
 //!
-//! For more information see the [ReadDirectoryChangesW reference](https://msdn.microsoft.com/en-us/library/windows/desktop/aa363950(v=vs.85).aspx).
+//! For more information see the [ReadDirectoryChangesW reference][ref].
+//!
+//! [ref]: https://msdn.microsoft.com/en-us/library/windows/desktop/aa363950(v=vs.85).aspx
 
 extern crate kernel32;
 
@@ -10,21 +12,19 @@ use winapi::{OVERLAPPED, LPOVERLAPPED, HANDLE, INVALID_HANDLE_VALUE, INFINITE, T
              winnt};
 
 use std::collections::HashMap;
+use std::env;
+use std::ffi::OsString;
 use std::mem;
+use std::os::raw::c_void;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
-use std::sync::mpsc::{channel, Sender, Receiver};
-use std::ffi::OsString;
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::thread;
-use std::env;
-use std::os::raw::c_void;
-use std::time::Duration;
 use std::sync::{Arc, Mutex};
-
+use std::sync::mpsc::{channel, Sender, Receiver};
+use std::thread;
+use std::time::Duration;
 use super::{RawEvent, DebouncedEvent, Error, op, Op, Result, Watcher, RecursiveMode};
-
 use super::debounce::{Debounce, EventTx};
 
 const BUF_SIZE: u32 = 16384;
@@ -141,7 +141,7 @@ impl ReadDirectoryChangesServer {
         // path must exist and be either a file or directory
         if !path.is_dir() && !path.is_file() {
             return Err(Error::Generic("Input watch path is neither a file nor a directory."
-                                          .to_owned()));
+                .to_owned()));
         }
 
         let (watching_file, dir_target) = {
@@ -170,7 +170,7 @@ impl ReadDirectoryChangesServer {
                 let err = if watching_file {
                     Err(Error::Generic("You attempted to watch a single file, but parent \
                                         directory could not be opened."
-                                           .to_owned()))
+                        .to_owned()))
                 } else {
                     // TODO: Call GetLastError for better error info?
                     Err(Error::PathNotFound)
@@ -184,9 +184,8 @@ impl ReadDirectoryChangesServer {
             None
         };
         // every watcher gets its own semaphore to signal completion
-        let semaphore = unsafe {
-            kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut())
-        };
+        let semaphore =
+            unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if semaphore == ptr::null_mut() || semaphore == INVALID_HANDLE_VALUE {
             unsafe {
                 kernel32::CloseHandle(handle);
@@ -237,12 +236,11 @@ fn start_read(rd: &ReadData, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
         data: rd.clone(),
     });
 
-    let flags = winnt::FILE_NOTIFY_CHANGE_FILE_NAME | winnt::FILE_NOTIFY_CHANGE_DIR_NAME |
-                winnt::FILE_NOTIFY_CHANGE_ATTRIBUTES |
-                winnt::FILE_NOTIFY_CHANGE_SIZE |
-                winnt::FILE_NOTIFY_CHANGE_LAST_WRITE |
-                winnt::FILE_NOTIFY_CHANGE_CREATION |
-                winnt::FILE_NOTIFY_CHANGE_SECURITY;
+    let flags =
+        winnt::FILE_NOTIFY_CHANGE_FILE_NAME | winnt::FILE_NOTIFY_CHANGE_DIR_NAME |
+        winnt::FILE_NOTIFY_CHANGE_ATTRIBUTES | winnt::FILE_NOTIFY_CHANGE_SIZE |
+        winnt::FILE_NOTIFY_CHANGE_LAST_WRITE | winnt::FILE_NOTIFY_CHANGE_CREATION |
+        winnt::FILE_NOTIFY_CHANGE_SECURITY;
 
     let monitor_subdir = if (&request.data.file).is_none() && request.data.is_recursive {
         1
@@ -313,8 +311,9 @@ unsafe extern "system" fn handle_event(error_code: u32,
     if let Ok(mut event_tx) = event_tx_lock {
         let mut rename_event = None;
 
-        // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length string
-        // as its last member.  Each struct contains an offset for getting the next entry in the buffer
+        // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length
+        // string as its last member.  Each struct contains an offset for getting the next entry in
+        // the buffer.
         let mut cur_offset: *const u8 = request.buffer.as_ptr();
         let mut cur_entry: *const FILE_NOTIFY_INFORMATION = mem::transmute(cur_offset);
         loop {
@@ -367,11 +366,11 @@ unsafe extern "system" fn handle_event(error_code: u32,
                                 o.insert(op::CREATE);
                             }
                             rename_event = None;
-                        },
+                        }
                         winnt::FILE_ACTION_ADDED => o.insert(op::CREATE),
                         winnt::FILE_ACTION_REMOVED => o.insert(op::REMOVE),
                         winnt::FILE_ACTION_MODIFIED => o.insert(op::WRITE),
-                        _ => ()
+                        _ => (),
                     };
 
                     send_pending_rename_event(rename_event, &mut event_tx);
@@ -408,16 +407,13 @@ impl ReadDirectoryChangesWatcher {
                   -> Result<ReadDirectoryChangesWatcher> {
         let (cmd_tx, cmd_rx) = channel();
 
-        let wakeup_sem = unsafe {
-            kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut())
-        };
+        let wakeup_sem =
+            unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
             return Err(Error::Generic("Failed to create wakeup semaphore.".to_owned()));
         }
 
-        let event_tx = EventTx::Raw {
-            tx: tx,
-        };
+        let event_tx = EventTx::Raw { tx: tx };
 
         let action_tx = ReadDirectoryChangesServer::start(event_tx, meta_tx, cmd_tx, wakeup_sem);
 
@@ -429,14 +425,13 @@ impl ReadDirectoryChangesWatcher {
     }
 
     pub fn create_debounced(tx: Sender<DebouncedEvent>,
-                  meta_tx: Sender<MetaEvent>,
-                  delay: Duration)
-                  -> Result<ReadDirectoryChangesWatcher> {
+                            meta_tx: Sender<MetaEvent>,
+                            delay: Duration)
+                            -> Result<ReadDirectoryChangesWatcher> {
         let (cmd_tx, cmd_rx) = channel();
 
-        let wakeup_sem = unsafe {
-            kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut())
-        };
+        let wakeup_sem =
+            unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
             return Err(Error::Generic("Failed to create wakeup semaphore.".to_owned()));
         }
@@ -503,7 +498,7 @@ impl Watcher for ReadDirectoryChangesWatcher {
         ReadDirectoryChangesWatcher::create(tx, meta_tx)
     }
 
-    fn new_debounced(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
+    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
         let (meta_tx, _) = channel();
         ReadDirectoryChangesWatcher::create_debounced(tx, meta_tx, delay)
@@ -519,7 +514,7 @@ impl Watcher for ReadDirectoryChangesWatcher {
         // path must exist and be either a file or directory
         if !pb.is_dir() && !pb.is_file() {
             return Err(Error::Generic("Input watch path is neither a file nor a directory."
-                                          .to_owned()));
+                .to_owned()));
         }
         self.send_action_require_ack(Action::Watch(pb.clone(), recursive_mode), &pb)
     }
@@ -532,8 +527,8 @@ impl Watcher for ReadDirectoryChangesWatcher {
             p.join(path)
         };
         let res = self.tx
-                      .send(Action::Unwatch(pb))
-                      .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()));
+            .send(Action::Unwatch(pb))
+            .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()));
         self.wakeup_server();
         res
     }

@@ -12,19 +12,16 @@ use mio::{self, EventLoop};
 use self::inotify_sys::wrapper::{self, INotify, Watch};
 use self::walkdir::WalkDir;
 use std::collections::HashMap;
+use std::env;
 use std::fs::metadata;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::thread::Builder as ThreadBuilder;
-use super::{Error, RawEvent, DebouncedEvent, op, Op, Result, Watcher, RecursiveMode};
 use std::time::Duration;
-use std::env;
-// test inotify_queue_overflow
-// use std::thread;
+use super::{Error, RawEvent, DebouncedEvent, op, Op, Result, Watcher, RecursiveMode};
+use super::debounce::{Debounce, EventTx};
 
 mod flags;
-
-use super::debounce::{Debounce, EventTx};
 
 const INOTIFY: mio::Token = mio::Token(0);
 
@@ -56,7 +53,10 @@ fn send_pending_rename_event(event: Option<RawEvent>, event_tx: &mut EventTx) {
 }
 
 #[inline]
-fn add_watch_by_event(path: &Option<PathBuf>, event: &wrapper::Event, watches: &HashMap<PathBuf, (Watch, flags::Mask, bool)>, add_watches: &mut Vec<PathBuf>) {
+fn add_watch_by_event(path: &Option<PathBuf>,
+                      event: &wrapper::Event,
+                      watches: &HashMap<PathBuf, (Watch, flags::Mask, bool)>,
+                      add_watches: &mut Vec<PathBuf>) {
     if let Some(ref path) = *path {
         if event.is_dir() {
             if let Some(parent_path) = path.parent() {
@@ -71,7 +71,9 @@ fn add_watch_by_event(path: &Option<PathBuf>, event: &wrapper::Event, watches: &
 }
 
 #[inline]
-fn remove_watch_by_event(path: &Option<PathBuf>, watches: &HashMap<PathBuf, (Watch, flags::Mask, bool)>, remove_watches: &mut Vec<PathBuf>) {
+fn remove_watch_by_event(path: &Option<PathBuf>,
+                         watches: &HashMap<PathBuf, (Watch, flags::Mask, bool)>,
+                         remove_watches: &mut Vec<PathBuf>) {
     if let Some(ref path) = *path {
         if watches.contains_key(path) {
             remove_watches.push(path.to_owned());
@@ -93,9 +95,6 @@ impl mio::Handler for INotifyHandler {
 
                 let mut add_watches = Vec::new();
                 let mut remove_watches = Vec::new();
-
-                // test inotify_queue_overflow
-                // thread::sleep(Duration::from_millis(100));
 
                 if let Some(ref mut inotify) = self.inotify {
                     match inotify.available_events() {
@@ -124,7 +123,9 @@ impl mio::Handler for INotifyHandler {
 
                                 if event.is_moved_from() {
                                     send_pending_rename_event(rename_event, &mut self.event_tx);
-                                    remove_watch_by_event(&path, &self.watches, &mut remove_watches);
+                                    remove_watch_by_event(&path,
+                                                          &self.watches,
+                                                          &mut remove_watches);
                                     rename_event = Some(RawEvent {
                                         path: path,
                                         op: Ok(op::RENAME),
@@ -146,18 +147,26 @@ impl mio::Handler for INotifyHandler {
                                             o.insert(op::CREATE);
                                         }
                                         rename_event = None;
-                                        add_watch_by_event(&path, event, &self.watches, &mut add_watches);
+                                        add_watch_by_event(&path,
+                                                           event,
+                                                           &self.watches,
+                                                           &mut add_watches);
                                     }
                                     if event.is_move_self() {
                                         o.insert(op::RENAME);
                                     }
                                     if event.is_create() {
                                         o.insert(op::CREATE);
-                                        add_watch_by_event(&path, event, &self.watches, &mut add_watches);
+                                        add_watch_by_event(&path,
+                                                           event,
+                                                           &self.watches,
+                                                           &mut add_watches);
                                     }
                                     if event.is_delete_self() || event.is_delete() {
                                         o.insert(op::REMOVE);
-                                        remove_watch_by_event(&path, &self.watches, &mut remove_watches);
+                                        remove_watch_by_event(&path,
+                                                              &self.watches,
+                                                              &mut remove_watches);
                                     }
                                     if event.is_modify() {
                                         o.insert(op::WRITE);
@@ -246,9 +255,9 @@ impl INotifyHandler {
         }
 
         for entry in WalkDir::new(path)
-                         .follow_links(true)
-                         .into_iter()
-                         .filter_map(filter_dir) {
+            .follow_links(true)
+            .into_iter()
+            .filter_map(filter_dir) {
             try!(self.add_single_watch(entry.path().to_path_buf(), is_recursive, watch_self));
             watch_self = false;
         }
@@ -256,9 +265,14 @@ impl INotifyHandler {
         Ok(())
     }
 
-    fn add_single_watch(&mut self, path: PathBuf, is_recursive: bool, watch_self: bool) -> Result<()> {
-        let mut flags = flags::IN_ATTRIB | flags::IN_CREATE | flags::IN_DELETE | flags::IN_CLOSE_WRITE |
-                        flags::IN_MODIFY | flags::IN_MOVED_FROM | flags::IN_MOVED_TO;
+    fn add_single_watch(&mut self,
+                        path: PathBuf,
+                        is_recursive: bool,
+                        watch_self: bool)
+                        -> Result<()> {
+        let mut flags = flags::IN_ATTRIB | flags::IN_CREATE | flags::IN_DELETE |
+                        flags::IN_CLOSE_WRITE | flags::IN_MODIFY |
+                        flags::IN_MOVED_FROM | flags::IN_MOVED_TO;
 
         if watch_self {
             flags.insert(flags::IN_DELETE_SELF);
@@ -334,18 +348,16 @@ impl Watcher for INotifyWatcher {
 
                 let handler = INotifyHandler {
                     inotify: Some(inotify),
-                    event_tx: EventTx::Raw {
-                        tx: tx,
-                    },
+                    event_tx: EventTx::Raw { tx: tx },
                     watches: HashMap::new(),
                     paths: HashMap::new(),
                 };
 
                 event_loop.register(&evented_inotify,
-                                    INOTIFY,
-                                    mio::EventSet::readable(),
-                                    mio::PollOpt::level())
-                          .map(|_| (event_loop, handler))
+                              INOTIFY,
+                              mio::EventSet::readable(),
+                              mio::PollOpt::level())
+                    .map(|_| (event_loop, handler))
             })
             .map(|(mut event_loop, mut handler)| {
                 let channel = event_loop.channel();
@@ -360,7 +372,7 @@ impl Watcher for INotifyWatcher {
             .map_err(Error::Io)
     }
 
-    fn new_debounced(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<INotifyWatcher> {
+    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<INotifyWatcher> {
         INotify::init()
             .and_then(|inotify| EventLoop::new().map(|l| (inotify, l)))
             .and_then(|(inotify, mut event_loop)| {
@@ -378,10 +390,10 @@ impl Watcher for INotifyWatcher {
                 };
 
                 event_loop.register(&evented_inotify,
-                                    INOTIFY,
-                                    mio::EventSet::readable(),
-                                    mio::PollOpt::level())
-                          .map(|_| (event_loop, handler))
+                              INOTIFY,
+                              mio::EventSet::readable(),
+                              mio::PollOpt::level())
+                    .map(|_| (event_loop, handler))
             })
             .map(|(mut event_loop, mut handler)| {
                 let channel = event_loop.channel();
