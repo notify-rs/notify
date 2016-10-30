@@ -73,7 +73,7 @@ pub fn inflate_events(input: Vec<(PathBuf, Op, Option<u32>)>) -> Vec<(PathBuf, O
     output
 }
 
-pub fn extract_cookies(events: &Vec<(PathBuf, Op, Option<u32>)>) -> Vec<u32> {
+pub fn extract_cookies(events: &[(PathBuf, Op, Option<u32>)]) -> Vec<u32> {
     let mut cookies = Vec::new();
     for &(_, _, e_c) in events {
         if let Some(cookie) = e_c {
@@ -189,7 +189,7 @@ impl TestHelpers for TempDir {
             .open(path)
             .expect("failed to open file");
 
-        file.write("some data".as_bytes()).expect("failed to write to file");
+        file.write(b"some data").expect("failed to write to file");
         file.sync_all().expect("failed to sync file");
     }
 

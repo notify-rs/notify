@@ -641,7 +641,7 @@ fn poll_watch_recursive_move() {
     }
 }
 
-// Windows:
+// Windows (3x):
 // thread 'poll_watch_recursive_move' panicked at 'assertion failed: `(left == right)` (left: `[("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1a", REMOVE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1a\\file1", REMOVE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b\\file1", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b\\file2", CREATE, None)]`, right: `[("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1a", REMOVE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1a\\file1", REMOVE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b\\file1", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b\\file2", CREATE, None)]`)', tests\watcher.rs:623
 
 // Windows:
@@ -686,7 +686,7 @@ fn poll_watch_recursive_move_in() {
     }
 }
 
-// Windows (2x):
+// Windows (4x):
 // thread 'poll_watch_recursive_move_in' panicked at 'assertion failed: `(left == right)` (left: `[("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1\\file1", CREATE, None)]`, right: `[("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1\\file1", CREATE, None)]`)', tests\watcher.rs:666
 
 #[test]

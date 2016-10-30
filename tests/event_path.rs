@@ -35,7 +35,7 @@ fn recv_events_simple(rx: &Receiver<RawEvent>) ->  Vec<(PathBuf, Op, Option<u32>
 
 #[cfg(target_os = "linux")]
 fn recv_events_simple(rx: &Receiver<RawEvent>) ->  Vec<(PathBuf, Op, Option<u32>)> {
-    let mut events = recv_events(&rx);
+    let mut events = recv_events(rx);
     events.retain(|&(_, op, _)| op != op::CLOSE_WRITE);
     events
 }
