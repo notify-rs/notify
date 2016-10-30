@@ -5,7 +5,7 @@
 [![Crate download count](https://img.shields.io/crates/d/notify.svg?style=flat-square)][crate]
 
 [![Appveyor](https://img.shields.io/appveyor/ci/passcod/rsnotify.svg?style=flat-square)][build-windows] <sup>(Windows)</sup>
-[![Travis](https://img.shields.io/travis/passcod/rsnotify.svg?style=flat-square)][build-unix] <sup>(Linux and OS X)</sup>
+[![Travis](https://img.shields.io/travis/passcod/notify.svg?style=flat-square)][build-unix] <sup>(Linux and OS X)</sup>
 
 [![Code of Conduct](https://img.shields.io/badge/contributor-covenant-123456.svg?style=flat-square)][coc]
 [![Documentation](https://img.shields.io/badge/documentation-docs.rs-df3600.svg?style=flat-square)][docs]
@@ -72,9 +72,9 @@ below), it is still a dependency of many packages. Here is a list of changes
 you may need to take note of:
 
 - Notify 2.x by default provided the events immediately as reported from the
-  backend API. Notify 3.x by default [debounces the events][docs-debounce] (if
+  backend API. Notify 3.x by default [debounces the events][docs-debounce] — if
   the backend reports two similar events in close succession, Notify will only
-  report one). The old behaviour may be obtained through the
+  report one. The old behaviour may be obtained through the
   `Watcher::new_raw()` function and `RawEvent` type, see [the
   documentation][docs-raw].
 
@@ -129,17 +129,17 @@ Public Domain using the [Creative Commons Zero Declaration][cc0].
 [Chokidar]: https://github.com/paulmillr/chokidar
 [FileSystemEventSecurity]: https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html
 [Félix Saparelli]: https://passcod.name
-[build-unix]: https://travis-ci.org/passcod/rsnotify
+[build-unix]: https://travis-ci.org/passcod/notify
 [build-windows]: https://ci.appveyor.com/project/passcod/rsnotify
 [cargo watch]: https://github.com/passcod/cargo-watch
 [cc0]: https://creativecommons.org/publicdomain/zero/1.0/
 [cobalt]: https://github.com/cobalt-org/cobalt.rs
 [coc]: http://contributor-covenant.org/version/1/4/
-[contributors]: https://github.com/passcod/rsnotify/graphs/contributors
+[contributors]: https://github.com/passcod/notify/graphs/contributors
 [crate]: https://crates.io/crates/notify
-[docs-debounced]:
-[docs-raw]:
-[docs-recursivemode]:
+[docs-debounce]: https://docs.rs/notify/#default-debounced-api
+[docs-raw]: https://docs.rs/notify/#raw-api
+[docs-recursivemode]: https://docs.rs/notify/enum.RecursiveMode.html
 [docs-v2]: https://docs.rs/notify/2
 [docs]: https://docs.rs/notify
 [fsnotify]: https://github.com/go-fsnotify/fsnotify
