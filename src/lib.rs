@@ -361,13 +361,13 @@ unsafe impl Send for RawEvent {}
 #[derive(Debug)]
 /// Event delivered when action occurs on a watched path in debounced mode
 pub enum DebouncedEvent {
-    /// `NoticeWrite` is emitted imediatelly after the first write event for the path.
+    /// `NoticeWrite` is emitted immediately after the first write event for the path.
     ///
-    /// If you are reading from that file, you should probably close it imediatelly and discard all
+    /// If you are reading from that file, you should probably close it immediately and discard all
     /// data you read from it.
     NoticeWrite(PathBuf),
 
-    /// `NoticeRemove` is emitted imediatelly after a remove or rename event for the path.
+    /// `NoticeRemove` is emitted immediately after a remove or rename event for the path.
     ///
     /// The file will continue to exist until its last file handle is closed.
     NoticeRemove(PathBuf),
@@ -405,11 +405,11 @@ pub enum DebouncedEvent {
     /// The first path contains the source, the second path the destination.
     Rename(PathBuf, PathBuf),
 
-    /// `Rescan` is emitted imediatelly after a problem has been detected that makes it necessary
+    /// `Rescan` is emitted immediately after a problem has been detected that makes it necessary
     /// to re-scan the watched directories.
     Rescan,
 
-    /// `Error` is emitted imediatelly after a error has been detected.
+    /// `Error` is emitted immediately after a error has been detected.
     ///
     ///  This event may contain a path for which the error was detected.
     Error(Error, Option<PathBuf>),
