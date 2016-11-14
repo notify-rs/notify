@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.1
+
+- FIX: \[macOS\] Fix panic in debounce module related to move events. [#99]
+
+[#99]: https://github.com/passcod/notify/issues/99
+
+
 ## 3.0.0
 
 - FIX: \[Windows\] Fix watching files on Windows using relative paths. [#90]

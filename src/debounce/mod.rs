@@ -114,7 +114,8 @@ impl Debounce {
                                 restart_timer(timer_id, path, &mut self.timer);
                             }
                             _ => {
-                                unreachable!();
+                                // this code can only be reached with fsevents because it may repeat a rename event for a file that has been renamed before
+                                // (https://github.com/passcod/notify/issues/99)
                             }
                         }
                     } else {
