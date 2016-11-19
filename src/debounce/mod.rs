@@ -114,7 +114,8 @@ impl Debounce {
                                 restart_timer(timer_id, path, &mut self.timer);
                             }
                             _ => {
-                                // this code can only be reached with fsevents because it may repeat a rename event for a file that has been renamed before
+                                // this code can only be reached with fsevents because it may
+                                // repeat a rename event for a file that has been renamed before
                                 // (https://github.com/passcod/notify/issues/99)
                             }
                         }
@@ -146,7 +147,15 @@ impl Debounce {
                                 *operation = Some(op::REMOVE);
                                 restart_timer(timer_id, path, &mut self.timer);
                             }
-                            // renaming a deleted file is impossible
+                            Some(op::REMOVE) => {
+
+                                // file has been renamed and then removed / keep write event
+                                // this code can only be reached with fsevents because it may
+                                // repeat a rename event for a file that has been renamed before
+                                // (https://github.com/passcod/notify/issues/100)
+                                restart_timer(timer_id, path, &mut self.timer);
+                            }
+                            // CLOSE_WRITE and RESCAN aren't tracked by operations_buffer
                             _ => {
                                 unreachable!();
                             }

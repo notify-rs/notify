@@ -2,9 +2,10 @@
 
 ## 3.0.1
 
-- FIX: \[macOS\] Fix panic in debounce module related to move events. [#99]
+- FIX: \[macOS\] Fix two panics in debounce module related to move events. [#99], [#100]
 
 [#99]: https://github.com/passcod/notify/issues/99
+[#100]: https://github.com/passcod/notify/issues/100
 
 
 ## 3.0.0

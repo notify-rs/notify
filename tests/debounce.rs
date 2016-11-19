@@ -356,6 +356,42 @@ fn create_rename_write_create() { // fsevents
     ]);
 }
 
+// https://github.com/passcod/notify/issues/100
+#[test]
+fn create_rename_remove_create() { // fsevents
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    sleep_macos(10);
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
+
+    tdir.create("file1");
+
+    sleep_macos(35_000);
+
+    tdir.rename("file1", "file2");
+    tdir.remove("file2");
+    sleep_macos(10);
+    tdir.create("file3");
+
+    if cfg!(target_os="macos") {
+        assert_eq!(recv_events_debounced(&rx), vec![
+            DebouncedEvent::Create(tdir.mkpath("file1")),
+            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
+            DebouncedEvent::NoticeRemove(tdir.mkpath("file2")),
+            // DebouncedEvent::Remove(tdir.mkpath("file1")), BUG: There should be a remove event for file1
+            DebouncedEvent::Remove(tdir.mkpath("file2")),
+            DebouncedEvent::Create(tdir.mkpath("file3")),
+        ]);
+    } else {
+        assert_eq!(recv_events_debounced(&rx), vec![
+            DebouncedEvent::Create(tdir.mkpath("file3")),
+        ]);
+    }
+}
+
 #[test]
 fn write_rename_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
