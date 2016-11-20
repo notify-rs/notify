@@ -747,7 +747,7 @@ fn create_rename_delete_directory() {
 }
 
 #[test]
-#[ignore]
+#[cfg(not(target_os="windows"))]
 fn create_rename_overwrite_directory() {
     // overwriting directories doesn't work on windows
     if cfg!(target_os="windows") {

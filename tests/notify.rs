@@ -95,7 +95,7 @@ fn write_file() {
 }
 
 #[test]
-#[ignore]
+#[cfg(not(any(target_os="windows", target_os="macos")))]
 fn modify_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -199,7 +199,7 @@ fn rename_file() {
 }
 
 #[test]
-#[ignore]
+#[cfg(not(target_os="macos"))]
 fn move_out_create_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -238,7 +238,7 @@ fn move_out_create_file() {
 }
 
 #[test]
-#[ignore]
+#[cfg(not(any(target_os="windows", target_os="macos")))]
 fn create_write_modify_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -389,7 +389,7 @@ fn create_directory() {
 }
 
 #[test]
-#[ignore]
+#[cfg(not(any(target_os="windows", target_os="macos")))]
 fn modify_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -427,7 +427,6 @@ fn modify_directory() {
 }
 
 #[test]
-#[ignore]
 fn delete_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -494,7 +493,7 @@ fn rename_directory() {
 }
 
 #[test]
-#[ignore]
+#[cfg(not(target_os="macos"))]
 fn move_out_create_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -527,7 +526,7 @@ fn move_out_create_directory() {
 }
 
 #[test]
-#[ignore]
+#[cfg(not(target_os="windows"))]
 fn create_rename_overwrite_directory() {
     // overwriting directories doesn't work on windows
     if cfg!(target_os="windows") {

@@ -381,7 +381,7 @@ fn watch_recursive_move() {
 }
 
 #[test]
-#[ignore]
+#[cfg(not(target_os="macos"))]
 fn watch_recursive_move_in() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -434,7 +434,7 @@ fn watch_recursive_move_in() {
 }
 
 #[test]
-#[ignore]
+#[cfg(not(target_os="macos"))]
 fn watch_recursive_move_out() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -588,6 +588,7 @@ fn poll_watch_recursive_create_directory() {
 }
 
 #[test]
+#[ignore] // fails sometimes on AppVeyor
 fn poll_watch_recursive_move() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -641,13 +642,8 @@ fn poll_watch_recursive_move() {
     }
 }
 
-// Windows (3x):
-// thread 'poll_watch_recursive_move' panicked at 'assertion failed: `(left == right)` (left: `[("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1a", REMOVE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1a\\file1", REMOVE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b\\file1", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b\\file2", CREATE, None)]`, right: `[("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1a", REMOVE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1a\\file1", REMOVE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b\\file1", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.wgdpV6G3MTdr\\dir1b\\file2", CREATE, None)]`)', tests\watcher.rs:623
-
-// Windows:
-// thread 'poll_watch_recursive_move' panicked at 'unexpected event err: Io(Error { repr: Os { code: 3, message: "The system cannot find the path specified." } })', tests\utils/mod.rs:31
-
 #[test]
+#[ignore] // fails sometimes on AppVeyor
 fn poll_watch_recursive_move_in() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -686,10 +682,8 @@ fn poll_watch_recursive_move_in() {
     }
 }
 
-// Windows (4x):
-// thread 'poll_watch_recursive_move_in' panicked at 'assertion failed: `(left == right)` (left: `[("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1\\file1", CREATE, None)]`, right: `[("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1", CREATE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1", WRITE, None), ("\\\\?\\C:\\Users\\appveyor\\AppData\\Local\\Temp\\1\\temp_dir.4kipVVht1gD2\\watch_dir\\dir1b\\dir1\\file1", CREATE, None)]`)', tests\watcher.rs:666
-
 #[test]
+#[ignore] // fails sometimes on AppVeyor
 fn poll_watch_recursive_move_out() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -728,9 +722,6 @@ fn poll_watch_recursive_move_out() {
         (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::REMOVE, None),
     ]);
 }
-
-// Windows:
-// thread 'poll_watch_recursive_move_out' panicked at 'failed to rename file or directory: Error { repr: Os { code: 5, message: "Access is denied." } }', ../src/libcore\result.rs:788
 
 #[test]
 fn poll_watch_nonrecursive() {
@@ -907,7 +898,7 @@ fn self_delete_file() {
 }
 
 #[test]
-#[ignore]
+#[cfg(not(target_os="windows"))]
 fn self_delete_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -971,7 +962,7 @@ fn self_delete_directory() {
 }
 
 #[test]
-#[ignore]
+#[cfg(not(target_os="windows"))]
 fn self_rename_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -1214,7 +1205,7 @@ fn parent_rename_file() {
 }
 
 #[test]
-#[ignore]
+#[cfg(not(target_os="windows"))]
 fn parent_rename_directory() {
     // removing the parent directory doesn't work on windows
     if cfg!(target_os="windows") {
