@@ -392,6 +392,37 @@ fn create_rename_remove_create() { // fsevents
     }
 }
 
+// https://github.com/passcod/notify/issues/101
+#[test]
+fn move_out_sleep_move_in() { // fsevents
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    tdir.create("watch_dir");
+
+    sleep_macos(10);
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
+    watcher.watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
+
+    tdir.create("watch_dir/file1");
+    tdir.rename("watch_dir/file1", "file1");
+    sleep(DELAY_S * 1000 + 10);
+    tdir.rename("file1", "watch_dir/file2");
+
+    if cfg!(target_os="macos") {
+        assert_eq!(recv_events_debounced(&rx), vec![
+            DebouncedEvent::Create(tdir.mkpath("watch_dir/file1")),
+            DebouncedEvent::NoticeRemove(tdir.mkpath("watch_dir/file2")),
+            DebouncedEvent::Create(tdir.mkpath("watch_dir/file2")),
+        ]);
+    } else {
+        assert_eq!(recv_events_debounced(&rx), vec![
+            DebouncedEvent::Create(tdir.mkpath("watch_dir/file2")),
+        ]);
+    }
+}
+
 #[test]
 fn write_rename_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");

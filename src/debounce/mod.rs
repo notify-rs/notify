@@ -94,12 +94,14 @@ impl Debounce {
         if let Ok(mut op_buf) = self.operations_buffer.lock() {
             // the previous event was a rename event, but this one isn't; something went wrong
             let mut remove_path: Option<PathBuf> = None;
-            {
-                let &mut (ref mut operation, ref mut from_path, ref mut timer_id) =
-                    op_buf.get_mut(self.rename_path.as_ref().unwrap())
-                        .expect("rename_path is set but not present in operations_buffer 1");
+
+            // get details for the last rename event from the operations_buffer.
+            // the last rename event might not be found in case the timer already fired
+            // (https://github.com/passcod/notify/issues/101).
+            if let Some(&mut (ref mut operation, ref mut from_path, ref mut timer_id)) =
+                op_buf.get_mut(self.rename_path.as_ref().unwrap()) {
                 if op != op::RENAME || self.rename_cookie.is_none() ||
-                   self.rename_cookie != cookie {
+                    self.rename_cookie != cookie {
                     if self.rename_path.as_ref().unwrap().exists() {
                         match *operation {
                             Some(op::RENAME) if from_path.is_none() => {
@@ -164,6 +166,7 @@ impl Debounce {
                     self.rename_path = None;
                 }
             }
+
             if let Some(path) = remove_path {
                 op_buf.remove(&path);
             }
