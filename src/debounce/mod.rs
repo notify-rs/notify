@@ -101,7 +101,7 @@ impl Debounce {
             if let Some(&mut (ref mut operation, ref mut from_path, ref mut timer_id)) =
                 op_buf.get_mut(self.rename_path.as_ref().unwrap()) {
                 if op != op::RENAME || self.rename_cookie.is_none() ||
-                    self.rename_cookie != cookie {
+                   self.rename_cookie != cookie {
                     if self.rename_path.as_ref().unwrap().exists() {
                         match *operation {
                             Some(op::RENAME) if from_path.is_none() => {
@@ -207,8 +207,9 @@ impl Debounce {
                     Some(op::CHMOD) |
 
                     // file can't be renamed to before being created
-                    // (repetitions are removed anyway)
-                    Some(op::RENAME) => { unreachable!(); }
+                    // (repetitions are removed anyway),
+                    // but with fsevents everything is possible
+                    Some(op::RENAME) => {}
 
                     // file has been removed and is now being re-created;
                     // convert this to a write event
@@ -254,7 +255,10 @@ impl Debounce {
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
 
-                    // writing to a deleted file is impossible
+                    // writing to a deleted file is impossible,
+                    // but with fsevents everything is possible
+                    Some(op::REMOVE) => {}
+
                     _ => { unreachable!(); }
                 }
             }
@@ -281,21 +285,25 @@ impl Debounce {
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
 
-                    // changing a deleted file is impossible
+                    // changing a deleted file is impossible,
+                    // but with fsevents everything is possible
+                    Some(op::REMOVE) => {}
+
                     _ => { unreachable!(); }
                 }
             }
 
             if op.contains(op::RENAME) {
+                // unwrap is safe because rename_path is Some
                 if self.rename_path.is_some() && self.rename_cookie.is_some() &&
-                   self.rename_cookie == cookie {
+                   self.rename_cookie == cookie &&
+                   op_buf.contains_key(self.rename_path.as_ref().unwrap()) {
                     // This is the second part of a rename operation, the old path is stored in the
                     // rename_path variable.
 
-                    // Unwrapping is safe because rename_path is Some.
+                    // unwrap is safe because rename_path is Some and op_buf contains rename_path
                     let (from_operation, from_from_path, from_timer_id) =
-                        op_buf.remove(self.rename_path.as_ref().unwrap())
-                            .expect("rename_path is set but not present in operations_buffer");
+                        op_buf.remove(self.rename_path.as_ref().unwrap()).unwrap();
 
                     // ignore running timer of removed operations_buffer entry
                     if let Some(from_timer_id) = from_timer_id {
@@ -332,7 +340,10 @@ impl Debounce {
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
 
-                        // file can't be renamed after beeing removed
+                        // file can't be renamed after beeing removed,
+                        // but with fsevents everything is possible
+                        Some(op::REMOVE) => {}
+
                         _ => { unreachable!(); }
                     }
 
@@ -374,7 +385,11 @@ impl Debounce {
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
 
-                        // renaming a deleted file is impossible
+                        // renaming a deleted file should be impossible,
+                        // but with fsevents everything is possible
+                        // (https://github.com/passcod/notify/issues/101)
+                        Some(op::REMOVE) => {}
+
                         _ => { unreachable!(); }
                     }
                 }
