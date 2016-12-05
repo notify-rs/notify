@@ -21,7 +21,7 @@ As used by: [cargo watch], [cobalt], [handlebars-iron], [rdiff], and
 
 ```toml
 [dependencies]
-notify = "3.0.0"
+notify = "3.0.1"
 ```
 
 ## Usage
