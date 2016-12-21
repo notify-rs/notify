@@ -112,7 +112,7 @@ impl mio::Handler for INotifyHandler {
                                     });
                                 }
 
-                                let path = if event.name.is_empty() {
+                                let path = if event.name.as_os_str().is_empty() {
                                     match self.paths.get(&event.wd) {
                                         Some(p) => Some(p.clone()),
                                         None => None,

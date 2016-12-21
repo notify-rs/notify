@@ -32,7 +32,7 @@ filetime = "^0.1.9"
 walkdir = "^0.1.5"
 
 [target.'cfg(target_os="linux")'.dependencies]
-inotify = "^0.2.3"
+inotify = "^0.3.0"
 mio = "^0.5.0"
 
 [target.'cfg(target_os="macos")'.dependencies]
