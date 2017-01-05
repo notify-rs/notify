@@ -138,7 +138,7 @@ Public Domain using the [Creative Commons Zero Declaration][cc0].
 [crate]: https://crates.io/crates/notify
 [docs-debounce]: https://docs.rs/notify/#default-debounced-api
 [docs-raw]: https://docs.rs/notify/#raw-api
-[docs-recursivemode]: https://docs.rs/notify/enum.RecursiveMode.html
+[docs-recursivemode]: https://docs.rs/notify/3.0.1/notify/enum.RecursiveMode.html
 [docs-v2]: https://docs.rs/notify/2
 [docs]: https://docs.rs/notify
 [fsnotify]: https://github.com/go-fsnotify/fsnotify
