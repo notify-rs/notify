@@ -1,13 +1,8 @@
 language: rust
 cache: cargo
-sudo: false
+rust:
+  - stable
+  - beta
 os:
   - linux
   - osx
-before_script: (cargo install rustfmt || true)
-script:
-- |
-  export PATH=$PATH:~/.cargo/bin &&
-  cargo build &&
-  cargo test &&
-  cargo fmt -- --write-mode=diff
