@@ -1,8 +1,9 @@
 # Changelog
 
 
-## 3.0.2
+## 4.0.0
 
+- CHANGE: \[Linux\] Update dependency to inotify 0.3.0.
 - FIX: \[macOS\] `.watch()` panics on macOS when the target doesn't exist. [#105]
 
 [#105]: https://github.com/passcod/notify/issues/105
