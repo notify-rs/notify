@@ -140,7 +140,10 @@ impl FsEventWatcher {
     }
 
     // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
-    fn append_path<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) {
+    fn append_path<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
+		if !path.as_ref().exists() {
+			 return Err(Error::PathNotFound);
+		}
         let str_path = path.as_ref().to_str().unwrap();
         unsafe {
             let cf_path = cf::str_path_to_cfstring_ref(str_path);
@@ -149,6 +152,7 @@ impl FsEventWatcher {
         }
         self.recursive_info.insert(path.as_ref().to_path_buf().canonicalize().unwrap(),
                                    recursive_mode.is_recursive());
+		Ok(())
     }
 
     fn run(&mut self) -> Result<()> {
@@ -350,7 +354,7 @@ impl Watcher for FsEventWatcher {
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         self.stop();
-        self.append_path(path, recursive_mode);
+        try!(self.append_path(path, recursive_mode));
         self.run()
     }
 
