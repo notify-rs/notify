@@ -707,9 +707,9 @@ fn create_delete_directory() {
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_secs(DELAY_S)).expect("failed to create debounced watcher");
-    tdir.create("dir1");
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
+    tdir.create("dir1");
     sleep_macos(10);
     tdir.remove("dir1");
 
