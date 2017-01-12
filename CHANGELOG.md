@@ -1,5 +1,13 @@
 # Changelog
 
+
+## 3.0.2
+
+- FIX: \[macOS\] `.watch()` panics on macOS when the target doesn't exist. [#105]
+
+[#105]: https://github.com/passcod/notify/issues/105
+
+
 ## 3.0.1
 
 - FIX: \[macOS\] Fix multiple panics in debounce module related to move events. [#99], [#100], [#101]
