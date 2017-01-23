@@ -23,6 +23,7 @@ keywords = [
   "notify",
   "watch",
 ]
+categories = ["filesystem"]
 
 [dependencies]
 bitflags = "^0.7.0"
