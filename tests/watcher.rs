@@ -777,15 +777,38 @@ fn poll_watch_file() {
 }
 
 #[test]
-#[should_panic]
 fn watch_nonexisting() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir1 = TempDir::new("temp_dir1").expect("failed to create temporary directory");
+    let tdir2 = TempDir::new("temp_dir2").expect("failed to create temporary directory");
 
     sleep_macos(10);
 
-    let (tx, _) = mpsc::channel();
+    let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
-    watcher.watch(&tdir.mkpath("file1"), RecursiveMode::Recursive).expect("failed to watch file");
+    watcher.watch(&tdir1.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
+    let result = watcher.watch(&tdir2.mkpath("non_existing"), RecursiveMode::Recursive);
+    assert!(result.is_err());
+
+    // make sure notify is still working
+
+    sleep_windows(100);
+
+    tdir1.create("file1");
+
+    if cfg!(target_os="macos") {
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
+            (tdir1.mkpath("file1"), op::CREATE, None),
+        ]);
+    } else if cfg!(target_os="windows") {
+        assert_eq!(recv_events(&rx), vec![
+            (tdir1.mkpath("file1"), op::CREATE, None)
+        ]);
+    } else {
+        assert_eq!(recv_events(&rx), vec![
+            (tdir1.mkpath("file1"), op::CREATE, None),
+            (tdir1.mkpath("file1"), op::CLOSE_WRITE, None)
+        ]);
+    }
 }
 
 #[test]
