@@ -354,8 +354,10 @@ impl Watcher for FsEventWatcher {
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         self.stop();
-        try!(self.append_path(path, recursive_mode));
-        self.run()
+        let result = self.append_path(path, recursive_mode);  
+        // ignore return error: may be empty path list
+        let _ = self.run();
+        result
     }
 
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
