@@ -6,7 +6,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify = "^3.0.0"
+//! notify = "4.0.0"
 //! ```
 //!
 //! # Examples
