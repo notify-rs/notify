@@ -1,4 +1,3 @@
-use time;
 use tempdir::TempDir;
 use notify::*;
 
@@ -7,22 +6,22 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(not(target_os="windows"))]
 use std::os::unix::fs::PermissionsExt;
 
 #[cfg(not(target_os="windows"))]
-const TIMEOUT_S: f64 = 0.1;
+const TIMEOUT_MS: u64 = 100;
 #[cfg(target_os="windows")]
-const TIMEOUT_S: f64 = 3.0; // windows can take a while
+const TIMEOUT_MS: u64 = 3000; // windows can take a while
 
-pub fn recv_events_with_timeout(rx: &Receiver<RawEvent>, timeout: f64) ->  Vec<(PathBuf, Op, Option<u32>)> {
-    let deadline = time::precise_time_s() + timeout;
+pub fn recv_events_with_timeout(rx: &Receiver<RawEvent>, timeout: Duration) ->  Vec<(PathBuf, Op, Option<u32>)> {
+    let start = Instant::now();
 
     let mut evs = Vec::new();
 
-    while time::precise_time_s() < deadline {
+    while start.elapsed() < timeout {
         match rx.try_recv() {
             Ok(RawEvent{path: Some(path), op: Ok(op), cookie}) => {
                 evs.push((path, op, cookie));
@@ -38,7 +37,7 @@ pub fn recv_events_with_timeout(rx: &Receiver<RawEvent>, timeout: f64) ->  Vec<(
 }
 
 pub fn recv_events(rx: &Receiver<RawEvent>) ->  Vec<(PathBuf, Op, Option<u32>)> {
-    recv_events_with_timeout(rx, TIMEOUT_S)
+    recv_events_with_timeout(rx, Duration::from_millis(TIMEOUT_MS))
 }
 
 // FSEvents tends to emit events multiple times and aggregate events,
