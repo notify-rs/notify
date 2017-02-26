@@ -1,6 +1,5 @@
 extern crate notify;
 extern crate tempdir;
-extern crate time;
 
 mod utils;
 
@@ -11,7 +10,7 @@ use std::thread;
 use std::env;
 
 #[cfg(all(feature = "manual_tests", target_os="linux"))]
-use std::time::Duration;
+use std::time::{Duration, Instant};
 #[cfg(all(feature = "manual_tests", target_os="linux"))]
 use std::io::prelude::*;
 #[cfg(all(feature = "manual_tests", target_os="linux"))]
@@ -250,10 +249,10 @@ fn inotify_queue_overflow() {
 
     sleep(100);
 
-    let deadline = time::precise_time_s() + 5.0;
+    let start = Instant::now();
 
     let mut rescan_found = false;
-    while !rescan_found && time::precise_time_s() < deadline {
+    while !rescan_found && start.elapsed().as_secs() < 5 {
         match rx.try_recv() {
             Ok(RawEvent{op: Ok(op::RESCAN), ..}) => rescan_found = true,
             Ok(RawEvent{op: Err(e), ..}) => panic!("unexpected event err: {:?}", e),

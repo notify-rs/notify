@@ -11,16 +11,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, Mutex};
 use std::sync::mpsc::Sender;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use super::{Error, RawEvent, DebouncedEvent, op, Result, Watcher, RecursiveMode};
 use super::debounce::{Debounce, EventTx};
 
-extern crate time;
 extern crate walkdir;
 
 struct PathData {
     mtime: u64,
-    last_check: f64,
+    last_check: Instant,
 }
 
 struct WatchData {
@@ -64,7 +63,7 @@ impl PollWatcher {
                 }
 
                 if let Ok(mut watches) = watches.lock() {
-                    let current_time = time::precise_time_s();
+                    let current_time = Instant::now();
 
                     for (watch, &mut WatchData { is_recursive, ref mut paths }) in
                         watches.iter_mut() {
@@ -195,7 +194,7 @@ impl Watcher for PollWatcher {
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         if let Ok(mut watches) = self.watches.lock() {
-            let current_time = time::precise_time_s();
+            let current_time = Instant::now();
 
             let watch = path.as_ref().to_owned();
 

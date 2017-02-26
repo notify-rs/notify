@@ -2,15 +2,13 @@
 
 extern crate notify;
 extern crate tempdir;
-extern crate time;
 
 #[cfg(target_os = "windows")]
 mod windows_tests {
     use super::notify::*;
     use super::tempdir::TempDir;
-    use super::time;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
     use std::sync::mpsc;
 
     fn wait_for_disconnect(rx: &mpsc::Receiver<RawEvent>) {
@@ -62,11 +60,11 @@ mod windows_tests {
 
         wait_for_disconnect(&rx);
 
-        const TIMEOUT_S: f64 = 60.0;  // give it PLENTY of time before we declare failure
-        let deadline = time::precise_time_s() + TIMEOUT_S;
+        const TIMEOUT_MS: u64 = 60000;  // give it PLENTY of time before we declare failure
+        let start = Instant::now();
 
         let mut watchers_shutdown = 0;
-        while watchers_shutdown != dir_count && time::precise_time_s() < deadline {
+        while watchers_shutdown != dir_count && start.elapsed() < Duration::from_millis(TIMEOUT_MS) {
             if let Ok(actual) = meta_rx.try_recv() {
                 match actual {
                     windows::MetaEvent::SingleWatchComplete =>  watchers_shutdown += 1,
@@ -89,11 +87,11 @@ mod windows_tests {
         w.watch(d.path(), RecursiveMode::Recursive).unwrap();
 
         // should be at least one awaken in there
-        const TIMEOUT_S: f64 = 5.0;
-        let deadline = time::precise_time_s() + TIMEOUT_S;
+        const TIMEOUT_MS: u64 = 5000;
+        let start = Instant::now();
 
         let mut awakened = false;
-        while !awakened && time::precise_time_s() < deadline {
+        while !awakened && start.elapsed() < Duration::from_millis(TIMEOUT_MS) {
             if let Ok(actual) = meta_rx.try_recv() {
                 match actual {
                     windows::MetaEvent::WatcherAwakened => awakened = true,
