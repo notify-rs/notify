@@ -9,20 +9,13 @@ authors = [
   "Joe Wilm <joe@jwilm.com>",
   "Daniel Faust <hessijames@gmail.com>"
 ]
-
 description = "Cross-platform filesystem notification library"
 documentation = "https://docs.rs/notify"
 homepage = "https://github.com/passcod/notify"
 repository = "https://github.com/passcod/notify.git"
-
 readme = "README.md"
 license = "CC0-1.0"
-keywords = [
-  "events",
-  "filesystem",
-  "notify",
-  "watch",
-]
+keywords = ["events", "filesystem", "notify", "watch"]
 categories = ["filesystem"]
 
 [dependencies]
