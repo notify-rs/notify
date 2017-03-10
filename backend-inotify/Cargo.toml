@@ -1,0 +1,10 @@
+[package]
+name = "backend-inotify"
+version = "0.1.0"
+authors = ["Félix Saparelli <felix@passcod.name>"]
+workspace = ".."
+
+[dependencies]
+backend = { path = "../backend" }
+futures = "0.1.10"
+inotify = "0.3.0"

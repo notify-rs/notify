@@ -1,0 +1,14 @@
+[package]
+authors = ["Félix Saparelli <felix@passcod.name>"]
+name = "notify"
+version = "5.0.0-alpha.1"
+
+[dependencies]
+
+[dependencies.backend]
+path = "./backend"
+
+[dependencies.backend-inotify]
+path = "./backend-inotify"
+
+[workspaces]

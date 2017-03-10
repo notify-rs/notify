@@ -1,0 +1,8 @@
+[package]
+authors = ["Félix Saparelli <felix@passcod.name>"]
+name = "backend"
+version = "1.0.0"
+workspace = ".."
+
+[dependencies]
+futures = "0.1.10"
