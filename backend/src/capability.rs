@@ -1,3 +1,4 @@
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Capability {
     WatchFiles,
     WatchFolders,

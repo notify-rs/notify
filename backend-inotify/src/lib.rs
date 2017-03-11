@@ -1,4 +1,4 @@
-extern crate backend;
+extern crate notify_backend as backend;
 extern crate futures;
 extern crate inotify;
 
@@ -123,12 +123,5 @@ impl Stream for Backend {
         }
 
         self.buffer.poll()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
     }
 }

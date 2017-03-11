@@ -1,6 +1,6 @@
 [package]
 authors = ["Félix Saparelli <felix@passcod.name>"]
-name = "backend"
+name = "notify-backend"
 version = "1.0.0"
 workspace = ".."
 

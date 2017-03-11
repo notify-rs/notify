@@ -8,6 +8,8 @@ pub mod capability;
 pub mod event;
 pub mod stream;
 
+#[macro_use] pub mod compliance;
+
 pub mod prelude {
     pub use super::backend::{
         Backend as NotifyBackend,

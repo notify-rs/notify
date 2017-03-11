@@ -11,6 +11,7 @@ pub trait Backend: Stream + Drop + Sized {
 
 pub type Result<T: Backend> = StdResult<T, Error>;
 
+#[derive(Debug)]
 pub enum Error {
     Generic(String),
     Io(io::Error),

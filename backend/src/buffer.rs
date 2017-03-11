@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use super::event::Event;
 use super::stream::{Error, Item};
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Buffer {
     closed: bool,
     internal: VecDeque<Event>,

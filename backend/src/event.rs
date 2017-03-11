@@ -13,6 +13,7 @@ use std::path::PathBuf;
 // bitmasks such that if the mask is ever extended with new event types the
 // backend will still work.
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AccessMode {
     Any,
     Execute,
@@ -21,6 +22,7 @@ pub enum AccessMode {
     Other(String),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AccessKind {
     Any,
     Read,
@@ -29,6 +31,7 @@ pub enum AccessKind {
     Other(String),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CreateKind {
     Any,
     File,
@@ -36,6 +39,7 @@ pub enum CreateKind {
     Other(String),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataChange {
     Any,
     Size,
@@ -43,6 +47,7 @@ pub enum DataChange {
     Other(String),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MetadataKind {
     Any,
     AccessTime,
@@ -52,6 +57,7 @@ pub enum MetadataKind {
     Other(String),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RenameMode {
     Any,
     To,
@@ -59,6 +65,7 @@ pub enum RenameMode {
     Other(String),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModifyKind {
     Any,
     Data(DataChange),
@@ -67,6 +74,7 @@ pub enum ModifyKind {
     Other(String),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RemoveKind {
     Any,
     File,
@@ -74,6 +82,7 @@ pub enum RemoveKind {
     Other(String),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EventKind {
     Any,
     Access(AccessKind),
@@ -83,6 +92,37 @@ pub enum EventKind {
     Other(String),
 }
 
+impl EventKind {
+    pub fn is_access(&self) -> bool {
+        match self {
+            &EventKind::Access(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_create(&self) -> bool {
+        match self {
+            &EventKind::Create(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_modify(&self) -> bool {
+        match self {
+            &EventKind::Modify(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_remove(&self) -> bool {
+        match self {
+            &EventKind::Remove(_) => true,
+            _ => false
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Event {
     pub kind: EventKind,
     pub paths: Vec<PathBuf>,

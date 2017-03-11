@@ -5,10 +5,10 @@ version = "5.0.0-alpha.1"
 
 [dependencies]
 
-[dependencies.backend]
+[dependencies.notify-backend]
 path = "./backend"
 
-[dependencies.backend-inotify]
+[dependencies.notify-backend-inotify]
 path = "./backend-inotify"
 
 [workspaces]
