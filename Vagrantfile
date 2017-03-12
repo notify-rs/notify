@@ -9,6 +9,6 @@ Vagrant.configure("2") do |config|
   config.ssh.shell = "sh"
 
   config.vm.provision "shell", inline: <<-SHELL
-    sudo pkg install rust
+    sudo pkg install -y rust cargo neovim
   SHELL
 end
