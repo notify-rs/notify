@@ -4,7 +4,7 @@ macro_rules! test_compliance {
         use futures::Async;
         use futures::stream::Stream;
         use notify_backend::prelude::*;
-        use std::fs::{self, File};
+        use std::fs::File;
         use std::io::Write;
         use std::path::PathBuf;
         use std::thread::sleep;
@@ -65,7 +65,6 @@ macro_rules! test_compliance {
             }
 
             let dir = TempDir::new("cap_watch_file").expect("create tmp dir");
-            let path = dir.path().to_path_buf();
             let filepath = PathBuf::from("file.within");
             let filepathwithin = dir.path().join(&filepath);
             let mut filewithin = File::create(&filepathwithin).expect("create tmp file");

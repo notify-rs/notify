@@ -6,7 +6,7 @@ use backend::prelude::*;
 use backend::Buffer;
 
 use futures::{Poll, Stream};
-use inotify::INotify;
+use inotify::{ffi, INotify};
 use std::path::PathBuf;
 
 pub struct Backend {
@@ -17,6 +17,8 @@ pub struct Backend {
 impl NotifyBackend for Backend {
     fn capabilities() -> Vec<Capability> {
         vec![
+            Capability::EmitOnAccess,
+            Capability::TrackRelated,
             Capability::WatchFiles,
             Capability::WatchFolders,
         ]
@@ -27,8 +29,7 @@ impl NotifyBackend for Backend {
             .or_else(|err| Err(BackendError::Io(err)))?;
 
         for path in paths {
-            // Watch all events
-            ino.add_watch(&path, 0b111111111111)
+            ino.add_watch(&path, ffi::IN_ALL_EVENTS)
                 .or_else(|err| Err(BackendError::Io(err)))?;
         }
 
@@ -110,14 +111,14 @@ impl Stream for Backend {
                 } else if e.is_open() {
                     EventKind::Access(AccessKind::Open(AccessMode::Any))
                 } else if e.is_unmount() {
-                    EventKind::Other("unmount".into())
+                    EventKind::Remove(RemoveKind::Other("unmount".into()))
                 } else {
                     EventKind::Any
                 },
                 paths: vec![e.name.clone()],
-                cookie: match e.cookie {
+                relid: match e.cookie {
                     0 => None,
-                    c @ _ => Some(c)
+                    c @ _ => Some(c as usize)
                 }
             })
         }
