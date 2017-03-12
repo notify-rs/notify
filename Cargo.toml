@@ -8,7 +8,7 @@ version = "5.0.0-alpha.1"
 [dependencies.notify-backend]
 path = "./backend"
 
-[dependencies.notify-backend-inotify]
+[target.'cfg(target_os="linux")'.dependencies.notify-backend-inotify]
 path = "./backend-inotify"
 
 [workspaces]
