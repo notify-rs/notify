@@ -18,6 +18,7 @@ impl NotifyBackend for Backend {
     fn capabilities() -> Vec<Capability> {
         vec![
             Capability::EmitOnAccess,
+            Capability::FollowSymlinks,
             Capability::TrackRelated,
             Capability::WatchFiles,
             Capability::WatchFolders,
