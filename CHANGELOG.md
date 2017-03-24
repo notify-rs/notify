@@ -1,6 +1,11 @@
 # Changelog
 
 
+## 4.0.1
+
+- FIX: \[Linux\] Detect moves if two connected move events are split between two mio polls
+
+
 ## 4.0.0
 
 - CHANGE: \[Linux\] Update dependency to inotify 0.3.0.
