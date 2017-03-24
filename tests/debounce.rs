@@ -422,6 +422,43 @@ fn move_out_sleep_move_in() { // fsevents
     }
 }
 
+// A stress test that is moving files around trying to trigger possible bugs related to moving files.
+// For example, with inotify it's possible that two connected move events are split
+// between two mio polls. This doesn't happen often, though.
+#[test]
+#[ignore]
+fn move_repeatedly() {
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    tdir.create("watch_dir");
+
+    sleep_macos(10);
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS)).expect("failed to create debounced watcher");
+    watcher.watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
+
+    tdir.create("watch_dir/file1");
+
+    assert_eq!(recv_events_debounced(&rx), vec![
+        DebouncedEvent::Create(tdir.mkpath("watch_dir/file1")),
+    ]);
+
+    for i in 1..300 {
+        let from = format!("watch_dir/file{}", i);
+        let to = format!("watch_dir/file{}", i + 1);
+        tdir.rename(&from, &to);
+
+        if i % 10 == 0 {
+            let from = format!("watch_dir/file{}", i - 9);
+            assert_eq!(recv_events_debounced(&rx), vec![
+                DebouncedEvent::NoticeRemove(tdir.mkpath(&from)),
+                DebouncedEvent::Rename(tdir.mkpath(&from), tdir.mkpath(&to)),
+            ]);
+        }
+    }
+}
+
 #[test]
 fn write_rename_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");

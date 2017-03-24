@@ -16,6 +16,8 @@ use std::env;
 use std::fs::metadata;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
+use std::mem;
+use std::thread;
 use std::thread::Builder as ThreadBuilder;
 use std::time::Duration;
 use super::{Error, RawEvent, DebouncedEvent, op, Op, Result, Watcher, RecursiveMode};
@@ -30,25 +32,29 @@ pub struct INotifyWatcher(mio::Sender<EventLoopMsg>);
 
 struct INotifyHandler {
     inotify: Option<INotify>,
+    event_loop_tx: mio::Sender<EventLoopMsg>,
     event_tx: EventTx,
     watches: HashMap<PathBuf, (Watch, flags::Mask, bool)>,
     paths: HashMap<Watch, PathBuf>,
+    rename_event: Option<RawEvent>,
 }
 
 enum EventLoopMsg {
     AddWatch(PathBuf, RecursiveMode, Sender<Result<()>>),
     RemoveWatch(PathBuf, Sender<Result<()>>),
     Shutdown,
+    RenameTimeout(u32),
 }
 
 #[inline]
-fn send_pending_rename_event(event: Option<RawEvent>, event_tx: &mut EventTx) {
+fn send_pending_rename_event(rename_event: &mut Option<RawEvent>, event_tx: &mut EventTx) {
+    let event = mem::replace(rename_event, None);
     if let Some(e) = event {
         event_tx.send(RawEvent {
-            path: e.path,
-            op: Ok(op::REMOVE),
-            cookie: None,
-        });
+                          path: e.path,
+                          op: Ok(op::REMOVE),
+                          cookie: None,
+                      });
     }
 }
 
@@ -101,15 +107,13 @@ impl mio::Handler for INotifyHandler {
                         Ok(events) => {
                             assert!(!events.is_empty());
 
-                            let mut rename_event = None;
-
                             for event in events {
                                 if event.is_queue_overflow() {
                                     self.event_tx.send(RawEvent {
-                                        path: None,
-                                        op: Ok(op::RESCAN),
-                                        cookie: None,
-                                    });
+                                                           path: None,
+                                                           op: Ok(op::RESCAN),
+                                                           cookie: None,
+                                                       });
                                 }
 
                                 let path = if event.name.as_os_str().is_empty() {
@@ -122,19 +126,22 @@ impl mio::Handler for INotifyHandler {
                                 };
 
                                 if event.is_moved_from() {
-                                    send_pending_rename_event(rename_event, &mut self.event_tx);
+                                    send_pending_rename_event(&mut self.rename_event,
+                                                              &mut self.event_tx);
                                     remove_watch_by_event(&path,
                                                           &self.watches,
                                                           &mut remove_watches);
-                                    rename_event = Some(RawEvent {
-                                        path: path,
-                                        op: Ok(op::RENAME),
-                                        cookie: Some(event.cookie),
-                                    });
+                                    self.rename_event = Some(RawEvent {
+                                                                 path: path,
+                                                                 op: Ok(op::RENAME),
+                                                                 cookie: Some(event.cookie),
+                                                             });
                                 } else {
                                     let mut o = Op::empty();
                                     let mut c = None;
                                     if event.is_moved_to() {
+                                        let rename_event = mem::replace(&mut self.rename_event,
+                                                                        None);
                                         if let Some(e) = rename_event {
                                             if e.cookie == Some(event.cookie) {
                                                 self.event_tx.send(e);
@@ -146,7 +153,6 @@ impl mio::Handler for INotifyHandler {
                                         } else {
                                             o.insert(op::CREATE);
                                         }
-                                        rename_event = None;
                                         add_watch_by_event(&path,
                                                            event,
                                                            &self.watches,
@@ -179,26 +185,38 @@ impl mio::Handler for INotifyHandler {
                                     }
 
                                     if !o.is_empty() {
-                                        send_pending_rename_event(rename_event, &mut self.event_tx);
-                                        rename_event = None;
+                                        send_pending_rename_event(&mut self.rename_event,
+                                                                  &mut self.event_tx);
 
                                         self.event_tx.send(RawEvent {
-                                            path: path,
-                                            op: Ok(o),
-                                            cookie: c,
-                                        });
+                                                               path: path,
+                                                               op: Ok(o),
+                                                               cookie: c,
+                                                           });
                                     }
                                 }
                             }
 
-                            send_pending_rename_event(rename_event, &mut self.event_tx);
+                            // When receiving only the first part of a move event (IN_MOVED_FROM) it is unclear
+                            // whether the second part (IN_MOVED_TO) will arrive because the file or directory
+                            // could just have been moved out of the watched directory. So it's necessary to wait
+                            // for possible subsequent events in case it's a complete move event but also to make sure
+                            // that the first part of the event is handled in a timely manner in case no subsequent events arrive.
+                            if let Some(ref rename_event) = self.rename_event {
+                                let event_loop_tx = self.event_loop_tx.clone();
+                                let cookie = rename_event.cookie.unwrap(); // unwrap is safe because rename_event is always set with some cookie
+                                thread::spawn(move || {
+                                                  thread::sleep(Duration::from_millis(10)); // wait up to 10 ms for a subsequent event
+                                                  event_loop_tx.send(EventLoopMsg::RenameTimeout(cookie)).unwrap();
+                                              });
+                            }
                         }
                         Err(e) => {
                             self.event_tx.send(RawEvent {
-                                path: None,
-                                op: Err(Error::Io(e)),
-                                cookie: None,
-                            });
+                                                   path: None,
+                                                   op: Err(Error::Io(e)),
+                                                   cookie: None,
+                                               });
                         }
                     }
                 }
@@ -230,6 +248,13 @@ impl mio::Handler for INotifyHandler {
                 }
                 event_loop.shutdown();
             }
+            EventLoopMsg::RenameTimeout(cookie) => {
+                let current_cookie = self.rename_event.as_ref().and_then(|e| e.cookie);
+                // send pending rename event only if the rename event for which the timer has been created hasn't been handled already; otherwise ignore this timeout
+                if current_cookie == Some(cookie) {
+                    send_pending_rename_event(&mut self.rename_event, &mut self.event_tx);
+                }
+            }
         }
     }
 }
@@ -254,10 +279,7 @@ impl INotifyHandler {
             return self.add_single_watch(path, false, true);
         }
 
-        for entry in WalkDir::new(path)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(filter_dir) {
+        for entry in WalkDir::new(path).follow_links(true).into_iter().filter_map(filter_dir) {
             try!(self.add_single_watch(entry.path().to_path_buf(), is_recursive, watch_self));
             watch_self = false;
         }
@@ -348,15 +370,17 @@ impl Watcher for INotifyWatcher {
 
                 let handler = INotifyHandler {
                     inotify: Some(inotify),
+                    event_loop_tx: event_loop.channel(),
                     event_tx: EventTx::Raw { tx: tx },
                     watches: HashMap::new(),
                     paths: HashMap::new(),
+                    rename_event: None,
                 };
 
                 event_loop.register(&evented_inotify,
-                              INOTIFY,
-                              mio::EventSet::readable(),
-                              mio::PollOpt::level())
+                                    INOTIFY,
+                                    mio::EventSet::readable(),
+                                    mio::PollOpt::level())
                     .map(|_| (event_loop, handler))
             })
             .map(|(mut event_loop, mut handler)| {
@@ -381,18 +405,20 @@ impl Watcher for INotifyWatcher {
 
                 let handler = INotifyHandler {
                     inotify: Some(inotify),
+                    event_loop_tx: event_loop.channel(),
                     event_tx: EventTx::Debounced {
                         tx: tx.clone(),
                         debounce: Debounce::new(delay, tx),
                     },
                     watches: HashMap::new(),
                     paths: HashMap::new(),
+                    rename_event: None,
                 };
 
                 event_loop.register(&evented_inotify,
-                              INOTIFY,
-                              mio::EventSet::readable(),
-                              mio::PollOpt::level())
+                                    INOTIFY,
+                                    mio::EventSet::readable(),
+                                    mio::PollOpt::level())
                     .map(|_| (event_loop, handler))
             })
             .map(|(mut event_loop, mut handler)| {
