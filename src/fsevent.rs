@@ -85,6 +85,10 @@ struct StreamContextInfo {
     recursive_info: HashMap<PathBuf, bool>,
 }
 
+extern "C" {
+    pub fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> bool;
+}
+
 impl FsEventWatcher {
     #[inline]
     fn is_running(&self) -> bool {
@@ -99,6 +103,11 @@ impl FsEventWatcher {
         if let Some(runloop) = self.runloop {
             unsafe {
                 let runloop = runloop as *mut libc::c_void;
+
+                while !CFRunLoopIsWaiting(runloop) {
+                    thread::yield_now();
+                }
+
                 cf::CFRunLoopStop(runloop);
             }
         }
