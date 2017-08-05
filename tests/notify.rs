@@ -387,6 +387,52 @@ fn create_directory() {
     ]);
 }
 
+// https://github.com/passcod/notify/issues/124
+#[test]
+fn create_directory_watch_subdirectories() {
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    sleep_macos(10);
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
+
+    sleep_windows(100);
+
+    tdir.create("dir1");
+    tdir.create("dir1/dir2");
+
+    sleep(100);
+
+    tdir.create("dir1/dir2/file1");
+
+    let actual = if cfg!(target_os="macos") {
+        inflate_events(recv_events(&rx))
+    } else {
+        recv_events(&rx)
+    };
+
+    if cfg!(target_os="linux") {
+        assert_eq!(actual, vec![
+            (tdir.mkpath("dir1"), op::CREATE, None),
+            (tdir.mkpath("dir1/dir2/file1"), op::CREATE, None),
+            (tdir.mkpath("dir1/dir2/file1"), op::CLOSE_WRITE, None),
+        ]);
+    } else if cfg!(target_os="windows") {
+        assert_eq!(actual, vec![
+            (tdir.mkpath("dir1"), op::CREATE, None),
+            (tdir.mkpath("dir1/dir2"), op::CREATE, None),
+            (tdir.mkpath("dir1/dir2/file1"), op::CREATE, None),
+        ]);
+    } else {
+        assert_eq!(actual, vec![
+            (tdir.mkpath("dir1"), op::CREATE, None),
+            (tdir.mkpath("dir1/dir2/file1"), op::CREATE, None),
+        ]);
+    }
+}
+
 #[test]
 #[cfg(not(any(target_os="windows", target_os="macos")))]
 fn modify_directory() {
@@ -520,6 +566,48 @@ fn move_out_create_directory() {
         assert_eq!(recv_events(&rx), vec![
             (tdir.mkpath("watch_dir/dir1"), op::REMOVE, None),
             (tdir.mkpath("watch_dir/dir1"), op::CREATE, None),
+        ]);
+    }
+}
+
+// https://github.com/passcod/notify/issues/124
+#[test]
+fn move_in_directory_watch_subdirectories() {
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    tdir.create_all(vec![
+        "watch_dir",
+        "dir1/dir2",
+    ]);
+
+    sleep_macos(10);
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).expect("failed to create recommended watcher");
+    watcher.watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
+
+    sleep_windows(100);
+
+    tdir.rename("dir1", "watch_dir/dir1");
+
+    sleep(100);
+
+    tdir.create("watch_dir/dir1/dir2/file1");
+
+    if cfg!(target_os="macos") {
+        assert_eq!(inflate_events(recv_events(&rx)), vec![
+            (tdir.mkpath("watch_dir/dir1"), op::CREATE | op::RENAME, None),
+        ]);
+    } else if cfg!(target_os="linux") {
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("watch_dir/dir1"), op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1/dir2/file1"), op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1/dir2/file1"), op::CLOSE_WRITE, None),
+        ]);
+    } else {
+        assert_eq!(recv_events(&rx), vec![
+            (tdir.mkpath("watch_dir/dir1"), op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1/dir2/file1"), op::CREATE, None),
         ]);
     }
 }

@@ -644,6 +644,38 @@ fn create_directory() {
     ]);
 }
 
+// https://github.com/passcod/notify/issues/124
+#[test]
+fn create_directory_watch_subdirectories() {
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    sleep_macos(10);
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS)).expect("failed to create debounced watcher");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
+
+    tdir.create("dir1");
+    tdir.create("dir1/dir2");
+
+    sleep(100);
+
+    tdir.create("dir1/dir2/file1");
+
+    if cfg!(target_os="linux") {
+        assert_eq!(recv_events_debounced(&rx), vec![
+            DebouncedEvent::Create(tdir.mkpath("dir1")),
+            DebouncedEvent::Create(tdir.mkpath("dir1/dir2/file1")),
+        ]);
+    } else {/*  */
+        assert_eq!(recv_events_debounced(&rx), vec![
+            DebouncedEvent::Create(tdir.mkpath("dir1")),
+            DebouncedEvent::Create(tdir.mkpath("dir1/dir2")),
+            DebouncedEvent::Create(tdir.mkpath("dir1/dir2/file1")),
+        ]);
+    }
+}
+
 #[test]
 fn modify_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
@@ -986,4 +1018,32 @@ fn modify_delete_directory() {
             DebouncedEvent::Remove(tdir.mkpath("dir1")),
         ]);
     }
+}
+
+// https://github.com/passcod/notify/issues/124
+#[test]
+fn move_in_directory_watch_subdirectories() {
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    tdir.create_all(vec![
+        "watch_dir",
+        "dir1/dir2",
+    ]);
+
+    sleep_macos(35_000);
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS)).expect("failed to create debounced watcher");
+    watcher.watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive).expect("failed to watch directory");
+
+    tdir.rename("dir1", "watch_dir/dir1");
+
+    sleep(100);
+
+    tdir.create("watch_dir/dir1/dir2/file1");
+
+    assert_eq!(recv_events_debounced(&rx), vec![
+        DebouncedEvent::Create(tdir.mkpath("watch_dir/dir1")),
+        DebouncedEvent::Create(tdir.mkpath("watch_dir/dir1/dir2/file1")),
+    ]);
 }
