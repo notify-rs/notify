@@ -398,47 +398,67 @@ impl Debounce {
             if op.contains(op::REMOVE) {
                 let mut remove_path: Option<PathBuf> = None;
                 {
+                    if let Some(&(_, ref from_path, ref timer_id)) = op_buf.get(&path) {
+                        if let Some(ref from_path) = *from_path {
+                            if op_buf.contains_key(from_path) {
+                                // a file has already been created at the same location this file
+                                // has been moved from before being deleted / all events
+                                // regarding this file can be ignored
+
+                                // ignore running timer
+                                if let Some(timer_id) = *timer_id {
+                                    self.timer.ignore(timer_id);
+                                }
+
+                                // remember for deletion
+                                remove_path = Some(path.clone());
+                            }
+                        }
+                    }
+
                     let &mut (ref mut operation, _, ref mut timer_id) = op_buf.entry(path.clone())
                         .or_insert((None, None, None));
 
-                    match *operation {
-                        // file was just created, so just remove the operations_buffer entry / no
-                        // need to emit NoticeRemove because the file has just been created
-                        Some(op::CREATE) => {
-                            // ignore running timer
-                            if let Some(timer_id) = *timer_id {
-                                self.timer.ignore(timer_id);
+                    if remove_path.is_none() {
+                        match *operation {
+                            // file was just created, so just remove the operations_buffer entry / no
+                            // need to emit NoticeRemove because the file has just been created
+                            Some(op::CREATE) => {
+                                // ignore running timer
+                                if let Some(timer_id) = *timer_id {
+                                    self.timer.ignore(timer_id);
+                                }
+
+                                // remember for deletion
+                                remove_path = Some(path.clone());
                             }
 
-                            // remember for deletion
-                            remove_path = Some(path.clone());
+                            // change to remove event
+                            Some(op::WRITE) |
+
+                            // change to remove event
+                            Some(op::CHMOD) |
+
+                            // operations_buffer entry didn't exist
+                            None => {
+                                *operation = Some(op::REMOVE);
+                                let _ = self.tx.send(DebouncedEvent::NoticeRemove(path.clone()));
+                                restart_timer(timer_id, path.clone(), &mut self.timer);
+                            }
+
+                            // file has been renamed before, change to remove event /
+                            // no need to emit NoticeRemove because the file has been renamed before
+                            Some(op::RENAME) => {
+                                *operation = Some(op::REMOVE);
+                                restart_timer(timer_id, path.clone(), &mut self.timer);
+                            }
+
+                            // multiple remove events are possible if the file/directory
+                            // is itself watched and in a watched directory
+                            Some(op::REMOVE) => {}
+
+                            _ => { unreachable!(); }
                         }
-
-                        // change to remove event
-                        Some(op::WRITE) |
-
-                        // change to remove event
-                        Some(op::CHMOD) |
-
-                        // operations_buffer entry didn't exist
-                        None => {
-                            *operation = Some(op::REMOVE);
-                            let _ = self.tx.send(DebouncedEvent::NoticeRemove(path.clone()));
-                            restart_timer(timer_id, path.clone(), &mut self.timer);
-                        }
-
-                        // file has been renamed before, change to remove event /
-                        // no need to emit NoticeRemove because the file has been renamed before
-                        Some(op::RENAME) => {
-                            *operation = Some(op::REMOVE);
-                            restart_timer(timer_id, path.clone(), &mut self.timer);
-                        }
-
-                        // multiple remove events are possible if the file/directory
-                        // is itself watched and in a watched directory
-                        Some(op::REMOVE) => {}
-
-                        _ => { unreachable!(); }
                     }
                 }
                 if let Some(path) = remove_path {

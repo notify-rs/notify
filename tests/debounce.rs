@@ -1047,3 +1047,63 @@ fn move_in_directory_watch_subdirectories() {
         DebouncedEvent::Create(tdir.mkpath("watch_dir/dir1/dir2/file1")),
     ]);
 }
+
+// https://github.com/passcod/notify/issues/129
+#[test]
+fn rename_create_remove_temp_file() {
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    tdir.create("file1");
+    sleep_macos(10);
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS)).expect("failed to create debounced watcher");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
+
+    sleep_macos(10);
+    tdir.rename("file1", "file2");
+    sleep_macos(10);
+    tdir.create("file1");
+    tdir.remove("file2");
+
+    assert_eq!(recv_events_debounced(&rx), vec![
+        DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
+        DebouncedEvent::Create(tdir.mkpath("file1")),
+     ]);
+}
+
+#[test]
+fn rename_rename_remove_temp_file() {
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    tdir.create("file1");
+    tdir.create("file3");
+    sleep_macos(10);
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS)).expect("failed to create debounced watcher");
+    watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
+
+    sleep_macos(10);
+    tdir.rename("file1", "file2");
+    sleep_macos(10);
+    tdir.rename("file3", "file1");
+    sleep_macos(10);
+    tdir.remove("file2");
+
+    if cfg!(target_os="windows") {
+        assert_eq!(recv_events_debounced(&rx), vec![
+            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
+            DebouncedEvent::NoticeRemove(tdir.mkpath("file3")),
+            DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
+            DebouncedEvent::Rename(tdir.mkpath("file3"), tdir.mkpath("file1")),
+            DebouncedEvent::Write(tdir.mkpath("file1")),
+        ]);
+    } else {
+        assert_eq!(recv_events_debounced(&rx), vec![
+            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
+            DebouncedEvent::NoticeRemove(tdir.mkpath("file3")),
+            DebouncedEvent::Rename(tdir.mkpath("file3"), tdir.mkpath("file1")),
+        ]);
+    }
+}

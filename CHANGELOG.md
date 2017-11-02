@@ -1,6 +1,13 @@
 # Changelog
 
 
+## unreleased
+
+- FIX: Suppress events for files which have been moved and deleted if a new file in the original location is created quickly when using the debounced interface (eg. while safe-saving files)
+
+[#129]: https://github.com/passcod/notify/issues/129
+
+
 ## 4.0.1
 
 - FIX: \[Linux\] Detect moves if two connected move events are split between two mio polls
