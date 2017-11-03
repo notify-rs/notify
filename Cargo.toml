@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "4.0.1"
+version = "4.0.2"
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
@@ -29,7 +29,7 @@ inotify = "^0.3.0"
 mio = "^0.5.0"
 
 [target.'cfg(target_os="macos")'.dependencies]
-fsevent = "^0.2.15"
+fsevent = "^0.2.17"
 fsevent-sys = "^0.1.3"
 
 [target.'cfg(windows)'.dependencies]
