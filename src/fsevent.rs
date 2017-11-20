@@ -120,12 +120,17 @@ impl FsEventWatcher {
         unsafe {
             let cf_path = cf::str_path_to_cfstring_ref(str_path);
 
+            let mut to_remove = Vec::new();
             for idx in 0..cf::CFArrayGetCount(self.paths) {
                 let item = cf::CFArrayGetValueAtIndex(self.paths, idx);
                 if cf::CFStringCompare(item, cf_path, cf::kCFCompareCaseInsensitive) ==
                    cf::kCFCompareEqualTo {
-                    cf::CFArrayRemoveValueAtIndex(self.paths, idx);
+                       to_remove.push(idx);
                 }
+            }
+
+            for idx in to_remove.iter().rev() {
+                cf::CFArrayRemoveValueAtIndex(self.paths, *idx);
             }
         }
         let p = if let Ok(canonicalized_path) = path.as_ref().canonicalize() {
