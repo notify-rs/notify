@@ -358,7 +358,7 @@ pub struct RawEvent {
 
 unsafe impl Send for RawEvent {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 /// Event delivered when action occurs on a watched path in debounced mode
 pub enum DebouncedEvent {
     /// `NoticeWrite` is emitted immediately after the first write event for the path.
