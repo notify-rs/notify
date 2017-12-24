@@ -6,11 +6,11 @@ use backend::prelude::*;
 use backend::Buffer;
 
 use futures::{Poll, Stream};
-use inotify::{ffi, INotify};
+use inotify::{Inotify, EventMask, WatchMask};
 use std::path::PathBuf;
 
 pub struct Backend {
-    inotify: INotify,
+    inotify: Inotify,
     buffer: Buffer
 }
 
@@ -26,11 +26,11 @@ impl NotifyBackend for Backend {
     }
 
     fn new(paths: Vec<PathBuf>) -> BackendResult<Backend> {
-        let ino = INotify::init()
+        let mut ino = Inotify::init()
             .or_else(|err| Err(BackendError::Io(err)))?;
 
         for path in paths {
-            ino.add_watch(&path, ffi::IN_ALL_EVENTS)
+            ino.add_watch(&path, WatchMask::ALL_EVENTS)
                 .or_else(|err| Err(BackendError::Io(err)))?;
         }
 
@@ -51,11 +51,12 @@ impl Stream for Backend {
             return self.buffer.poll()
         }
 
-        let from_kernel = self.inotify.available_events()
+        let mut buf = [0; 4096];
+        let from_kernel = self.inotify.read_events(&mut buf)
             .or_else(|err| Err(StreamError::Io(err)))?;
 
         for e in from_kernel {
-            if e.is_queue_overflow() {
+            if e.mask.contains(EventMask::Q_OVERFLOW) {
                 // Currently, futures::Stream don't terminate on Error, so we
                 // close the buffer such that the rest of the events trickle
                 // through and the stream ends with Ready(None) after all are
@@ -69,54 +70,54 @@ impl Stream for Backend {
                 return Err(StreamError::UpstreamOverflow)
             }
 
-            if e.is_ignored() {
+            if e.mask.contains(EventMask::IGNORED) {
                 self.buffer.close();
                 break
             }
 
             self.buffer.push(Event {
-                kind: if e.is_access() {
+                kind: if e.mask.contains(EventMask::ACCESS) {
                     EventKind::Access(AccessKind::Any)
-                } else if e.is_attrib() {
+                } else if e.mask.contains(EventMask::ATTRIB) {
                     EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any))
-                } else if e.is_close_write() {
+                } else if e.mask.contains(EventMask::CLOSE_WRITE) {
                     EventKind::Access(AccessKind::Close(AccessMode::Write))
-                } else if e.is_close_nowrite() {
+                } else if e.mask.contains(EventMask::CLOSE_NOWRITE) {
                     EventKind::Access(AccessKind::Close(AccessMode::Read))
-                } else if e.is_create() {
-                    EventKind::Create(if e.is_dir() {
+                } else if e.mask.contains(EventMask::CREATE) {
+                    EventKind::Create(if e.mask.contains(EventMask::ISDIR) {
                         CreateKind::Folder
                     } else {
                         CreateKind::File
                     })
-                } else if e.is_delete() {
-                    EventKind::Remove(if e.is_dir() {
+                } else if e.mask.contains(EventMask::DELETE) {
+                    EventKind::Remove(if e.mask.contains(EventMask::ISDIR) {
                         RemoveKind::Folder
                     } else {
                         RemoveKind::File
                     })
-                } else if e.is_delete_self() {
-                    EventKind::Remove(if e.is_dir() {
+                } else if e.mask.contains(EventMask::DELETE_SELF) {
+                    EventKind::Remove(if e.mask.contains(EventMask::ISDIR) {
                         RemoveKind::Folder
                     } else {
                         RemoveKind::File
                     })
-                } else if e.is_modify() {
+                } else if e.mask.contains(EventMask::MODIFY) {
                     EventKind::Modify(ModifyKind::Data(DataChange::Any))
-                } else if e.is_move_self() {
+                } else if e.mask.contains(EventMask::MOVE_SELF) {
                     EventKind::Modify(ModifyKind::Name(RenameMode::Any))
-                } else if e.is_moved_from() {
+                } else if e.mask.contains(EventMask::MOVED_FROM) {
                     EventKind::Modify(ModifyKind::Name(RenameMode::From))
-                } else if e.is_moved_to() {
+                } else if e.mask.contains(EventMask::MOVED_TO) {
                     EventKind::Modify(ModifyKind::Name(RenameMode::To))
-                } else if e.is_open() {
+                } else if e.mask.contains(EventMask::OPEN) {
                     EventKind::Access(AccessKind::Open(AccessMode::Any))
-                } else if e.is_unmount() {
+                } else if e.mask.contains(EventMask::UNMOUNT) {
                     EventKind::Remove(RemoveKind::Other("unmount".into()))
                 } else {
                     EventKind::Any
                 },
-                paths: vec![e.name.clone()],
+                paths: e.name.map(|s| vec![s.into()]).unwrap_or(vec![]),
                 relid: match e.cookie {
                     0 => None,
                     c @ _ => Some(c as usize)
