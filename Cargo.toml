@@ -16,5 +16,3 @@ path = "./backend-kqueue"
 
 [dependencies.notify-backend-poll-tree]
 path = "./backend-poll-tree"
-
-[workspaces]

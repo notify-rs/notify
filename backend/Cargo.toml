@@ -5,4 +5,4 @@ version = "1.0.0"
 workspace = ".."
 
 [dependencies]
-futures = "0.1.10"
+futures = "0.1.17"
