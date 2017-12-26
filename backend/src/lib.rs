@@ -2,10 +2,12 @@ extern crate futures;
 
 pub use self::buffer::Buffer;
 
-/// Backend trait and types.
+/// Contains the `Backend` trait and related types.
 pub mod backend;
 
 pub mod buffer;
+
+/// Contains the `Capability` enum.
 pub mod capability;
 pub mod event;
 pub mod stream;
