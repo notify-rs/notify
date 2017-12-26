@@ -2,7 +2,9 @@ extern crate futures;
 
 pub use self::buffer::Buffer;
 
+/// Backend trait and types.
 pub mod backend;
+
 pub mod buffer;
 pub mod capability;
 pub mod event;
@@ -35,5 +37,6 @@ pub mod prelude {
     pub use super::stream::{
         Error as StreamError,
         Item as StreamItem,
+        EmptyResult as EmptyStreamResult,
     };
 }

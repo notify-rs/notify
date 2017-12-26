@@ -6,13 +6,12 @@ use backend::prelude::*;
 use backend::Buffer;
 
 use futures::{Poll, Stream};
-use futures::future::{self, FutureResult};
-use inotify::{Inotify, EventMask, WatchMask};
+use inotify::{Inotify, EventMask, Events, WatchMask};
 use std::path::PathBuf;
 
 pub struct Backend {
     inotify: Inotify,
-    buffer: Buffer
+    buffer: Buffer,
 }
 
 impl NotifyBackend for Backend {
@@ -38,9 +37,17 @@ impl NotifyBackend for Backend {
         Ok(Backend { buffer: Buffer::new(), inotify: ino })
     }
 
-    type AwaitFuture = FutureResult<(), BackendError>;
-    fn await(&mut self) -> Self::AwaitFuture {
-        future::ok(())
+    fn await(&mut self) -> EmptyStreamResult {
+        if self.buffer.closed() {
+            return Ok(())
+        }
+
+        let mut buf = [0; 4096];
+        let from_kernel = self.inotify.read_events_blocking(&mut buf)
+            .or_else(|err| Err(StreamError::Io(err)))?;
+
+        self.process_events(from_kernel)?;
+        Ok(())
     }
 }
 
@@ -61,7 +68,14 @@ impl Stream for Backend {
         let from_kernel = self.inotify.read_events(&mut buf)
             .or_else(|err| Err(StreamError::Io(err)))?;
 
-        for e in from_kernel {
+        self.process_events(from_kernel)?;
+        self.buffer.poll()
+    }
+}
+
+impl Backend {
+    fn process_events(&mut self, events: Events) -> Result<(), StreamError> {
+        for e in events {
             if e.mask.contains(EventMask::Q_OVERFLOW) {
                 // Currently, futures::Stream don't terminate on Error, so we
                 // close the buffer such that the rest of the events trickle
@@ -131,6 +145,6 @@ impl Stream for Backend {
             })
         }
 
-        self.buffer.poll()
+        Ok(())
     }
 }

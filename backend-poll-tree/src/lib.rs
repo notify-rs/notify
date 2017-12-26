@@ -6,7 +6,6 @@ use backend::prelude::*;
 use backend::Buffer;
 
 use futures::{Poll, Stream};
-use futures::future::{self, FutureResult};
 use std::path::PathBuf;
 
 pub struct Backend {
@@ -30,9 +29,8 @@ impl NotifyBackend for Backend {
         Ok(Backend { buffer: Buffer::new(), trees: vec![], watches: paths })
     }
 
-    type AwaitFuture = FutureResult<(), BackendError>;
-    fn await(&mut self) -> Self::AwaitFuture {
-        future::ok(())
+    fn await(&mut self) -> EmptyStreamResult {
+        Ok(())
     }
 }
 
