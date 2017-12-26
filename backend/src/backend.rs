@@ -1,12 +1,14 @@
-use futures::stream::Stream;
+use futures::{Future, Stream};
 use std::{ffi, io};
 use std::path::PathBuf;
 use std::result::Result as StdResult;
 use super::capability::Capability;
 
 pub trait Backend: Stream + Drop + Sized {
+    type AwaitFuture: Future<Item=(), Error=Error>;
     fn new(paths: Vec<PathBuf>) -> Result<Self>;
     fn capabilities() -> Vec<Capability>;
+    fn await(&mut self) -> Self::AwaitFuture;
 }
 
 pub type Result<T: Backend> = StdResult<T, Error>;

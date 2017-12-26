@@ -5,6 +5,7 @@ extern crate futures;
 use backend::prelude::*;
 use backend::Buffer;
 use futures::{Poll, Stream};
+use futures::future::{self, FutureResult};
 use kqueue::{EventData, EventFilter, Ident, Vnode};
 use std::path::PathBuf;
 
@@ -33,6 +34,11 @@ impl NotifyBackend for Backend {
         watcher.watch()?;
 
         Ok(Backend { buffer: Buffer::new(), kqueue: watcher })
+    }
+
+    type AwaitFuture = FutureResult<(), BackendError>;
+    fn await(&mut self) -> Self::AwaitFuture {
+        future::ok(())
     }
 }
 

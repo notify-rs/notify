@@ -14,7 +14,7 @@ pub mod prelude {
     pub use super::backend::{
         Backend as NotifyBackend,
         Error as BackendError,
-        Result as BackendResult
+        Result as BackendResult,
     };
 
     pub use super::capability::Capability;
@@ -34,6 +34,6 @@ pub mod prelude {
 
     pub use super::stream::{
         Error as StreamError,
-        Item as StreamItem
+        Item as StreamItem,
     };
 }
