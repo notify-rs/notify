@@ -8,13 +8,70 @@ env:
     - CRATE_NAME=notify
 
 matrix:
+  fast_finish: true
   include:
+
+    # Container: Linux on Nightly
+    - env: NO_CROSS=1
+      rust: nightly
+      sudo: false
+      services: false
+
+    # Container: Linux, macOS on Beta
+    - env: NO_CROSS=1
+      rust: beta
+      sudo: false
+      services: false
+    - env: NO_CROSS=1
+      os: osx
+      rust: beta
+      sudo: false
+      services: false
+
+    # Container: Linux, macOS on Stable
+    - env: NO_CROSS=1
+      rust: stable
+      sudo: false
+      services: false
+    - env: NO_CROSS=1
+      os: osx
+      rust: stable
+      sudo: false
+      services: false
+
+    # Supported platforms (cross-compiles)
+    - env: TARGET=i686-unknown-linux-gnu
+    - env: TARGET=x86_64-unknown-freebsd
+
+    # Unsupported but tested platforms (cross-compiles)
+    - env: TARGET=x86_64-linux-android
+    - env: TARGET=x86_64-unknown-linux-musl
+    - env: TARGET=x86_64-apple-ios
+      os: osx
+    - env: TARGET=i686-apple-darwin
+      os: osx
+    - env: TARGET=i686-unknown-freebsd
+    - env: TARGET=x86_64-unknown-netbsd
+    - env: TARGET=x86_64-pc-windows-gnu
+
+  allow_failures:
+    # From the unsupported list
+    - env: TARGET=x86_64-linux-android
+    - env: TARGET=x86_64-unknown-linux-musl
+    - env: TARGET=x86_64-apple-ios
+    - env: TARGET=i686-apple-darwin
+    - env: TARGET=i686-unknown-freebsd
+    - env: TARGET=x86_64-unknown-netbsd
+    - env: TARGET=x86_64-pc-windows-gnu
+
+
+    # List of other potential platforms
+
     # Android
     # - env: TARGET=aarch64-linux-android DISABLE_TESTS=1
     # - env: TARGET=arm-linux-androideabi DISABLE_TESTS=1
     # - env: TARGET=armv7-linux-androideabi DISABLE_TESTS=1
     # - env: TARGET=i686-linux-android DISABLE_TESTS=1
-    - env: TARGET=x86_64-linux-android
 
     # iOS
     # - env: TARGET=aarch64-apple-ios DISABLE_TESTS=1
@@ -25,14 +82,11 @@ matrix:
     #   os: osx
     # - env: TARGET=i386-apple-ios DISABLE_TESTS=1
     #   os: osx
-    - env: TARGET=x86_64-apple-ios
-      os: osx
 
     # Linux
     # - env: TARGET=aarch64-unknown-linux-gnu
     # - env: TARGET=arm-unknown-linux-gnueabi
     # - env: TARGET=armv7-unknown-linux-gnueabihf
-    - env: TARGET=i686-unknown-linux-gnu
     # - env: TARGET=i686-unknown-linux-musl
     # - env: TARGET=mips-unknown-linux-gnu
     # - env: TARGET=mips64-unknown-linux-gnuabi64
@@ -42,39 +96,6 @@ matrix:
     # - env: TARGET=powerpc64-unknown-linux-gnu
     # - env: TARGET=powerpc64le-unknown-linux-gnu
     # - env: TARGET=s390x-unknown-linux-gnu DISABLE_TESTS=1
-    - env: TARGET=x86_64-unknown-linux-gnu
-    - env: TARGET=x86_64-unknown-linux-musl
-
-    # OSX
-    - env: TARGET=i686-apple-darwin
-      os: osx
-    - env: TARGET=x86_64-apple-darwin
-      os: osx
-
-    # *BSD
-    - env: TARGET=i686-unknown-freebsd
-    - env: TARGET=x86_64-unknown-freebsd
-    - env: TARGET=x86_64-unknown-netbsd
-
-    # Windows
-    - env: TARGET=x86_64-pc-windows-gnu
-
-    # Beta on all Tier 1 (fast builds)
-    - env: NO_CROSS=1
-      rust: beta
-      sudo: false
-      services: false
-    - env: NO_CROSS=1
-      os: osx
-      rust: beta
-      sudo: false
-      services: false
-
-    # Nightly on Linux (fast build)
-    - env: NO_CROSS=1
-      rust: nightly
-      sudo: false
-      services: false
 
 before_install:
   - set -e

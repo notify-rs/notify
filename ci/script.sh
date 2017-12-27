@@ -5,13 +5,13 @@ bothx() {
     cross $* --target $TARGET
     cross $* --target $TARGET --release
   else
-    cargo $* --target $TARGET
-    cargo $* --target $TARGET --release
+    cargo $*
+    cargo $* --release
   fi
 }
 
 main() {
-    bothx build --target $TARGET
+    bothx build
 
     if [ ! -z $DISABLE_TESTS ]; then
         return
