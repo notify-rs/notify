@@ -46,16 +46,18 @@ matrix:
 
     # Tested, but no Tier 1 support (cross-compiles)
     - env: TARGET=i686-unknown-linux-gnu
-    - env: TARGET=x86_64-unknown-freebsd
     - env: TARGET=x86_64-linux-android
     - env: TARGET=x86_64-unknown-linux-musl
     - env: TARGET=x86_64-apple-ios
       os: osx
     - env: TARGET=i686-apple-darwin
       os: osx
-    - env: TARGET=i686-unknown-freebsd
-    - env: TARGET=x86_64-unknown-netbsd
-    - env: TARGET=x86_64-pc-windows-gnu
+
+    # Builds only, no tests (cross-compiles)
+    - env: TARGET=x86_64-unknown-freebsd DISABLE_TESTS=1
+    - env: TARGET=i686-unknown-freebsd DISABLE_TESTS=1
+    - env: TARGET=x86_64-unknown-netbsd DISABLE_TESTS=1
+    - env: TARGET=x86_64-pc-windows-gnu DISABLE_TESTS=1
 
   allow_failures:
     # From the not-Tier-1 list
@@ -65,10 +67,12 @@ matrix:
     - env: TARGET=x86_64-unknown-linux-musl
     - env: TARGET=x86_64-apple-ios
     - env: TARGET=i686-apple-darwin
-    - env: TARGET=i686-unknown-freebsd
-    - env: TARGET=x86_64-unknown-netbsd
-    - env: TARGET=x86_64-pc-windows-gnu
 
+    # From the no-tests list
+    - env: TARGET=x86_64-unknown-freebsd DISABLE_TESTS=1
+    - env: TARGET=i686-unknown-freebsd DISABLE_TESTS=1
+    - env: TARGET=x86_64-unknown-netbsd DISABLE_TESTS=1
+    - env: TARGET=x86_64-pc-windows-gnu DISABLE_TESTS=1
 
     # List of other potential platforms
 
