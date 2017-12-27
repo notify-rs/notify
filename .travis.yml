@@ -1,0 +1,50 @@
+language: rust
+cache: cargo
+
+matrix:
+  fast_finish: true
+  include:
+    - os: osx
+      rust: stable
+    - os: osx
+      rust: beta
+    - os: osx
+      rust: nightly
+
+    - os: linux
+      rust: stable
+    - os: linux
+      rust: beta
+    - os: linux
+      rust: nightly
+
+  #  - os: linux
+  #    env:
+  #      - SIMULATE=freebsd
+  #      - RUST=stable
+  #
+  #  - os: linux
+  #    env:
+  #      - SIMULATE=freebsd
+  #      - RUST=beta
+  #
+  #  - os: linux
+  #    env:
+  #      - SIMULATE=freebsd
+  #      - RUST=nightly
+
+script:
+  - |
+    if [[ "$TRAVIS_OS_NAME" = "linux" ]]; then
+      if [[ -z "$SIMULATE" ]]; then
+        cargo test
+        cargo test -p notify-backend
+        cargo test -p notify-backend-inotify
+      else
+        echo todo simulate "$SIMULATED"
+      fi
+    elif [[ "$TRAVIS_OS_NAME" = "osx" ]]; then
+      cargo test
+      cargo test -p notify-backend
+      echo cargo test -p notify-backend-fsevents
+    fi
