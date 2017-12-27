@@ -46,6 +46,7 @@ impl Buffer {
     /// Pushes an `Event` at the "back" of the buffer.
     ///
     /// Silently drops the `Event` if:
+    ///
     ///  - the buffer is full, or
     ///  - the buffer is closed.
     pub fn push(&mut self, event: Event) {

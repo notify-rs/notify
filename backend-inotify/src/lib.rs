@@ -18,6 +18,7 @@ use std::path::PathBuf;
 /// Inotify requires kernel version 2.6.13.
 ///
 /// This backend can natively:
+///
 ///  - emit Access events
 ///  - follow symlinks
 ///  - track related changes (for renames)
