@@ -1,8 +1,13 @@
 set -ex
 
 bothx() {
-  cross $*
-  cross $* --release
+  if [[ -z "$NO_CROSS" ]]; then
+    cross $* --target $TARGET
+    cross $* --target $TARGET --release
+  else
+    cargo $* --target $TARGET
+    cargo $* --target $TARGET --release
+  fi
 }
 
 main() {
@@ -12,16 +17,16 @@ main() {
         return
     fi
 
-    bothx test --target $TARGET
-    bothx test --target $TARGET -p notify-backend
-    echo bothx test --target $TARGET -p notify-backend-poll-tree
+    bothx test
+    bothx test -p notify-backend
+    echo bothx test -p notify-backend-poll-tree
 
     if [[ "$TARGET" =~ -darwin$ ]]; then
-      echo bothx test --target $TARGET -p notify-backend-fsevents
+      echo bothx test -p notify-backend-fsevents
     elif [[ "$TARGET" =~ bsd$ ]]; then
-      bothx test --target $TARGET -p notify-backend-kqueue
+      bothx test -p notify-backend-kqueue
     elif [[ "$TARGET" =~ -linux- ]]; then
-      bothx test --target $TARGET -p notify-backend-inotify
+      bothx test -p notify-backend-inotify
     fi
 }
 

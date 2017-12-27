@@ -59,26 +59,33 @@ matrix:
     # Windows
     - env: TARGET=x86_64-pc-windows-gnu
 
-    # Beta on all Tier 1
-    - env: TARGET=x86_64-unknown-linux-gnu
+    # Beta on all Tier 1 (fast builds)
+    - env: NO_CROSS=1
       rust: beta
-    - env: TARGET=x86_64-apple-darwin
+      sudo: false
+      services: false
+    - env: NO_CROSS=1
       os: osx
       rust: beta
-    - env: TARGET=x86_64-unknown-freebsd
-      rust: beta
+      sudo: false
+      services: false
 
-    # Nightly on Linux
-    - env: TARGET=x86_64-unknown-linux-gnu
+    # Nightly on Linux (fast build)
+    - env: NO_CROSS=1
       rust: nightly
+      sudo: false
+      services: false
 
 before_install:
   - set -e
   - rustup self update
 
 install:
-  - sh ci/install.sh
-  - source ~/.cargo/env || true
+  - |
+    if [[ -z "$NO_CROSS" ]]; then
+      sh ci/install.sh
+      source ~/.cargo/env || true
+    fi
 
 script:
   - bash ci/script.sh
