@@ -22,7 +22,7 @@ use std::path::PathBuf;
 ///  - emit Access events
 ///  - follow symlinks
 ///  - track related changes (for renames)
-///  - watch indiviual files
+///  - watch individual files
 ///  - watch folders (but not recursively)
 ///
 /// The backend reads events into a ~4KB buffer, corresponding to 200 events (24 bytes per event on
