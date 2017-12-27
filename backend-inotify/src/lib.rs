@@ -24,9 +24,9 @@ use std::path::PathBuf;
 ///  - watch indiviual files
 ///  - watch folders (but not recursively)
 ///
-/// The backend reads events into a ~4.8KB buffer, corresponding to 200 events on a 64-bit system
-/// (24 bytes per event), and 240 events on a 32-bit system (20 bytes per event), then pushes them
-/// to an internal [Buffer] after translation into Notify events.
+/// The backend reads events into a ~4KB buffer, corresponding to 200 events (24 bytes per event on
+/// 64-bit architectures, and 20 bytes on 32-bit architectures), then pushes them to an internal
+/// [Buffer] after translation into Notify events.
 ///
 /// Inotify emits an event when a filesystem whose mountpoint is watched is unmounted. In this
 /// backend, this event is mapped as `RemoveKind::Other("unmount")`.
@@ -37,6 +37,12 @@ pub struct Backend {
     inotify: Inotify,
     buffer: Buffer,
 }
+
+#[cfg(target_pointer_width = "64")]
+const BUFFER_SIZE: usize = 4800;
+
+#[cfg(not(target_pointer_width = "64"))]
+const BUFFER_SIZE: usize = 4000;
 
 impl NotifyBackend for Backend {
     fn capabilities() -> Vec<Capability> {
@@ -50,15 +56,15 @@ impl NotifyBackend for Backend {
     }
 
     fn new(paths: Vec<PathBuf>) -> BackendResult<Backend> {
-        let mut ino = Inotify::init()
+        let mut inotify = Inotify::init()
             .or_else(|err| Err(BackendError::Io(err)))?;
 
         for path in paths {
-            ino.add_watch(&path, WatchMask::ALL_EVENTS)
+            inotify.add_watch(&path, WatchMask::ALL_EVENTS)
                 .or_else(|err| Err(BackendError::Io(err)))?;
         }
 
-        Ok(Backend { buffer: Buffer::new(), inotify: ino })
+        Ok(Backend { buffer: Buffer::new(), inotify })
     }
 
     fn await(&mut self) -> EmptyStreamResult {
@@ -66,7 +72,7 @@ impl NotifyBackend for Backend {
             return Ok(())
         }
 
-        let mut buf = [0; 4800];
+        let mut buf = [0; BUFFER_SIZE];
         let from_kernel = self.inotify.read_events_blocking(&mut buf)
             .or_else(|err| Err(StreamError::Io(err)))?;
 
@@ -88,7 +94,7 @@ impl Stream for Backend {
             return self.buffer.poll()
         }
 
-        let mut buf = [0; 4800];
+        let mut buf = [0; BUFFER_SIZE];
         let from_kernel = self.inotify.read_events(&mut buf)
             .or_else(|err| Err(StreamError::Io(err)))?;
 
