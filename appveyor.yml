@@ -4,17 +4,21 @@ environment:
     CRATE_NAME: notify
 
   matrix:
-    # MinGW
+    # Stable: MINGW, MSVC, 64/32
     - TARGET: i686-pc-windows-gnu
     - TARGET: x86_64-pc-windows-gnu
-
-    # MSVC
     - TARGET: i686-pc-windows-msvc
     - TARGET: x86_64-pc-windows-msvc
 
-    # Beta on Tier 1
+    # Beta: MSVC 64/32
+    - TARGET: i686-pc-windows-msvc
+      RUST_VERSION: beta
     - TARGET: x86_64-pc-windows-msvc
       RUST_VERSION: beta
+
+    # Nightly: MSVC 64
+    - TARGET: x86_64-pc-windows-msvc
+      RUST_VERSION: nightly
 
 install:
   - ps: >-
