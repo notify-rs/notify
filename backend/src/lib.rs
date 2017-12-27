@@ -9,6 +9,7 @@
 //!
 //! ```rust,ignore
 //! extern crate notify_backend as backend;
+//!
 //! use backend::prelude::*;
 //! ```
 //!

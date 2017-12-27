@@ -1,4 +1,4 @@
-//! Contains types related to implementing the `Stream` trait.
+//! The types related to implementing the `Stream` trait.
 
 use std::io;
 use super::event::Event;

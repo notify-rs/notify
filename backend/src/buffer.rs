@@ -1,4 +1,4 @@
-//! Contains the `Buffer` utility.
+//! The `Buffer` utility.
 
 use futures::{Async, Poll};
 use std::collections::VecDeque;

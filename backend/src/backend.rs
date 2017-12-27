@@ -1,4 +1,4 @@
-//! Contains the `Backend` trait and related types.
+//! The `Backend` trait and related types.
 
 use futures::Stream;
 use std::{ffi, io};

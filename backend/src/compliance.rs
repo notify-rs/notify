@@ -1,4 +1,4 @@
-//! A standard suite of tests for `Backend` implementations.
+//! The standard suite of tests for `Backend` implementations.
 //!
 //! # Examples
 //!
@@ -9,7 +9,9 @@
 //! #[macro_use] extern crate notify_backend;
 //! extern crate notify_backend_name;
 //! extern crate tempdir;
+//!
 //! use notify_backend_name::Backend;
+//!
 //! test_compliance!(Backend);
 //! ```
 

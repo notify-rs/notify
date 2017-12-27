@@ -1,4 +1,4 @@
-//! Contains the `Capability` enum.
+//! The `Capability` enum.
 
 /// Codified descriptions of what backends can do themselves.
 ///
