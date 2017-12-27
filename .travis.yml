@@ -48,7 +48,10 @@ matrix:
     - env: TARGET=i686-unknown-linux-gnu
     - env: TARGET=x86_64-linux-android
     - env: TARGET=x86_64-unknown-linux-musl
+    - env: TARGET=i686-unknown-linux-musl
     - env: TARGET=x86_64-apple-ios
+      os: osx
+    - env: TARGET=i386-apple-ios
       os: osx
     - env: TARGET=i686-apple-darwin
       os: osx
@@ -58,6 +61,7 @@ matrix:
     - env: TARGET=i686-unknown-freebsd DISABLE_TESTS=1
     - env: TARGET=x86_64-unknown-netbsd DISABLE_TESTS=1
     - env: TARGET=x86_64-pc-windows-gnu DISABLE_TESTS=1
+    - env: TARGET=arm-unknown-linux-gnueabi DISABLE_TESTS=1
 
   allow_failures:
     # From the not-Tier-1 list
@@ -65,7 +69,9 @@ matrix:
     - env: TARGET=x86_64-unknown-freebsd
     - env: TARGET=x86_64-linux-android
     - env: TARGET=x86_64-unknown-linux-musl
+    - env: TARGET=i686-unknown-linux-musl
     - env: TARGET=x86_64-apple-ios
+    - env: TARGET=i386-apple-ios
     - env: TARGET=i686-apple-darwin
 
     # From the no-tests list
@@ -73,6 +79,7 @@ matrix:
     - env: TARGET=i686-unknown-freebsd DISABLE_TESTS=1
     - env: TARGET=x86_64-unknown-netbsd DISABLE_TESTS=1
     - env: TARGET=x86_64-pc-windows-gnu DISABLE_TESTS=1
+    - env: TARGET=arm-unknown-linux-gnueabi DISABLE_TESTS=1
 
     # List of other potential platforms
 
@@ -89,21 +96,17 @@ matrix:
     #   os: osx
     # - env: TARGET=armv7s-apple-ios DISABLE_TESTS=1
     #   os: osx
-    # - env: TARGET=i386-apple-ios DISABLE_TESTS=1
-    #   os: osx
 
     # Linux
-    # - env: TARGET=aarch64-unknown-linux-gnu
-    # - env: TARGET=arm-unknown-linux-gnueabi
-    # - env: TARGET=armv7-unknown-linux-gnueabihf
-    # - env: TARGET=i686-unknown-linux-musl
-    # - env: TARGET=mips-unknown-linux-gnu
-    # - env: TARGET=mips64-unknown-linux-gnuabi64
-    # - env: TARGET=mips64el-unknown-linux-gnuabi64
-    # - env: TARGET=mipsel-unknown-linux-gnu
-    # - env: TARGET=powerpc-unknown-linux-gnu
-    # - env: TARGET=powerpc64-unknown-linux-gnu
-    # - env: TARGET=powerpc64le-unknown-linux-gnu
+    # - env: TARGET=aarch64-unknown-linux-gnu DISABLE_TESTS=1
+    # - env: TARGET=armv7-unknown-linux-gnueabihf DISABLE_TESTS=1
+    # - env: TARGET=mips-unknown-linux-gnu DISABLE_TESTS=1
+    # - env: TARGET=mips64-unknown-linux-gnuabi64 DISABLE_TESTS=1
+    # - env: TARGET=mips64el-unknown-linux-gnuabi64 DISABLE_TESTS=1
+    # - env: TARGET=mipsel-unknown-linux-gnu DISABLE_TESTS=1
+    # - env: TARGET=powerpc-unknown-linux-gnu DISABLE_TESTS=1
+    # - env: TARGET=powerpc64-unknown-linux-gnu DISABLE_TESTS=1
+    # - env: TARGET=powerpc64le-unknown-linux-gnu DISABLE_TESTS=1
     # - env: TARGET=s390x-unknown-linux-gnu DISABLE_TESTS=1
 
 before_install:
