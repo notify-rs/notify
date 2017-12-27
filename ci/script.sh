@@ -18,7 +18,7 @@ main() {
 
     if [[ "$TARGET" =~ -darwin$ ]]; then
       echo bothx test --target $TARGET -p notify-backend-fsevents
-    elif [[ "$TARGET" =~ -(\w+bsd|ios)$ ]]; then
+    elif [[ "$TARGET" =~ bsd$ ]]; then
       bothx test --target $TARGET -p notify-backend-kqueue
     elif [[ "$TARGET" =~ -linux- ]]; then
       bothx test --target $TARGET -p notify-backend-inotify
