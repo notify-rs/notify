@@ -1,3 +1,7 @@
+//! Notify Backend crate for Linux's inotify.
+
+#![deny(missing_docs)]
+
 extern crate notify_backend as backend;
 extern crate futures;
 extern crate inotify;
@@ -9,6 +13,26 @@ use futures::{Poll, Stream};
 use inotify::{Inotify, EventMask, Events, WatchMask};
 use std::path::PathBuf;
 
+/// A Notify Backend for Linux's [inotify].
+///
+/// Inotify requires kernel version 2.6.13.
+///
+/// This backend can natively:
+///  - emit Access events
+///  - follow symlinks
+///  - track related changes (for renames)
+///  - watch indiviual files
+///  - watch folders (but not recursively)
+///
+/// The backend reads events into a ~4.8KB buffer, corresponding to 200 events on a 64-bit system
+/// (24 bytes per event), and 240 events on a 32-bit system (20 bytes per event), then pushes them
+/// to an internal [Buffer] after translation into Notify events.
+///
+/// Inotify emits an event when a filesystem whose mountpoint is watched is unmounted. In this
+/// backend, this event is mapped as `RemoveKind::Other("unmount")`.
+///
+/// [inotify]: http://man7.org/linux/man-pages/man7/inotify.7.html
+/// [Buffer]: ../notify_backend/buffer/struct.Buffer.html
 pub struct Backend {
     inotify: Inotify,
     buffer: Buffer,
@@ -42,7 +66,7 @@ impl NotifyBackend for Backend {
             return Ok(())
         }
 
-        let mut buf = [0; 4096];
+        let mut buf = [0; 4800];
         let from_kernel = self.inotify.read_events_blocking(&mut buf)
             .or_else(|err| Err(StreamError::Io(err)))?;
 
@@ -64,7 +88,7 @@ impl Stream for Backend {
             return self.buffer.poll()
         }
 
-        let mut buf = [0; 4096];
+        let mut buf = [0; 4800];
         let from_kernel = self.inotify.read_events(&mut buf)
             .or_else(|err| Err(StreamError::Io(err)))?;
 
