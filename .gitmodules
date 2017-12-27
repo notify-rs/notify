@@ -1,0 +1,3 @@
+[submodule ".trust"]
+	path = .trust
+	url = git://github.com/japaric/trust

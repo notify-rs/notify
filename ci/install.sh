@@ -1,0 +1,1 @@
+../.trust/ci/install.sh

@@ -1,50 +1,102 @@
+dist: trusty
 language: rust
-cache: cargo
+services: docker
+sudo: required
+
+env:
+  global:
+    - CRATE_NAME=notify
 
 matrix:
-  fast_finish: true
   include:
-    - os: osx
-      rust: stable
-    - os: osx
+    # Android
+    # - env: TARGET=aarch64-linux-android DISABLE_TESTS=1
+    # - env: TARGET=arm-linux-androideabi DISABLE_TESTS=1
+    # - env: TARGET=armv7-linux-androideabi DISABLE_TESTS=1
+    # - env: TARGET=i686-linux-android DISABLE_TESTS=1
+    - env: TARGET=x86_64-linux-android
+
+    # iOS
+    # - env: TARGET=aarch64-apple-ios DISABLE_TESTS=1
+    #   os: osx
+    # - env: TARGET=armv7-apple-ios DISABLE_TESTS=1
+    #   os: osx
+    # - env: TARGET=armv7s-apple-ios DISABLE_TESTS=1
+    #   os: osx
+    # - env: TARGET=i386-apple-ios DISABLE_TESTS=1
+    #   os: osx
+    - env: TARGET=x86_64-apple-ios
+      os: osx
+
+    # Linux
+    # - env: TARGET=aarch64-unknown-linux-gnu
+    # - env: TARGET=arm-unknown-linux-gnueabi
+    # - env: TARGET=armv7-unknown-linux-gnueabihf
+    - env: TARGET=i686-unknown-linux-gnu
+    # - env: TARGET=i686-unknown-linux-musl
+    # - env: TARGET=mips-unknown-linux-gnu
+    # - env: TARGET=mips64-unknown-linux-gnuabi64
+    # - env: TARGET=mips64el-unknown-linux-gnuabi64
+    # - env: TARGET=mipsel-unknown-linux-gnu
+    # - env: TARGET=powerpc-unknown-linux-gnu
+    # - env: TARGET=powerpc64-unknown-linux-gnu
+    # - env: TARGET=powerpc64le-unknown-linux-gnu
+    # - env: TARGET=s390x-unknown-linux-gnu DISABLE_TESTS=1
+    - env: TARGET=x86_64-unknown-linux-gnu
+    - env: TARGET=x86_64-unknown-linux-musl
+
+    # OSX
+    - env: TARGET=i686-apple-darwin
+      os: osx
+    - env: TARGET=x86_64-apple-darwin
+      os: osx
+
+    # *BSD
+    - env: TARGET=i686-unknown-freebsd
+    - env: TARGET=x86_64-unknown-freebsd
+    - env: TARGET=x86_64-unknown-netbsd
+
+    # Windows
+    - env: TARGET=x86_64-pc-windows-gnu
+
+    # Beta on all Tier 1
+    - env: TARGET=x86_64-unknown-linux-gnu
       rust: beta
-    - os: osx
+    - env: TARGET=x86_64-apple-darwin
+      os: osx
+      rust: beta
+    - env: TARGET=x86_64-unknown-freebsd
+      rust: beta
+
+    # Nightly on Linux
+    - env: TARGET=x86_64-unknown-linux-gnu
       rust: nightly
 
-    - os: linux
-      rust: stable
-    - os: linux
-      rust: beta
-    - os: linux
-      rust: nightly
+before_install:
+  - set -e
+  - rustup self update
 
-  #  - os: linux
-  #    env:
-  #      - SIMULATE=freebsd
-  #      - RUST=stable
-  #
-  #  - os: linux
-  #    env:
-  #      - SIMULATE=freebsd
-  #      - RUST=beta
-  #
-  #  - os: linux
-  #    env:
-  #      - SIMULATE=freebsd
-  #      - RUST=nightly
+install:
+  - sh ci/install.sh
+  - source ~/.cargo/env || true
 
 script:
-  - |
-    if [[ "$TRAVIS_OS_NAME" = "linux" ]]; then
-      if [[ -z "$SIMULATE" ]]; then
-        cargo test
-        cargo test -p notify-backend
-        cargo test -p notify-backend-inotify
-      else
-        echo todo simulate "$SIMULATED"
-      fi
-    elif [[ "$TRAVIS_OS_NAME" = "osx" ]]; then
-      cargo test
-      cargo test -p notify-backend
-      echo cargo test -p notify-backend-fsevents
-    fi
+  - bash ci/script.sh
+
+after_script: set +e
+
+cache: cargo
+before_cache:
+  # Travis can't cache files that are not readable by "others"
+  - chmod -R a+r $HOME/.cargo
+
+branches:
+  only:
+    # release tags
+    # - /^v\d+\.\d+\.\d+.*$/
+    # - master
+    - next
+
+# notifications:
+#   email:
+#     on_success: never
