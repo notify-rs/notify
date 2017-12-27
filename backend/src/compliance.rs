@@ -1,13 +1,17 @@
 //! A standard suite of tests for `Backend` implementations.
 //!
+//! # Examples
+//!
 //! To use these tests, create a file called `tests/compliance.rs` and write:
 //!
-//!     extern crate futures;
-//!     #[macro_use] extern crate notify_backend;
-//!     extern crate notify_backend_name;
-//!     extern crate tempdir;
-//!     use notify_backend_name::Backend;
-//!     test_compliance!(Backend);
+//! ```rust,ignore
+//! extern crate futures;
+//! #[macro_use] extern crate notify_backend;
+//! extern crate notify_backend_name;
+//! extern crate tempdir;
+//! use notify_backend_name::Backend;
+//! test_compliance!(Backend);
+//! ```
 
 /// Implements a set of compliance tests against your `Backend` implementation.
 ///

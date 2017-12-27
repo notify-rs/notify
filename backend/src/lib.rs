@@ -3,14 +3,20 @@
 //! This crate contains the `Backend` trait, the `Event` type, the `Capability` enum, and all other
 //! types and utilities that are needed to implement a Notify backend.
 //!
+//! # Examples
+//!
 //! Implementors should start by including the prelude:
 //!
-//!     extern crate notify_backend as backend;
-//!     use backend::prelude::*;
+//! ```rust,ignore
+//! extern crate notify_backend as backend;
+//! use backend::prelude::*;
+//! ```
 //!
 //! And optionally the Buffer:
 //!
-//!     use backend::Buffer;
+//! ```rust,ignore
+//! use backend::Buffer;
+//! ```
 //!
 //! The prelude imports all types needed to implement a Backend. Refer to the [implementor's guide]
 //! for a thorough walk-through of backend implementation.
