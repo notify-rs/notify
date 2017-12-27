@@ -16,5 +16,11 @@ pub enum Error {
     UpstreamOverflow,
 }
 
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        Error::Io(err)
+    }
+}
+
 /// A handy reference to the correct `Stream::Item` associated type.
 pub type Item = Event;
