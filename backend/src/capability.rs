@@ -1,4 +1,4 @@
-#![warn(missing_docs)]
+//! Contains the `Capability` enum.
 
 /// Codified descriptions of what backends can do themselves.
 ///

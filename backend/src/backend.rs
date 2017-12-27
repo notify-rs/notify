@@ -1,4 +1,4 @@
-#![warn(missing_docs)]
+//! Contains the `Backend` trait and related types.
 
 use futures::Stream;
 use std::{ffi, io};
@@ -8,6 +8,12 @@ use super::capability::Capability;
 use super::stream::EmptyResult;
 
 /// A trait for types that implement Notify backends.
+///
+/// Be sure to thoroughly read the `Stream` documentation when implementing a `Backend`, as the
+/// semantics described are relied upon by Notify, and incorrectly or incompletely implementing
+/// them will result in bad behaviour.
+///
+/// Also take care to correctly free all resources via the `Drop` trait.
 pub trait Backend: Stream + Drop + Sized {
     /// Creates an instance of a `Backend` that watches over a set of paths.
     ///

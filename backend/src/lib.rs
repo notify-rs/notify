@@ -1,19 +1,37 @@
+//! The backend interface and utilities.
+//!
+//! This crate contains the `Backend` trait, the `Event` type, the `Capability` enum, and all other
+//! types and utilities that are needed to implement a Notify backend.
+//!
+//! Implementors should start by including the prelude:
+//!
+//!     extern crate notify_backend as backend;
+//!     use backend::prelude::*;
+//!
+//! And optionally the Buffer:
+//!
+//!     use backend::Buffer;
+//!
+//! The prelude imports all types needed to implement a Backend. Refer to the [implementor's guide]
+//! for a thorough walk-through of backend implementation.
+
+#![deny(missing_docs)]
+
 extern crate futures;
 
 pub use self::buffer::Buffer;
 
-/// Contains the `Backend` trait and related types.
 pub mod backend;
-
 pub mod buffer;
-
-/// Contains the `Capability` enum.
 pub mod capability;
 pub mod event;
 pub mod stream;
 
 #[macro_use] pub mod compliance;
 
+/// The Notify prelude.
+///
+/// All that is needed to implement a `Backend`, except for the optional `Buffer`.
 pub mod prelude {
     pub use super::backend::{
         Backend as NotifyBackend,
