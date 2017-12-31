@@ -25,8 +25,8 @@ impl NotifyBackend for Backend {
         ]
     }
 
-    fn new(paths: Vec<PathBuf>) -> BackendResult<Backend> {
-        Ok(Backend { buffer: Buffer::new(), trees: vec![], watches: paths })
+    fn new(paths: Vec<PathBuf>) -> BackendResult<Box<Backend>> {
+        Err(BackendError::NotImplemented)
     }
 
     fn await(&mut self) -> EmptyStreamResult {

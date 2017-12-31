@@ -51,11 +51,30 @@ pub type Result<T: Backend> = StdResult<T, Error>;
 /// Any error which may occur during the initialisation of a `Backend`.
 #[derive(Debug)]
 pub enum Error {
-    /// An error reprensented by an arbitrary string.
+    /// An error represented by an arbitrary string.
     Generic(String),
 
     /// An I/O error.
     Io(io::Error),
+
+    /// An error indicating that this Backend's implementation is incomplete.
+    ///
+    /// This is mostly to be used while developing Backends.
+    NotImplemented,
+
+    /// An error indicating that this Backend is unavailable, likely because its upstream or native
+    /// API is inoperable. An optional reason may be supplied.
+    Unavailable(Option<String>),
+
+    /// An error indicating that one or more paths passed to the Backend do not exist. This should
+    /// be translated from the native API or upstream's response: the frontend is responsible for
+    /// pre-checking that paths exist.
+    ///
+    /// This error exists to cover cases where we lose a data race against the filesystem and the
+    /// path is gone between the time the frontend checks it and the Backend initialises.
+    ///
+    /// It may contain the list of files that are reported to be non-existent if that is known.
+    NonExistent(Vec<PathBuf>),
 
     /// An error indicating that one or more of the paths given is not supported by the `Backend`,
     /// with the relevant unsupported `Capability` passed along.
