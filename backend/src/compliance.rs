@@ -43,7 +43,7 @@ macro_rules! test_compliance {
         #[cfg(unix)]
         use std::os::unix::fs::symlink;
 
-        fn settle_events(backend: &mut $Backend) -> Vec<Event> {
+        fn settle_events(backend: &mut BoxedBackend) -> Vec<Event> {
             sleep(Duration::from_millis(25));
             let mut events: Vec<Event> = vec![];
             for _ in 0..10 {

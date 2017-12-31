@@ -23,7 +23,7 @@ impl NotifyBackend for Backend {
         Self::capabilities()
     }
 
-    fn capabilities(&self) -> Vec<Capability> {
+    fn capabilities() -> Vec<Capability> {
         vec![
             Capability::FollowSymlinks,
             Capability::WatchFiles,
