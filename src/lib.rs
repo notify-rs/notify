@@ -19,7 +19,7 @@ extern crate notify_backend_kqueue as kqueue;
 use backend::prelude::*;
 use std::path::PathBuf;
 
-fn new_backend(paths: Vec<PathBuf>) -> BackendResult<BoxedBackend> {
+fn new_backend(paths: Vec<PathBuf>, use_polling: bool) -> BackendResult<BoxedBackend> {
     let mut result = Err(BackendError::Generic("you should never see this".into()));
 
     #[cfg(any(
@@ -36,7 +36,11 @@ fn new_backend(paths: Vec<PathBuf>) -> BackendResult<BoxedBackend> {
     ))]
     { result = new_backend_if_bad(result, &paths, |paths| kqueue::Backend::new(paths)); }
 
-    new_backend_if_bad(result, &paths, |paths| poll_tree::Backend::new(paths))
+    if use_polling {
+        result = new_backend_if_bad(result, &paths, |paths| poll_tree::Backend::new(paths));
+    }
+
+    result
 }
 
 fn new_backend_if_bad<F>(
