@@ -52,8 +52,9 @@ where F: FnOnce(Vec<PathBuf>) -> BackendResult<BoxedBackend>
 {
     match previous {
         p @ Ok(_) => p,
-        Err(err) => {
-            backfn(paths.clone())
+        Err(err) => match err {
+            e @ BackendError::NonExistent(_) => Err(e),
+            _ => backfn(paths.clone())
         }
     }
 }
