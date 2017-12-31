@@ -42,6 +42,7 @@ pub mod stream;
 pub mod prelude {
     pub use super::backend::{
         Backend as NotifyBackend,
+        BoxedBackend,
         Error as BackendError,
         Result as BackendResult,
     };

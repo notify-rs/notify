@@ -5,7 +5,10 @@ use std::{ffi, io};
 use std::path::PathBuf;
 use std::result::Result as StdResult;
 use super::capability::Capability;
-use super::stream::EmptyResult;
+use super::stream::{self, EmptyResult};
+
+/// Convenient type alias for the Boxed Trait Object for Backend.
+pub type BoxedBackend = Box<Backend<Item=stream::Item, Error=stream::Error>>;
 
 /// A trait for types that implement Notify backends.
 ///
@@ -23,7 +26,7 @@ pub trait Backend: Stream + Drop {
     /// This function must initialise all resources needed to watch over the paths, and only those
     /// paths. When the set of paths to be watched changes, the `Backend` will be `Drop`ped, and a
     /// new one recreated in its place. Thus, the `Backend` is immutable in this respect.
-    fn new(paths: Vec<PathBuf>) -> Result<Box<Self>> where Self: Sized;
+    fn new(paths: Vec<PathBuf>) -> Result<BoxedBackend> where Self: Sized;
 
     /// Returns the operational capabilities of this `Backend`.
     ///

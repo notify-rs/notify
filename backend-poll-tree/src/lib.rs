@@ -15,10 +15,10 @@ pub struct Backend {
 }
 
 impl NotifyBackend for Backend {
-    fn new(paths: Vec<PathBuf>) -> BackendResult<Box<Backend>> {
+    fn new(paths: Vec<PathBuf>) -> BackendResult<BoxedBackend> {
         Err(BackendError::NotImplemented)
     }
-    
+
     fn capabilities(&self) -> Vec<Capability> {
         vec![
             Capability::FollowSymlinks,
