@@ -14,7 +14,7 @@ use super::stream::EmptyResult;
 /// them will result in bad behaviour.
 ///
 /// Also take care to correctly free all resources via the `Drop` trait.
-pub trait Backend: Stream + Drop + Sized {
+pub trait Backend: Stream + Drop {
     /// Creates an instance of a `Backend` that watches over a set of paths.
     ///
     /// While the `paths` argument is a `Vec` for implementation simplicity, Notify guarantees that
@@ -23,7 +23,7 @@ pub trait Backend: Stream + Drop + Sized {
     /// This function must initialise all resources needed to watch over the paths, and only those
     /// paths. When the set of paths to be watched changes, the `Backend` will be `Drop`ped, and a
     /// new one recreated in its place. Thus, the `Backend` is immutable in this respect.
-    fn new(paths: Vec<PathBuf>) -> Result<Self>;
+    fn new(paths: Vec<PathBuf>) -> Result<Box<Self>> where Self: Sized;
 
     /// Returns the operational capabilities of this `Backend`.
     ///
@@ -32,12 +32,11 @@ pub trait Backend: Stream + Drop + Sized {
     /// The function may perform checks and vary its response based on environmental factors.
     ///
     /// If the function returns an empty `Vec`, the `Backend` will be assumed to be inoperable at
-    /// the moment (and another one may be selected). This should be used e.g. when the API
-    /// required for operation is not present, but not in cases where an `Error` would be returned
-    /// from the `::new()` function.
+    /// the moment (and another one may be selected). In general this should not happen, and
+    /// instead an `Unavailable` error should be returned from `::new()`.
     ///
     /// [cap]: ../capability/enum.Capability.html
-    fn capabilities() -> Vec<Capability>;
+    fn capabilities(&self) -> Vec<Capability>;
 
     /// Blocks until events are available on this `Backend`.
     ///

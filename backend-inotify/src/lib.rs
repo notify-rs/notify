@@ -46,17 +46,7 @@ const BUFFER_SIZE: usize = 4800;
 const BUFFER_SIZE: usize = 4000;
 
 impl NotifyBackend for Backend {
-    fn capabilities() -> Vec<Capability> {
-        vec![
-            Capability::EmitOnAccess,
-            Capability::FollowSymlinks,
-            Capability::TrackRelated,
-            Capability::WatchFiles,
-            Capability::WatchFolders,
-        ]
-    }
-
-    fn new(paths: Vec<PathBuf>) -> BackendResult<Backend> {
+    fn new(paths: Vec<PathBuf>) -> BackendResult<Box<Backend>> {
         let mut inotify = Inotify::init()
             .or_else(|err| Err(BackendError::Io(err)))?;
 
@@ -65,7 +55,17 @@ impl NotifyBackend for Backend {
                 .or_else(|err| Err(BackendError::Io(err)))?;
         }
 
-        Ok(Backend { buffer: Buffer::new(), inotify })
+        Ok(Box::new(Backend { buffer: Buffer::new(), inotify }))
+    }
+
+    fn capabilities(&self) -> Vec<Capability> {
+        vec![
+            Capability::EmitOnAccess,
+            Capability::FollowSymlinks,
+            Capability::TrackRelated,
+            Capability::WatchFiles,
+            Capability::WatchFolders,
+        ]
     }
 
     fn await(&mut self) -> EmptyStreamResult {

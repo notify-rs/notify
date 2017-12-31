@@ -43,12 +43,6 @@ pub struct Backend {
 }
 
 impl NotifyBackend for Backend {
-    fn capabilities() -> Vec<Capability> {
-        vec![
-            Capability::WatchFiles,
-        ]
-    }
-
     fn new(paths: Vec<PathBuf>) -> BackendResult<Backend> {
         let mut watcher = kqueue::Watcher::new()?;
 
@@ -62,6 +56,12 @@ impl NotifyBackend for Backend {
         watcher.watch()?;
 
         Ok(Backend { buffer: Buffer::new(), kqueue: watcher })
+    }
+
+    fn capabilities(&self) -> Vec<Capability> {
+        vec![
+            Capability::WatchFiles,
+        ]
     }
 
     fn await(&mut self) -> EmptyStreamResult {

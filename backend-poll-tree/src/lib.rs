@@ -15,7 +15,11 @@ pub struct Backend {
 }
 
 impl NotifyBackend for Backend {
-    fn capabilities() -> Vec<Capability> {
+    fn new(paths: Vec<PathBuf>) -> BackendResult<Box<Backend>> {
+        Err(BackendError::NotImplemented)
+    }
+    
+    fn capabilities(&self) -> Vec<Capability> {
         vec![
             Capability::FollowSymlinks,
             Capability::WatchFiles,
@@ -23,10 +27,6 @@ impl NotifyBackend for Backend {
             Capability::WatchNewFolders,
             Capability::WatchRecursively,
         ]
-    }
-
-    fn new(paths: Vec<PathBuf>) -> BackendResult<Box<Backend>> {
-        Err(BackendError::NotImplemented)
     }
 
     fn await(&mut self) -> EmptyStreamResult {
