@@ -58,8 +58,7 @@ macro_rules! test_compliance {
         #[test]
         fn cap_watch_folder() {
             if !$Backend::capabilities().contains(&Capability::WatchFolders) {
-                assert!(true);
-                return;
+                return assert!(true);
             }
 
             let dir = TempDir::new("cap_watch_folder").expect("create tmp dir");
@@ -92,8 +91,7 @@ macro_rules! test_compliance {
         #[test]
         fn cap_watch_file() {
             if !$Backend::capabilities().contains(&Capability::WatchFiles) {
-                assert!(true);
-                return;
+                return assert!(true);
             }
 
             let dir = TempDir::new("cap_watch_file").expect("create tmp dir");
@@ -117,8 +115,7 @@ macro_rules! test_compliance {
         #[test]
         fn cap_watch_recursively() {
             if !$Backend::capabilities().contains(&Capability::WatchRecursively) {
-                assert!(true);
-                return;
+                return assert!(true);
             }
 
             let dir = TempDir::new("cap_watch_file").expect("create tmp dir");
@@ -154,8 +151,7 @@ macro_rules! test_compliance {
         #[test]
         fn cap_emit_on_access() {
             if !$Backend::capabilities().contains(&Capability::EmitOnAccess) {
-                assert!(true);
-                return;
+                return assert!(true);
             }
 
             if $Backend::capabilities().contains(&Capability::WatchFiles) {
@@ -183,8 +179,7 @@ macro_rules! test_compliance {
         #[test]
         fn cap_follow_symlinks() {
             if !$Backend::capabilities().contains(&Capability::FollowSymlinks) {
-                assert!(true);
-                return;
+                return assert!(true);
             }
 
             if $Backend::capabilities().contains(&Capability::WatchFiles) {
@@ -219,8 +214,7 @@ macro_rules! test_compliance {
         #[test]
         fn cap_track_related() {
             if !$Backend::capabilities().contains(&Capability::TrackRelated) {
-                assert!(true);
-                return;
+                return assert!(true);
             }
 
             if $Backend::capabilities().contains(&Capability::WatchFolders) {

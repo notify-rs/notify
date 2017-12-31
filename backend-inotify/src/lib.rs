@@ -58,7 +58,11 @@ impl NotifyBackend for Backend {
         Ok(Box::new(Backend { buffer: Buffer::new(), inotify }))
     }
 
-    fn capabilities(&self) -> Vec<Capability> {
+    fn caps(&self) -> Vec<Capability> {
+        Self::capabilities()
+    }
+
+    fn capabilities() -> Vec<Capability> {
         vec![
             Capability::EmitOnAccess,
             Capability::FollowSymlinks,

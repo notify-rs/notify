@@ -58,6 +58,10 @@ impl NotifyBackend for Backend {
         Ok(Backend { buffer: Buffer::new(), kqueue: watcher })
     }
 
+    fn caps(&self) -> Vec<Capability> {
+        Self::capabilities()
+    }
+
     fn capabilities(&self) -> Vec<Capability> {
         vec![
             Capability::WatchFiles,

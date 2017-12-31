@@ -39,7 +39,21 @@ pub trait Backend: Stream + Drop {
     /// instead an `Unavailable` error should be returned from `::new()`.
     ///
     /// [cap]: ../capability/enum.Capability.html
-    fn capabilities(&self) -> Vec<Capability>;
+    fn capabilities() -> Vec<Capability> where Self: Sized;
+
+    /// Returns the operational capabilities of this `Backend`.
+    ///
+    /// It is recommended that this be implemented by invoking `::capabilities()`, but the result
+    /// may be changed based on additional environmental factors.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// fn caps(&self) -> Vec<Capability> {
+    ///     Self::capabilities()
+    /// }
+    /// ```
+    fn caps(&self) -> Vec<Capability>;
 
     /// Blocks until events are available on this `Backend`.
     ///
