@@ -1,7 +1,7 @@
 set -ex
 
 bothx() {
-  if [[ -z "$NO_CROSS" ]]; then
+  if [ -z $NO_CROSS ]; then
     cross $* --target $TARGET
     cross $* --target $TARGET --release
   else
@@ -15,6 +15,14 @@ main() {
 
     if [ ! -z $DISABLE_TESTS ]; then
         return
+    fi
+
+    if [ ! -z $NO_CROSS ]; then
+      if [[ "$TRAVIS_OS_NAME" = "linux" ]]; then
+        TARGET="x86_64-unknown-linux-gnu"
+      elif [[ "$TRAVIS_OS_NAME" = "osx" ]]; then
+        TARGET="x86_64-apple-darwin"
+      fi
     fi
 
     bothx test
