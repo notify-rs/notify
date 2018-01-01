@@ -64,7 +64,13 @@ pub trait Backend: Stream + Drop {
     ///
     /// This should be implemented via kernel or native callbacks, and not via busy-wait or other
     /// infinite loops, unless that is the only way.
-    fn await(&mut self) -> EmptyResult; }
+    fn await(&mut self) -> EmptyResult;
+
+    /// The version of the Backend trait this implementation was built against.
+    fn trait_version() -> String where Self: Sized {
+        env!("CARGO_PKG_VERSION").into()
+    }
+}
 
 /// A specialised Result for `Backend::new()`.
 pub type Result<T: Backend> = StdResult<T, Error>;
