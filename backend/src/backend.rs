@@ -43,8 +43,13 @@ pub trait Backend: Stream + Drop {
 
     /// Returns the operational capabilities of this `Backend`.
     ///
-    /// It is recommended that this be implemented by invoking `::capabilities()`, but the result
-    /// may be changed based on additional environmental factors.
+    /// This should be implemented by invoking `::capabilities()`.
+    ///
+    /// It is necessary due to an implementation issue: Backend needs to be compatible as a Trait
+    /// Object, but only methods with receivers can be present on the Trait Object. Yet, the
+    /// capabilities of the backend must be accessible from a non-instance context for tests and
+    /// other purposes. Thus, this duplication. It is also not possible to have one of the two as a
+    /// provided method, as that invalidates the Trait Object compatibility.
     ///
     /// # Examples
     ///
