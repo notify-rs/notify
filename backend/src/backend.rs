@@ -62,8 +62,12 @@ pub trait Backend: Stream + Drop {
 
     /// Blocks until events are available on this `Backend`.
     ///
-    /// This should be implemented via kernel or native callbacks, and not via busy-wait or other
-    /// infinite loops, unless that is the only way.
+    /// The `wait()` method on Stream waits using cond-vars to implement similar functionality.
+    /// However, we have additional knowledge and capabilities as we can rely often rely on the
+    /// kernel to block until it's ready.
+    ///
+    /// Another difference from `wait()` is that it returns a Stream, i.e. it is a blocking
+    /// iterator. This method instead only blocks once, until the next event is available.
     fn await(&mut self) -> EmptyResult;
 
     /// The version of the Backend trait this implementation was built against.
