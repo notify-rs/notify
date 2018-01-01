@@ -26,5 +26,8 @@ path = "./backend-kqueue"
 [target.'cfg(target_os="openbsd")'.dependencies.notify-backend-kqueue]
 path = "./backend-kqueue"
 
+[target.'cfg(target_os="macos")'.dependencies.notify-backend-fsevent]
+path = "./backend-fsevent"
+
 [dependencies.notify-backend-poll-tree]
 path = "./backend-poll-tree"
