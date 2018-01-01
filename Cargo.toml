@@ -11,7 +11,19 @@ path = "./backend"
 [target.'cfg(target_os="linux")'.dependencies.notify-backend-inotify]
 path = "./backend-inotify"
 
+[target.'cfg(target_os="android")'.dependencies.notify-backend-inotify]
+path = "./backend-inotify"
+
+[target.'cfg(target_os="dragonfly")'.dependencies.notify-backend-kqueue]
+path = "./backend-kqueue"
+
 [target.'cfg(target_os="freebsd")'.dependencies.notify-backend-kqueue]
+path = "./backend-kqueue"
+
+[target.'cfg(target_os="netbsd")'.dependencies.notify-backend-kqueue]
+path = "./backend-kqueue"
+
+[target.'cfg(target_os="openbsd")'.dependencies.notify-backend-kqueue]
 path = "./backend-kqueue"
 
 [dependencies.notify-backend-poll-tree]
