@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Condvar};
 use std::collections::VecDeque;
 
-use futures::{Poll, Stream};
+use futures::{Async, Poll, Stream};
 
 use backend::prelude::*;
 use watcher::FsEventWatcher;
@@ -49,6 +49,9 @@ impl NotifyBackend for Backend {
     }
 
     fn await(&mut self) -> EmptyStreamResult {
+        let &(ref deque, ref cond) = &*self.queue;
+        let guard = deque.lock().unwrap();
+		let result = cond.wait(guard);
         Ok(())
     }
 }
@@ -65,7 +68,7 @@ impl Backend {
 
 impl Drop for Backend {
     fn drop(&mut self) {
-
+        // cleanup occurs in FsEventWatcher::drop
     }
 }
 
@@ -74,7 +77,12 @@ impl Stream for Backend {
     type Error = StreamError;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        Err(StreamError::UpstreamOverflow)
+        let &(ref deque, _) = &*self.queue;
+        let mut queue = deque.lock().unwrap();
+        match queue.pop_front() {
+            Some(e) => Ok(Async::Ready(Some(e))),
+            None => Ok(Async::NotReady),
+        }
     }
 }
 

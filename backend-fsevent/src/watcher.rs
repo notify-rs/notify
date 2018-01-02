@@ -41,7 +41,7 @@ impl FsEventWatcher {
 
         let runloop_ptr: *mut libc::c_void = ptr::null_mut();
         let runloop_ptr = Arc::new(atomic::AtomicPtr::new(runloop_ptr));
-        let ptr_box = runloop_ptr.clone();
+        let runloop_ptr2 = runloop_ptr.clone();
 
         let ptr_set_barrier = Arc::new(Barrier::new(2));
         let ptr_set_barrier2 = ptr_set_barrier.clone();
@@ -74,7 +74,7 @@ impl FsEventWatcher {
 
                 let runloop = cf::CFRunLoopGetCurrent();
 
-                ptr_box.store(runloop as *mut libc::c_void,
+                runloop_ptr2.store(runloop as *mut libc::c_void,
                               atomic::Ordering::Relaxed);
 
                 ptr_set_barrier2.wait();
@@ -145,7 +145,7 @@ fn cf_array_from_pathbufs(paths: Vec<PathBuf>) -> cf::CFMutableArrayRef {
     for path in paths {
         // NOTE: upstream expects this to be a str, but filepaths will
         // exist on running macs that are not valid UTF-8. Upstream should
-        // probably take a &[u8]?
+        // probably take an OsString?
         let s = &path.to_str().unwrap();
         unsafe {
             let cf_path = cf::str_path_to_cfstring_ref(s);
