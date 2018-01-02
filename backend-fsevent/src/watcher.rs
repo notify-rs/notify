@@ -1,9 +1,11 @@
 use libc;
 use std::path::PathBuf;
-//use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{atomic, Arc, Barrier};
 use std::{slice, mem};
 use std::ffi::{CStr, OsString};
 use std::os::unix::ffi::OsStringExt;
+use std::ptr;
+use std::thread;
 
 use backend::event::*;
 use super::WaitQueue;
@@ -13,8 +15,7 @@ use fsevent_sys::core_foundation as cf;
 use fsevent_sys::fsevent as fs;
 
 pub struct FsEventWatcher {
-    _runloop: usize,
-    context: Context,
+    runloop_ptr: Arc<atomic::AtomicPtr<libc::c_void>>,
 }
 
 struct Context {
@@ -37,11 +38,75 @@ struct FsEvent {
 
 impl FsEventWatcher {
     pub fn new(paths: Vec<PathBuf>, queue: WaitQueue) -> Self {
+
+        let runloop_ptr: *mut libc::c_void = ptr::null_mut();
+        let runloop_ptr = Arc::new(atomic::AtomicPtr::new(runloop_ptr));
+        let ptr_box = runloop_ptr.clone();
+
+        let ptr_set_barrier = Arc::new(Barrier::new(2));
+        let ptr_set_barrier2 = ptr_set_barrier.clone();
+
+
+        thread::spawn(move || {
+
         let flags = fs::kFSEventStreamCreateFlagFileEvents;
         let paths = cf_array_from_pathbufs(paths);
-        let ctx = Context { queue };
+        let latency = 0.0;
+        let since_when = fs::kFSEventStreamEventIdSinceNow;
 
-        FsEventWatcher { _runloop: 0, context: ctx }
+            let ctx = Box::new(Context { queue });
+            let stream_ctx = fs::FSEventStreamContext {
+                version: 0,
+                info: unsafe { mem::transmute(Box::into_raw(ctx)) },
+                retain: cf::NULL,
+                copy_description: cf::NULL,
+            };
+
+            let cb = callback as *mut _;
+            unsafe {
+                let fse_stream = fs::FSEventStreamCreate(cf::kCFAllocatorDefault,
+                                                         cb,
+                                                         &stream_ctx,
+                                                         paths,
+                                                         since_when,
+                                                         latency,
+                                                         flags);
+
+                let runloop = cf::CFRunLoopGetCurrent();
+
+                ptr_box.store(runloop as *mut libc::c_void,
+                              atomic::Ordering::Relaxed);
+
+                ptr_set_barrier2.wait();
+
+                fs::FSEventStreamScheduleWithRunLoop(fse_stream, runloop,
+                                                     cf::kCFRunLoopDefaultMode);
+                fs::FSEventStreamStart(fse_stream);
+
+                cf::CFRunLoopRun();
+                // the previous call blocks until we cancel from another thread
+                fs::FSEventStreamStop(fse_stream);
+                fs::FSEventStreamInvalidate(fse_stream);
+                fs::FSEventStreamRelease(fse_stream);
+            }
+        });
+
+        ptr_set_barrier.wait();
+        // don't return until the runloop pointer has been set.
+        FsEventWatcher { runloop_ptr }
+    }
+}
+
+impl Drop for FsEventWatcher {
+    fn drop(&mut self) {
+        let runloop_ptr = self.runloop_ptr.load(atomic::Ordering::Relaxed);
+        assert!(!runloop_ptr.is_null());
+        unsafe {
+            while !CFRunLoopIsWaiting(runloop_ptr) {
+                thread::yield_now();
+            }
+            cf::CFRunLoopStop(runloop_ptr);
+        }
     }
 }
 
@@ -183,3 +248,9 @@ fn callback_impl<'a>(ctx: &Context, stream: EventStream<'a>) {
         }
     }
 }
+
+//TODO: this should be in the upstream crate
+extern "C" {
+    pub fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> bool;
+}
+
