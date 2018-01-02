@@ -38,8 +38,8 @@ target() {
       2>&1 | tee $(logfile $check $target notify-backend-inotify)
   elif [[ "$target" =~ -darwin$ ]]; then
     echo not ready yet
-    #$check $target -p notify-backend-fsevents \
-    #  2>&1 | tee $(logfile $check $target notify-backend-fsevents)
+    $check $target -p notify-backend-fsevent \
+      2>&1 | tee $(logfile $check $target notify-backend-fsevent)
   elif [[ "$target" =~ bsd ]]; then
     $check $target -p notify-backend-kqueue \
       2>&1 | tee $(logfile $check $target notify-backend-kqueue)

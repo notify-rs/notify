@@ -54,41 +54,41 @@ impl FsEventWatcher {
         let latency = 0.0;
         let since_when = fs::kFSEventStreamEventIdSinceNow;
 
-            let ctx = Box::new(Context { queue });
-            let stream_ctx = fs::FSEventStreamContext {
-                version: 0,
-                info: unsafe { mem::transmute(Box::into_raw(ctx)) },
-                retain: cf::NULL,
-                copy_description: cf::NULL,
-            };
+        let ctx = Box::new(Context::new(queue));
+        let stream_ctx = fs::FSEventStreamContext {
+            version: 0,
+            info: unsafe { mem::transmute(Box::into_raw(ctx)) },
+            retain: cf::NULL,
+            copy_description: cf::NULL,
+        };
 
-            let cb = callback as *mut _;
-            unsafe {
-                let fse_stream = fs::FSEventStreamCreate(cf::kCFAllocatorDefault,
-                                                         cb,
-                                                         &stream_ctx,
-                                                         paths,
-                                                         since_when,
-                                                         latency,
-                                                         flags);
+        let cb = callback as *mut _;
+        unsafe {
+            let fse_stream = fs::FSEventStreamCreate(cf::kCFAllocatorDefault,
+                                                     cb,
+                                                     &stream_ctx,
+                                                     paths,
+                                                     since_when,
+                                                     latency,
+                                                     flags);
 
-                let runloop = cf::CFRunLoopGetCurrent();
+            let runloop = cf::CFRunLoopGetCurrent();
 
-                runloop_ptr2.store(runloop as *mut libc::c_void,
-                              atomic::Ordering::Relaxed);
+            runloop_ptr2.store(runloop as *mut libc::c_void,
+                               atomic::Ordering::Relaxed);
 
-                ptr_set_barrier2.wait();
+            ptr_set_barrier2.wait();
 
-                fs::FSEventStreamScheduleWithRunLoop(fse_stream, runloop,
-                                                     cf::kCFRunLoopDefaultMode);
-                fs::FSEventStreamStart(fse_stream);
+            fs::FSEventStreamScheduleWithRunLoop(fse_stream, runloop,
+                                                 cf::kCFRunLoopDefaultMode);
+            fs::FSEventStreamStart(fse_stream);
 
-                cf::CFRunLoopRun();
-                // the previous call blocks until we cancel from another thread
-                fs::FSEventStreamStop(fse_stream);
-                fs::FSEventStreamInvalidate(fse_stream);
-                fs::FSEventStreamRelease(fse_stream);
-            }
+            cf::CFRunLoopRun();
+            // the previous call blocks until we cancel from another thread
+            fs::FSEventStreamStop(fse_stream);
+            fs::FSEventStreamInvalidate(fse_stream);
+            fs::FSEventStreamRelease(fse_stream);
+        }
         });
 
         ptr_set_barrier.wait();
