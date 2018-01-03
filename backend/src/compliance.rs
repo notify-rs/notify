@@ -34,7 +34,7 @@ macro_rules! test_compliance {
         use futures::Async;
         use futures::stream::Stream;
         use notify_backend::prelude::*;
-        use std::fs::{File, rename};
+        use std::fs::{File, create_dir, rename};
         use std::io::Write;
         use std::path::PathBuf;
         use std::thread::sleep;
@@ -119,15 +119,16 @@ macro_rules! test_compliance {
             }
 
             let dir = TempDir::new("cap_watch_file").expect("create tmp dir");
-            let path = dir.path().to_path_buf();
-            let subdirpath = PathBuf::from("folder.within");
-            let subdirpathwithin = dir.path().join(&subdirpath);
+            let dirpath = dir.path().to_path_buf();
+            let subdirname = String::from("folder.within");
+            let subdirpath = dirpath.join(&subdirname);
+            create_dir(&subdirpath).expect("create tmp dir");
 
-            let mut backend = $Backend::new(vec![path]).expect("init backend");
+            let mut backend = $Backend::new(vec![dirpath]).expect("init backend");
 
-            let filepath = PathBuf::from("file.within");
-            let filepathwithin = subdirpathwithin.join(&filepath);
-            let mut filewithin = File::create(&filepathwithin).expect("create tmp file");
+            let filename = String::from("file.within");
+            let filepath = subdirpath.join(&filename);
+            let mut file = File::create(&filepath).expect("create tmp file");
 
             {
                 let events = settle_events(&mut backend);
@@ -137,7 +138,7 @@ macro_rules! test_compliance {
                 assert!(creates.count() > 0, "receive at least one Create event");
             }
 
-            writeln!(filewithin, "The term is 'shipping'. And yes. Yes I am.").expect("write to file");
+            writeln!(file, "The term is 'shipping'. And yes. Yes I am.").expect("write to file");
 
             {
                 let events = settle_events(&mut backend);
