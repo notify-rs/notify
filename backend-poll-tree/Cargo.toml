@@ -1,5 +1,8 @@
 [package]
-authors = ["Félix Saparelli <felix@passcod.name>"]
+authors = [
+    "Félix Saparelli <felix@passcod.name>",
+    "Daniel Faust <hessijames@gmail.com>",
+]
 name = "notify-backend-poll-tree"
 version = "0.1.0"
 workspace = ".."
@@ -8,6 +11,8 @@ workspace = ".."
 futures = "0.1.10"
 tempdir = "0.3.5"
 walkdir = "1.0.7"
+id_tree = "1.2.0"
+filetime = "0.1.14"
 
 [dependencies.notify-backend]
 path = "../backend"
