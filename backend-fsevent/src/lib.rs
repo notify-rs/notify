@@ -39,7 +39,6 @@ impl NotifyBackend for Backend {
 
     fn capabilities() -> Vec<Capability> {
         vec![
-            Capability::FollowSymlinks,
             Capability::WatchEntireFilesystem,
             Capability::WatchFiles,
             Capability::WatchFolders,
