@@ -31,28 +31,47 @@
 #[macro_export]
 macro_rules! test_compliance {
     ( $Backend:ident ) => (
-        use futures::Async;
+        use futures::Future;
         use futures::stream::Stream;
+        use tokio::executor::current_thread;
         use notify_backend::prelude::*;
         use std::fs::{File, create_dir, rename};
         use std::io::Write;
         use std::path::PathBuf;
-        use std::thread::sleep;
+        use std::thread;
+        use std::sync::mpsc;
         use std::time::Duration;
         use tempdir::TempDir;
         #[cfg(unix)]
         use std::os::unix::fs::symlink;
 
-        fn settle_events(backend: &mut BoxedBackend) -> Vec<Event> {
-            sleep(Duration::from_millis(25));
-            let mut events: Vec<Event> = vec![];
-            for _ in 0..10 {
-                if let Ok(Async::Ready(Some(event))) = backend.poll() {
-                    events.push(event.clone());
+        struct BackendExecutor {
+            event_rx: mpsc::Receiver<Event>,
+        }
+
+        impl BackendExecutor {
+            pub fn new(paths: Vec<PathBuf>) -> BackendExecutor {
+                let (event_tx, event_rx) = mpsc::channel();
+                thread::spawn(move || {
+                    let backend = $Backend::new(paths).expect("init backend");
+                    let watcher = backend.for_each(move |event| {
+                        event_tx.send(event).expect("send to backend executor event channel");
+                        Ok(())
+                    })
+                    .map_err(|_| ());
+                    current_thread::run(|_| {
+                        current_thread::spawn(watcher);
+                    });
+                });
+                BackendExecutor {
+                    event_rx,
                 }
             }
 
-            events
+            pub fn events(&self) -> Vec<Event> {
+                thread::sleep(Duration::from_millis(25));
+                self.event_rx.try_iter().collect()
+            }
         }
 
         #[test]
@@ -63,14 +82,14 @@ macro_rules! test_compliance {
 
             let dir = TempDir::new("cap_watch_folder").expect("create tmp dir");
             let path = dir.path().to_path_buf();
-            let mut backend = $Backend::new(vec![path]).expect("init backend");
+            let executor = BackendExecutor::new(vec![path]);
 
             let filepath = PathBuf::from("file.within");
             let filepathwithin = dir.path().join(&filepath);
             let mut filewithin = File::create(filepathwithin).expect("create tmp file");
 
             {
-                let events = settle_events(&mut backend);
+                let events = executor.events();
                 assert!(events.len() > 0, "receive at least one event");
 
                 let creates = events.iter().filter(|e| e.kind.is_create());
@@ -80,7 +99,7 @@ macro_rules! test_compliance {
             writeln!(filewithin, "Everybody can talk to crickets, the trick is getting them to talk back.").expect("write to file");
 
             {
-                let events = settle_events(&mut backend);
+                let events = executor.events();
                 assert!(events.len() > 0, "receive at least one event");
 
                 let modifies = events.iter().filter(|e| e.kind.is_modify());
@@ -99,12 +118,12 @@ macro_rules! test_compliance {
             let filepathwithin = dir.path().join(&filepath);
             let mut filewithin = File::create(&filepathwithin).expect("create tmp file");
 
-            let mut backend = $Backend::new(vec![filepathwithin]).expect("init backend");
+            let executor = BackendExecutor::new(vec![filepathwithin]);
 
             writeln!(filewithin, "That's a rabbit! I'm not eating a bunny rabbit.").expect("write to file");
 
             {
-                let events = settle_events(&mut backend);
+                let events = executor.events();
                 assert!(events.len() > 0, "receive at least one event");
 
                 let modifies = events.iter().filter(|e| e.kind.is_modify());
@@ -124,14 +143,14 @@ macro_rules! test_compliance {
             let subdirpath = dirpath.join(&subdirname);
             create_dir(&subdirpath).expect("create tmp dir");
 
-            let mut backend = $Backend::new(vec![dirpath]).expect("init backend");
+            let executor = BackendExecutor::new(vec![dirpath]);
 
             let filename = String::from("file.within");
             let filepath = subdirpath.join(&filename);
             let mut file = File::create(&filepath).expect("create tmp file");
 
             {
-                let events = settle_events(&mut backend);
+                let events = executor.events();
                 assert!(events.len() > 0, "receive at least one event");
 
                 let creates = events.iter().filter(|e| e.kind.is_create());
@@ -141,7 +160,7 @@ macro_rules! test_compliance {
             writeln!(file, "The term is 'shipping'. And yes. Yes I am.").expect("write to file");
 
             {
-                let events = settle_events(&mut backend);
+                let events = executor.events();
                 assert!(events.len() > 0, "receive at least one event");
 
                 let modifies = events.iter().filter(|e| e.kind.is_modify());
@@ -161,12 +180,12 @@ macro_rules! test_compliance {
                 let filepath = dir.path().join(&filename);
                 File::create(&filepath).expect("create tmp file");
 
-                let mut backend = $Backend::new(vec![filepath.clone()]).expect("init backend");
+                let executor = BackendExecutor::new(vec![filepath.clone()]);
 
                 File::open(&filepath).expect("open tmp file");
 
                 {
-                    let events = settle_events(&mut backend);
+                    let events = executor.events();
                     assert!(events.len() > 0, "receive at least one event");
 
                     let accesses = events.iter().filter(|e| e.kind.is_access());
@@ -196,12 +215,12 @@ macro_rules! test_compliance {
                     unimplemented!();
                 }
 
-                let mut backend = $Backend::new(vec![linkpath]).expect("init backend");
+                let executor = BackendExecutor::new(vec![linkpath]);
 
                 writeln!(file, "Everybody can talk to crickets, the trick is getting them to talk back.").expect("write to file");
 
                 {
-                    let events = settle_events(&mut backend);
+                    let events = executor.events();
                     assert!(events.len() > 0, "receive at least one event");
 
                     let modifies = events.iter().filter(|e| e.kind.is_modify());
@@ -227,12 +246,12 @@ macro_rules! test_compliance {
                 let filepath_b = dir.path().join(&filename_b);
                 File::create(&filepath_a).expect("create tmp file");
 
-                let mut backend = $Backend::new(vec![path]).expect("init backend");
+                let executor = BackendExecutor::new(vec![path]);
 
                 rename(&filepath_a, &filepath_b).expect("rename file");
 
                 {
-                    let events = settle_events(&mut backend);
+                    let events = executor.events();
                     assert!(events.len() > 0, "receive at least one event");
 
                     let modify_events_with_relids = events.iter().filter(|e| e.kind.is_modify() && e.relid.is_some()).collect::<Vec<_>>();
