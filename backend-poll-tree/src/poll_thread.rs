@@ -1,4 +1,5 @@
 use backend::prelude::*;
+use futures::task::Task;
 use walkdir::WalkDir;
 use id_tree::{Tree, TreeBuilder, InsertBehavior, Node, NodeId};
 use filetime::FileTime;
@@ -40,13 +41,23 @@ struct Ancestor {
     children: Vec<OsString>,
 }
 
-pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Sender<io::Result<Event>>, shutdown_rx: mpsc::Receiver<bool>) {
+fn notify(task: &Option<Task>, event_tx: &mpsc::Sender<io::Result<Event>>, event: Result<Event, io::Error>) {
+    // send event to the backend
+    event_tx.send(event).expect("notify: main thread unreachable");
+    // notify the executor to schedule a poll
+    task.as_ref().map(|t| t.notify());
+}
+
+pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Sender<io::Result<Event>>, task_rx: mpsc::Receiver<Task>, shutdown_rx: mpsc::Receiver<bool>) {
+    // check if the poll thread has received a shutdown notification
     let shutdown_in_progress = || {
         match shutdown_rx.try_recv() {
             Ok(_) | Err(TryRecvError::Disconnected) => true,
             Err(TryRecvError::Empty) => false
         }
     };
+
+    let mut task: Option<Task> = None;
 
     let mut watches = Vec::with_capacity(paths.len());
     for path in paths {
@@ -61,7 +72,7 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                 };
                 watches.push(watch);
             }
-            Err(err) => event_tx.send(Err(err)).expect("notify: main thread unreachable")
+            Err(err) => notify(&task, &event_tx, Err(err))
         }
     }
 
@@ -71,6 +82,9 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
         if shutdown_in_progress() {
             break 'main;
         }
+
+        // update the task if it changed
+        task_rx.try_recv().ok().map(|t| task = Some(t));
 
         for watch in &mut watches {
             if watch.is_dir {
@@ -154,7 +168,7 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                                             paths: vec![path.to_path_buf()],
                                             relid: None,
                                         };
-                                        event_tx.send(Ok(event)).expect("notify: main thread unreachable");
+                                        notify(&task, &event_tx, Ok(event));
                                     }
                                     if data.mtime != mtime {
                                         data.mtime = mtime;
@@ -163,7 +177,7 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                                             paths: vec![path.to_path_buf()],
                                             relid: None,
                                         };
-                                        event_tx.send(Ok(event)).expect("notify: main thread unreachable");
+                                        notify(&task, &event_tx, Ok(event));
                                     }
                                     // TODO check for mode changes
                                     found = true;
@@ -190,10 +204,10 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                                     paths: vec![path.to_path_buf()],
                                     relid: None,
                                 };
-                                event_tx.send(Ok(event)).expect("notify: main thread unreachable");
+                                notify(&task, &event_tx, Ok(event));
                             }
                         }
-                        Err(err) => event_tx.send(Err(err.into())).expect("notify: main thread unreachable"),
+                        Err(err) => notify(&task, &event_tx, Err(err.into())),
                     }
 
                     if shutdown_in_progress() {
@@ -215,7 +229,7 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                                 paths: vec![watch.path.clone()],
                                 relid: None,
                             };
-                            event_tx.send(Ok(event)).expect("notify: main thread unreachable");
+                            notify(&task, &event_tx, Ok(event));
                         }
                         if data.mtime != mtime {
                             data.mtime = mtime;
@@ -224,11 +238,11 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                                 paths: vec![watch.path.clone()],
                                 relid: None,
                             };
-                            event_tx.send(Ok(event)).expect("notify: main thread unreachable");
+                            notify(&task, &event_tx, Ok(event));
                         }
                         // TODO check for mode changes
                     }
-                    Err(err) => event_tx.send(Err(err.into())).expect("notify: main thread unreachable"),
+                    Err(err) => notify(&task, &event_tx, Err(err.into())),
                 }
             }
         }
