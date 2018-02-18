@@ -9,6 +9,7 @@ workspace = ".."
 
 [dependencies]
 futures = "0.1.10"
+tokio = "0.1.1"
 tempdir = "0.3.5"
 walkdir = "1.0.7"
 id_tree = "1.2.0"

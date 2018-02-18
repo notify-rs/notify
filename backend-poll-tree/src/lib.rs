@@ -12,6 +12,7 @@ use backend::prelude::*;
 use backend::Buffer;
 
 use futures::{Poll, Stream};
+use futures::task::{self, Task};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::io;
@@ -20,8 +21,10 @@ use std::thread;
 
 pub struct Backend {
     poll_thread: Option<thread::JoinHandle<()>>,
+    task: Option<Task>,
     buffer: Buffer,
     event_rx: mpsc::Receiver<io::Result<Event>>,
+    task_tx: mpsc::Sender<Task>,
     shutdown_tx: mpsc::Sender<bool>,
 }
 
@@ -29,13 +32,14 @@ impl NotifyBackend for Backend {
     fn new(paths: Vec<PathBuf>) -> BackendResult<BoxedBackend> {
         let interval = Duration::from_millis(20);
         let (event_tx, event_rx) = mpsc::channel();
+        let (task_tx, task_rx) = mpsc::channel();
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
 
         let poll_thread = Some(thread::spawn(move || {
-            poll_thread(paths, interval, event_tx, shutdown_rx);
+            poll_thread(paths, interval, event_tx, task_rx, shutdown_rx);
         }));
 
-        Ok(Box::new(Backend { poll_thread, buffer: Buffer::new(), event_rx, shutdown_tx }))
+        Ok(Box::new(Backend { poll_thread, task: None, buffer: Buffer::new(), event_rx, task_tx, shutdown_tx }))
     }
 
     fn caps(&self) -> Vec<Capability> {
@@ -83,6 +87,12 @@ impl Stream for Backend {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         if self.buffer.closed() {
             return self.buffer.poll();
+        }
+
+        if !self.task.as_ref().map(|t| t.will_notify_current()).unwrap_or(false) {
+            let task = task::current();
+            self.task = Some(task.clone());
+            let _ = self.task_tx.send(task);
         }
 
         loop {
