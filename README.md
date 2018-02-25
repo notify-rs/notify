@@ -14,7 +14,7 @@
 _Cross-platform filesystem notification library for Rust._
 
 
-As used by: [cargo watch], [cobalt], [handlebars-iron], [rdiff], and
+As used by: [cargo watch], [cobalt], [handlebars-iron], [rdiff], [docket], and
 [watchexec]. (Want to be added to this list? Open a pull request!)
 
 ## Installation
@@ -141,6 +141,7 @@ Public Domain using the [Creative Commons Zero Declaration][cc0].
 [docs-recursivemode]: https://docs.rs/notify/*/notify/enum.RecursiveMode.html
 [docs-v2]: https://docs.rs/notify/2
 [docs]: https://docs.rs/notify
+[docket]: https://iwillspeak.github.io/docket/
 [fsnotify]: https://github.com/go-fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
 [rdiff]: https://github.com/dyule/rdiff
