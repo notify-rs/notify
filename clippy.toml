@@ -1,1 +1,1 @@
-doc-valid-idents = ["GitHub", "FSEvents", "ReadDirectoryChangesW", "FileSystemEventSecurity", "iOS"]
+doc-valid-idents = ["GitHub", "FSEvents", "ReadDirectoryChangesW", "FileSystemEventSecurity", "iOS", "macOS"]

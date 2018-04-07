@@ -89,7 +89,7 @@ pub fn sleep(duration: u64) {
     thread::sleep(Duration::from_millis(duration));
 }
 
-// Sleep for `duration` in milliseconds if running on OS X
+// Sleep for `duration` in milliseconds if running on macOS
 pub fn sleep_macos(duration: u64) {
     if cfg!(target_os = "macos") {
         thread::sleep(Duration::from_millis(duration));
@@ -112,7 +112,7 @@ pub trait TestHelpers {
     fn create_all(&self, paths: Vec<&str>);
     /// Rename file or directory.
     fn rename(&self, a: &str, b: &str);
-    /// Toggle "other" rights on linux and os x and "readonly" on windows
+    /// Toggle "other" rights on linux and macOS and "readonly" on windows
     fn chmod(&self, p: &str);
     /// Write some data to a file
     fn write(&self, p: &str);

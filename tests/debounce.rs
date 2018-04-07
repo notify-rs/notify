@@ -895,7 +895,7 @@ fn modify_rename_directory() {
     watcher.watch(tdir.mkpath("."), RecursiveMode::Recursive).expect("failed to watch directory");
 
     tdir.chmod("dir1");
-    tdir.chmod("dir1"); // needed by os x
+    tdir.chmod("dir1"); // needed by macOS
     tdir.rename("dir1", "dir2");
 
     if cfg!(target_os="windows") {

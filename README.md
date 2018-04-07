@@ -5,7 +5,7 @@
 [![Crate download count](https://img.shields.io/crates/d/notify.svg?style=flat-square)][crate]
 
 [![Appveyor](https://img.shields.io/appveyor/ci/passcod/rsnotify.svg?style=flat-square)][build-windows] <sup>(Windows)</sup>
-[![Travis](https://img.shields.io/travis/passcod/notify.svg?style=flat-square)][build-unix] <sup>(Linux and OS X)</sup>
+[![Travis](https://img.shields.io/travis/passcod/notify.svg?style=flat-square)][build-unix] <sup>(Linux and macOS)</sup>
 
 [![Code of Conduct](https://img.shields.io/badge/contributor-covenant-123456.svg?style=flat-square)][coc]
 [![Documentation](https://img.shields.io/badge/documentation-docs.rs-df3600.svg?style=flat-square)][docs]
@@ -98,7 +98,7 @@ To upgrade to Notify 3+ with minimal behaviour change:
 ## Platforms
 
 - Linux / Android: inotify
-- OS X: FSEvents
+- macOS: FSEvents
 - Windows: ReadDirectoryChangesW
 - All platforms: polling
 
@@ -111,7 +111,7 @@ with a slight performance cost.
 
 ## Todo
 
-- BSD / OS X / iOS: kqueue
+- BSD / macOS / iOS: kqueue
 - Solaris 11: FEN
 
 Pull requests and bug reports happily accepted!

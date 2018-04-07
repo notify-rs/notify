@@ -32,7 +32,7 @@ fn test_inflate_events() {
 fn create_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
-    // OSX FsEvent needs some time to discard old events from its log.
+    // macOS FsEvent needs some time to discard old events from its log.
     sleep_macos(10);
 
     let (tx, rx) = mpsc::channel();
