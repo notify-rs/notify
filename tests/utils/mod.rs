@@ -122,7 +122,7 @@ pub trait TestHelpers {
 
 impl TestHelpers for TempDir {
     fn mkpath(&self, p: &str) -> PathBuf {
-        let mut path = self.path().canonicalize().expect("failed to canonalize path").to_owned();
+        let mut path = self.path().canonicalize().expect("failed to canonicalize path").to_owned();
         for part in p.split('/').collect::<Vec<_>>() {
             if part != "." {
                 path.push(part);

@@ -340,7 +340,7 @@ impl Debounce {
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
 
-                        // file can't be renamed after beeing removed,
+                        // file can't be renamed after being removed,
                         // but with fsevents everything is possible
                         Some(op::REMOVE) => {}
 

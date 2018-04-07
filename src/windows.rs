@@ -543,7 +543,7 @@ impl Drop for ReadDirectoryChangesWatcher {
 }
 
 // `ReadDirectoryChangesWatcher` is not Send/Sync because of the semaphore Handle.
-// As said elsewhere it's perfectly safe to send it accross threads.
+// As said elsewhere it's perfectly safe to send it across threads.
 unsafe impl Send for ReadDirectoryChangesWatcher {}
 // Because all public methods are `&mut self` it's also perfectly safe to share references.
 unsafe impl Sync for ReadDirectoryChangesWatcher {}
