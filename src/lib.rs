@@ -141,9 +141,9 @@ mod debounce;
 ///
 /// # Chmod
 ///
-/// __Linux, OS X__
+/// __Linux, macOS__
 ///
-/// On Linux and OS X the `CHMOD` event is emitted whenever attributes or extended attributes
+/// On Linux and macOS the `CHMOD` event is emitted whenever attributes or extended attributes
 /// change.
 ///
 /// __Windows__
@@ -194,9 +194,9 @@ mod debounce;
 /// When watching a directory on Windows, the watch will get destroyed and no new events will be
 /// sent.
 ///
-/// __OS X__
+/// __macOS__
 ///
-/// While Linux and Windows monitor "inodes", OS X monitors "paths". So a watch stays active even
+/// While Linux and Windows monitor "inodes", macOS monitors "paths". So a watch stays active even
 /// after the watched file or directory has been removed and it will emit events in case a new file
 /// or directory is created in its place.
 ///
@@ -220,7 +220,7 @@ mod debounce;
 /// A rename that originates outside of a watched directory and ends inside of a watched directory
 /// produces a `CREATE` event.
 ///
-/// __OS X__
+/// __macOS__
 ///
 /// A `RENAME` event is produced whenever a file or directory is moved. This includes moves within
 /// the watched directory as well as moves into or out of the watched directory. It is up to the
@@ -252,9 +252,9 @@ mod debounce;
 /// When renaming a watched file, a `RENAME` event is emitted but the old path will continue to be
 /// watched.
 ///
-/// __OS X__
+/// __macOS__
 ///
-/// OS X will continue to watch the (now non-existing) path.
+/// macOS will continue to watch the (now non-existing) path.
 ///
 /// ## Rename parent directory of watched file or directory
 ///
@@ -268,9 +268,9 @@ mod debounce;
 /// Linux and Windows will continue to watch the moved file or directory. Events will contain paths
 /// prefixed with the old path.
 ///
-/// __OS X__
+/// __macOS__
 ///
-/// OS X will continue to watch the (now non-existing) path.
+/// macOS will continue to watch the (now non-existing) path.
 ///
 ///
 /// # Rescan
@@ -538,7 +538,7 @@ pub trait Watcher: Sized {
     /// file to the file being saved, you will just receive a single `Write` event.
     ///
     /// If you use a delay of more than 30 seconds, you can avoid receiving repetitions of previous
-    /// events on OS X.
+    /// events on macOS.
     ///
     /// # Disadvantages
     ///
