@@ -1,3 +1,31 @@
+# Reporting an issue or opening a pull request?
+
+When reporting an issue, please include **all of the following**:
+
+- OS/Platform name and version
+- Rust version: `rustc --version`
+- Notify version (or commit hash if building from source)
+
+And as much of the following as you can / think is relevant:
+
+- Filesystem type and options
+- On Linux: Kernel version
+- On Windows: if you're running under Windows, Cygwin, Linux Subsystem
+- If you're running as a privileged user (root, System)
+- If you're running in a container, details on the runtime and overlay
+- If you're running in a VM, details on the hypervisor
+
+When opening a pull request, you agree to release your contribution to the
+**public domain or the terms of the CC0 license**.
+
+After opening a pull request, the test suite will run. It is expected that **if
+any failures occur** in the critical builds (there are a number of non-critical
+builds run by CI that may fail, these are marked clearly in Travis), you either
+fix the errors, ask for help, or note that the failures are expected with a
+detailed explanation.
+
+Also see the sections below for more.
+
 # How to Help
 
 Hi there! Thank you for your interest in this project.
