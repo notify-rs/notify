@@ -1,0 +1,34 @@
+<!-- If reporting a bug, fill out the below. Otherwise, if asking a question or suggesting a feature or something else, remove everything before continuing. -->
+
+#### System details
+
+<!-- Please include ALL of the following: -->
+
+- OS/Platform name and version:
+- Rust version: `rustc --version`:
+- Notify version (or commit hash if building from source):
+
+<!-- And as much of the following as you can / think is relevant: -->
+
+- Filesystem type and options:
+- On Linux: Kernel version:
+- On Windows: if you're running under Windows, Cygwin, Linux Subsystem:
+- If you're running as a privileged user (root, System):
+- If you're running in a container, details on the runtime and overlay:
+- If you're running in a VM, details on the hypervisor:
+
+<!-- (remove the ones that are not relevant) -->
+
+
+#### What you did (as detailed as you can)
+
+
+#### What you expected
+
+
+
+#### What happened
+
+
+
+<!-- Thank you! -->
