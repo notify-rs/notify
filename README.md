@@ -1,3 +1,48 @@
+# Notify
+
+[![Version](https://img.shields.io/crates/v/notify.svg?style=flat-square)][crate]
+[![License: CC0](https://img.shields.io/crates/l/notify.svg?style=flat-square)][cc0]
+[![Download count](https://img.shields.io/crates/d/notify.svg?style=flat-square)][crate]
+
+<sup>**windows**:</sup> [![Windows CI](https://img.shields.io/appveyor/ci/passcod/rsnotify/next.svg?style=flat-square)][build-windows]
+<sup>**\*nix**:</sup> [![\*Nix CI](https://img.shields.io/travis/passcod/notify/next.svg?style=flat-square)][build-unix]
+
+[![Code of Conduct](https://img.shields.io/badge/contributor-covenant-5e0d73.svg?style=flat-square)](#conduct)
+[![Documentation](https://img.shields.io/badge/documentation-docs.rs-df3600.svg?style=flat-square)][docs]
+
+_Cross-platform filesystem notification library for Rust._
+
+- [Documentation][docs]
+- [Crate page][crate]
+- [FAQ](/a-wiki-page-or-something?)
+- [How to help](#how-to-help)
+
+As used by: [cargo watch], [mdBook], [rdiff], [watchexec].
+(Want to be added to this list? Open a pull request!)
+
+[build-unix]: https://travis-ci.org/passcod/notify
+[build-windows]: https://ci.appveyor.com/project/passcod/rsnotify
+[cargo watch]: https://github.com/passcod/cargo-watch
+[cc0]: https://creativecommons.org/publicdomain/zero/1.0/
+[crate]: https://crates.io/crates/notify
+[docs]: https://docs.rs/notify
+[mdBook]: https://github.com/rust-lang-nursery/mdBook
+[rdiff]: https://github.com/dyule/rdiff
+[watchexec]: https://github.com/mattgreen/watchexec
+
+
+## Installation
+
+```toml
+[dependencies]
+notify = "5.0.0"
+```
+
+## Usage
+
+```rust
+```
+
 ...etc...
 
 ## Community
@@ -13,6 +58,10 @@ There are a number of ways in which you can help.
 - [Writing a backend](CONTRIBUTING.md#writing-a-backend)
 - [Improving the core](CONTRIBUTING.md#improving-the-core)
 
+You can also contribute financially to [passcod's Patreon][patreon].
+
+[patreon]: https://www.patreon.com/passcod
+
 ### Conduct
 
 This project's conduct policies are described in the
@@ -27,11 +76,9 @@ This project's conduct policies are described in the
 
 ### License
 
-[![No Rights Reserved](https://licensebuttons.net/p/zero/1.0/88x31.png)][CC0]
+[![No Rights Reserved](https://licensebuttons.net/p/zero/1.0/88x31.png)][cc0]
 
-This work is released to the public domain under [CC0].
+This work is released to the public domain under [CC0][cc0].
 
 Additionally, any suit or legal action relating to this work may only be
 brought in New Zealand.
-
-[CC0]: https://creativecommons.org/publicdomain/zero/1.0/
