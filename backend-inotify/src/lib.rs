@@ -3,15 +3,13 @@
 #![deny(missing_docs)]
 
 extern crate notify_backend as backend;
-extern crate futures;
 extern crate inotify;
 
 use backend::prelude::*;
 use backend::Buffer;
 
-use futures::{Poll, Stream};
 use inotify::{Inotify, EventMask, Events, WatchMask};
-use std::path::PathBuf;
+use std::os::unix::io::AsRawFd;
 
 /// A Notify Backend for Linux's [inotify].
 ///
@@ -46,7 +44,7 @@ const BUFFER_SIZE: usize = 4800;
 const BUFFER_SIZE: usize = 4000;
 
 impl NotifyBackend for Backend {
-    fn new(paths: Vec<PathBuf>) -> BackendResult<BoxedBackend> {
+    fn new_sync(paths: Vec<PathBuf>) -> BackendSyncResult {
         let mut inotify = Inotify::init()
             .or_else(|err| Err(BackendError::Io(err)))?;
 
@@ -71,23 +69,24 @@ impl NotifyBackend for Backend {
             Capability::WatchFolders,
         ]
     }
-
-    fn await(&mut self) -> EmptyStreamResult {
-        if self.buffer.closed() {
-            return Ok(())
-        }
-
-        let mut buf = [0; BUFFER_SIZE];
-        let from_kernel = self.inotify.read_events_blocking(&mut buf)
-            .or_else(|err| Err(StreamError::Io(err)))?;
-
-        self.process_events(from_kernel)?;
-        Ok(())
-    }
 }
 
 impl Drop for Backend {
     fn drop(&mut self) {}
+}
+
+impl Evented for Backend {
+    fn register(&self, poll: &MioPoll, token: MioToken, interest: MioReady, opts: MioPollOpt) -> MioResult {
+        mio::unix::EventedFd(&self.inotify.as_raw_fd()).register(poll, token, interest, opts)
+    }
+
+    fn reregister(&self, poll: &MioPoll, token: MioToken, interest: MioReady, opts: MioPollOpt) -> MioResult {
+        mio::unix::EventedFd(&self.inotify.as_raw_fd()).reregister(poll, token, interest, opts)
+    }
+
+    fn deregister(&self, poll: &MioPoll) -> MioResult {
+        mio::unix::EventedFd(&self.inotify.as_raw_fd()).deregister(poll)
+    }
 }
 
 impl Stream for Backend {
