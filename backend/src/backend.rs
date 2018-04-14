@@ -1,19 +1,17 @@
 //! The `Backend` trait and related types.
 
-use futures::{Future, IntoFuture, Stream};
+use futures::Stream;
 use mio::Evented;
-use std::{ffi, io, path::PathBuf, result::Result as StdResult};
+use std::{ffi, io, path::PathBuf};
 use super::{capability::Capability, stream};
 
-/// Convenient type alias for the `::new()` function return.
+/// Convenient type alias for the Backend trait object.
 pub type BoxedBackend = Box<Backend<Item=stream::Item, Error=stream::Error>>;
 
-/// Convenient type alias for the `::new_sync()` function return.
-pub type SyncResult = Result<BoxedBackend>;
+/// Convenient type alias for the `::new()` function return signature.
+pub type NewResult = Result<BoxedBackend, Error>;
 
 /// A trait for types that implement Notify backends.
-///
-/// **One of** `::new()` or `::new_sync()` is required to be implemented.
 ///
 /// Be sure to thoroughly read the [`Evented`] and [`Stream`] documentations when implementing a
 /// `Backend`, as the semantics described are relied upon by Notify, and incorrectly or
@@ -32,20 +30,7 @@ pub trait Backend: Stream + Evented + Drop {
     /// This function must initialise all resources needed to watch over the paths, and only those
     /// paths. When the set of paths to be watched changes, the `Backend` will be `Drop`ped, and a
     /// new one recreated in its place. Thus, the `Backend` is immutable in this respect.
-    fn new(paths: Vec<PathBuf>) -> Box<Future<Item = BoxedBackend, Error = Error>> where Self: Sized {
-        Box::new(Self::new_sync(paths).into_future())
-    }
-
-    /// Synchronous version of `::new()`
-    ///
-    /// Implement this if the Backend's initialisation does not need any asynchronous behaviour
-    /// as it will likely be easier to return a Result than an `impl Future`. The default
-    /// implementation of `::new()` will take care of exposing the correct interface.
-    ///
-    /// Refer to `::new()`'s documentation for implementation semantics.
-    fn new_sync(_paths: Vec<PathBuf>) -> SyncResult where Self: Sized {
-        Err(Error::NotImplemented)
-    }
+    fn new(paths: Vec<PathBuf>) -> NewResult where Self: Sized;
 
     /// Returns the operational capabilities of this `Backend`.
     ///
@@ -85,9 +70,6 @@ pub trait Backend: Stream + Evented + Drop {
     }
 }
 
-/// A specialised Result for `Backend::new()`.
-pub type Result<T> = StdResult<T, Error>;
-
 /// Any error which may occur during the initialisation of a `Backend`.
 #[derive(Debug)]
 pub enum Error {
@@ -96,7 +78,7 @@ pub enum Error {
 
     /// An I/O error.
     Io(io::Error),
-
+    
     /// An error indicating that this Backend's implementation is incomplete.
     ///
     /// This is mostly to be used while developing Backends.

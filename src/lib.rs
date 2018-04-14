@@ -1,3 +1,5 @@
+extern crate tokio;
+
 extern crate notify_backend as backend;
 
 extern crate notify_backend_poll_tree as poll_tree;
@@ -16,8 +18,9 @@ extern crate notify_backend_inotify as inotify;
 ))]
 extern crate notify_backend_kqueue as kqueue;
 
-mod select;
-mod normalise;
+// mod select;
+// mod normalise;
+mod lifecycle;
 
 #[cfg(test)]
 mod tests {

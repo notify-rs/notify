@@ -52,6 +52,7 @@ pub mod prelude {
         Poll as MioPoll,
         PollOpt as MioPollOpt,
         Ready as MioReady,
+        Registration as MioRegistration,
         Token as MioToken
     };
 
@@ -64,8 +65,7 @@ pub mod prelude {
         Backend as NotifyBackend,
         BoxedBackend,
         Error as BackendError,
-        Result as BackendResult,
-        SyncResult as BackendSyncResult,
+        NewResult as NewBackendResult,
     };
 
     pub use super::capability::Capability;

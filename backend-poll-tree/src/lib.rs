@@ -1,21 +1,18 @@
 extern crate notify_backend as backend;
-extern crate futures;
 extern crate walkdir;
 
 use backend::prelude::*;
 use backend::Buffer;
 
-use futures::{Poll, Stream};
-use std::path::PathBuf;
-
 pub struct Backend {
     buffer: Buffer,
+    reg: MioRegistration,
     trees: Vec<String>,
-    watches: Vec<PathBuf>
+    watches: Vec<PathBuf>,
 }
 
 impl NotifyBackend for Backend {
-    fn new(paths: Vec<PathBuf>) -> BackendResult<BoxedBackend> {
+    fn new(_paths: Vec<PathBuf>) -> NewBackendResult {
         Err(BackendError::NotImplemented)
     }
 
@@ -32,14 +29,24 @@ impl NotifyBackend for Backend {
             Capability::WatchRecursively,
         ]
     }
-
-    fn await(&mut self) -> EmptyStreamResult {
-        Ok(())
-    }
 }
 
 impl Drop for Backend {
     fn drop(&mut self) {}
+}
+
+impl Evented for Backend {
+    fn register(&self, poll: &MioPoll, token: MioToken, interest: MioReady, opts: MioPollOpt) -> MioResult {
+        self.reg.register(poll, token, interest, opts)
+    }
+
+    fn reregister(&self, poll: &MioPoll, token: MioToken, interest: MioReady, opts: MioPollOpt) -> MioResult {
+        self.reg.reregister(poll, token, interest, opts)
+    }
+
+    fn deregister(&self, poll: &MioPoll) -> MioResult {
+        self.reg.deregister(poll)
+    }
 }
 
 impl Stream for Backend {
@@ -50,8 +57,6 @@ impl Stream for Backend {
         if self.buffer.closed() {
             return self.buffer.poll()
         }
-
-        // QUESTION: trigger resolves here? or on an interval in a thread?
 
         self.buffer.poll()
     }

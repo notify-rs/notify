@@ -4,6 +4,7 @@ name = "notify"
 version = "5.0.0-alpha.1"
 
 [dependencies]
+tokio = "0.1.5"
 
 [dependencies.notify-backend]
 path = "./backend"

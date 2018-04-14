@@ -44,7 +44,7 @@ const BUFFER_SIZE: usize = 4800;
 const BUFFER_SIZE: usize = 4000;
 
 impl NotifyBackend for Backend {
-    fn new_sync(paths: Vec<PathBuf>) -> BackendSyncResult {
+    fn new(paths: Vec<PathBuf>) -> NewBackendResult {
         let mut inotify = Inotify::init()
             .or_else(|err| Err(BackendError::Io(err)))?;
 
