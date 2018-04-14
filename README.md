@@ -31,6 +31,32 @@ As used by: [cargo watch], [mdBook], [rdiff], [watchexec].
 [watchexec]: https://github.com/mattgreen/watchexec
 
 
+## Status
+
+**In development.**
+
+Core decisions:
+
+- Use Rust beta while developing, then switch to stable for first Notify beta.
+- Use Tokio Reform until ecosystem stabilises.
+
+Backends that have good progress:
+
+- inotify (linux)
+- kqueue (BSD only, sys crate does not support macOS)
+- fsevent (macOS, in a branch)
+- polling (in a branch)
+
+Backends needed but not started:
+
+- Windows
+
+Backends delayed until after release:
+
+- Remote notify
+- Watchman
+- fanotify
+
 ## Installation
 
 ```toml
