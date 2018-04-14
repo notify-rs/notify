@@ -1,11 +1,19 @@
 //! The `Backend` trait and related types.
 
-use futures::{Future, Stream};
+use futures::{Future, IntoFuture, Stream};
 use mio::Evented;
 use std::{ffi, io, path::PathBuf, result::Result as StdResult};
-use super::capability::Capability;
+use super::{capability::Capability, stream};
+
+/// Convenient type alias for the `::new()` function return.
+pub type BoxedBackend = Box<Backend<Item=stream::Item, Error=stream::Error>>;
+
+/// Convenient type alias for the `::new_sync()` function return.
+pub type SyncResult = Result<BoxedBackend>;
 
 /// A trait for types that implement Notify backends.
+///
+/// **One of** `::new()` or `::new_sync()` is required to be implemented.
 ///
 /// Be sure to thoroughly read the [`Evented`] and [`Stream`] documentations when implementing a
 /// `Backend`, as the semantics described are relied upon by Notify, and incorrectly or
@@ -24,7 +32,20 @@ pub trait Backend: Stream + Evented + Drop {
     /// This function must initialise all resources needed to watch over the paths, and only those
     /// paths. When the set of paths to be watched changes, the `Backend` will be `Drop`ped, and a
     /// new one recreated in its place. Thus, the `Backend` is immutable in this respect.
-    fn new(paths: Vec<PathBuf>) -> Box<Future<Item = Self, Error = Error>>;
+    fn new(paths: Vec<PathBuf>) -> Box<Future<Item = BoxedBackend, Error = Error>> where Self: Sized {
+        Box::new(Self::new_sync(paths).into_future())
+    }
+
+    /// Synchronous version of `::new()`
+    ///
+    /// Implement this if the Backend's initialisation does not need any asynchronous behaviour
+    /// as it will likely be easier to return a Result than an `impl Future`. The default
+    /// implementation of `::new()` will take care of exposing the correct interface.
+    ///
+    /// Refer to `::new()`'s documentation for implementation semantics.
+    fn new_sync(_paths: Vec<PathBuf>) -> SyncResult where Self: Sized {
+        Err(Error::NotImplemented)
+    }
 
     /// Returns the operational capabilities of this `Backend`.
     ///

@@ -41,8 +41,20 @@ pub mod stream;
 ///
 /// All that is needed to implement a `Backend`, except for the optional `Buffer`.
 pub mod prelude {
-    pub use futures::{self, Future, Poll, Stream};
-    pub use mio::{self, Evented, Poll as MioPoll, PollOpt as MioPollOpt, Ready as MioReady, Token as MioToken};
+    pub use futures::{self,
+        Future,
+        Poll,
+        Stream,
+    };
+
+    pub use mio::{self,
+        Evented,
+        Poll as MioPoll,
+        PollOpt as MioPollOpt,
+        Ready as MioReady,
+        Token as MioToken
+    };
+
     pub use std::path::PathBuf;
 
     /// An empty io::Result used for mio's Evented trait signatures
@@ -50,8 +62,10 @@ pub mod prelude {
 
     pub use super::backend::{
         Backend as NotifyBackend,
+        BoxedBackend,
         Error as BackendError,
         Result as BackendResult,
+        SyncResult as BackendSyncResult,
     };
 
     pub use super::capability::Capability;
