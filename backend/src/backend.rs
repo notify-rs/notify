@@ -1,23 +1,21 @@
 //! The `Backend` trait and related types.
 
-use futures::Stream;
-use std::{ffi, io};
-use std::path::PathBuf;
-use std::result::Result as StdResult;
+use futures::{Future, Stream};
+use mio::Evented;
+use std::{ffi, io, path::PathBuf, result::Result as StdResult};
 use super::capability::Capability;
-use super::stream::{self, EmptyResult};
-
-/// Convenient type alias for the Boxed Trait Object for Backend.
-pub type BoxedBackend = Box<Backend<Item=stream::Item, Error=stream::Error>>;
 
 /// A trait for types that implement Notify backends.
 ///
-/// Be sure to thoroughly read the `Stream` documentation when implementing a `Backend`, as the
-/// semantics described are relied upon by Notify, and incorrectly or incompletely implementing
-/// them will result in bad behaviour.
+/// Be sure to thoroughly read the [`Evented`] and [`Stream`] documentations when implementing a
+/// `Backend`, as the semantics described are relied upon by Notify, and incorrectly or
+/// incompletely implementing them will result in bad behaviour.
 ///
 /// Also take care to correctly free all resources via the `Drop` trait.
-pub trait Backend: Stream + Drop {
+///
+/// [`Evented`]: https://docs.rs/mio/0.6/mio/event/trait.Evented.html
+/// [`Stream`]: https://docs.rs/futures/0.1/futures/stream/trait.Stream.html
+pub trait Backend: Stream + Evented + Drop {
     /// Creates an instance of a `Backend` that watches over a set of paths.
     ///
     /// While the `paths` argument is a `Vec` for implementation simplicity, Notify guarantees that
@@ -26,7 +24,7 @@ pub trait Backend: Stream + Drop {
     /// This function must initialise all resources needed to watch over the paths, and only those
     /// paths. When the set of paths to be watched changes, the `Backend` will be `Drop`ped, and a
     /// new one recreated in its place. Thus, the `Backend` is immutable in this respect.
-    fn new(paths: Vec<PathBuf>) -> Result<BoxedBackend> where Self: Sized;
+    fn new(paths: Vec<PathBuf>) -> Box<Future<Item = Self, Error = Error>>;
 
     /// Returns the operational capabilities of this `Backend`.
     ///
@@ -60,16 +58,6 @@ pub trait Backend: Stream + Drop {
     /// ```
     fn caps(&self) -> Vec<Capability>;
 
-    /// Blocks until events are available on this `Backend`.
-    ///
-    /// The `wait()` method on Stream waits using cond-vars to implement similar functionality.
-    /// However, we have additional knowledge and capabilities as we can rely often rely on the
-    /// kernel to block until it's ready.
-    ///
-    /// Another difference from `wait()` is that it returns a Stream, i.e. it is a blocking
-    /// iterator. This method instead only blocks once, until the next event is available.
-    fn await(&mut self) -> EmptyResult;
-
     /// The version of the Backend trait this implementation was built against.
     fn trait_version() -> String where Self: Sized {
         env!("CARGO_PKG_VERSION").into()
@@ -77,7 +65,7 @@ pub trait Backend: Stream + Drop {
 }
 
 /// A specialised Result for `Backend::new()`.
-pub type Result<T: Backend> = StdResult<T, Error>;
+pub type Result<T> = StdResult<T, Error>;
 
 /// Any error which may occur during the initialisation of a `Backend`.
 #[derive(Debug)]
