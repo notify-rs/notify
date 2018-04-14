@@ -17,6 +17,8 @@ _Cross-platform filesystem notification library for Rust._
 As used by: [cargo watch], [cobalt], [handlebars-iron], [rdiff], [docket], and
 [watchexec]. (Want to be added to this list? Open a pull request!)
 
+Version 5 status: [branch `next`](https://github.com/passcod/notify/tree/next#status).
+
 ## Installation
 
 ```toml
