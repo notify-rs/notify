@@ -1,7 +1,13 @@
 //! The `Backend` trait and related types.
 
 use futures::Stream;
-use mio::Evented;
+use mio::{
+    Evented,
+    Poll as MioPoll,
+    PollOpt as MioPollOpt,
+    Ready as MioReady,
+    Token as MioToken
+};
 use std::{ffi, io, path::PathBuf};
 use super::{capability::Capability, stream};
 
@@ -25,7 +31,9 @@ pub trait Backend: Stream + Evented + Drop {
     /// Creates an instance of a `Backend` that watches over a set of paths.
     ///
     /// While the `paths` argument is a `Vec` for implementation simplicity, Notify guarantees that
-    /// it will only contain unique entries.
+    /// it will only contain unique entries. Notify will also _try_ to make sure that they are
+    /// pointing to unique trees on the filesystem but cannot offer a guarantee because of the very
+    /// nature of filesystems aka "if trees or links are moved by someone else".
     ///
     /// This function must initialise all resources needed to watch over the paths, and only those
     /// paths. When the set of paths to be watched changes, the `Backend` will be `Drop`ped, and a
@@ -67,6 +75,20 @@ pub trait Backend: Stream + Evented + Drop {
     /// The version of the Backend trait this implementation was built against.
     fn trait_version() -> String where Self: Sized {
         env!("CARGO_PKG_VERSION").into()
+    }
+}
+
+impl Evented for BoxedBackend {
+    fn register(&self, poll: &MioPoll, token: MioToken, interest: MioReady, opts: MioPollOpt) -> io::Result<()> {
+        self.as_ref().register(poll, token, interest, opts)
+    }
+
+    fn reregister(&self, poll: &MioPoll, token: MioToken, interest: MioReady, opts: MioPollOpt) -> io::Result<()> {
+        self.as_ref().reregister(poll, token, interest, opts)
+    }
+
+    fn deregister(&self, poll: &MioPoll) -> io::Result<()> {
+        self.as_ref().deregister(poll)
     }
 }
 
