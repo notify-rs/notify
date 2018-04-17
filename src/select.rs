@@ -1,5 +1,5 @@
-use backend::prelude::*;
-use std::path::PathBuf;
+use super::lifecycle::{Life, LifeTrait};
+use tokio::reactor::Handle;
 
 #[cfg(any(
     target_os = "linux",
@@ -17,42 +17,27 @@ use kqueue;
 
 use poll_tree;
 
-pub fn new(paths: Vec<PathBuf>, use_polling: bool) -> BackendResult<BoxedBackend> {
-    let mut result = Err(BackendError::Generic("you should never see this".into()));
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+))]
+fn inotify_life(handle: &Handle) -> Life<inotify::Backend> {
+    Life::new(handle)
+}
+
+fn poll_life(handle: &Handle) -> Life<poll_tree::Backend> {
+    Life::new(handle)
+}
+
+fn lives<'h>(handle: &'h Handle) -> Vec<Box<LifeTrait + 'h>> {
+    let mut lives: Vec<Box<LifeTrait>> = vec![];
 
     #[cfg(any(
         target_os = "linux",
         target_os = "android",
-    ))]
-    { result = new_if_bad(result, &paths, |paths| inotify::Backend::new(paths)); }
+    ))] lives.push(Box::new(inotify_life(handle)));
 
-    #[cfg(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd",
-    ))]
-    { result = new_if_bad(result, &paths, |paths| kqueue::Backend::new(paths)); }
+    lives.push(Box::new(poll_life(handle)));
 
-    if use_polling {
-        result = new_if_bad(result, &paths, |paths| poll_tree::Backend::new(paths));
-    }
-
-    result
-}
-
-fn new_if_bad<F>(
-    previous: BackendResult<BoxedBackend>,
-    paths: &Vec<PathBuf>,
-    backfn: F
-) -> BackendResult<BoxedBackend>
-where F: FnOnce(Vec<PathBuf>) -> BackendResult<BoxedBackend>
-{
-    match previous {
-        p @ Ok(_) => p,
-        Err(err) => match err {
-            e @ BackendError::NonExistent(_) => Err(e),
-            _ => backfn(paths.clone())
-        }
-    }
+    lives
 }

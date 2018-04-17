@@ -1,54 +1,56 @@
-use backend::prelude::{
+use backend::{prelude::{
     BackendError,
     BoxedBackend,
     NotifyBackend as Backend,
     PathBuf,
-};
+}, stream};
 
+use std::marker::PhantomData;
 use tokio::reactor::{Handle, Registration};
 
-pub struct Life<'h, B: Backend> {
-    backend: Option<B>,
+pub struct Life<'h, B: Backend<Item=stream::Item, Error=stream::Error>> {
+    backend: Option<BoxedBackend>,
     handle: &'h Handle,
     registration: Registration,
+    phantom: PhantomData<B>
 }
 
 pub type Status = Result<(), BackendError>;
 
-impl<'h, B> Life<'h, B> where B: Backend {
+pub trait LifeTrait {
+    fn bind(&mut self, paths: Vec<PathBuf>) -> Status;
+    fn unbind(&mut self) -> Status;
+}
+
+impl<'h, B: Backend<Item=stream::Item, Error=stream::Error>> Life<'h, B> {
+    fn bind_backend(&mut self, backend: BoxedBackend) -> Status {
+        self.unbind()?;
+
+        self.registration.register_with(&backend, self.handle).map(|_| {
+            self.backend = Some(backend);
+        }).map_err(|e| e.into())
+    }
+    
     pub fn new(handle: &'h Handle) -> Self {
         Self {
             backend: None,
             handle: handle,
             registration: Registration::new(),
+            phantom: PhantomData,
         }
     }
+}
 
-    pub fn bind(&mut self, paths: Vec<PathBuf>) -> Status
-    where Box<B>:From<BoxedBackend> {
+impl<'h, B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<'h, B> {
+    fn bind(&mut self, paths: Vec<PathBuf>) -> Status {
         let backend = B::new(paths)?;
-        self.bind_backend(backend.into())
+        self.bind_backend(backend)
     }
 
-    fn bind_backend(&mut self, backend: Box<B>) -> Status {
-        self.unbind()?;
-
-        let b = *backend;
-        self.registration.register_with(&b, self.handle).map(|_| {
-            self.backend = Some(b);
-        }).map_err(|e| e.into())
-    }
-
-    pub fn unbind(&mut self) -> Status {
+    fn unbind(&mut self) -> Status {
         match self.backend {
             None => Ok(()),
             Some(ref b) => self.registration.deregister(b).map(|_| ()),
         }.map_err(|e| e.into())
-    }
-}
-
-impl<'h, B> Drop for Life<'h, B> where B: Backend {
-    fn drop(&mut self) {
-        self.unbind().unwrap();
     }
 }

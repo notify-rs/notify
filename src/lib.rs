@@ -18,7 +18,7 @@ extern crate notify_backend_inotify as inotify;
 ))]
 extern crate notify_backend_kqueue as kqueue;
 
-// mod select;
+mod select;
 // mod normalise;
 mod lifecycle;
 
