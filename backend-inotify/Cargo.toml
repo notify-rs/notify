@@ -2,7 +2,6 @@
 authors = ["Félix Saparelli <felix@passcod.name>"]
 name = "notify-backend-inotify"
 version = "0.1.0"
-workspace = ".."
 
 [dependencies]
 inotify = "0.5.0"

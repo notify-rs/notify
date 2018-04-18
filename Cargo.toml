@@ -3,6 +3,14 @@ authors = ["Félix Saparelli <felix@passcod.name>"]
 name = "notify"
 version = "5.0.0-alpha.1"
 
+[workspace]
+members = [
+  "backend",
+  "backend-poll-tree",
+  "backend-inotify",
+  "backend-kqueue",
+]
+
 [dependencies]
 tokio = "0.1.5"
 

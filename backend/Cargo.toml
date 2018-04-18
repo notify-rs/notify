@@ -2,7 +2,6 @@
 authors = ["Félix Saparelli <felix@passcod.name>"]
 name = "notify-backend"
 version = "1.0.0"
-workspace = ".."
 
 [dependencies]
 futures = "0.1.21"

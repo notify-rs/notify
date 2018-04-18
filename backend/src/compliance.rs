@@ -31,9 +31,9 @@
 #[macro_export]
 macro_rules! test_compliance {
     ( $Backend:ident ) => (
+        use notify_backend::prelude::*;
         use futures::Async;
         use futures::stream::Stream;
-        use notify_backend::prelude::*;
         use std::fs::{File, create_dir, rename};
         use std::io::Write;
         use std::path::PathBuf;
