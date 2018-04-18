@@ -1,11 +1,28 @@
 use super::lifecycle::{Life, LifeTrait};
 use tokio::reactor::Handle;
 
+#[macro_export]
+macro_rules! lifefn {
+    ($name:ident<$mod:ty>) => {
+    fn $name<'h>(handle: &'h Handle) -> Box<LifeTrait + 'h> {
+        let l: Life<$mod> = Life::new(handle);
+        Box::new(l)
+    }}
+}
+
+#[macro_export]
+macro_rules! usefn {
+    ($mod:ident => $name:ident) => {
+        use $mod;
+        lifefn!($name<$mod::Backend>);
+    }
+}
+
 #[cfg(any(
     target_os = "linux",
     target_os = "android",
 ))]
-use inotify;
+usefn!(inotify => inotify_life);
 
 #[cfg(any(
     target_os = "dragonfly",
@@ -13,31 +30,53 @@ use inotify;
     target_os = "netbsd",
     target_os = "openbsd",
 ))]
-use kqueue;
+usefn!(kqueue => kqueue_life);
 
-use poll_tree;
+usefn!(poll_tree => poll_life);
 
-#[cfg(any(
-    target_os = "linux",
-    target_os = "android",
-))]
-fn inotify_life(handle: &Handle) -> Life<inotify::Backend> {
-    Life::new(handle)
+type SelectFn<'h> = Fn(&'h Handle) -> Box<LifeTrait + 'h>;
+pub struct SelectFns<'f> {
+    handle: &'f Handle,
+    fns: Vec<&'f SelectFn<'f>>
 }
 
-fn poll_life(handle: &Handle) -> Life<poll_tree::Backend> {
-    Life::new(handle)
-}
+impl<'f> SelectFns<'f> {
+    pub fn new(handle: &'f Handle) -> Self {
+        Self {
+            handle,
+            fns: vec![]
+        }
+    }
 
-fn lives<'h>(handle: &'h Handle) -> Vec<Box<LifeTrait + 'h>> {
-    let mut lives: Vec<Box<LifeTrait>> = vec![];
+    pub fn add(&mut self, f: &'f SelectFn<'f>) {
+        self.fns.push(f)
+    }
 
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "android",
-    ))] lives.push(Box::new(inotify_life(handle)));
+    pub fn builtins(&mut self) {
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "android",
+        ))]
+        self.add(&inotify_life);
 
-    lives.push(Box::new(poll_life(handle)));
+        #[cfg(any(
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd",
+        ))]
+        self.add(&kqueue_life);
 
-    lives
+        self.add(&poll_life);
+    }
+
+    pub fn lives(&self) -> Vec<Box<LifeTrait + 'f>> {
+        let mut lives: Vec<Box<LifeTrait>> = vec![];
+
+        for f in self.fns.iter() {
+            lives.push(f(self.handle));
+        }
+
+        lives
+    }
 }
