@@ -1,6 +1,7 @@
 use backend::{prelude::{
     BackendError,
     BoxedBackend,
+    Capability,
     NotifyBackend as Backend,
     PathBuf,
 }, stream};
@@ -20,6 +21,7 @@ pub type Status = Result<(), BackendError>;
 pub trait LifeTrait {
     fn bind(&mut self, paths: Vec<PathBuf>) -> Status;
     fn unbind(&mut self) -> Status;
+    fn capabilities(&self) -> Vec<Capability>;
 }
 
 impl<'h, B: Backend<Item=stream::Item, Error=stream::Error>> Life<'h, B> {
@@ -30,7 +32,7 @@ impl<'h, B: Backend<Item=stream::Item, Error=stream::Error>> Life<'h, B> {
             self.backend = Some(backend);
         }).map_err(|e| e.into())
     }
-    
+
     pub fn new(handle: &'h Handle) -> Self {
         Self {
             backend: None,
@@ -52,5 +54,9 @@ impl<'h, B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<
             None => Ok(()),
             Some(ref b) => self.registration.deregister(b).map(|_| ()),
         }.map_err(|e| e.into())
+    }
+
+    fn capabilities(&self) -> Vec<Capability> {
+        B::capabilities()
     }
 }
