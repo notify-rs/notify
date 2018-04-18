@@ -39,6 +39,13 @@ Core decisions:
 
 - Use Rust beta while developing, then switch to stable for first Notify beta.
 - Use Tokio Reform until ecosystem stabilises.
+- User-provided backends will be in 5.0.
+- Runtime fallback to other methods will be in 5.0. ([#64](https://github.com/passcod/notify/issues/64))
+- All Tier 1 platforms need to work as of first alpha:
+  - Windows
+  - Linux
+  - macOS
+  - polling
 
 Backends that have good progress:
 
@@ -51,11 +58,15 @@ Backends needed but not started:
 
 - Windows
 
-Backends delayed until after release:
+Delayed until after release:
 
-- Remote notify
-- Watchman
-- fanotify
+- All non-essential backends:
+  - Remote
+  - Watchman
+  - fanotify
+- Runtime-added backends (via dynamic .so or DLL)
+- More debouncing options (possibly via feature)
+- kqueue under macOS and i686 BSD ([#136](https://github.com/passcod/notify/issues/136))
 
 ## Installation
 
