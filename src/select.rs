@@ -35,6 +35,7 @@ usefn!(kqueue => kqueue_life);
 usefn!(poll_tree => poll_life);
 
 type SelectFn<'h> = Fn(&'h Handle) -> Box<LifeTrait + 'h>;
+
 pub struct SelectFns<'f> {
     handle: &'f Handle,
     fns: Vec<&'f SelectFn<'f>>

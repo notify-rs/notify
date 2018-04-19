@@ -4,6 +4,7 @@ extern crate walkdir;
 use backend::prelude::*;
 use backend::Buffer;
 
+#[derive(Debug)]
 pub struct Backend {
     buffer: Buffer,
     reg: MioRegistration,
