@@ -57,7 +57,10 @@ pub mod prelude {
         Token as MioToken
     };
 
-    pub use std::path::PathBuf;
+    pub use std::{
+        path::PathBuf,
+        sync::Arc,
+    };
 
     /// An empty io::Result used for mio's Evented trait signatures
     pub type MioResult = ::std::io::Result<()>;

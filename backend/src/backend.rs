@@ -1,14 +1,8 @@
 //! The `Backend` trait and related types.
 
 use futures::Stream;
-use mio::{
-    Evented,
-    Poll as MioPoll,
-    PollOpt as MioPollOpt,
-    Ready as MioReady,
-    Token as MioToken
-};
-use std::{ffi, fmt::Debug, io, path::PathBuf};
+use mio::Evented;
+use std::{ffi, fmt::Debug, io, path::PathBuf, sync::Arc};
 use super::{capability::Capability, stream};
 
 /// Convenient type alias for the Backend trait object.
@@ -31,7 +25,7 @@ pub type NewResult = Result<BoxedBackend, Error>;
 /// [`Debug`]: https://doc.rust-lang.org/std/fmt/trait.Debug.html
 /// [`Evented`]: https://docs.rs/mio/0.6/mio/event/trait.Evented.html
 /// [`Stream`]: https://docs.rs/futures/0.1/futures/stream/trait.Stream.html
-pub trait Backend: Stream + Evented + Drop + Debug {
+pub trait Backend: Stream + Send + Drop + Debug {
     /// Creates an instance of a `Backend` that watches over a set of paths.
     ///
     /// While the `paths` argument is a `Vec` for implementation simplicity, Notify guarantees that
@@ -63,20 +57,6 @@ pub trait Backend: Stream + Evented + Drop + Debug {
     /// The version of the Backend trait this implementation was built against.
     fn trait_version() -> String where Self: Sized {
         env!("CARGO_PKG_VERSION").into()
-    }
-}
-
-impl Evented for BoxedBackend {
-    fn register(&self, poll: &MioPoll, token: MioToken, interest: MioReady, opts: MioPollOpt) -> io::Result<()> {
-        self.as_ref().register(poll, token, interest, opts)
-    }
-
-    fn reregister(&self, poll: &MioPoll, token: MioToken, interest: MioReady, opts: MioPollOpt) -> io::Result<()> {
-        self.as_ref().reregister(poll, token, interest, opts)
-    }
-
-    fn deregister(&self, poll: &MioPoll) -> io::Result<()> {
-        self.as_ref().deregister(poll)
     }
 }
 

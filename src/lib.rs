@@ -1,6 +1,6 @@
 extern crate tokio;
 
-extern crate notify_backend as backend;
+pub extern crate notify_backend as backend;
 
 extern crate notify_backend_poll_tree as poll_tree;
 

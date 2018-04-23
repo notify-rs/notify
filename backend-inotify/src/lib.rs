@@ -33,8 +33,9 @@ use std::{fmt, os::unix::io::AsRawFd};
 /// [inotify]: http://man7.org/linux/man-pages/man7/inotify.7.html
 /// [Buffer]: ../notify_backend/buffer/struct.Buffer.html
 pub struct Backend {
-    inotify: Inotify,
     buffer: Buffer,
+    driver: OwnedEventedFd,
+    inotify: Inotify,
 }
 
 #[cfg(target_pointer_width = "64")]
@@ -52,7 +53,15 @@ impl NotifyBackend for Backend {
             inotify.add_watch(&path, WatchMask::ALL_EVENTS)?;
         }
 
-        Ok(Box::new(Backend { buffer: Buffer::new(), inotify }))
+        Ok(Box::new(Backend {
+            buffer: Buffer::new(),
+            driver: OwnedEventedFd(inotify.as_raw_fd()),
+            inotify
+        }))
+    }
+
+    fn driver(&self) -> Arc<Evented> {
+        Arc::new(self.driver)
     }
 
     fn capabilities() -> Vec<Capability> {
@@ -73,20 +82,6 @@ impl Drop for Backend {
 impl fmt::Debug for Backend {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Backend {{ inotify: {}, buffer: {:?} }}", self.inotify.as_raw_fd(), self.buffer)
-    }
-}
-
-impl Evented for Backend {
-    fn register(&self, poll: &MioPoll, token: MioToken, interest: MioReady, opts: MioPollOpt) -> MioResult {
-        mio::unix::EventedFd(&self.inotify.as_raw_fd()).register(poll, token, interest, opts)
-    }
-
-    fn reregister(&self, poll: &MioPoll, token: MioToken, interest: MioReady, opts: MioPollOpt) -> MioResult {
-        mio::unix::EventedFd(&self.inotify.as_raw_fd()).reregister(poll, token, interest, opts)
-    }
-
-    fn deregister(&self, poll: &MioPoll) -> MioResult {
-        mio::unix::EventedFd(&self.inotify.as_raw_fd()).deregister(poll)
     }
 }
 

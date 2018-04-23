@@ -1,7 +1,14 @@
 use backend::{prelude::{
+    futures::{
+        Stream,
+        stream::Forward,
+        sync::mpsc,
+    },
+    Arc,
     BackendError,
     BoxedBackend,
     Capability,
+    Evented,
     NotifyBackend as Backend,
     PathBuf,
 }, stream};
@@ -9,9 +16,11 @@ use backend::{prelude::{
 use std::{fmt, marker::PhantomData};
 use tokio::reactor::{Handle, Registration};
 
-pub struct Life<'h, B: Backend<Item=stream::Item, Error=stream::Error>> {
-    backend: Option<BoxedBackend>,
-    handle: &'h Handle,
+pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
+    backend: Option<Forward<BoxedBackend, mpsc::UnboundedSender<stream::Item>>>,
+    channel: Option<mpsc::UnboundedReceiver<stream::Item>>,
+    driver: Option<Arc<Evented>>,
+    handle: Handle,
     name: Option<String>,
     registration: Registration,
     phantom: PhantomData<B>
@@ -20,24 +29,35 @@ pub struct Life<'h, B: Backend<Item=stream::Item, Error=stream::Error>> {
 pub type Status = Result<(), BackendError>;
 
 pub trait LifeTrait: fmt::Debug {
+    fn active(&self) -> bool;
     fn bind(&mut self, paths: Vec<PathBuf>) -> Status;
     fn unbind(&mut self) -> Status;
     fn capabilities(&self) -> Vec<Capability>;
     fn with_name(&mut self, name: String);
 }
 
-impl<'h, B: Backend<Item=stream::Item, Error=stream::Error>> Life<'h, B> {
+impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
     fn bind_backend(&mut self, backend: BoxedBackend) -> Status {
+        // TODO: unbind after binding the new one, to avoid missing on events
         self.unbind()?;
 
-        self.registration.register_with(&backend, self.handle).map(|_| {
-            self.backend = Some(backend);
-        }).map_err(|e| e.into())
+        let d = backend.driver();
+        let (tx, rx) = mpsc::unbounded();
+        let b = backend.forward(tx);
+
+        self.driver = Some(d);
+        self.backend = Some(b);
+        self.channel = Some(rx);
+
+        self.registration.register_with(&d, &self.handle)?; // TODO: cleanup if this errors?
+        Ok(())
     }
 
-    pub fn new(handle: &'h Handle) -> Self {
+    pub fn new(handle: Handle) -> Self {
         Self {
             backend: None,
+            channel: None,
+            driver: None,
             handle: handle,
             name: None,
             registration: Registration::new(),
@@ -46,16 +66,20 @@ impl<'h, B: Backend<Item=stream::Item, Error=stream::Error>> Life<'h, B> {
     }
 }
 
-impl<'h, B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<'h, B> {
+impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
+    fn active(&self) -> bool {
+        self.backend.is_some()
+    }
+
     fn bind(&mut self, paths: Vec<PathBuf>) -> Status {
         let backend = B::new(paths)?;
         self.bind_backend(backend)
     }
 
     fn unbind(&mut self) -> Status {
-        match self.backend {
+        match self.driver {
             None => Ok(()),
-            Some(ref b) => self.registration.deregister(b).map(|_| ()),
+            Some(ref d) => self.registration.deregister(d).map(|_| ()),
         }.map_err(|e| e.into())
     }
 
@@ -70,7 +94,7 @@ impl<'h, B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<
     }
 }
 
-impl<'h, B: Backend<Item=stream::Item, Error=stream::Error>> fmt::Debug for Life<'h, B> {
+impl<B: Backend<Item=stream::Item, Error=stream::Error>> fmt::Debug for Life<B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.name {
             Some(ref name) => write!(f, "Life<{}> {{ backend: {:?} }}", name, self.backend),
