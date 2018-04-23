@@ -57,24 +57,8 @@ pub trait Backend: Stream + Evented + Drop + Debug {
     /// [cap]: ../capability/enum.Capability.html
     fn capabilities() -> Vec<Capability> where Self: Sized;
 
-    /// Returns the operational capabilities of this `Backend`.
-    ///
-    /// This should be implemented by invoking `::capabilities()`.
-    ///
-    /// It is necessary due to an implementation issue: Backend needs to be compatible as a Trait
-    /// Object, but only methods with receivers can be present on the Trait Object. Yet, the
-    /// capabilities of the backend must be accessible from a non-instance context for tests and
-    /// other purposes. Thus, this duplication. It is also not possible to have one of the two as a
-    /// provided method, as that invalidates the Trait Object compatibility.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// fn caps(&self) -> Vec<Capability> {
-    ///     Self::capabilities()
-    /// }
-    /// ```
-    fn caps(&self) -> Vec<Capability>;
+    /// !
+    fn driver(&self) -> Arc<Evented>;
 
     /// The version of the Backend trait this implementation was built against.
     fn trait_version() -> String where Self: Sized {
@@ -104,7 +88,7 @@ pub enum Error {
 
     /// An I/O error.
     Io(io::Error),
-    
+
     /// An error indicating that this Backend's implementation is incomplete.
     ///
     /// This is mostly to be used while developing Backends.

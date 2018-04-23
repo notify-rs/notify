@@ -17,10 +17,6 @@ impl NotifyBackend for Backend {
         Err(BackendError::NotImplemented)
     }
 
-    fn caps(&self) -> Vec<Capability> {
-        Self::capabilities()
-    }
-
     fn capabilities() -> Vec<Capability> {
         vec![
             Capability::FollowSymlinks,
