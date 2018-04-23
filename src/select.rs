@@ -1,3 +1,4 @@
+use std::fmt;
 use super::lifecycle::{Life, LifeTrait};
 use tokio::reactor::Handle;
 
@@ -5,7 +6,8 @@ use tokio::reactor::Handle;
 macro_rules! lifefn {
     ($name:ident<$mod:ty>) => {
     fn $name<'h>(handle: &'h Handle) -> Box<LifeTrait + 'h> {
-        let l: Life<$mod> = Life::new(handle);
+        let mut l: Life<$mod> = Life::new(handle);
+        l.with_name(stringify!($mod).trim_right_matches("::Backend").into());
         Box::new(l)
     }}
 }
@@ -36,9 +38,27 @@ usefn!(poll_tree => poll_life);
 
 type SelectFn<'h> = Fn(&'h Handle) -> Box<LifeTrait + 'h>;
 
+pub struct Selector<'h> {
+    pub f: &'h SelectFn<'h>,
+    pub name: String,
+}
+
+impl<'h> fmt::Debug for Selector<'h> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Selector {{ Handle -> Box<Life<{}>> }}", self.name)
+    }
+}
+
+impl<'h> From<&'h SelectFn<'h>> for Selector<'h> {
+    fn from(f: &'h SelectFn<'h>) -> Selector<'h> {
+        Selector { f: f, name: "Anonymous".into() }
+    }
+}
+
+#[derive(Debug)]
 pub struct SelectFns<'f> {
     handle: &'f Handle,
-    fns: Vec<&'f SelectFn<'f>>
+    fns: Vec<Selector<'f>>
 }
 
 impl<'f> SelectFns<'f> {
@@ -49,7 +69,7 @@ impl<'f> SelectFns<'f> {
         }
     }
 
-    pub fn add(&mut self, f: &'f SelectFn<'f>) {
+    pub fn add(&mut self, f: Selector<'f>) {
         self.fns.push(f)
     }
 
@@ -58,7 +78,7 @@ impl<'f> SelectFns<'f> {
             target_os = "linux",
             target_os = "android",
         ))]
-        self.add(&inotify_life);
+        self.add(Selector { f: &inotify_life, name: "Inotify".into() });
 
         #[cfg(any(
             target_os = "dragonfly",
@@ -66,16 +86,18 @@ impl<'f> SelectFns<'f> {
             target_os = "netbsd",
             target_os = "openbsd",
         ))]
-        self.add(&kqueue_life);
+        self.add(Selector { f: &kqueue_life, name: "Kqueue".into() });
 
-        self.add(&poll_life);
+        self.add(Selector { f: &poll_life, name: "Poll".into() });
     }
 
     pub fn lives(&self) -> Vec<Box<LifeTrait + 'f>> {
         let mut lives: Vec<Box<LifeTrait>> = vec![];
 
         for f in self.fns.iter() {
-            lives.push(f(self.handle));
+            let mut l = (f.f)(self.handle);
+            l.with_name(f.name.clone());
+            lives.push(l);
         }
 
         lives
