@@ -9,7 +9,7 @@ use backend::prelude::*;
 use backend::Buffer;
 
 use inotify::{Inotify, EventMask, Events, WatchMask};
-use std::os::unix::io::AsRawFd;
+use std::{fmt, os::unix::io::AsRawFd};
 
 /// A Notify Backend for Linux's [inotify].
 ///
@@ -73,6 +73,12 @@ impl NotifyBackend for Backend {
 
 impl Drop for Backend {
     fn drop(&mut self) {}
+}
+
+impl fmt::Debug for Backend {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Backend {{ inotify: {}, buffer: {:?} }}", self.inotify.as_raw_fd(), self.buffer)
+    }
 }
 
 impl Evented for Backend {

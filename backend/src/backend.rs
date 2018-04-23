@@ -8,7 +8,7 @@ use mio::{
     Ready as MioReady,
     Token as MioToken
 };
-use std::{ffi, io, path::PathBuf};
+use std::{ffi, fmt::Debug, io, path::PathBuf};
 use super::{capability::Capability, stream};
 
 /// Convenient type alias for the Backend trait object.
@@ -23,11 +23,15 @@ pub type NewResult = Result<BoxedBackend, Error>;
 /// `Backend`, as the semantics described are relied upon by Notify, and incorrectly or
 /// incompletely implementing them will result in bad behaviour.
 ///
-/// Also take care to correctly free all resources via the `Drop` trait.
+/// Take care to correctly free all resources via the `Drop` trait. For ease of debugging, the
+/// [`Debug`] trait is required. Often this can be derived automatically, but for some backends
+/// a manual implementation may be needed. Additionally, a backend may want to provide a custom
+/// Debug to add useful information rather than e.g. opaque FD numbers.
 ///
+/// [`Debug`]: https://doc.rust-lang.org/std/fmt/trait.Debug.html
 /// [`Evented`]: https://docs.rs/mio/0.6/mio/event/trait.Evented.html
 /// [`Stream`]: https://docs.rs/futures/0.1/futures/stream/trait.Stream.html
-pub trait Backend: Stream + Evented + Drop {
+pub trait Backend: Stream + Evented + Drop + Debug {
     /// Creates an instance of a `Backend` that watches over a set of paths.
     ///
     /// While the `paths` argument is a `Vec` for implementation simplicity, Notify guarantees that

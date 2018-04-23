@@ -37,6 +37,7 @@ use std::path::PathBuf;
 /// [kqueue]: https://www.freebsd.org/cgi/man.cgi?kqueue(2)
 /// [kqueue binding]: https://docs.worrbase.com/rust/kqueue/
 /// [revoked]: https://www.freebsd.org/cgi/man.cgi?revoke(2)
+#[derive(Debug)]
 pub struct Backend {
     buffer: Buffer,
     kqueue: kqueue::Watcher,
