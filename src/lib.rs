@@ -18,7 +18,8 @@ extern crate notify_backend_inotify as inotify;
 ))]
 extern crate notify_backend_kqueue as kqueue;
 
-pub mod select;
+pub mod selector;
+pub mod manager;
 // mod normalise;
 pub mod lifecycle;
 
