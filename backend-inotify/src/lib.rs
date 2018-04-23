@@ -45,12 +45,11 @@ const BUFFER_SIZE: usize = 4000;
 
 impl NotifyBackend for Backend {
     fn new(paths: Vec<PathBuf>) -> NewBackendResult {
-        let mut inotify = Inotify::init()
-            .or_else(|err| Err(BackendError::Io(err)))?;
+        let mut inotify = Inotify::init()?;
 
         for path in paths {
-            inotify.add_watch(&path, WatchMask::ALL_EVENTS)
-                .or_else(|err| Err(BackendError::Io(err)))?;
+            // TODO: extract io NotFound errors manually for richer NonExistent error
+            inotify.add_watch(&path, WatchMask::ALL_EVENTS)?;
         }
 
         Ok(Box::new(Backend { buffer: Buffer::new(), inotify }))
@@ -101,8 +100,7 @@ impl Stream for Backend {
         }
 
         let mut buf = [0; BUFFER_SIZE];
-        let from_kernel = self.inotify.read_events(&mut buf)
-            .or_else(|err| Err(StreamError::Io(err)))?;
+        let from_kernel = self.inotify.read_events(&mut buf)?;
 
         self.process_events(from_kernel)?;
         self.buffer.poll()

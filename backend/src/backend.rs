@@ -106,6 +106,9 @@ pub enum Error {
     /// path is gone between the time the frontend checks it and the Backend initialises.
     ///
     /// It may contain the list of files that are reported to be non-existent if that is known.
+    ///
+    /// `io::Error`s of kind `NotFound` will be auto-converted to this variant for convenience, but
+    /// whenever possible this should be done manually to populate the paths argument.
     NonExistent(Vec<PathBuf>),
 
     /// An error indicating that one or more of the paths given is not supported by the `Backend`,
@@ -124,7 +127,10 @@ pub enum Error {
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Self {
-        Error::Io(err)
+        match err.kind() {
+            io::ErrorKind::NotFound => Error::NonExistent(vec![]),
+            _ => Error::Io(err)
+        }
     }
 }
 
