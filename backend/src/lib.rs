@@ -35,6 +35,7 @@ pub mod capability;
 pub mod event;
 pub mod stream;
 
+#[cfg(unix)] pub mod unix;
 #[macro_use] pub mod compliance;
 
 /// The Notify prelude.
@@ -67,6 +68,8 @@ pub mod prelude {
         Error as BackendError,
         NewResult as NewBackendResult,
     };
+
+    #[cfg(unix)] pub use super::unix::OwnedEventedFd;
 
     pub use super::capability::Capability;
 
