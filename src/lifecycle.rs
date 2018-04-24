@@ -15,7 +15,20 @@ use backend::{prelude::{
 use std::{fmt, marker::PhantomData};
 use tokio::reactor::{Handle, Registration};
 
+/*
+stream -> ForEach(|event| {
+    for channel in self.channels.iter_mut() {
+        let (tx,_) = channel;
+        tx.send(event.clone())
+    }
 }
+
+})
+
+channels = Vec<(tx, rx)>
+
+i.e. single-producer, multi-consumer cloned channels
+*/
 
 /// Convenience return type for methods dealing with backends.
 pub type Status = Result<(), BackendError>;
