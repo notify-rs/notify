@@ -15,18 +15,15 @@ use backend::{prelude::{
 use std::{fmt, marker::PhantomData};
 use tokio::reactor::{Handle, Registration};
 
-pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
-    backend: Option<Forward<BoxedBackend, mpsc::UnboundedSender<stream::Item>>>,
-    channel: Option<mpsc::UnboundedReceiver<stream::Item>>,
-    driver: Option<Box<Evented>>,
-    handle: Handle,
-    name: Option<String>,
-    registration: Registration,
-    phantom: PhantomData<B>
 }
 
+/// Convenience return type for methods dealing with backends.
 pub type Status = Result<(), BackendError>;
 
+/// Convenience trait to be able to pass generic `Life<T>` around.
+///
+/// There will only ever be one implementation of the trait, but specifying `Box<LifeTrait>` is
+/// more convenient than requiring that every consumer be generic over `T`.
 pub trait LifeTrait: fmt::Debug {
     fn active(&self) -> bool;
     fn bind(&mut self, paths: Vec<PathBuf>) -> Status;
@@ -35,28 +32,43 @@ pub trait LifeTrait: fmt::Debug {
     fn with_name(&mut self, name: String);
 }
 
+pub struct BoundBackend {
+    pub backend: Forward<BoxedBackend, mpsc::UnboundedSender<stream::Item>>,
+    pub channel: mpsc::UnboundedReceiver<stream::Item>,
+    pub driver: Box<Evented>,
+}
+
+/// Handles a Backend, creating, binding, unbinding, and dropping it as needed.
+///
+/// A `Backend` is stateless. It takes a set of paths, watches them, and reports events. A `Life`
+/// is stateful: it takes a Tokio Handle, takes care of wiring up the Backend when needed and
+/// taking it down when not, and maintains a consistent interface to its event stream that doesn't
+/// die when the Backend is dropped, with event receivers that can be owned safely.
+pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
+    bound: Option<BoundBackend>,
+    handle: Handle,
+    name: Option<String>,
+    registration: Registration,
+    phantom: PhantomData<B>
+}
+
 impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
-    fn bind_backend(&mut self, backend: BoxedBackend) -> Status {
+    fn bind_backend(&mut self, boxback: BoxedBackend) -> Status {
         // TODO: unbind after binding the new one, to avoid missing on events
         self.unbind()?;
 
-        let d = backend.driver();
-        let (tx, rx) = mpsc::unbounded();
-        let b = backend.forward(tx);
+        let driver = boxback.driver();
+        let (tx, channel) = mpsc::unbounded();
+        let backend = boxback.forward(tx);
 
-        self.registration.register_with(&d, &self.handle)?;
-
-        self.driver = Some(d);
-        self.backend = Some(b);
-        self.channel = Some(rx);
+        self.registration.register_with(&driver, &self.handle)?;
+        self.bound = Some(BoundBackend { backend, channel, driver });
         Ok(())
     }
 
     pub fn new(handle: Handle) -> Self {
         Self {
-            backend: None,
-            channel: None,
-            driver: None,
+            bound: None,
             handle: handle,
             name: None,
             registration: Registration::new(),
@@ -67,7 +79,7 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
 
 impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
     fn active(&self) -> bool {
-        self.backend.is_some()
+        self.bound.is_some()
     }
 
     fn bind(&mut self, paths: Vec<PathBuf>) -> Status {
@@ -76,10 +88,12 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
     }
 
     fn unbind(&mut self) -> Status {
-        match self.driver {
-            None => Ok(()),
-            Some(ref d) => self.registration.deregister(d).map(|_| ()),
-        }.map_err(|e| e.into())
+        match self.bound {
+            None => return Ok(()),
+            Some(ref b) => self.registration.deregister(&b.driver)?
+        };
+
+        Ok(())
     }
 
     fn capabilities(&self) -> Vec<Capability> {
