@@ -26,13 +26,13 @@ macro_rules! usefn {
 ))]
 usefn!(inotify => inotify_life);
 
-#[cfg(any(
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_os = "openbsd",
-))]
-usefn!(kqueue => kqueue_life);
+// #[cfg(any(
+//     target_os = "dragonfly",
+//     target_os = "freebsd",
+//     target_os = "netbsd",
+//     target_os = "openbsd",
+// ))]
+// usefn!(kqueue => kqueue_life);
 
 usefn!(poll_tree => poll_life);
 

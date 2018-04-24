@@ -29,13 +29,13 @@ impl<'f> Manager<'f> {
         ))]
         self.add(Selector { f: &selector::inotify_life, name: "Inotify".into() });
 
-        #[cfg(any(
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd",
-            target_os = "openbsd",
-        ))]
-        self.add(Selector { f: &selector::kqueue_life, name: "Kqueue".into() });
+        // #[cfg(any(
+        //     target_os = "dragonfly",
+        //     target_os = "freebsd",
+        //     target_os = "netbsd",
+        //     target_os = "openbsd",
+        // ))]
+        // self.add(Selector { f: &selector::kqueue_life, name: "Kqueue".into() });
 
         self.add(Selector { f: &selector::poll_life, name: "Poll".into() });
     }
@@ -78,14 +78,14 @@ impl<'f> Manager<'f> {
             Some(e) => Err(e)
         }
     }
-    
+
     pub fn active(&mut self) -> Option<&mut Box<LifeTrait + 'f>> {
         for life in self.lives.iter_mut() {
             if life.active() {
                 return Some(life);
             }
         }
-        
+
         None
     }
 }

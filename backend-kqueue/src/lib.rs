@@ -12,7 +12,7 @@ use futures::{Poll, Stream};
 use kqueue::{Event as KEvent, EventData, EventFilter, Ident, Vnode};
 use std::path::PathBuf;
 
-/// A Notify Backend for [kqueue].
+/// A Notify Backend for [kqueue]. TODO
 ///
 /// Kqueue has been in *BSD since 2000.
 ///
@@ -40,6 +40,7 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub struct Backend {
     buffer: Buffer,
+    driver: OwnedEventedFd,
     kqueue: kqueue::Watcher,
 }
 
@@ -63,6 +64,10 @@ impl NotifyBackend for Backend {
         vec![
             Capability::WatchFiles,
         ]
+    }
+
+    fn driver(&self) -> Box<Evented> {
+        //
     }
 
     fn await(&mut self) -> EmptyStreamResult {

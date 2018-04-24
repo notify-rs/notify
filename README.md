@@ -50,13 +50,13 @@ Core decisions:
 Backends that have good progress:
 
 - inotify (linux)
-- kqueue (BSD only, sys crate does not support macOS)
 - fsevent (macOS, in a branch)
 - polling (in a branch)
 
 Backends needed but not started:
 
 - Windows
+- kqueue (current implementation disabled, will need a rewrite without the sys crate)
 
 Delayed until after release:
 

@@ -8,7 +8,7 @@ members = [
   "backend",
   "backend-poll-tree",
   "backend-inotify",
-  "backend-kqueue",
+  # "backend-kqueue",
 ]
 
 [replace]
@@ -26,17 +26,17 @@ path = "./backend-inotify"
 [target.'cfg(target_os="android")'.dependencies.notify-backend-inotify]
 path = "./backend-inotify"
 
-[target.'cfg(target_os="dragonfly")'.dependencies.notify-backend-kqueue]
-path = "./backend-kqueue"
-
-[target.'cfg(target_os="freebsd")'.dependencies.notify-backend-kqueue]
-path = "./backend-kqueue"
-
-[target.'cfg(target_os="netbsd")'.dependencies.notify-backend-kqueue]
-path = "./backend-kqueue"
-
-[target.'cfg(target_os="openbsd")'.dependencies.notify-backend-kqueue]
-path = "./backend-kqueue"
+# [target.'cfg(target_os="dragonfly")'.dependencies.notify-backend-kqueue]
+# path = "./backend-kqueue"
+#
+# [target.'cfg(target_os="freebsd")'.dependencies.notify-backend-kqueue]
+# path = "./backend-kqueue"
+#
+# [target.'cfg(target_os="netbsd")'.dependencies.notify-backend-kqueue]
+# path = "./backend-kqueue"
+#
+# [target.'cfg(target_os="openbsd")'.dependencies.notify-backend-kqueue]
+# path = "./backend-kqueue"
 
 [dependencies.notify-backend-poll-tree]
 path = "./backend-poll-tree"
