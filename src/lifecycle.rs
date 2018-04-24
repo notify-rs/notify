@@ -93,11 +93,20 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
     }
 }
 
+impl fmt::Debug for BoundBackend {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("BoundBackend")
+            .field("backend", &self.backend)
+            .field("channel", &self.channel)
+            .finish()
+    }
+}
+
 impl<B: Backend<Item=stream::Item, Error=stream::Error>> fmt::Debug for Life<B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.name {
-            Some(ref name) => write!(f, "Life<{}> {{ backend: {:?} }}", name, self.backend),
-            None => write!(f, "Life {{ backend: {:?} }}", self.backend)
-        }
+        f.debug_struct(&match self.name {
+            Some(ref name) => format!("Life<{}>", name),
+            None => "Life".into()
+        }).field("bound", &self.bound).finish()
     }
 }

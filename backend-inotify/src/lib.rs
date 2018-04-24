@@ -81,7 +81,11 @@ impl Drop for Backend {
 
 impl fmt::Debug for Backend {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Backend {{ inotify: {}, buffer: {:?} }}", self.inotify.as_raw_fd(), self.buffer)
+        f.debug_struct("Backend")
+            .field("buffer", &self.buffer)
+            .field("driver", &self.driver)
+            .field("inotify", &self.inotify.as_raw_fd())
+            .finish()
     }
 }
 
