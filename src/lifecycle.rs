@@ -93,6 +93,7 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
             Some(ref b) => self.registration.deregister(&b.driver)?
         };
 
+        self.bound = None;
         Ok(())
     }
 
