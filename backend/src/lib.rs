@@ -19,8 +19,9 @@
 //! use backend::Buffer;
 //! ```
 //!
-//! The prelude imports all types needed to implement a Backend. Refer to the [implementor's guide]
-//! for a thorough walk-through of backend implementation.
+//! The prelude imports all types needed to implement a Backend, and re-exports dependent libraries
+//! so there is no need to independently include them. Refer to the [implementor's guide] for a
+//! thorough walk-through of backend implementation.
 
 #![deny(missing_docs)]
 
@@ -49,7 +50,7 @@ pub mod prelude {
     };
 
     pub use mio::{self,
-        Evented,
+        event::Evented,
         Poll as MioPoll,
         PollOpt as MioPollOpt,
         Ready as MioReady,
@@ -57,10 +58,7 @@ pub mod prelude {
         Token as MioToken
     };
 
-    pub use std::{
-        path::PathBuf,
-        sync::Arc,
-    };
+    pub use std::path::PathBuf;
 
     /// An empty io::Result used for mio's Evented trait signatures
     pub type MioResult = ::std::io::Result<()>;

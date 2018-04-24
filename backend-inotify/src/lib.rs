@@ -60,8 +60,8 @@ impl NotifyBackend for Backend {
         }))
     }
 
-    fn driver(&self) -> Arc<Evented> {
-        Arc::new(self.driver)
+    fn driver(&self) -> Box<Evented> {
+        Box::new(self.driver)
     }
 
     fn capabilities() -> Vec<Capability> {

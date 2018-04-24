@@ -1,7 +1,7 @@
 //! The `Backend` trait and related types.
 
 use futures::Stream;
-use mio::Evented;
+use mio::event::Evented;
 use std::{ffi, fmt::Debug, io, path::PathBuf, sync::Arc};
 use super::{capability::Capability, stream};
 
@@ -51,8 +51,19 @@ pub trait Backend: Stream + Send + Drop + Debug {
     /// [cap]: ../capability/enum.Capability.html
     fn capabilities() -> Vec<Capability> where Self: Sized;
 
-    /// !
-    fn driver(&self) -> Arc<Evented>;
+    /// Returns an [`Evented`] implementation that is used to efficently drive the event loop.
+    ///
+    /// Backends often wrap kernel APIs, which can also be used to drive the Tokio event loop to
+    /// avoid busy waiting or inefficient polling. If no such API is available, for example in the
+    /// case of a polling `Backend`, this mechanism may be implemented in userspace and use
+    /// whatever clues and cues the `Backend` has available to drive the readiness state.
+    ///
+    /// There is currently no facility or support for a `Backend` to opt out of registering an
+    /// `Evented` driver. If this is needed, request it on the issue tracker. In the meantime, a
+    /// workaround is to implement a `Registration` that immediately sets itself as ready.
+    ///
+    /// [`Evented`]: https://docs.rs/mio/0.6/mio/event/trait.Evented.html
+    fn driver(&self) -> Box<Evented>;
 
     /// The version of the Backend trait this implementation was built against.
     fn trait_version() -> String where Self: Sized {

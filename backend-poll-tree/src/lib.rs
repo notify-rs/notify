@@ -3,7 +3,7 @@ extern crate walkdir;
 
 use backend::prelude::*;
 use backend::Buffer;
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 #[derive(Debug)]
 pub struct Backend {
@@ -28,8 +28,8 @@ impl NotifyBackend for Backend {
         ]
     }
 
-    fn driver(&self) -> Arc<Evented> {
-        self.reg.clone()
+    fn driver(&self) -> Box<Evented> {
+        Box::new(self.reg.clone())
     }
 }
 

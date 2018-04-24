@@ -6,7 +6,7 @@ use std::{
 };
 
 use mio::{
-    Evented,
+    event::Evented,
     unix::EventedFd,
     Poll as MioPoll,
     PollOpt as MioPollOpt,
@@ -14,11 +14,13 @@ use mio::{
     Token as MioToken
 };
 
-/// An Evented FD that owns its FD.
+/// An `Evented` FD that owns its FD.
 ///
 /// This is a convenience type to be used to return an [`EventedFd`] when doing so would not
 /// usually be possible due to lifetimes. Notably, this type does not do any kind of lifecycle
 /// events related to the FD, that is the responsibility of the Backend.
+///
+/// [`EventedFd`]: https://docs.rs/mio/0.6/mio/unix/struct.EventedFd.html
 #[derive(Clone, Copy, Debug)]
 pub struct OwnedEventedFd(pub RawFd);
 

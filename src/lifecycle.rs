@@ -4,7 +4,6 @@ use backend::{prelude::{
         stream::Forward,
         sync::mpsc,
     },
-    Arc,
     BackendError,
     BoxedBackend,
     Capability,
@@ -19,7 +18,7 @@ use tokio::reactor::{Handle, Registration};
 pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
     backend: Option<Forward<BoxedBackend, mpsc::UnboundedSender<stream::Item>>>,
     channel: Option<mpsc::UnboundedReceiver<stream::Item>>,
-    driver: Option<Arc<Evented>>,
+    driver: Option<Box<Evented>>,
     handle: Handle,
     name: Option<String>,
     registration: Registration,
@@ -45,11 +44,11 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
         let (tx, rx) = mpsc::unbounded();
         let b = backend.forward(tx);
 
+        self.registration.register_with(&d, &self.handle)?;
+
         self.driver = Some(d);
         self.backend = Some(b);
         self.channel = Some(rx);
-
-        self.registration.register_with(&d, &self.handle)?; // TODO: cleanup if this errors?
         Ok(())
     }
 
