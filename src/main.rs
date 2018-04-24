@@ -4,7 +4,6 @@ extern crate tokio;
 use notify::manager::Manager;
 use std::path::PathBuf;
 use tokio::reactor::Handle;
-use tokio::prelude::*;
 
 fn main() {
     let handle = Handle::current();
@@ -19,7 +18,7 @@ fn main() {
         println!("==> {:?}", life);
         println!("    backend can: {:?}", life.capabilities());
     }
-    
+
     let path: PathBuf = "/opt/notify-test".into();
     println!("Let us bind to {:?}", path);
     man.bind(vec![path]).unwrap();
@@ -35,7 +34,7 @@ fn main() {
     // }).map_err(|e| {
     //     println!("error {:?}", e);
     // });
-    
+
     println!("Run");
     // tokio::run(s);
 }

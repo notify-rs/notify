@@ -3,7 +3,7 @@ extern crate walkdir;
 
 use backend::prelude::*;
 use backend::Buffer;
-use std::{fmt, sync::Arc};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct Backend {

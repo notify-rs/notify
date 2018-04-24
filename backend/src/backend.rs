@@ -2,7 +2,7 @@
 
 use futures::Stream;
 use mio::event::Evented;
-use std::{ffi, fmt::Debug, io, path::PathBuf, sync::Arc};
+use std::{ffi, fmt::Debug, io, path::PathBuf};
 use super::{capability::Capability, stream};
 
 /// Convenient type alias for the Backend trait object.
