@@ -47,10 +47,10 @@ fn main() {
     println!("Acquired event sub: {}", token);
 
     println!("Run");
-    tokio::run(events.for_each(|event| {
-        println!("Event: {:?}", event);
-        Ok(())
-    }));
+    // tokio::run(events.for_each(|event| {
+    //     println!("Event: {:?}", event);
+    //     Ok(())
+    // }));
 
     life.unsub(token);
 }

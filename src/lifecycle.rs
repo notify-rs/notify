@@ -93,6 +93,8 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
         self.bound = Some(BoundBackend { driver });
 
         let subs = self.subs.clone();
+
+        // TODO: put signaling in there so the backend can be stopped and dropped
         self.executor.spawn(backend.for_each(move |event| {
             println!("Inside event: {:?}", event);
             for opt in subs.lock().unwrap().iter_mut() {
