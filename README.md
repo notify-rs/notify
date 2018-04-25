@@ -64,9 +64,11 @@ Delayed until after release:
   - Remote
   - Watchman
   - fanotify
+  - demo Google Drive backend
 - Runtime-added backends (via dynamic .so or DLL)
 - More debouncing options (possibly via feature)
 - kqueue under macOS and i686 BSD ([#136](https://github.com/passcod/notify/issues/136))
+- Filesystem plugins (needed for advanced remote backends)
 
 ## Installation
 
