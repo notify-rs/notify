@@ -44,6 +44,8 @@ test_script:
       cargo test --target %TARGET% -p notify-backend --release
     )
 
+# cargo run
+
 # cargo test --target %TARGET% -p notify-backend-winapi &&
 # cargo test --target %TARGET% -p notify-backend-winapi --release
 # cargo test --target %TARGET% -p notify-backend-poll-tree &&

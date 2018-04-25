@@ -2,7 +2,7 @@ extern crate notify;
 extern crate tokio;
 
 use notify::manager::Manager;
-use std::path::PathBuf;
+use std::{env, path::PathBuf};
 use tokio::reactor::Handle;
 
 fn main() {
@@ -19,12 +19,22 @@ fn main() {
         println!("    backend can: {:?}", life.capabilities());
     }
 
-    let path: PathBuf = "/opt/notify-test".into();
-    println!("Let us bind to {:?}", path);
-    man.bind(vec![path]).unwrap();
+    let mut args: Vec<String> = env::args().skip(1).collect();
+    println!("Retrieved command arguments: {:?}", args);
+
+    if args.len() == 0 {
+        args.push("/opt/notify-test".into());
+        println!("No paths given, adding default path");
+    }
+
+    let paths: Vec<PathBuf> = args.iter().map(|s| s.into()).collect();
+    println!("Converted args to paths: {:?}", paths);
+
+    man.bind(paths).unwrap();
+    println!("Manager bound: {:?}", man);
 
     let life = man.active().unwrap();
-    println!("Bound {:?}", life);
+    println!("Life bound: {:?}", life);
 
     // println!("Handle the backend stream");
     // let b = life.backend().unwrap();
