@@ -1,18 +1,20 @@
 use backend::prelude::{BackendError, PathBuf};
+use std::fmt;
 use super::{lifecycle::{LifeTrait, Status}, selector::{self, Selector}};
-use tokio::reactor::Handle;
+use tokio::{reactor::Handle, runtime::TaskExecutor};
 
-#[derive(Debug)]
 pub struct Manager<'f> {
     pub handle: Handle,
+    pub executor: TaskExecutor,
     pub selectors: Vec<Selector<'f>>,
     pub lives: Vec<Box<LifeTrait + 'f>>,
 }
 
 impl<'f> Manager<'f> {
-    pub fn new(handle: Handle) -> Self {
+    pub fn new(handle: Handle, executor: TaskExecutor) -> Self {
         Self {
             handle,
+            executor,
             selectors: vec![],
             lives: vec![],
         }
@@ -44,7 +46,7 @@ impl<'f> Manager<'f> {
         let mut lives = vec![];
 
         for sel in self.selectors.iter() {
-            let mut l = (sel.f)(self.handle.clone());
+            let mut l = (sel.f)(self.handle.clone(), self.executor.clone());
             l.with_name(sel.name.clone());
 
             if l.capabilities().len() > 0 {
@@ -87,5 +89,15 @@ impl<'f> Manager<'f> {
         }
 
         None
+    }
+}
+
+impl<'f> fmt::Debug for Manager<'f> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Manager")
+            .field("handle", &self.handle)
+            .field("selectors", &self.selectors)
+            .field("lives", &self.lives)
+            .finish()
     }
 }

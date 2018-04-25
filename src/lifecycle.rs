@@ -1,7 +1,8 @@
 use backend::{prelude::{
     futures::{
+        Future,
+        Sink,
         Stream,
-        stream::Forward,
         sync::mpsc,
     },
     BackendError,
@@ -13,22 +14,9 @@ use backend::{prelude::{
 }, stream};
 
 use std::{fmt, marker::PhantomData};
+use std::sync::{Arc, Mutex};
 use tokio::reactor::{Handle, Registration};
-
-/*
-stream -> ForEach(|event| {
-    for channel in self.channels.iter_mut() {
-        let (tx,_) = channel;
-        tx.send(event.clone())
-    }
-}
-
-})
-
-channels = Vec<(tx, rx)>
-
-i.e. single-producer, multi-consumer cloned channels
-*/
+use tokio::runtime::TaskExecutor;
 
 /// Convenience return type for methods dealing with backends.
 pub type Status = Result<(), BackendError>;
@@ -50,34 +38,46 @@ pub trait LifeTrait: fmt::Debug {
     /// indicates a larger failure. However, one can retry the unbind.
     fn unbind(&mut self) -> Status;
 
+    /// Returns a Receiver channel that will get every event.
+    ///
+    /// Be sure to consume it, as leaving events to pile up will eventually block event processing
+    /// for all threads. The second element of the tuple is a token to be used with `.unsub()` to
+    /// cancel the sender half of the channel. Whenever possible, do so before dropping to avoid
+    /// potentially bricking operations.
+    fn sub(&self) -> (mpsc::Receiver<stream::Item>, usize);
+
+    /// Cancels a channel obtained with `.sub()`.
+    fn unsub(&self, token: usize);
+
     /// Returns the capabilities of the backend, passed through as-is.
     fn capabilities(&self) -> Vec<Capability>;
 
     /// Sets the name of the backend/life if it has not already been set.
     ///
     /// This is more about ease of debugging than anything. Dumping a `Life` item with the `{:?}`
-    /// formatter and discovering nothing more useful than `Life { bound: None }` is not
-    /// particularly helpful. With this, `Debug` returns: `Life<Name> { ... }`.
+    /// formatter and discovering nothing more useful than `Life { ... }` is not particularly
+    /// helpful. With this, `Debug` returns: `Life { name: "Name", ... }`.
     fn with_name(&mut self, name: String);
 }
 
 /// The internal structure of binding-related things on a Life.
 pub struct BoundBackend {
-    pub backend: Forward<BoxedBackend, mpsc::UnboundedSender<stream::Item>>,
-    pub channel: mpsc::UnboundedReceiver<stream::Item>,
+    // pub backend: Box<Future<Item=(), Error=stream::Error>>,
     pub driver: Box<Evented>,
 }
 
 /// Handles a Backend, creating, binding, unbinding, and dropping it as needed.
 ///
 /// A `Backend` is stateless. It takes a set of paths, watches them, and reports events. A `Life`
-/// is stateful: it takes a Tokio Handle, takes care of wiring up the Backend when needed and
-/// taking it down when not, and maintains a consistent interface to its event stream that doesn't
-/// die when the Backend is dropped, with event receivers that can be owned safely.
+/// is stateful: it takes a Tokio Handle and TaskExecutor, takes care of wiring up the Backend when
+/// needed and taking it down when not, and maintains a consistent interface to its event stream
+/// that doesn't die when the Backend is dropped, with event receivers that can be owned safely.
 pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
+    name: String,
     bound: Option<BoundBackend>,
+    subs: Arc<Mutex<Vec<Option<mpsc::Sender<stream::Item>>>>>,
     handle: Handle,
-    name: Option<String>,
+    executor: TaskExecutor,
     registration: Registration,
     phantom: PhantomData<B>
 }
@@ -85,16 +85,27 @@ pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
 impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
     /// Internal implementation of `.bind()`.
     #[doc(hidden)]
-    fn bind_backend(&mut self, boxback: BoxedBackend) -> Status {
-        // TODO: unbind after binding the new one, to avoid missing on events
+    fn bind_backend(&mut self, backend: BoxedBackend) -> Status {
         self.unbind()?;
 
-        let driver = boxback.driver();
-        let (tx, channel) = mpsc::unbounded();
-        let backend = boxback.forward(tx);
-
+        let driver = backend.driver();
         self.registration.register_with(&driver, &self.handle)?;
-        self.bound = Some(BoundBackend { backend, channel, driver });
+        self.bound = Some(BoundBackend { driver });
+
+        let subs = self.subs.clone();
+        self.executor.spawn(backend.for_each(move |event| {
+            println!("Inside event: {:?}", event);
+            for opt in subs.lock().unwrap().iter_mut() {
+                if let Some(sub) = opt {
+                    sub.start_send(event.clone())?;
+                }
+            }
+
+            Ok(())
+        }).map_err(|e| {
+            println!("Error: {:?}", e)
+        }));
+
         Ok(())
     }
 
@@ -105,11 +116,13 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
     /// ```no_compile
     /// let life: Life<inotify::Backend> = Life::new(Handle::current());
     /// ```
-    pub fn new(handle: Handle) -> Self {
+    pub fn new(handle: Handle, executor: TaskExecutor) -> Self {
         Self {
+            name: "".into(),
             bound: None,
-            handle: handle,
-            name: None,
+            subs: Arc::new(Mutex::new(vec![])),
+            handle,
+            executor,
             registration: Registration::new(),
             phantom: PhantomData,
         }
@@ -136,31 +149,44 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
         Ok(())
     }
 
+    fn sub(&self) -> (mpsc::Receiver<stream::Item>, usize) {
+        let mut subs = self.subs.lock().unwrap();
+        let (tx, rx) = mpsc::channel(100);
+        subs.push(Some(tx));
+        (rx, subs.len() - 1)
+    }
+
+    fn unsub(&self, token: usize) {
+        let mut subs = self.subs.lock().unwrap();
+        subs[token] = None;
+    }
+
     fn capabilities(&self) -> Vec<Capability> {
         B::capabilities()
     }
 
     fn with_name(&mut self, name: String) {
-        if self.name.is_none() {
-            self.name = Some(name);
+        if self.name.len() == 0 {
+            self.name = name;
         }
     }
 }
 
 impl fmt::Debug for BoundBackend {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("BoundBackend")
-            .field("backend", &self.backend)
-            .field("channel", &self.channel)
-            .finish()
+        f.debug_struct("BoundBackend").finish()
     }
 }
 
 impl<B: Backend<Item=stream::Item, Error=stream::Error>> fmt::Debug for Life<B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct(&match self.name {
-            Some(ref name) => format!("Life<{}>", name),
-            None => "Life".into()
-        }).field("bound", &self.bound).finish()
+        f.debug_struct(&if self.name.len() > 0 {
+            format!("Life<{}>", self.name)
+        } else { "Life".into() })
+            .field("bound", &self.bound)
+            .field("subs", &self.subs)
+            .field("handle", &self.handle)
+            .field("registration", &self.registration)
+            .finish()
     }
 }
