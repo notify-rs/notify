@@ -38,13 +38,30 @@ pub type Status = Result<(), BackendError>;
 /// There will only ever be one implementation of the trait, but specifying `Box<LifeTrait>` is
 /// more convenient than requiring that every consumer be generic over `T`.
 pub trait LifeTrait: fmt::Debug {
+    /// Returns whether there is a bound backend on this Life.
     fn active(&self) -> bool;
+
+    /// Attempts to bind a backend to a set of paths.
     fn bind(&mut self, paths: Vec<PathBuf>) -> Status;
+
+    /// Attempts to unbind a backend.
+    ///
+    /// Technically this can fail, but failure should be more or less fatal as it probably
+    /// indicates a larger failure. However, one can retry the unbind.
     fn unbind(&mut self) -> Status;
+
+    /// Returns the capabilities of the backend, passed through as-is.
     fn capabilities(&self) -> Vec<Capability>;
+
+    /// Sets the name of the backend/life if it has not already been set.
+    ///
+    /// This is more about ease of debugging than anything. Dumping a `Life` item with the `{:?}`
+    /// formatter and discovering nothing more useful than `Life { bound: None }` is not
+    /// particularly helpful. With this, `Debug` returns: `Life<Name> { ... }`.
     fn with_name(&mut self, name: String);
 }
 
+/// The internal structure of binding-related things on a Life.
 pub struct BoundBackend {
     pub backend: Forward<BoxedBackend, mpsc::UnboundedSender<stream::Item>>,
     pub channel: mpsc::UnboundedReceiver<stream::Item>,
@@ -66,6 +83,8 @@ pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
 }
 
 impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
+    /// Internal implementation of `.bind()`.
+    #[doc(hidden)]
     fn bind_backend(&mut self, boxback: BoxedBackend) -> Status {
         // TODO: unbind after binding the new one, to avoid missing on events
         self.unbind()?;
@@ -79,6 +98,13 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
         Ok(())
     }
 
+    /// Creates a new, empty life.
+    ///
+    /// This should only be used with a qualified type, i.e.
+    ///
+    /// ```no_compile
+    /// let life: Life<inotify::Backend> = Life::new(Handle::current());
+    /// ```
     pub fn new(handle: Handle) -> Self {
         Self {
             bound: None,
