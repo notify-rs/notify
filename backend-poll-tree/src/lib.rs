@@ -14,6 +14,10 @@ pub struct Backend {
 }
 
 impl NotifyBackend for Backend {
+    fn name() -> String {
+        "poll tree".into()
+    }
+
     fn new(_paths: Vec<PathBuf>) -> NewBackendResult {
         Err(BackendError::NotImplemented)
     }

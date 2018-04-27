@@ -47,7 +47,6 @@ impl<'f> Manager<'f> {
 
         for sel in self.selectors.iter() {
             let mut l = (sel.f)(self.handle.clone(), self.executor.clone());
-            l.with_name(sel.name.clone());
 
             if l.capabilities().len() > 0 {
                 lives.push(l);

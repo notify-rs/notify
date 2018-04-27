@@ -45,6 +45,10 @@ pub struct Backend {
 }
 
 impl NotifyBackend for Backend {
+    fn name() -> String {
+        "kqueue".into()
+    }
+
     fn new(paths: Vec<PathBuf>) -> BackendResult<Backend> {
         let mut watcher = kqueue::Watcher::new()?;
 

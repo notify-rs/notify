@@ -53,12 +53,8 @@ pub trait LifeTrait: fmt::Debug {
     /// Returns the capabilities of the backend, passed through as-is.
     fn capabilities(&self) -> Vec<Capability>;
 
-    /// Sets the name of the backend/life if it has not already been set.
-    ///
-    /// This is more about ease of debugging than anything. Dumping a `Life` item with the `{:?}`
-    /// formatter and discovering nothing more useful than `Life { ... }` is not particularly
-    /// helpful. With this, `Debug` returns: `Life { name: "Name", ... }`.
-    fn with_name(&mut self, name: String);
+    /// Returns the name of the Backend and therefore of this Life.
+    fn name(&self) -> String;
 }
 
 /// The internal structure of binding-related things on a Life.
@@ -74,7 +70,6 @@ pub struct BoundBackend {
 /// needed and taking it down when not, and maintains a consistent interface to its event stream
 /// that doesn't die when the Backend is dropped, with event receivers that can be owned safely.
 pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
-    name: String,
     bound: Option<BoundBackend>,
     subs: Arc<Mutex<Vec<Option<mpsc::Sender<stream::Item>>>>>,
     handle: Handle,
@@ -126,7 +121,6 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
     /// ```
     pub fn new(handle: Handle, executor: TaskExecutor) -> Self {
         Self {
-            name: "".into(),
             bound: None,
             subs: Arc::new(Mutex::new(vec![])),
             handle,
@@ -173,10 +167,8 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
         B::capabilities()
     }
 
-    fn with_name(&mut self, name: String) {
-        if self.name.len() == 0 {
-            self.name = name;
-        }
+    fn name(&self) -> String {
+        B::name()
     }
 }
 
@@ -188,9 +180,7 @@ impl fmt::Debug for BoundBackend {
 
 impl<B: Backend<Item=stream::Item, Error=stream::Error>> fmt::Debug for Life<B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct(&if self.name.len() > 0 {
-            format!("Life<{}>", self.name)
-        } else { "Life".into() })
+        f.debug_struct(&format!("Life<{}>", self.name()))
             .field("bound", &self.bound)
             .field("subs", &self.subs)
             .field("handle", &self.handle)

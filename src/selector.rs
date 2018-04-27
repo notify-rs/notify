@@ -6,8 +6,7 @@ use tokio::{reactor::Handle, runtime::TaskExecutor};
 macro_rules! lifefn {
     ($name:ident<$mod:ty>) => {
     pub fn $name(handle: Handle, executor: TaskExecutor) -> Box<LifeTrait> {
-        let mut l: Life<$mod> = Life::new(handle, executor);
-        l.with_name(stringify!($mod).trim_right_matches("::Backend").into());
+        let l: Life<$mod> = Life::new(handle, executor);
         Box::new(l)
     }}
 }
@@ -40,7 +39,7 @@ type SelectFn = Fn(Handle, TaskExecutor) -> Box<LifeTrait>;
 
 pub struct Selector<'h> {
     pub f: &'h SelectFn,
-    pub name: String,
+    pub name: String, // TODO: perhaps remove? Anyway this entire selector thing has to be reviewed.
 }
 
 impl<'h> fmt::Debug for Selector<'h> {
