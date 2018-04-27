@@ -1,4 +1,5 @@
 use backend::{prelude::{
+    chrono::Utc,
     futures::{
         Future,
         Sink,
@@ -95,8 +96,13 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
         let subs = self.subs.clone();
 
         // TODO: put signaling in there so the backend can be stopped and dropped
-        self.executor.spawn(backend.for_each(move |event| {
+        self.executor.spawn(backend.for_each(move |mut event| {
             println!("Inside event: {:?}", event);
+
+            if event.time.is_none() {
+                event.time = Some(Utc::now());
+            }
+
             for opt in subs.lock().unwrap().iter_mut() {
                 if let Some(sub) = opt {
                     sub.start_send(event.clone())?;

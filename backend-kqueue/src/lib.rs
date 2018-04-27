@@ -127,7 +127,8 @@ impl Backend {
         self.buffer.push(Event {
             kind: kind,
             paths: vec![PathBuf::from(filename)],
-            relid: None
+            relid: None,
+            time: None,
         });
 
         Ok(())

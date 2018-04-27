@@ -25,6 +25,7 @@
 
 #![deny(missing_docs)]
 
+pub extern crate chrono;
 pub extern crate futures;
 pub extern crate mio;
 
@@ -43,6 +44,8 @@ pub mod stream;
 ///
 /// All that is needed to implement a `Backend`, except for the optional `Buffer`.
 pub mod prelude {
+    pub use chrono::{self};
+
     pub use futures::{self,
         Future,
         Poll,
@@ -79,6 +82,7 @@ pub mod prelude {
         AccessMode,
         CreateKind,
         DataChange,
+        DateTime,
         Event,
         EventKind,
         MetadataKind,

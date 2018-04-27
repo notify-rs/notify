@@ -1,5 +1,6 @@
 //! The `Event` type and the hierarchical `EventKind` descriptor.
 
+use chrono;
 use std::path::PathBuf;
 
 /// An event describing open or close operations on files.
@@ -230,6 +231,9 @@ impl EventKind {
     }
 }
 
+/// Convenience alias for the DateTime type used in an Event.
+pub type DateTime = chrono::DateTime<chrono::Utc>;
+
 /// Notify event.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Event {
@@ -265,5 +269,13 @@ pub struct Event {
     /// capability. Those backends _may_ emit events that are related to each other, and tag those
     /// with an identical `relid` or "cookie". The value is normalised to `usize`.
     pub relid: Option<usize>,
-}
 
+    /// Timestamp of the event.
+    ///
+    /// If the backend knows authoritatively the timestamp of the event, it should supply it here.
+    /// Otherwise, it should set this to `None`.
+    ///
+    /// Notify will populate this value upon event receipt only as needed (i.e. if the backend has
+    /// not provided one) such that it will always be safe to unwrap. The timestamp is in UTC.
+    pub time: Option<DateTime>,
+}
