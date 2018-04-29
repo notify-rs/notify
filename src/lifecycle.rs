@@ -125,20 +125,26 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
         let reg = self.registration.clone();
         let poller = poll_fn(move || -> Poll<Option<stream::Item>, stream::Error> {
             let reg = reg.lock().unwrap();
-            match reg.poll_read_ready() {
-                Err(e) => Err(e.into()),
-                Ok(async) => match async {
-                    Async::NotReady => Ok(Async::NotReady),
-                    Async::Ready(ready) => if ready.is_readable() {
-                        match *back.lock().unwrap() {
-                            None => Ok(Async::Ready(None)),
-                            Some(ref mut backend) => backend.poll()
-                        }
-                    } else {
-                        Ok(Async::NotReady)
-                    }
+
+            let wrap = &mut *back.lock().unwrap();
+            let back = match wrap {
+                // If we don't have a backend anymore, we don't have events either.
+                None => return Ok(Async::Ready(None)),
+                Some(ref mut b) => b
+            };
+
+            // If the event source is readable, get the backend to read it.
+            // The backend will likely have a buffer, so we want to move values into there asap,
+            // rather than risk an upstream buffer overflow which would kill the stream.
+            if let Async::Ready(ready) = reg.poll_read_ready()? {
+                if ready.is_readable() {
+                    return back.poll();
                 }
             }
+
+            // Otherwise, try for a backend poll anyway, because there might be more events in its
+            // internal buffer, and we want to get them all out rather than wait for the next loop.
+            return back.poll();
         });
 
         let subs = self.subs.clone();
