@@ -1,10 +1,13 @@
 use backend::{prelude::{
     chrono::Utc,
     futures::{
+        Async,
         Future,
+        Poll,
         Sink,
         Stream,
         sync::mpsc,
+        stream::poll_fn,
     },
     BackendError,
     BoxedBackend,
@@ -21,6 +24,43 @@ use tokio::runtime::TaskExecutor;
 
 /// Convenience return type for methods dealing with backends.
 pub type Status = Result<(), BackendError>;
+
+/// Handles a Backend, creating, binding, unbinding, and dropping it as needed.
+///
+/// A `Backend` is stateless. It takes a set of paths, watches them, and reports events. A `Life`
+/// is stateful: it takes a Tokio Handle and TaskExecutor, takes care of wiring up the Backend when
+/// needed and taking it down when not, and maintains a consistent interface to its event stream
+/// that doesn't die when the Backend is dropped, with event receivers that can be owned safely.
+pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
+    driver: Option<Box<Evented>>,
+    subs: Arc<Mutex<Vec<Option<mpsc::Sender<stream::Item>>>>>,
+    handle: Handle,
+    executor: TaskExecutor,
+    backend: Arc<Mutex<Option<BoxedBackend>>>,
+    registration: Arc<Mutex<Registration>>,
+    phantom: PhantomData<B>
+}
+
+impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
+    /// Creates a new, empty life.
+    ///
+    /// This should only be used with a qualified type, i.e.
+    ///
+    /// ```no_compile
+    /// let life: Life<inotify::Backend> = Life::new(Handle::current());
+    /// ```
+    pub fn new(handle: Handle, executor: TaskExecutor) -> Self {
+        Self {
+            backend: Arc::new(Mutex::new(None)),
+            driver: None,
+            subs: Arc::new(Mutex::new(vec![])),
+            handle,
+            executor,
+            registration: Arc::new(Mutex::new(Registration::new())),
+            phantom: PhantomData,
+        }
+    }
+}
 
 /// Convenience trait to be able to pass generic `Life<T>` around.
 ///
@@ -57,43 +97,46 @@ pub trait LifeTrait: fmt::Debug {
     fn name(&self) -> &'static str;
 }
 
-/// The internal structure of binding-related things on a Life.
-pub struct BoundBackend {
-    // pub backend: Box<Future<Item=(), Error=stream::Error>>,
-    pub driver: Box<Evented>,
-}
+impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
+    fn active(&self) -> bool {
+        self.driver.is_some()
+    }
 
-/// Handles a Backend, creating, binding, unbinding, and dropping it as needed.
-///
-/// A `Backend` is stateless. It takes a set of paths, watches them, and reports events. A `Life`
-/// is stateful: it takes a Tokio Handle and TaskExecutor, takes care of wiring up the Backend when
-/// needed and taking it down when not, and maintains a consistent interface to its event stream
-/// that doesn't die when the Backend is dropped, with event receivers that can be owned safely.
-pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
-    bound: Option<BoundBackend>,
-    subs: Arc<Mutex<Vec<Option<mpsc::Sender<stream::Item>>>>>,
-    handle: Handle,
-    executor: TaskExecutor,
-    registration: Registration,
-    phantom: PhantomData<B>
-}
-
-impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
-    /// Internal implementation of `.bind()`.
-    #[doc(hidden)]
-    fn bind_backend(&mut self, backend: BoxedBackend) -> Status {
+    fn bind(&mut self, paths: Vec<PathBuf>) -> Status {
+        let backend = B::new(paths)?;
         self.unbind()?;
 
         let driver = backend.driver();
-        self.registration.register_with(&driver, &self.handle)?;
-        self.bound = Some(BoundBackend { driver });
+        let reg = self.registration.lock().unwrap();
+        reg.register_with(&driver, &self.handle)?;
+        self.driver = Some(driver);
+
+        let mut back = self.backend.lock().unwrap();
+        *back = Some(backend);
+
+        let back = self.backend.clone();
+        let reg = self.registration.clone();
+        let poller = poll_fn(move || -> Poll<Option<stream::Item>, stream::Error> {
+            let reg = reg.lock().unwrap();
+            match reg.poll_read_ready() {
+                Err(e) => Err(e.into()),
+                Ok(async) => match async {
+                    Async::NotReady => Ok(Async::NotReady),
+                    Async::Ready(ready) => if ready.is_readable() {
+                        match *back.lock().unwrap() {
+                            None => Ok(Async::Ready(None)),
+                            Some(ref mut backend) => backend.poll()
+                        }
+                    } else {
+                        Ok(Async::NotReady)
+                    }
+                }
+            }
+        });
 
         let subs = self.subs.clone();
 
-        // TODO: put signaling in there so the backend can be stopped and dropped
-        self.executor.spawn(backend.for_each(move |mut event| {
-            println!("Inside event: {:?}", event);
-
+        self.executor.spawn(poller.for_each(move |mut event| {
             if event.time.is_none() {
                 event.time = Some(Utc::now());
             }
@@ -106,48 +149,26 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
 
             Ok(())
         }).map_err(|e| {
-            println!("Error: {:?}", e)
+            println!("Error: {:?}", e) // TODO proper error handling
         }));
 
         Ok(())
     }
 
-    /// Creates a new, empty life.
-    ///
-    /// This should only be used with a qualified type, i.e.
-    ///
-    /// ```no_compile
-    /// let life: Life<inotify::Backend> = Life::new(Handle::current());
-    /// ```
-    pub fn new(handle: Handle, executor: TaskExecutor) -> Self {
-        Self {
-            bound: None,
-            subs: Arc::new(Mutex::new(vec![])),
-            handle,
-            executor,
-            registration: Registration::new(),
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
-    fn active(&self) -> bool {
-        self.bound.is_some()
-    }
-
-    fn bind(&mut self, paths: Vec<PathBuf>) -> Status {
-        let backend = B::new(paths)?;
-        self.bind_backend(backend)
-    }
-
     fn unbind(&mut self) -> Status {
-        match self.bound {
+        match self.driver {
             None => return Ok(()),
-            Some(ref b) => self.registration.deregister(&b.driver)?
+            Some(ref d) => {
+                let mut reg = self.registration.lock().unwrap();
+                reg.deregister(d)?
+            }
         };
 
-        self.bound = None;
+        self.driver = None;
+
+        let mut back = self.backend.lock().unwrap();
+        *back = None;
+
         Ok(())
     }
 
@@ -172,16 +193,10 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
     }
 }
 
-impl fmt::Debug for BoundBackend {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("BoundBackend").finish()
-    }
-}
-
 impl<B: Backend<Item=stream::Item, Error=stream::Error>> fmt::Debug for Life<B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct(&format!("Life<{}>", self.name()))
-            .field("bound", &self.bound)
+            .field("backend", &self.backend)
             .field("subs", &self.subs)
             .field("handle", &self.handle)
             .field("registration", &self.registration)
