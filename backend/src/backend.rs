@@ -70,7 +70,7 @@ pub trait Backend: Stream + Send + Drop + Debug {
     /// This is used for primarily for debugging and post-processing/filtering. Having two backends
     /// with the same name running at once is undefined behaviour and may be disallowed by Notify.
     /// The value should not change.
-    fn name() -> String where Self: Sized;
+    fn name() -> &'static str where Self: Sized;
 
     /// The version of the Backend trait this implementation was built against.
     fn trait_version() -> String where Self: Sized {

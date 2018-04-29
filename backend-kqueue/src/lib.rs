@@ -12,7 +12,9 @@ use futures::{Poll, Stream};
 use kqueue::{Event as KEvent, EventData, EventFilter, Ident, Vnode};
 use std::path::PathBuf;
 
-/// A Notify Backend for [kqueue]. TODO
+const BACKEND_NAME: &'static str = "kqueue";
+
+/// A Notify Backend for [kqueue]. TODO redo backend using mio directly
 ///
 /// Kqueue has been in *BSD since 2000.
 ///
@@ -45,9 +47,7 @@ pub struct Backend {
 }
 
 impl NotifyBackend for Backend {
-    fn name() -> String {
-        "kqueue".into()
-    }
+    fn name() -> &'static str { BACKEND_NAME }
 
     fn new(paths: Vec<PathBuf>) -> BackendResult<Backend> {
         let mut watcher = kqueue::Watcher::new()?;
@@ -133,6 +133,7 @@ impl Backend {
             paths: vec![PathBuf::from(filename)],
             relid: None,
             time: None,
+            source: BACKEND_NAME,
         });
 
         Ok(())

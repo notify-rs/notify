@@ -11,6 +11,8 @@ use backend::Buffer;
 use inotify::{Inotify, EventMask, Events, WatchMask};
 use std::{fmt, os::unix::io::AsRawFd};
 
+const BACKEND_NAME: &'static str = "inotify";
+
 /// A Notify Backend for Linux's [inotify].
 ///
 /// Inotify requires kernel version 2.6.13.
@@ -45,9 +47,7 @@ const BUFFER_SIZE: usize = 4800;
 const BUFFER_SIZE: usize = 4000;
 
 impl NotifyBackend for Backend {
-    fn name() -> String {
-        "inotify".into()
-    }
+    fn name() -> &'static str { BACKEND_NAME }
 
     fn new(paths: Vec<PathBuf>) -> NewBackendResult {
         let mut inotify = Inotify::init()?;
@@ -179,7 +179,8 @@ impl Backend {
                     0 => None,
                     c @ _ => Some(c as usize)
                 },
-                time: None
+                time: None,
+                source: BACKEND_NAME,
             })
         }
 

@@ -5,6 +5,8 @@ use backend::prelude::*;
 use backend::Buffer;
 use std::sync::Arc;
 
+const BACKEND_NAME: &'static str = "poll tree";
+
 #[derive(Debug)]
 pub struct Backend {
     buffer: Buffer,
@@ -14,9 +16,7 @@ pub struct Backend {
 }
 
 impl NotifyBackend for Backend {
-    fn name() -> String {
-        "poll tree".into()
-    }
+    fn name() -> &'static str { BACKEND_NAME }
 
     fn new(_paths: Vec<PathBuf>) -> NewBackendResult {
         Err(BackendError::NotImplemented)

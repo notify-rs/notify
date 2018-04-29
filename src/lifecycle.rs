@@ -54,7 +54,7 @@ pub trait LifeTrait: fmt::Debug {
     fn capabilities(&self) -> Vec<Capability>;
 
     /// Returns the name of the Backend and therefore of this Life.
-    fn name(&self) -> String;
+    fn name(&self) -> &'static str;
 }
 
 /// The internal structure of binding-related things on a Life.
@@ -167,7 +167,7 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
         B::capabilities()
     }
 
-    fn name(&self) -> String {
+    fn name(&self) -> &'static str {
         B::name()
     }
 }

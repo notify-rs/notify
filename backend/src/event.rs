@@ -278,4 +278,9 @@ pub struct Event {
     /// Notify will populate this value upon event receipt only as needed (i.e. if the backend has
     /// not provided one) such that it will always be safe to unwrap. The timestamp is in UTC.
     pub time: Option<DateTime>,
+
+    /// Source of the event.
+    ///
+    /// This is the same string returned by the `name()` method of a backend.
+    pub source: &'static str,
 }
