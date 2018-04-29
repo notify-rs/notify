@@ -277,6 +277,9 @@ pub struct Event {
     ///
     /// Notify will populate this value upon event receipt only as needed (i.e. if the backend has
     /// not provided one) such that it will always be safe to unwrap. The timestamp is in UTC.
+    /// Note that Notify provides _no guarantee of ordering_ based on this value nor on the order
+    /// of events when received. Notably, an `Access(Open)` event has been known to appear _after_
+    /// a corresponding `Access(Close)` in some circumstances.
     pub time: Option<DateTime>,
 
     /// Source of the event.
