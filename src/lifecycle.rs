@@ -17,10 +17,17 @@ use backend::{prelude::{
     PathBuf,
 }, stream};
 
-use std::{fmt, marker::PhantomData};
-use std::sync::{Arc, Mutex};
-use tokio::reactor::{Handle, Registration};
-use tokio::runtime::TaskExecutor;
+use std::{
+    collections::HashMap,
+    fmt,
+    marker::PhantomData,
+    sync::{Arc, Mutex},
+};
+
+use tokio::{
+    reactor::{Handle, Registration},
+    runtime::TaskExecutor,
+};
 
 /// Convenience return type for methods dealing with backends.
 pub type Status = Result<(), BackendError>;
@@ -33,7 +40,7 @@ pub type Status = Result<(), BackendError>;
 /// that doesn't die when the Backend is dropped, with event receivers that can be owned safely.
 pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
     driver: Option<Box<Evented>>,
-    subs: Arc<Mutex<Vec<Option<mpsc::Sender<stream::Item>>>>>,
+    subs: Arc<Mutex<HashMap<usize, mpsc::Sender<stream::Item>>>>,
     handle: Handle,
     executor: TaskExecutor,
     backend: Arc<Mutex<Option<BoxedBackend>>>,
@@ -53,7 +60,7 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
         Self {
             backend: Arc::new(Mutex::new(None)),
             driver: None,
-            subs: Arc::new(Mutex::new(vec![])),
+            subs: Arc::new(Mutex::new(HashMap::new())),
             handle,
             executor,
             registration: Arc::new(Mutex::new(Registration::new())),
@@ -141,10 +148,8 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
                 event.time = Some(Utc::now());
             }
 
-            for opt in subs.lock().unwrap().iter_mut() {
-                if let Some(sub) = opt {
-                    sub.start_send(event.clone())?;
-                }
+            for sub in subs.lock().unwrap().values_mut() {
+                sub.start_send(event.clone())?;
             }
 
             Ok(())
@@ -175,13 +180,14 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
     fn sub(&self) -> (mpsc::Receiver<stream::Item>, usize) {
         let mut subs = self.subs.lock().unwrap();
         let (tx, rx) = mpsc::channel(100);
-        subs.push(Some(tx));
-        (rx, subs.len() - 1)
+        let token = subs.len();
+        subs.insert(token, tx);
+        (rx, token)
     }
 
     fn unsub(&self, token: usize) {
         let mut subs = self.subs.lock().unwrap();
-        subs[token] = None;
+        subs.remove(&token);
     }
 
     fn capabilities(&self) -> Vec<Capability> {
