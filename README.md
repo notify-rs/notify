@@ -35,28 +35,55 @@ As used by: [cargo watch], [mdBook], [rdiff], [watchexec].
 
 **In development.**
 
-Core decisions:
-
-- Use Rust beta while developing, then switch to stable for first Notify beta.
 - Use Tokio Reform until ecosystem stabilises.
-- User-provided backends will be in 5.0.
-- Runtime fallback to other methods will be in 5.0. ([#64](https://github.com/passcod/notify/issues/64))
-- All Tier 1 platforms need to work as of first alpha:
-  - Windows
-  - Linux
-  - macOS
-  - polling
+- Use Rust beta while developing, then switch to stable for first Notify beta.
+  Non-stable features in use:
+  - [#42640](https://github.com/rust-lang/rust/issues/42640) slated for 1.26.
+
+Lists are in no particular order within sections.
+
+Pre-alpha:
+
+- [x] Event loop running and delivering events
+- [ ] Better event subscriptions
+- [ ] Less depending on Life directly, more to Manager
+- [ ] Being able to drop backends
+- [ ] Cleanup on shutdown/drop
+- [ ] Error reporting
+
+First alpha:
+
+- [ ] Filling in capabilities
+- [ ] User-provided backends
+- [ ] Runtime fallback to other methods ([#64](https://github.com/passcod/notify/issues/64))
+- All Tier 1 platforms:
+  - [ ] Windows
+  - [ ] Linux
+  - [ ] macOS
+  - [ ] polling
+
+Later alpha:
+
+- [ ] Debouncing
+- [ ] More extensive testing
+
+Beta checklist:
+
+- [ ] Freeze Event
+- [ ] Freeze Backend trait
+- [ ] Freeze Backend prelude
+- [ ] Freeze public API
 
 Backends that have good progress:
 
-- inotify (linux)
-- fsevent (macOS, in a branch)
-- polling (in a branch)
+- [x] inotify (linux)
+- [ ] fsevent (macOS, in a branch)
+- [ ] polling (in a branch)
 
 Backends needed but not started:
 
-- Windows
-- kqueue (current implementation disabled, will need a rewrite without the sys crate)
+- [ ] Windows
+- [ ] kqueue (current implementation disabled, will need a rewrite using mio directly) ([#136](https://github.com/passcod/notify/issues/136))
 
 Delayed until after release:
 
@@ -65,9 +92,8 @@ Delayed until after release:
   - Watchman
   - fanotify
   - demo Google Drive backend
-- Runtime-added backends (via dynamic .so or DLL)
+  - Dynamic
 - More debouncing options (possibly via feature)
-- kqueue under macOS and i686 BSD ([#136](https://github.com/passcod/notify/issues/136))
 - Filesystem plugins (needed for advanced remote backends)
 
 ## Installation
