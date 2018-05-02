@@ -53,7 +53,7 @@ fn main() {
 
     println!("Spawn reporter");
     runtime.spawn(events.for_each(|event| {
-        println!("Event: {:?}", event);
+        println!("{:?}", event);
         Ok(())
     }));
 

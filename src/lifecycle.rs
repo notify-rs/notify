@@ -32,6 +32,9 @@ use tokio::{
 /// Convenience return type for methods dealing with backends.
 pub type Status = Result<(), BackendError>;
 
+/// Convenience type used in subscription channels.
+pub type Sub = Result<stream::Item, Arc<stream::Error>>;
+
 /// Handles a Backend, creating, binding, unbinding, and dropping it as needed.
 ///
 /// A `Backend` is stateless. It takes a set of paths, watches them, and reports events. A `Life`
@@ -40,7 +43,7 @@ pub type Status = Result<(), BackendError>;
 /// that doesn't die when the Backend is dropped, with event receivers that can be owned safely.
 pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
     driver: Option<Box<Evented>>,
-    subs: Arc<Mutex<HashMap<usize, mpsc::Sender<stream::Item>>>>,
+    subs: Arc<Mutex<HashMap<usize, mpsc::Sender<Sub>>>>,
     handle: Handle,
     executor: TaskExecutor,
     backend: Arc<Mutex<Option<BoxedBackend>>>,
@@ -86,13 +89,13 @@ pub trait LifeTrait: fmt::Debug {
     /// indicates a larger failure. However, one can retry the unbind.
     fn unbind(&mut self) -> Status;
 
-    /// Returns a Receiver channel that will get every event.
+    /// Returns a Receiver channel that will get every event and error.
     ///
     /// Be sure to consume it, as leaving events to pile up will eventually block event processing
-    /// for all threads. The second element of the tuple is a token to be used with `.unsub()` to
-    /// cancel the sender half of the channel. Whenever possible, do so before dropping to avoid
-    /// potentially bricking operations.
-    fn sub(&self) -> (mpsc::Receiver<stream::Item>, usize);
+    /// for all threads and possibly panic. The second element of the tuple is a token to be used
+    /// with `.unsub()` to cancel the sender half of the channel. Whenever possible, do so before
+    /// dropping to avoid potentially bricking operations.
+    fn sub(&self) -> (mpsc::Receiver<Sub>, usize);
 
     /// Cancels a channel obtained with `.sub()`.
     fn unsub(&self, token: usize);
@@ -148,6 +151,7 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
         });
 
         let subs = self.subs.clone();
+        let sube = self.subs.clone();
 
         self.executor.spawn(poller.for_each(move |mut event| {
             if event.time.is_none() {
@@ -155,12 +159,19 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
             }
 
             for sub in subs.lock().unwrap().values_mut() {
-                sub.start_send(event.clone())?;
+                sub.start_send(Ok(event.clone())).expect(
+                    &format!("Receiver was dropped before Sender was done, failed to send event: {:?}", event)
+                );
             }
 
             Ok(())
-        }).map_err(|e| {
-            println!("Error: {:?}", e) // TODO proper error handling
+        }).map_err(move |e| {
+            let erc = Arc::new(e);
+            for sub in sube.lock().unwrap().values_mut() {
+                sub.start_send(Err(erc.clone())).expect(
+                    &format!("Receiver was dropped before Sender was done, failed to send error: {:?}", erc)
+                );
+            }
         }));
 
         Ok(())
@@ -183,7 +194,13 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
         Ok(())
     }
 
-    fn sub(&self) -> (mpsc::Receiver<stream::Item>, usize) {
+    // TODO: instead of returning a Receiver and token, wrap them in a struct
+    // that holds the Receiver, token, and an Arc of the Life. Then implement
+    // all Receiver methods and traits, and also a Drop that calls back to the
+    // Life and automatically unsubs. Also make that a Result-returning method
+    // which can/should be called voluntarily -- leaving the Drop as a safety.
+
+    fn sub(&self) -> (mpsc::Receiver<Sub>, usize) {
         let mut subs = self.subs.lock().unwrap();
         let (tx, rx) = mpsc::channel(100);
         let token = subs.len();
