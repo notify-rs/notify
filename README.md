@@ -16,6 +16,7 @@ _Cross-platform filesystem notification library for Rust._
 - [Crate page][crate]
 - [FAQ](/a-wiki-page-or-something?)
 - [How to help](#how-to-help)
+- [Acknowledgements](./ACKNOWLEDGEMENTS.md)
 
 As used by: [cargo watch], [mdBook], [rdiff], [watchexec].
 (Want to be added to this list? Open a pull request!)
