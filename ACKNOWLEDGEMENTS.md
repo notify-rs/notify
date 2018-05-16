@@ -78,7 +78,25 @@ _people_ maintaining and developing these libraries. I thank:
 - The nice people of the [Tokio gitter channel], for answering questions and at
   one point being a patient rubber duck.
 
+- **[Matt Green]**, of [watchexec]. I am thankful for two reasons: firstly,
+  watchexec is excellent work and I use it all the time. Cargo Watch was
+  originally based directly on Notify, but it was always a struggle to make it
+  robust. Thanks to watchexec, I was able to make Cargo Watch a sort of "skin"
+  on top and focus on Notify instead. The second reason is that the project
+  makes fairly extensive use of Notify, and some of the ways it bumped against
+  the old design and worked around it informed the design of Notify v5. Seeing
+  how a project is used is always very helpful.
+
+- Another early adopter of Notify was **[mdBook]**. Yes, _that_ mdBook! The Rust
+  Programming Language official books are produced using Notify. That's pretty
+  neat, but also the original implementation of the mdBook `watch` subcommand
+  hit an issue while using Notify that was one of the impetuses for integrating
+  a debounced interface (which finally happened much later).
+
 [Tokio gitter channel]: https://gitter.im/tokio-rs/tokio
+[Matt Green]: https://github.com/mattgreen
+[watchexec]: https://github.com/mattgreen/watchexec
+[mdBook]: https://github.com/rust-lang-nursery/mdBook
 
 ## Tooling
 
