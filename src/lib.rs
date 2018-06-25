@@ -1,3 +1,4 @@
+extern crate multiqueue;
 extern crate tokio;
 
 pub extern crate notify_backend as backend;

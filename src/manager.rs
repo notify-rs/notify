@@ -49,6 +49,8 @@ impl<'f> Manager<'f> {
             let mut l = (sel.f)(self.handle.clone(), self.executor.clone());
 
             if l.capabilities().len() > 0 {
+                let sub = l.sub();
+                sub.unsubscribe();
                 lives.push(l);
             }
         }

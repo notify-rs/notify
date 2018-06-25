@@ -15,6 +15,7 @@ members = [
 "mio:0.6.14" = { git = "https://github.com/carllerche/mio" }
 
 [dependencies]
+multiqueue = "0.3.2"
 tokio = "0.1.5"
 
 [dependencies.notify-backend]

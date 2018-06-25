@@ -6,7 +6,6 @@ use backend::{prelude::{
         Poll,
         Sink,
         Stream,
-        sync::mpsc,
         stream::poll_fn,
     },
     BackendError,
@@ -17,8 +16,13 @@ use backend::{prelude::{
     PathBuf,
 }, stream};
 
+use multiqueue::{
+    broadcast_fut_queue,
+    BroadcastFutReceiver,
+    BroadcastFutSender,
+};
+
 use std::{
-    collections::HashMap,
     fmt,
     marker::PhantomData,
     sync::{Arc, Mutex},
@@ -43,7 +47,7 @@ pub type Sub = Result<stream::Item, Arc<stream::Error>>;
 /// that doesn't die when the Backend is dropped, with event receivers that can be owned safely.
 pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
     driver: Option<Box<Evented>>,
-    subs: Arc<Mutex<HashMap<usize, mpsc::Sender<Sub>>>>,
+    queue: (BroadcastFutSender<Sub>, BroadcastFutReceiver<Sub>),
     handle: Handle,
     executor: TaskExecutor,
     backend: Arc<Mutex<Option<BoxedBackend>>>,
@@ -63,7 +67,7 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
         Self {
             backend: Arc::new(Mutex::new(None)),
             driver: None,
-            subs: Arc::new(Mutex::new(HashMap::new())),
+            queue: broadcast_fut_queue(100),
             handle,
             executor,
             registration: Arc::new(Mutex::new(Registration::new())),
@@ -92,13 +96,9 @@ pub trait LifeTrait: fmt::Debug {
     /// Returns a Receiver channel that will get every event and error.
     ///
     /// Be sure to consume it, as leaving events to pile up will eventually block event processing
-    /// for all threads and possibly panic. The second element of the tuple is a token to be used
-    /// with `.unsub()` to cancel the sender half of the channel. Whenever possible, do so before
-    /// dropping to avoid potentially bricking operations.
-    fn sub(&self) -> (mpsc::Receiver<Sub>, usize);
-
-    /// Cancels a channel obtained with `.sub()`.
-    fn unsub(&self, token: usize);
+    /// for all threads and possibly panic. Also be sure to call `.unsubscribe()` or drop it if not
+    /// actively needed (anymore) whenever possible.
+    fn sub(&self) -> BroadcastFutReceiver<Sub>;
 
     /// Returns the capabilities of the backend, passed through as-is.
     fn capabilities(&self) -> Vec<Capability>;
@@ -150,28 +150,23 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
             return back.poll();
         });
 
-        let subs = self.subs.clone();
-        let sube = self.subs.clone();
-
+        let mut txs = self.queue.0.clone();
+        let mut txe = self.queue.0.clone();
         self.executor.spawn(poller.for_each(move |mut event| {
             if event.time.is_none() {
                 event.time = Some(Utc::now());
             }
 
-            for sub in subs.lock().unwrap().values_mut() {
-                sub.start_send(Ok(event.clone())).expect(
-                    &format!("Receiver was dropped before Sender was done, failed to send event: {:?}", event)
-                );
-            }
+            txs.start_send(Ok(event.clone())).expect(
+                &format!("Receiver was dropped before Sender was done, failed to send event: {:?}", event)
+            );
 
             Ok(())
         }).map_err(move |e| {
             let erc = Arc::new(e);
-            for sub in sube.lock().unwrap().values_mut() {
-                sub.start_send(Err(erc.clone())).expect(
-                    &format!("Receiver was dropped before Sender was done, failed to send error: {:?}", erc)
-                );
-            }
+            txe.start_send(Err(erc.clone())).expect(
+                &format!("Receiver was dropped before Sender was done, failed to send error: {:?}", erc)
+            );
         }));
 
         Ok(())
@@ -194,23 +189,8 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
         Ok(())
     }
 
-    // TODO: instead of returning a Receiver and token, wrap them in a struct
-    // that holds the Receiver, token, and an Arc of the Life. Then implement
-    // all Receiver methods and traits, and also a Drop that calls back to the
-    // Life and automatically unsubs. Also make that a Result-returning method
-    // which can/should be called voluntarily -- leaving the Drop as a safety.
-
-    fn sub(&self) -> (mpsc::Receiver<Sub>, usize) {
-        let mut subs = self.subs.lock().unwrap();
-        let (tx, rx) = mpsc::channel(100);
-        let token = subs.len();
-        subs.insert(token, tx);
-        (rx, token)
-    }
-
-    fn unsub(&self, token: usize) {
-        let mut subs = self.subs.lock().unwrap();
-        subs.remove(&token);
+    fn sub(&self) -> BroadcastFutReceiver<Sub> {
+        self.queue.1.clone()
     }
 
     fn capabilities(&self) -> Vec<Capability> {
@@ -226,7 +206,6 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> fmt::Debug for Life<B> 
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct(&format!("Life<{}>", self.name()))
             .field("backend", &self.backend)
-            .field("subs", &self.subs)
             .field("handle", &self.handle)
             .field("registration", &self.registration)
             .finish()
