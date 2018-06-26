@@ -1,6 +1,7 @@
 //! Notify Backend crate for BSD (or others) kqueue.
 
 #![deny(missing_docs)]
+#![cfg_attr(feature = "cargo-clippy", warn(clippy_pedantic))]
 
 extern crate notify_backend as backend;
 extern crate kqueue;

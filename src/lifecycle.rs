@@ -25,9 +25,9 @@ pub type Sub = Result<stream::Item, Arc<stream::Error>>;
 /// Handles a Backend, creating, binding, unbinding, and dropping it as needed.
 ///
 /// A `Backend` is stateless. It takes a set of paths, watches them, and reports events. A `Life`
-/// is stateful: it takes a Tokio Handle and TaskExecutor, takes care of wiring up the Backend when
-/// needed and taking it down when not, and maintains a consistent interface to its event stream
-/// that doesn't die when the Backend is dropped, with event receivers that can be owned safely.
+/// is stateful: it takes a Tokio `Handle` and `TaskExecutor`, takes care of wiring up the `Backend`
+/// when needed and taking it down when not, and maintains a consistent interface to its event
+/// stream that doesn't die when the `Backend` is dropped, with event receivers that can be owned.
 pub struct Life<B: Backend<Item = stream::Item, Error = stream::Error>> {
     driver: Option<Box<Evented>>,
     queue: (BroadcastFutSender<Sub>, BroadcastFutReceiver<Sub>),

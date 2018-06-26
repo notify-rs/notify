@@ -24,6 +24,7 @@
 //! thorough walk-through of backend implementation.
 
 #![deny(missing_docs)]
+#![cfg_attr(feature = "cargo-clippy", warn(clippy_pedantic))]
 
 pub extern crate chrono;
 pub extern crate futures;

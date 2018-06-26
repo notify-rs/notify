@@ -91,6 +91,7 @@ impl<'f> Manager<'f> {
         }
     }
 
+    #[cfg_attr(feature = "cargo-clippy", allow(borrowed_box))]
     pub fn active(&mut self) -> Option<&mut Box<LifeTrait + 'f>> {
         for life in &mut self.lives {
             if life.active() {

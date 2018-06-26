@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "cargo-clippy", warn(clippy_pedantic))]
+
 extern crate multiqueue;
 extern crate tokio;
 

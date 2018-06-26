@@ -1,6 +1,7 @@
 //! Notify Backend crate for Linux's inotify.
 
 #![deny(missing_docs)]
+#![cfg_attr(feature = "cargo-clippy", warn(clippy_pedantic))]
 
 extern crate inotify;
 extern crate notify_backend as backend;
@@ -59,7 +60,7 @@ impl NotifyBackend for Backend {
             inotify.add_watch(&path, WatchMask::ALL_EVENTS)?;
         }
 
-        Ok(Box::new(Backend {
+        Ok(Box::new(Self {
             buffer: Buffer::new(),
             driver: OwnedEventedFd(inotify.as_raw_fd()),
             inotify,
@@ -170,7 +171,7 @@ impl Backend {
                 } else {
                     EventKind::Any
                 },
-                paths: e.name.map(|s| vec![s.into()]).unwrap_or_else(|| vec![]),
+                paths: e.name.map_or_else(|| vec![], |s| vec![s.into()]),
                 relid: match e.cookie {
                     0 => None,
                     c => Some(c as usize),
