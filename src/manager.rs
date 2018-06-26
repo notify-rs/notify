@@ -50,10 +50,10 @@ impl<'f> Manager<'f> {
     pub fn enliven(&mut self) {
         let mut lives = vec![];
 
-        for sel in self.selectors.iter() {
+        for sel in &self.selectors {
             let mut l = (sel.f)(self.handle.clone(), self.executor.clone());
 
-            if l.capabilities().len() > 0 {
+            if !l.capabilities().is_empty() {
                 let sub = l.sub();
                 sub.unsubscribe();
                 lives.push(l);
@@ -65,17 +65,17 @@ impl<'f> Manager<'f> {
 
     // TODO: figure out how to report and handle per-path errors
 
-    pub fn bind(&mut self, paths: Vec<PathBuf>) -> Status {
+    pub fn bind(&mut self, paths: &[PathBuf]) -> Status {
         let mut err = None;
-        for life in self.lives.iter_mut() {
+        for life in &mut self.lives {
             println!("Trying {:?}", life);
-            match life.bind(paths.clone()) {
+            match life.bind(paths) {
                 Ok(_) => return Ok(()),
                 Err(e) => {
                     println!("Got error: {:?}", e);
                     match e {
                         be @ BackendError::NonExistent(_) => return Err(be),
-                        be @ _ => {
+                        be => {
                             err = Some(be);
                         }
                     }
@@ -92,7 +92,7 @@ impl<'f> Manager<'f> {
     }
 
     pub fn active(&mut self) -> Option<&mut Box<LifeTrait + 'f>> {
-        for life in self.lives.iter_mut() {
+        for life in &mut self.lives {
             if life.active() {
                 return Some(life);
             }

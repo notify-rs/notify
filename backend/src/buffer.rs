@@ -25,7 +25,7 @@ use std::collections::VecDeque;
 /// will irrevocably close the buffer. A closed buffer will not accept any new items, but continue
 /// to serve items through the `poll()` method until it empties, at which point it will indicate
 /// that the `Stream` is ended.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Buffer {
     closed: bool,
     internal: VecDeque<Event>,
@@ -43,7 +43,7 @@ impl Buffer {
         Buffer {
             closed: false,
             internal: VecDeque::new(),
-            limit: limit,
+            limit,
         }
     }
 
@@ -76,9 +76,10 @@ impl Buffer {
     pub fn poll(&mut self) -> Poll<Option<Item>, Error> {
         Ok(match self.pull() {
             Some(item) => Async::Ready(Some(item)),
-            None => match self.closed {
-                true => Async::Ready(None),
-                false => Async::NotReady,
+            None => if self.closed {
+                Async::Ready(None)
+            } else {
+                Async::NotReady
             },
         })
     }

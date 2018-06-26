@@ -12,7 +12,7 @@ use futures::{Poll, Stream};
 use kqueue::{Event as KEvent, EventData, EventFilter, Ident, Vnode};
 use std::path::PathBuf;
 
-const BACKEND_NAME: &'static str = "kqueue";
+const BACKEND_NAME: &str = "kqueue";
 
 /// A Notify Backend for [kqueue]. TODO redo backend using mio directly
 ///

@@ -68,7 +68,7 @@ pub trait LifeTrait: fmt::Debug {
     fn active(&self) -> bool;
 
     /// Attempts to bind a backend to a set of paths.
-    fn bind(&mut self, paths: Vec<PathBuf>) -> Status;
+    fn bind(&mut self, paths: &[PathBuf]) -> Status;
 
     /// Attempts to unbind a backend.
     ///
@@ -95,8 +95,8 @@ impl<B: Backend<Item = stream::Item, Error = stream::Error>> LifeTrait for Life<
         self.driver.is_some()
     }
 
-    fn bind(&mut self, paths: Vec<PathBuf>) -> Status {
-        let backend = B::new(paths)?;
+    fn bind(&mut self, paths: &[PathBuf]) -> Status {
+        let backend = B::new(paths.to_vec())?;
         self.unbind()?;
 
         let driver = backend.driver();
@@ -130,7 +130,7 @@ impl<B: Backend<Item = stream::Item, Error = stream::Error>> LifeTrait for Life<
 
             // Otherwise, try for a backend poll anyway, because there might be more events in its
             // internal buffer, and we want to get them all out rather than wait for the next loop.
-            return back.poll();
+            back.poll()
         });
 
         let mut txs = self.queue.0.clone();
@@ -142,7 +142,7 @@ impl<B: Backend<Item = stream::Item, Error = stream::Error>> LifeTrait for Life<
                         event.time = Some(Utc::now());
                     }
 
-                    txs.start_send(Ok(event.clone())).expect(&format!(
+                    txs.start_send(Ok(event.clone())).unwrap_or_else(|_| panic!(
                         "Receiver was dropped before Sender was done, failed to send event: {:?}",
                         event
                     ));
@@ -151,7 +151,7 @@ impl<B: Backend<Item = stream::Item, Error = stream::Error>> LifeTrait for Life<
                 })
                 .map_err(move |e| {
                     let erc = Arc::new(e);
-                    txe.start_send(Err(erc.clone())).expect(&format!(
+                    txe.start_send(Err(erc.clone())).unwrap_or_else(|_| panic!(
                         "Receiver was dropped before Sender was done, failed to send error: {:?}",
                         erc
                     ));

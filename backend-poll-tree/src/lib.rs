@@ -5,7 +5,7 @@ use backend::prelude::*;
 use backend::Buffer;
 use std::sync::Arc;
 
-const BACKEND_NAME: &'static str = "poll tree";
+const BACKEND_NAME: &str = "poll tree";
 
 #[derive(Debug)]
 pub struct Backend {

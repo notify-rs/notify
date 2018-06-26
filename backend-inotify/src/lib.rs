@@ -11,7 +11,7 @@ use backend::Buffer;
 use inotify::{EventMask, Events, Inotify, WatchMask};
 use std::{fmt, os::unix::io::AsRawFd};
 
-const BACKEND_NAME: &'static str = "inotify";
+const BACKEND_NAME: &str = "inotify";
 
 /// A Notify Backend for Linux's [inotify].
 ///
@@ -149,13 +149,7 @@ impl Backend {
                     } else {
                         CreateKind::File
                     })
-                } else if e.mask.contains(EventMask::DELETE) {
-                    EventKind::Remove(if e.mask.contains(EventMask::ISDIR) {
-                        RemoveKind::Folder
-                    } else {
-                        RemoveKind::File
-                    })
-                } else if e.mask.contains(EventMask::DELETE_SELF) {
+                } else if e.mask.contains(EventMask::DELETE) || e.mask.contains(EventMask::DELETE_SELF) {
                     EventKind::Remove(if e.mask.contains(EventMask::ISDIR) {
                         RemoveKind::Folder
                     } else {
@@ -176,10 +170,10 @@ impl Backend {
                 } else {
                     EventKind::Any
                 },
-                paths: e.name.map(|s| vec![s.into()]).unwrap_or(vec![]),
+                paths: e.name.map(|s| vec![s.into()]).unwrap_or_else(|| vec![]),
                 relid: match e.cookie {
                     0 => None,
-                    c @ _ => Some(c as usize),
+                    c => Some(c as usize),
                 },
                 time: None,
                 source: BACKEND_NAME,

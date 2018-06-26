@@ -1,7 +1,6 @@
 extern crate notify;
 extern crate tokio;
 
-use notify::backend::prelude::EventKind;
 use notify::manager::Manager;
 use std::{env, path::PathBuf};
 use tokio::prelude::{Future, Stream};
@@ -26,7 +25,7 @@ fn main() {
         man.selectors.len()
     );
 
-    for life in man.lives.iter() {
+    for life in &man.lives {
         println!("==> {:?}", life);
         println!("    backend can: {:?}", life.capabilities());
     }
@@ -34,7 +33,7 @@ fn main() {
     let mut args: Vec<String> = env::args().skip(1).collect();
     println!("Retrieved command arguments: {:?}", args);
 
-    if args.len() == 0 {
+    if args.is_empty() {
         args.push("/opt/notify-test".into());
         println!("No paths given, adding default path");
     }
@@ -42,7 +41,7 @@ fn main() {
     let paths: Vec<PathBuf> = args.iter().map(|s| s.into()).collect();
     println!("Converted args to paths: {:?}", paths);
 
-    man.bind(paths).unwrap();
+    man.bind(&paths).unwrap();
     println!("Manager bound: {:?}", man);
 
     let life = man.active().unwrap();
@@ -60,9 +59,8 @@ fn main() {
     runtime.spawn(events.for_each(|event| {
         match event {
             Err(e) => println!("{:?}", e),
-            Ok(e) => match e.kind {
-                EventKind::Modify(_) => println!("{:#?}", e),
-                _ => {}
+            Ok(e) => if e.kind.is_modify() {
+                println!("{:#?}", e);
             },
         };
         // println!("{:?}", event);
