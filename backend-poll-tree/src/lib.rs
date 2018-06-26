@@ -16,7 +16,9 @@ pub struct Backend {
 }
 
 impl NotifyBackend for Backend {
-    fn name() -> &'static str { BACKEND_NAME }
+    fn name() -> &'static str {
+        BACKEND_NAME
+    }
 
     fn new(_paths: Vec<PathBuf>) -> NewBackendResult {
         Err(BackendError::NotImplemented)
@@ -47,7 +49,7 @@ impl Stream for Backend {
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         if self.buffer.closed() {
-            return self.buffer.poll()
+            return self.buffer.poll();
         }
 
         self.buffer.poll()

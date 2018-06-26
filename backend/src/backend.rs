@@ -1,12 +1,12 @@
 //! The `Backend` trait and related types.
 
+use super::{capability::Capability, stream};
 use futures::Stream;
 use mio::event::Evented;
 use std::{ffi, fmt::Debug, io, path::PathBuf};
-use super::{capability::Capability, stream};
 
 /// Convenient type alias for the Backend trait object.
-pub type BoxedBackend = Box<Backend<Item=stream::Item, Error=stream::Error>>;
+pub type BoxedBackend = Box<Backend<Item = stream::Item, Error = stream::Error>>;
 
 /// Convenient type alias for the `::new()` function return signature.
 pub type NewResult = Result<BoxedBackend, Error>;
@@ -36,7 +36,9 @@ pub trait Backend: Stream + Send + Drop + Debug {
     /// This function must initialise all resources needed to watch over the paths, and only those
     /// paths. When the set of paths to be watched changes, the `Backend` will be `Drop`ped, and a
     /// new one recreated in its place. Thus, the `Backend` is immutable in this respect.
-    fn new(paths: Vec<PathBuf>) -> NewResult where Self: Sized;
+    fn new(paths: Vec<PathBuf>) -> NewResult
+    where
+        Self: Sized;
 
     /// Returns the operational capabilities of this `Backend`.
     ///
@@ -49,7 +51,9 @@ pub trait Backend: Stream + Send + Drop + Debug {
     /// instead an `Unavailable` error should be returned from `::new()`.
     ///
     /// [cap]: ../capability/enum.Capability.html
-    fn capabilities() -> Vec<Capability> where Self: Sized;
+    fn capabilities() -> Vec<Capability>
+    where
+        Self: Sized;
 
     /// Returns an [`Evented`] implementation that is used to efficently drive the event loop.
     ///
@@ -70,10 +74,15 @@ pub trait Backend: Stream + Send + Drop + Debug {
     /// This is used for primarily for debugging and post-processing/filtering. Having two backends
     /// with the same name running at once is undefined behaviour and may be disallowed by Notify.
     /// The value should not change.
-    fn name() -> &'static str where Self: Sized;
+    fn name() -> &'static str
+    where
+        Self: Sized;
 
     /// The version of the Backend trait this implementation was built against.
-    fn trait_version() -> String where Self: Sized {
+    fn trait_version() -> String
+    where
+        Self: Sized,
+    {
         env!("CARGO_PKG_VERSION").into()
     }
 }
@@ -120,14 +129,14 @@ pub enum Error {
     FfiIntoString(ffi::IntoStringError),
 
     /// A str conversion issue (nul too early or absent) from an FFI binding.
-    FfiFromBytes(ffi::FromBytesWithNulError)
+    FfiFromBytes(ffi::FromBytesWithNulError),
 }
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Self {
         match err.kind() {
             io::ErrorKind::NotFound => Error::NonExistent(vec![]),
-            _ => Error::Io(err)
+            _ => Error::Io(err),
         }
     }
 }

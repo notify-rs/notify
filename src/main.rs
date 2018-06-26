@@ -20,7 +20,11 @@ fn main() {
     let mut man = Manager::new(handle, executor);
     man.builtins();
     man.enliven();
-    println!("Prepared built-in backends: {} live of {} available of 2 compiled", man.lives.len(), man.selectors.len());
+    println!(
+        "Prepared built-in backends: {} live of {} available of 2 compiled",
+        man.lives.len(),
+        man.selectors.len()
+    );
 
     for life in man.lives.iter() {
         println!("==> {:?}", life);
@@ -59,7 +63,7 @@ fn main() {
             Ok(e) => match e.kind {
                 EventKind::Modify(_) => println!("{:#?}", e),
                 _ => {}
-            }
+            },
         };
         // println!("{:?}", event);
         Ok(())

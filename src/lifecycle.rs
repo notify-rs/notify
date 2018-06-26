@@ -1,36 +1,19 @@
-use backend::{prelude::{
-    chrono::Utc,
-    futures::{
-        Async,
-        Future,
-        Poll,
-        Sink,
-        Stream,
-        stream::poll_fn,
+use backend::{
+    prelude::{
+        chrono::Utc, futures::{stream::poll_fn, Async, Future, Poll, Sink, Stream}, BackendError,
+        BoxedBackend, Capability, Evented, NotifyBackend as Backend, PathBuf,
     },
-    BackendError,
-    BoxedBackend,
-    Capability,
-    Evented,
-    NotifyBackend as Backend,
-    PathBuf,
-}, stream};
-
-use multiqueue::{
-    broadcast_fut_queue,
-    BroadcastFutReceiver,
-    BroadcastFutSender,
+    stream,
 };
 
+use multiqueue::{broadcast_fut_queue, BroadcastFutReceiver, BroadcastFutSender};
+
 use std::{
-    fmt,
-    marker::PhantomData,
-    sync::{Arc, Mutex},
+    fmt, marker::PhantomData, sync::{Arc, Mutex},
 };
 
 use tokio::{
-    reactor::{Handle, Registration},
-    runtime::TaskExecutor,
+    reactor::{Handle, Registration}, runtime::TaskExecutor,
 };
 
 /// Convenience return type for methods dealing with backends.
@@ -45,17 +28,17 @@ pub type Sub = Result<stream::Item, Arc<stream::Error>>;
 /// is stateful: it takes a Tokio Handle and TaskExecutor, takes care of wiring up the Backend when
 /// needed and taking it down when not, and maintains a consistent interface to its event stream
 /// that doesn't die when the Backend is dropped, with event receivers that can be owned safely.
-pub struct Life<B: Backend<Item=stream::Item, Error=stream::Error>> {
+pub struct Life<B: Backend<Item = stream::Item, Error = stream::Error>> {
     driver: Option<Box<Evented>>,
     queue: (BroadcastFutSender<Sub>, BroadcastFutReceiver<Sub>),
     handle: Handle,
     executor: TaskExecutor,
     backend: Arc<Mutex<Option<BoxedBackend>>>,
     registration: Arc<Mutex<Registration>>,
-    phantom: PhantomData<B>
+    phantom: PhantomData<B>,
 }
 
-impl<B: Backend<Item=stream::Item, Error=stream::Error>> Life<B> {
+impl<B: Backend<Item = stream::Item, Error = stream::Error>> Life<B> {
     /// Creates a new, empty life.
     ///
     /// This should only be used with a qualified type, i.e.
@@ -107,7 +90,7 @@ pub trait LifeTrait: fmt::Debug {
     fn name(&self) -> &'static str;
 }
 
-impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
+impl<B: Backend<Item = stream::Item, Error = stream::Error>> LifeTrait for Life<B> {
     fn active(&self) -> bool {
         self.driver.is_some()
     }
@@ -133,7 +116,7 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
             let back = match wrap {
                 // If we don't have a backend anymore, we don't have events either.
                 None => return Ok(Async::Ready(None)),
-                Some(ref mut b) => b
+                Some(ref mut b) => b,
             };
 
             // If the event source is readable, get the backend to read it.
@@ -152,22 +135,28 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
 
         let mut txs = self.queue.0.clone();
         let mut txe = self.queue.0.clone();
-        self.executor.spawn(poller.for_each(move |mut event| {
-            if event.time.is_none() {
-                event.time = Some(Utc::now());
-            }
+        self.executor.spawn(
+            poller
+                .for_each(move |mut event| {
+                    if event.time.is_none() {
+                        event.time = Some(Utc::now());
+                    }
 
-            txs.start_send(Ok(event.clone())).expect(
-                &format!("Receiver was dropped before Sender was done, failed to send event: {:?}", event)
-            );
+                    txs.start_send(Ok(event.clone())).expect(&format!(
+                        "Receiver was dropped before Sender was done, failed to send event: {:?}",
+                        event
+                    ));
 
-            Ok(())
-        }).map_err(move |e| {
-            let erc = Arc::new(e);
-            txe.start_send(Err(erc.clone())).expect(
-                &format!("Receiver was dropped before Sender was done, failed to send error: {:?}", erc)
-            );
-        }));
+                    Ok(())
+                })
+                .map_err(move |e| {
+                    let erc = Arc::new(e);
+                    txe.start_send(Err(erc.clone())).expect(&format!(
+                        "Receiver was dropped before Sender was done, failed to send error: {:?}",
+                        erc
+                    ));
+                }),
+        );
 
         Ok(())
     }
@@ -202,7 +191,7 @@ impl<B: Backend<Item=stream::Item, Error=stream::Error>> LifeTrait for Life<B> {
     }
 }
 
-impl<B: Backend<Item=stream::Item, Error=stream::Error>> fmt::Debug for Life<B> {
+impl<B: Backend<Item = stream::Item, Error = stream::Error>> fmt::Debug for Life<B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct(&format!("Life<{}>", self.name()))
             .field("backend", &self.backend)

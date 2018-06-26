@@ -1,6 +1,8 @@
+use super::{
+    lifecycle::{LifeTrait, Status}, selector::{self, Selector},
+};
 use backend::prelude::{BackendError, PathBuf};
 use std::fmt;
-use super::{lifecycle::{LifeTrait, Status}, selector::{self, Selector}};
 use tokio::{reactor::Handle, runtime::TaskExecutor};
 
 pub struct Manager<'f> {
@@ -25,11 +27,11 @@ impl<'f> Manager<'f> {
     }
 
     pub fn builtins(&mut self) {
-        #[cfg(any(
-            target_os = "linux",
-            target_os = "android",
-        ))]
-        self.add(Selector { f: &selector::inotify_life, name: "Inotify".into() });
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        self.add(Selector {
+            f: &selector::inotify_life,
+            name: "Inotify".into(),
+        });
 
         // #[cfg(any(
         //     target_os = "dragonfly",
@@ -39,7 +41,10 @@ impl<'f> Manager<'f> {
         // ))]
         // self.add(Selector { f: &selector::kqueue_life, name: "Kqueue".into() });
 
-        self.add(Selector { f: &selector::poll_life, name: "Poll".into() });
+        self.add(Selector {
+            f: &selector::poll_life,
+            name: "Poll".into(),
+        });
     }
 
     pub fn enliven(&mut self) {
@@ -65,20 +70,24 @@ impl<'f> Manager<'f> {
         for life in self.lives.iter_mut() {
             println!("Trying {:?}", life);
             match life.bind(paths.clone()) {
+                Ok(_) => return Ok(()),
                 Err(e) => {
                     println!("Got error: {:?}", e);
                     match e {
                         be @ BackendError::NonExistent(_) => return Err(be),
-                        be @ _ => { err = Some(be); }
+                        be @ _ => {
+                            err = Some(be);
+                        }
                     }
-                },
-                Ok(_) => return Ok(())
+                }
             }
         }
 
         match err {
-            None => Err(BackendError::Unavailable(Some("No backend available".into()))),
-            Some(e) => Err(e)
+            Some(e) => Err(e),
+            None => Err(BackendError::Unavailable(Some(
+                "No backend available".into(),
+            ))),
         }
     }
 

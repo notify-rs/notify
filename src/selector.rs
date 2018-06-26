@@ -1,14 +1,15 @@
-use std::fmt;
 use super::lifecycle::{Life, LifeTrait};
+use std::fmt;
 use tokio::{reactor::Handle, runtime::TaskExecutor};
 
 #[macro_export]
 macro_rules! lifefn {
-    ($name:ident<$mod:ty>) => {
-    pub fn $name(handle: Handle, executor: TaskExecutor) -> Box<LifeTrait> {
-        let l: Life<$mod> = Life::new(handle, executor);
-        Box::new(l)
-    }}
+    ($name:ident < $mod:ty >) => {
+        pub fn $name(handle: Handle, executor: TaskExecutor) -> Box<LifeTrait> {
+            let l: Life<$mod> = Life::new(handle, executor);
+            Box::new(l)
+        }
+    };
 }
 
 #[macro_export]
@@ -16,13 +17,10 @@ macro_rules! usefn {
     ($mod:ident => $name:ident) => {
         use $mod;
         lifefn!($name<$mod::Backend>);
-    }
+    };
 }
 
-#[cfg(any(
-    target_os = "linux",
-    target_os = "android",
-))]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 usefn!(inotify => inotify_life);
 
 // #[cfg(any(
@@ -44,6 +42,10 @@ pub struct Selector<'h> {
 
 impl<'h> fmt::Debug for Selector<'h> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Selector {{ (Handle, TaskExecutor) -> Box<Life<{}>> }}", self.name)
+        write!(
+            f,
+            "Selector {{ (Handle, TaskExecutor) -> Box<Life<{}>> }}",
+            self.name
+        )
     }
 }

@@ -2,13 +2,13 @@
 
 #![deny(missing_docs)]
 
-extern crate notify_backend as backend;
 extern crate inotify;
+extern crate notify_backend as backend;
 
 use backend::prelude::*;
 use backend::Buffer;
 
-use inotify::{Inotify, EventMask, Events, WatchMask};
+use inotify::{EventMask, Events, Inotify, WatchMask};
 use std::{fmt, os::unix::io::AsRawFd};
 
 const BACKEND_NAME: &'static str = "inotify";
@@ -47,7 +47,9 @@ const BUFFER_SIZE: usize = 4800;
 const BUFFER_SIZE: usize = 4000;
 
 impl NotifyBackend for Backend {
-    fn name() -> &'static str { BACKEND_NAME }
+    fn name() -> &'static str {
+        BACKEND_NAME
+    }
 
     fn new(paths: Vec<PathBuf>) -> NewBackendResult {
         let mut inotify = Inotify::init()?;
@@ -60,7 +62,7 @@ impl NotifyBackend for Backend {
         Ok(Box::new(Backend {
             buffer: Buffer::new(),
             driver: OwnedEventedFd(inotify.as_raw_fd()),
-            inotify
+            inotify,
         }))
     }
 
@@ -99,7 +101,7 @@ impl Stream for Backend {
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         if self.buffer.closed() {
-            return self.buffer.poll()
+            return self.buffer.poll();
         }
 
         let mut buf = [0; BUFFER_SIZE];
@@ -124,12 +126,12 @@ impl Backend {
                 // the received events, even in the case of an error/overflow
                 // upstream.
                 self.buffer.close();
-                return Err(StreamError::UpstreamOverflow)
+                return Err(StreamError::UpstreamOverflow);
             }
 
             if e.mask.contains(EventMask::IGNORED) {
                 self.buffer.close();
-                break
+                break;
             }
 
             self.buffer.push(Event {
@@ -177,7 +179,7 @@ impl Backend {
                 paths: e.name.map(|s| vec![s.into()]).unwrap_or(vec![]),
                 relid: match e.cookie {
                     0 => None,
-                    c @ _ => Some(c as usize)
+                    c @ _ => Some(c as usize),
                 },
                 time: None,
                 source: BACKEND_NAME,

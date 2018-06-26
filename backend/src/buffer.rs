@@ -1,9 +1,9 @@
 //! The `Buffer` utility.
 
-use futures::{Async, Poll};
-use std::collections::VecDeque;
 use super::event::Event;
 use super::stream::{Error, Item};
+use futures::{Async, Poll};
+use std::collections::VecDeque;
 
 /// An internal buffer to store events obtained from native interfaces.
 ///
@@ -29,7 +29,7 @@ use super::stream::{Error, Item};
 pub struct Buffer {
     closed: bool,
     internal: VecDeque<Event>,
-    limit: usize
+    limit: usize,
 }
 
 impl Buffer {
@@ -40,7 +40,11 @@ impl Buffer {
 
     /// Creates an empty Buffer with a configurable limit.
     pub fn new_with_limit(limit: usize) -> Buffer {
-        Buffer { closed: false, internal: VecDeque::new(), limit: limit }
+        Buffer {
+            closed: false,
+            internal: VecDeque::new(),
+            limit: limit,
+        }
     }
 
     /// Pushes an `Event` at the "back" of the buffer.
@@ -50,8 +54,12 @@ impl Buffer {
     ///  - the buffer is full, or
     ///  - the buffer is closed.
     pub fn push(&mut self, event: Event) {
-        if self.closed { return }
-        if self.free_space().is_none() { return }
+        if self.closed {
+            return;
+        }
+        if self.free_space().is_none() {
+            return;
+        }
         self.internal.push_back(event)
     }
 
@@ -70,8 +78,8 @@ impl Buffer {
             Some(item) => Async::Ready(Some(item)),
             None => match self.closed {
                 true => Async::Ready(None),
-                false => Async::NotReady
-            }
+                false => Async::NotReady,
+            },
         })
     }
 

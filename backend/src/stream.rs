@@ -1,7 +1,7 @@
 //! The types related to implementing the `Stream` trait.
 
-use std::io;
 use super::event::Event;
+use std::io;
 
 /// A specialised error for `Backend::await()`.
 pub type EmptyResult = Result<(), Error>;

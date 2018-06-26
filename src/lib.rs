@@ -5,10 +5,7 @@ pub extern crate notify_backend as backend;
 
 extern crate notify_backend_poll_tree as poll_tree;
 
-#[cfg(any(
-    target_os = "linux",
-    target_os = "android",
-))]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 extern crate notify_backend_inotify as inotify;
 
 // #[cfg(any(
@@ -19,13 +16,14 @@ extern crate notify_backend_inotify as inotify;
 // ))]
 // extern crate notify_backend_kqueue as kqueue;
 
-pub mod selector;
-pub mod manager;
 pub mod lifecycle;
+pub mod manager;
+pub mod selector;
 
 #[cfg(test)]
 mod tests {
     #[test]
-    fn it_works() {
-    }
+    fn it_works() {}
 }
+
+// TODO: add trace! everywhere

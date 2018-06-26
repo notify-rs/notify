@@ -202,7 +202,7 @@ impl EventKind {
     pub fn is_access(&self) -> bool {
         match self {
             &EventKind::Access(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -210,7 +210,7 @@ impl EventKind {
     pub fn is_create(&self) -> bool {
         match self {
             &EventKind::Create(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -218,7 +218,7 @@ impl EventKind {
     pub fn is_modify(&self) -> bool {
         match self {
             &EventKind::Modify(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -226,7 +226,7 @@ impl EventKind {
     pub fn is_remove(&self) -> bool {
         match self {
             &EventKind::Remove(_) => true,
-            _ => false
+            _ => false,
         }
     }
 }

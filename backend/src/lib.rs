@@ -37,28 +37,22 @@ pub mod capability;
 pub mod event;
 pub mod stream;
 
-#[cfg(unix)] pub mod unix;
-#[macro_use] pub mod compliance;
+#[cfg(unix)]
+pub mod unix;
+#[macro_use]
+pub mod compliance;
 
 /// The Notify prelude.
 ///
 /// All that is needed to implement a `Backend`, except for the optional `Buffer`.
 pub mod prelude {
-    pub use chrono::{self};
+    pub use chrono;
 
-    pub use futures::{self,
-        Future,
-        Poll,
-        Stream,
-    };
+    pub use futures::{self, Future, Poll, Stream};
 
-    pub use mio::{self,
-        event::Evented,
-        Poll as MioPoll,
-        PollOpt as MioPollOpt,
-        Ready as MioReady,
-        Registration as MioRegistration,
-        Token as MioToken
+    pub use mio::{
+        self, event::Evented, Poll as MioPoll, PollOpt as MioPollOpt, Ready as MioReady,
+        Registration as MioRegistration, Token as MioToken,
     };
 
     pub use std::path::PathBuf;
@@ -67,33 +61,21 @@ pub mod prelude {
     pub type MioResult = ::std::io::Result<()>;
 
     pub use super::backend::{
-        Backend as NotifyBackend,
-        BoxedBackend,
-        Error as BackendError,
+        Backend as NotifyBackend, BoxedBackend, Error as BackendError,
         NewResult as NewBackendResult,
     };
 
-    #[cfg(unix)] pub use super::unix::OwnedEventedFd;
+    #[cfg(unix)]
+    pub use super::unix::OwnedEventedFd;
 
     pub use super::capability::Capability;
 
     pub use super::event::{
-        AccessKind,
-        AccessMode,
-        CreateKind,
-        DataChange,
-        DateTime,
-        Event,
-        EventKind,
-        MetadataKind,
-        ModifyKind,
-        RemoveKind,
-        RenameMode,
+        AccessKind, AccessMode, CreateKind, DataChange, DateTime, Event, EventKind, MetadataKind,
+        ModifyKind, RemoveKind, RenameMode,
     };
 
     pub use super::stream::{
-        Error as StreamError,
-        Item as StreamItem,
-        EmptyResult as EmptyStreamResult,
+        EmptyResult as EmptyStreamResult, Error as StreamError, Item as StreamItem,
     };
 }
