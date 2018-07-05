@@ -6,4 +6,4 @@ version = "1.0.0"
 [dependencies]
 chrono = "0.4.2"
 futures = "0.1.21"
-mio = "0.6.14"
+mio = "0.6.15"
