@@ -46,7 +46,7 @@ Lists are in no particular order within sections.
 Pre-alpha:
 
 - [x] Event loop running and delivering events
-- [ ] Better event subscriptions
+- [x] Better event subscriptions (done with multiqueue)
 - [ ] Less depending on Life directly, more to Manager
 - [ ] Being able to drop backends
 - [ ] Cleanup on shutdown/drop
