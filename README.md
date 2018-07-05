@@ -12,9 +12,9 @@
 
 _Cross-platform filesystem notification library for Rust._
 
-- [Documentation][docs]
+- [Guides](https://github.com/passcod/notify/wiki/Guides)
+- [API Documentation][docs]
 - [Crate page][crate]
-- [FAQ](/a-wiki-page-or-something?)
 - [How to help](#how-to-help)
 - [Acknowledgements](./ACKNOWLEDGEMENTS.md)
 
@@ -124,9 +124,10 @@ There are a number of ways in which you can help.
 - [Writing a backend](CONTRIBUTING.md#writing-a-backend)
 - [Improving the core](CONTRIBUTING.md#improving-the-core)
 
-You can also contribute financially to [passcod's Patreon][patreon].
+You can also contribute financially with [Ko-fi] or [Patreon].
 
-[patreon]: https://www.patreon.com/passcod
+[Ko-fi]: https://ko-fi.com/passcod
+[Patreon]: https://www.patreon.com/passcod
 
 ### Conduct
 
