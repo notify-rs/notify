@@ -10,9 +10,10 @@
 
 <!-- And as much of the following as you can / think is relevant: -->
 
+- If you're coming from a project that makes use of Notify, what it is, and a link to the downstream issue if there is one:
 - Filesystem type and options:
 - On Linux: Kernel version:
-- On Windows: if you're running under Windows, Cygwin, Linux Subsystem:
+- On Windows: version and if you're running under Windows, Cygwin, Linux Subsystem:
 - If you're running as a privileged user (root, System):
 - If you're running in a container, details on the runtime and overlay:
 - If you're running in a VM, details on the hypervisor:
