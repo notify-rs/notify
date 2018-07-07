@@ -50,11 +50,6 @@ fn main() {
     let events = life.sub();
     println!("Acquired event sub");
 
-    // Why a chrono timestamp and not a stdlib `SystemTime`? Because the expected use for this is
-    // with external authoritative times, which will be represented in ISO8601 or similar, and will
-    // not make sense as a system time. There is no _local_ filechange API I know of that provides
-    // timestamps for changes... likely because it is assumed latency will not be an issue locally.
-
     println!("Spawn reporter, filtering on Modify");
     runtime.spawn(events.for_each(|event| {
         match event {

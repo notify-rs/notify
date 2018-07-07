@@ -277,9 +277,15 @@ pub struct Event {
     ///
     /// Notify will populate this value upon event receipt only as needed (i.e. if the backend has
     /// not provided one) such that it will always be safe to unwrap. The timestamp is in UTC.
+    ///
     /// Note that Notify provides _no guarantee of ordering_ based on this value nor on the order
     /// of events when received. Notably, an `Access(Open)` event has been known to appear _after_
     /// a corresponding `Access(Close)` in some circumstances.
+    ///
+    /// Why a chrono timestamp and not a stdlib `SystemTime`? Because the expected use for this is
+    /// with external authoritative times, which will be represented in ISO8601 or similar, and
+    /// will not make sense as a system time. There appears to be no _local_ filechange API that
+    /// provides timestamps for changes, likely because it is assumed latency will not be an issue.
     pub time: Option<DateTime>,
 
     /// Source of the event.
