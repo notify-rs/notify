@@ -38,8 +38,6 @@ As used by: [cargo watch], [mdBook], [rdiff], [watchexec].
 
 - Use Tokio Reform until ecosystem stabilises.
 - Use Rust beta while developing, then switch to stable for first Notify beta.
-  Non-stable features in use:
-  - [#42640](https://github.com/rust-lang/rust/issues/42640) slated for 1.26.
 
 Lists are in no particular order within sections.
 
