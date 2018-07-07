@@ -24,7 +24,8 @@
 //! thorough walk-through of backend implementation.
 
 #![deny(missing_docs)]
-#![cfg_attr(feature = "cargo-clippy", warn(clippy_pedantic))]
+#![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
+#![cfg_attr(feature = "cargo-clippy", allow(stutter))]
 
 pub extern crate chrono;
 pub extern crate futures;
@@ -58,12 +59,12 @@ pub mod prelude {
 
     pub use std::path::PathBuf;
 
-    /// An empty io::Result used for mio's Evented trait signatures
+    /// An empty `io::Result` used for mio's Evented trait signatures
     pub type MioResult = ::std::io::Result<()>;
 
     pub use super::backend::{
         Backend as NotifyBackend, BoxedBackend, Error as BackendError,
-        NewResult as NewBackendResult,
+        ErrorWrap as BackendErrorWrap, NewResult as NewBackendResult,
     };
 
     #[cfg(unix)]

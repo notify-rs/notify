@@ -1,7 +1,7 @@
 //! Notify Backend crate for Linux's inotify.
 
 #![deny(missing_docs)]
-#![cfg_attr(feature = "cargo-clippy", warn(clippy_pedantic))]
+#![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
 
 extern crate inotify;
 extern crate notify_backend as backend;
@@ -150,7 +150,9 @@ impl Backend {
                     } else {
                         CreateKind::File
                     })
-                } else if e.mask.contains(EventMask::DELETE) || e.mask.contains(EventMask::DELETE_SELF) {
+                } else if e.mask.contains(EventMask::DELETE)
+                    || e.mask.contains(EventMask::DELETE_SELF)
+                {
                     EventKind::Remove(if e.mask.contains(EventMask::ISDIR) {
                         RemoveKind::Folder
                     } else {

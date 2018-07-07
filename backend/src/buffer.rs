@@ -34,13 +34,13 @@ pub struct Buffer {
 
 impl Buffer {
     /// Creates an empty Buffer with the default limit (16384).
-    pub fn new() -> Buffer {
-        Buffer::new_with_limit(16384)
+    pub fn new() -> Self {
+        Self::new_with_limit(16384)
     }
 
     /// Creates an empty Buffer with a configurable limit.
-    pub fn new_with_limit(limit: usize) -> Buffer {
-        Buffer {
+    pub fn new_with_limit(limit: usize) -> Self {
+        Self {
             closed: false,
             internal: VecDeque::new(),
             limit,

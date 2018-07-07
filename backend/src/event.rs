@@ -231,7 +231,7 @@ impl EventKind {
     }
 }
 
-/// Convenience alias for the DateTime type used in an Event.
+/// Convenience alias for the `DateTime` type used in an `Event`.
 pub type DateTime = chrono::DateTime<chrono::Utc>;
 
 /// Notify event.

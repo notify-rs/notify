@@ -1,7 +1,7 @@
 use backend::{
     prelude::{
-        chrono::Utc, futures::{stream::poll_fn, Async, Future, Poll, Sink, Stream}, BackendError,
-        BoxedBackend, Capability, Evented, NotifyBackend as Backend, PathBuf,
+        chrono::Utc, futures::{stream::poll_fn, Async, Future, Poll, Sink, Stream},
+        BackendErrorWrap, BoxedBackend, Capability, Evented, NotifyBackend as Backend, PathBuf,
     },
     stream,
 };
@@ -17,7 +17,7 @@ use tokio::{
 };
 
 /// Convenience return type for methods dealing with backends.
-pub type Status = Result<(), BackendError>;
+pub type Status = Result<(), BackendErrorWrap>;
 
 /// Convenience type used in subscription channels.
 pub type Sub = Result<stream::Item, Arc<stream::Error>>;
@@ -142,19 +142,23 @@ impl<B: Backend<Item = stream::Item, Error = stream::Error>> LifeTrait for Life<
                         event.time = Some(Utc::now());
                     }
 
-                    txs.start_send(Ok(event.clone())).unwrap_or_else(|_| panic!(
+                    txs.start_send(Ok(event.clone())).unwrap_or_else(|_| {
+                        panic!(
                         "Receiver was dropped before Sender was done, failed to send event: {:?}",
                         event
-                    ));
+                    )
+                    });
 
                     Ok(())
                 })
                 .map_err(move |e| {
                     let erc = Arc::new(e);
-                    txe.start_send(Err(erc.clone())).unwrap_or_else(|_| panic!(
+                    txe.start_send(Err(erc.clone())).unwrap_or_else(|_| {
+                        panic!(
                         "Receiver was dropped before Sender was done, failed to send error: {:?}",
                         erc
-                    ));
+                    )
+                    });
                 }),
         );
 

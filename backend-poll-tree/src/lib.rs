@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "cargo-clippy", warn(clippy_pedantic))]
+#![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
 
 extern crate notify_backend as backend;
 extern crate walkdir;
@@ -23,7 +23,7 @@ impl NotifyBackend for Backend {
     }
 
     fn new(_paths: Vec<PathBuf>) -> NewBackendResult {
-        Err(BackendError::NotImplemented)
+        Err(BackendError::NotImplemented.into())
     }
 
     fn capabilities() -> Vec<Capability> {

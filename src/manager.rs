@@ -63,7 +63,7 @@ impl<'f> Manager<'f> {
         self.lives = lives;
     }
 
-    // TODO: figure out how to report and handle per-path errors
+    // TODO: figure out how to handle per-path errors
 
     pub fn bind(&mut self, paths: &[PathBuf]) -> Status {
         let mut err = None;
@@ -72,11 +72,13 @@ impl<'f> Manager<'f> {
             match life.bind(paths) {
                 Ok(_) => return Ok(()),
                 Err(e) => {
-                    println!("Got error: {:?}", e);
-                    match e {
-                        be @ BackendError::NonExistent(_) => return Err(be),
-                        be => {
-                            err = Some(be);
+                    println!("Got error(s): {:?}", e);
+                    for ie in e.as_error_vec() {
+                        match ie {
+                            be @ BackendError::NonExistent(_) => return Err(be.into()),
+                            be => {
+                                err = Some(be.clone());
+                            }
                         }
                     }
                 }
@@ -84,10 +86,8 @@ impl<'f> Manager<'f> {
         }
 
         match err {
-            Some(e) => Err(e),
-            None => Err(BackendError::Unavailable(Some(
-                "No backend available".into(),
-            ))),
+            Some(e) => Err(e.into()),
+            None => Err(BackendError::Unavailable(Some("No backend available".into())).into()),
         }
     }
 

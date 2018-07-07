@@ -3,13 +3,13 @@
 use super::{capability::Capability, stream};
 use futures::Stream;
 use mio::event::Evented;
-use std::{ffi, fmt::Debug, io, path::PathBuf};
+use std::{ffi, fmt::Debug, io, path::PathBuf, sync::Arc};
 
 /// Convenient type alias for the Backend trait object.
 pub type BoxedBackend = Box<Backend<Item = stream::Item, Error = stream::Error>>;
 
 /// Convenient type alias for the `::new()` function return signature.
-pub type NewResult = Result<BoxedBackend, Error>;
+pub type NewResult = Result<BoxedBackend, ErrorWrap>;
 
 /// A trait for types that implement Notify backends.
 ///
@@ -88,13 +88,13 @@ pub trait Backend: Stream + Send + Drop + Debug {
 }
 
 /// Any error which may occur during the initialisation of a `Backend`.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Error {
     /// An error represented by an arbitrary string.
     Generic(String),
 
     /// An I/O error.
-    Io(io::Error),
+    Io(Arc<io::Error>),
 
     /// An error indicating that this Backend's implementation is incomplete.
     ///
@@ -136,7 +136,7 @@ impl From<io::Error> for Error {
     fn from(err: io::Error) -> Self {
         match err.kind() {
             io::ErrorKind::NotFound => Error::NonExistent(vec![]),
-            _ => Error::Io(err),
+            _ => Error::Io(Arc::new(err)),
         }
     }
 }
@@ -162,5 +162,98 @@ impl From<ffi::IntoStringError> for Error {
 impl From<ffi::FromBytesWithNulError> for Error {
     fn from(err: ffi::FromBytesWithNulError) -> Self {
         Error::FfiFromBytes(err)
+    }
+}
+
+/// A composite error wrapper type.
+///
+/// When initialising a `Backend`, errors that occur may either be general or only affect certain
+/// paths. This special type encodes which case is the situation, and comes with implementations to
+/// make it easier and less verbose to use in most common ways.
+///
+/// In all the error scenarios described below that affect _subsets_ of paths, the assumption is
+/// that if _only_ the _non-erroring_ paths were passed again, the creation of the `Backend` would
+/// be _likely_ to succeed.
+#[derive(Clone, Debug)]
+pub enum ErrorWrap {
+    /// An error about the backend itself or in general.
+    General(Error),
+
+    /// An error that affects all paths passed in.
+    ///
+    /// May be also represented by a `Multiple` or a `Single` with all the paths associated to
+    /// errors. However, this variant is more efficient.
+    All(Error),
+
+    /// An error that only affects some paths.
+    ///
+    /// This is for a single _error_ that affects a subset of the paths that were passed in.
+    Single(Error, Vec<PathBuf>),
+
+    /// Several errors associated with different paths.
+    ///
+    /// This is for multiple _errors_ that affect subsets of paths. The subsets may all be the
+    /// same, or may be empty to denote a general error as well as specific ones, or may duplicate
+    /// paths. It is however expected that within `Vec`s, paths are unique (but this will not be
+    /// enforced strictly).
+    Multiple(Vec<(Error, Vec<PathBuf>)>),
+}
+
+impl ErrorWrap {
+    /// Reduces to a set of errors, discarding all path information.
+    pub fn as_error_vec(&self) -> Vec<&Error> {
+        match self {
+            ErrorWrap::Multiple(ve) => ve.iter().map(|(e, _)| e).collect(),
+            ErrorWrap::General(ref err)
+            | ErrorWrap::All(ref err)
+            | ErrorWrap::Single(ref err, _) => vec![err],
+        }
+    }
+}
+
+impl From<Error> for ErrorWrap {
+    fn from(err: Error) -> Self {
+        ErrorWrap::General(err)
+    }
+}
+
+impl<'a> From<&'a Error> for ErrorWrap {
+    fn from(err: &'a Error) -> Self {
+        ErrorWrap::General(err.clone())
+    }
+}
+
+impl From<io::Error> for ErrorWrap {
+    fn from(err: io::Error) -> Self {
+        let e: Error = err.into();
+        e.into()
+    }
+}
+
+impl From<Capability> for ErrorWrap {
+    fn from(cap: Capability) -> Self {
+        let e: Error = cap.into();
+        e.into()
+    }
+}
+
+impl From<ffi::NulError> for ErrorWrap {
+    fn from(err: ffi::NulError) -> Self {
+        let e: Error = err.into();
+        e.into()
+    }
+}
+
+impl From<ffi::IntoStringError> for ErrorWrap {
+    fn from(err: ffi::IntoStringError) -> Self {
+        let e: Error = err.into();
+        e.into()
+    }
+}
+
+impl From<ffi::FromBytesWithNulError> for ErrorWrap {
+    fn from(err: ffi::FromBytesWithNulError) -> Self {
+        let e: Error = err.into();
+        e.into()
     }
 }
