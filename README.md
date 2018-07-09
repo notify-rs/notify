@@ -135,7 +135,7 @@ This project's conduct policies are described in the
 - The standards described in [The Contributor Covenant] apply.
 - Enforcement is explicitely defined: for most occurrences, it should be a
   simple message (from anyone, not just maintainers) not to engage in the
-  behaviour.
+  behaviour, but escalates from there.
 
 [The Contributor Covenant]: https://www.contributor-covenant.org/version/1/4/code-of-conduct
 
