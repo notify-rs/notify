@@ -64,6 +64,8 @@ impl<'f> Manager<'f> {
     }
 
     // TODO: figure out how to handle per-path errors
+    // Most of the ::bind() code is temporary to get something fuctional
+    // but should not be considered final!
 
     pub fn bind(&mut self, paths: &[PathBuf]) -> Status {
         let mut err = None;

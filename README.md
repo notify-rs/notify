@@ -45,10 +45,10 @@ Pre-alpha:
 
 - [x] Event loop running and delivering events
 - [x] Better event subscriptions (done with multiqueue)
+- [x] Error reporting
 - [ ] Less depending on Life directly, more to Manager
 - [ ] Being able to drop backends
 - [ ] Cleanup on shutdown/drop
-- [ ] Error reporting
 
 First alpha:
 
