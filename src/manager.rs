@@ -68,6 +68,18 @@ impl<'f> Manager<'f> {
     // but should not be considered final!
 
     pub fn bind(&mut self, paths: &[PathBuf]) -> Status {
+        // takes: a set of paths
+        // returns: a Status
+        //
+        // tries to allocate paths to each life in order.
+        // - if paths fail on one life, it tries again with a smaller subset,
+        // helped by the pathed error hints.
+        // - as soon as it's got a good life, it tries to fit the remaining paths,
+        // if any, into other lifes (if any).
+        // - then it finishes looping lives and disables others if they're live
+        // (i.e. it clears everything that remains so there's no lives running
+        // on "old" paths)
+
         let mut err = None;
         for life in &mut self.lives {
             println!("Trying {:?}", life);
@@ -87,10 +99,22 @@ impl<'f> Manager<'f> {
             }
         }
 
-        match err {
+        return match err {
             Some(e) => Err(e.into()),
             None => Err(BackendError::Unavailable(Some("No backend available".into())).into()),
         }
+    }
+
+    fn bind_to_life(&mut self, index: usize, paths: &[PathBuf]) -> (Status, Vec<PathBuf>, Vec<PathBuf>) {
+        // takes: index into self.lives, some paths
+        // gives: a status for the life we just tried, and two lists of paths:
+        // 1/ paths that could have succeeded
+        // 2/ paths that definitely failed
+        // (if Status is success then both of these are empty)
+        //
+        // we do that by parsing the error for pathed errors
+
+        (Ok(()), vec![], vec![])
     }
 
     #[cfg_attr(feature = "cargo-clippy", allow(borrowed_box))]
