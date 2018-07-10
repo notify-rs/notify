@@ -41,30 +41,36 @@ As used by: [cargo watch], [mdBook], [rdiff], [watchexec].
 
 Lists are in no particular order within sections.
 
-Pre-alpha:
+Before any release
 
 - [x] Event loop running and delivering events
 - [x] Better event subscriptions (done with multiqueue)
 - [x] Error reporting
-- [ ] Less depending on Life directly, more to Manager
+- [ ] Runtime fallback to other methods ([#64](https://github.com/passcod/notify/issues/64))
 - [ ] Being able to drop backends
-- [ ] Cleanup on shutdown/drop
+- [ ] Less depending on Life directly, more to Manager
+- [ ] Basic public (frontend) API
 
-First alpha:
+Release first alpha here
 
 - [ ] Filling in capabilities
 - [ ] User-provided backends
-- [ ] Runtime fallback to other methods ([#64](https://github.com/passcod/notify/issues/64))
+- [ ] Being able to shutdown notify
+- [ ] Basic internals documentation
 - All Tier 1 platforms:
   - [ ] Windows
   - [ ] Linux
   - [ ] macOS
   - [ ] polling
 
-Later alpha:
+Release second alpha here
 
 - [ ] Debouncing
+- [ ] Future-less API
 - [ ] More extensive testing
+- [ ] Full documentation
+
+Release more alphas as the above gets in
 
 Beta checklist:
 
@@ -72,6 +78,11 @@ Beta checklist:
 - [ ] Freeze Backend trait
 - [ ] Freeze Backend prelude
 - [ ] Freeze public API
+- [ ] Recheck all documentation (API, Wiki, Readme, Contributing, GH Templates)
+
+Release beta here!
+
+--------------------------------------------------
 
 Backends that have good progress:
 
