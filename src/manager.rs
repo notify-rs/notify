@@ -1,7 +1,7 @@
 use super::{
     lifecycle::{LifeTrait, Status}, selector::{self, Selector},
 };
-use backend::prelude::{BackendError, PathBuf};
+use backend::prelude::{BackendErrorWrap, PathBuf};
 use std::fmt;
 use tokio::{reactor::Handle, runtime::TaskExecutor};
 
@@ -63,10 +63,6 @@ impl<'f> Manager<'f> {
         self.lives = lives;
     }
 
-    // TODO: figure out how to handle per-path errors
-    // Most of the ::bind() code is temporary to get something fuctional
-    // but should not be considered final!
-
     pub fn bind(&mut self, paths: &[PathBuf]) -> Status {
         // takes: a set of paths
         // returns: a Status
@@ -80,18 +76,42 @@ impl<'f> Manager<'f> {
         // (i.e. it clears everything that remains so there's no lives running
         // on "old" paths)
 
-        let mut err = None;
-        for life in &mut self.lives {
-            println!("Trying {:?}", life);
-            match life.bind(paths) {
-                Ok(_) => return Ok(()),
-                Err(e) => {
-                    println!("Got error(s): {:?}", e);
-                    for ie in e.as_error_vec() {
-                        match ie {
-                            be @ BackendError::NonExistent(_) => return Err(be.into()),
-                            be => {
-                                err = Some(be.clone());
+        let mut final_err = None;
+        let mut remaining = paths.to_vec();
+        for life_index in 0..(self.lives.len()) {
+            if remaining.is_empty() {
+                self.lives.get_mut(life_index).map(|life| {
+                    println!("Unbinding life that's not needed anymore: {:?}", life);
+                    life.unbind().ok()
+                });
+                continue;
+            }
+
+            match self.bind_to_life(life_index, &remaining) {
+                Ok(_) => {
+                    println!("Binding succeeded entirely, finishing up");
+                    remaining = vec![];
+                    continue;
+                }
+                Err((err, passes, fails)) => {
+                    if passes.is_empty() {
+                        println!("Binding failed, skipping to next life\n{:?}", err);
+                        final_err = Some(err.clone());
+                        continue;
+                    } else {
+                        println!("Binding may have partially succeeded, trying again");
+                        match self.bind_to_life(life_index, &passes) {
+                            Ok(_) => {
+                                println!("Binding succeeded partially, continuing");
+                                remaining = fails.clone();
+                                continue;
+                            }
+                            Err((err, _, _)) => {
+                                // TODO: continue the cycle recursively instead of ignoring hints
+                                // on second pass and bailing. Would also have to detect cycles?
+                                println!("2nd try failed, skipping to next life\n{:?}", err);
+                                final_err = Some(err.clone());
+                                continue;
                             }
                         }
                     }
@@ -99,22 +119,70 @@ impl<'f> Manager<'f> {
             }
         }
 
-        return match err {
-            Some(e) => Err(e.into()),
-            None => Err(BackendError::Unavailable(Some("No backend available".into())).into()),
+        if remaining.is_empty() {
+            if let Some(err) = final_err {
+                Err(err)
+            } else {
+                unreachable!();
+            }
+        } else {
+            Ok(())
         }
     }
 
-    fn bind_to_life(&mut self, index: usize, paths: &[PathBuf]) -> (Status, Vec<PathBuf>, Vec<PathBuf>) {
+    fn bind_to_life(
+        &mut self,
+        index: usize,
+        paths: &[PathBuf],
+    ) -> Result<(), (BackendErrorWrap, Vec<PathBuf>, Vec<PathBuf>)> {
         // takes: index into self.lives, some paths
         // gives: a status for the life we just tried, and two lists of paths:
         // 1/ paths that could have succeeded
         // 2/ paths that definitely failed
-        // (if Status is success then both of these are empty)
         //
         // we do that by parsing the error for pathed errors
 
-        (Ok(()), vec![], vec![])
+        let life = self
+            .lives
+            .get_mut(index)
+            .expect("bind_to_life was given a bad index, something is very wrong");
+
+        println!(
+            "Attempting to bind {} paths to life {:?}",
+            paths.len(),
+            life
+        );
+
+        let err = match life.bind(paths) {
+            Ok(_) => return Ok(()),
+            Err(e) => e,
+        };
+
+        println!("Got errors: {:?}", err);
+
+        let failed = match err {
+            e @ BackendErrorWrap::General(_) | e @ BackendErrorWrap::All(_) => {
+                return Err((e, vec![], paths.to_vec()))
+            }
+            BackendErrorWrap::Single(_, ref paths) => paths.clone(),
+            BackendErrorWrap::Multiple(ref tups) => tups
+                .iter()
+                .flat_map(|(_, ref paths)| paths.clone())
+                .collect(),
+        };
+
+        let mut fails = vec![];
+        let mut passes = vec![];
+
+        for path in paths {
+            if failed.contains(path) {
+                fails.push(path.clone());
+            } else {
+                passes.push(path.clone());
+            }
+        }
+
+        Err((err, passes, fails))
     }
 
     #[cfg_attr(feature = "cargo-clippy", allow(borrowed_box))]

@@ -46,7 +46,7 @@ Before any release
 - [x] Event loop running and delivering events
 - [x] Better event subscriptions (done with multiqueue)
 - [x] Error reporting
-- [ ] Runtime fallback to other methods ([#64](https://github.com/passcod/notify/issues/64))
+- [x] Runtime fallback to other methods ([#64](https://github.com/passcod/notify/issues/64))
 - [ ] Being able to drop backends
 - [ ] Less depending on Life directly, more to Manager
 - [ ] Basic public (frontend) API
