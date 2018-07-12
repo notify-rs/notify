@@ -12,4 +12,4 @@ insert_final_newline = true
 indent_size = 2
 
 [*.md]
-indent_size = 2
+indent_size = 3

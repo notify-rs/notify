@@ -2,18 +2,20 @@
 
 When reporting an issue, please include **all of the following**:
 
-- OS/Platform name and version
-- Rust version: `rustc --version`
-- Notify version (or commit hash if building from source)
+ - OS/Platform name and version
+ - Rust version: `rustc --version`
+ - Notify version (or commit hash if building from source)
 
 And as much of the following as you can / think is relevant:
 
-- Filesystem type and options
-- On Linux: Kernel version
-- On Windows: if you're running under Windows, Cygwin, Linux Subsystem
-- If you're running as a privileged user (root, System)
-- If you're running in a container, details on the runtime and overlay
-- If you're running in a VM, details on the hypervisor
+ - If you're coming from a downstream project that uses Notify: what that
+   project is, its version, and a link to the relevant issue there if any
+ - Filesystem type and options
+ - On Linux: Kernel version
+ - On Windows: if you're running under Windows, Cygwin, Linux Subsystem
+ - If you're running as a privileged user (root, System)
+ - If you're running in a container, details on the runtime and overlay
+ - If you're running in a VM, details on the hypervisor
 
 When opening a pull request, you agree to release your contribution to the
 **public domain or the terms of the CC0 license**.
@@ -32,14 +34,19 @@ Hi there! Thank you for your interest in this project.
 
 There are a number of ways in which you can help.
 
-- [Running tests](#running-tests)
-- [Reviewing documentation](#reviewing-documentation) (no Rust needed!)
-- [Reproducing issues](#reproducing-issues)
-- [Upgrading dependents](#upgrading-dependents)
-- [Writing a backend](#writing-a-backend)
-- [Improving the core](#improving-the-core)
+ - [Running tests](#running-tests)
+ - [Reviewing documentation](#reviewing-documentation) (no Rust needed!)
+ - [Reproducing issues](#reproducing-issues)
+ - [Upgrading dependents](#upgrading-dependents)
+ - [Writing a backend](#writing-a-backend)
+ - [Improving the core](#improving-the-core)
 
 There are also some things you need to know:
+
+### The Wiki
+
+[The Wiki](https://github.com/passcod/notify/wiki) contains additional
+documentation including tutorials, guides, descriptions of internals, and more!
 
 ### Versioning indicators
 
@@ -54,10 +61,10 @@ or
 
 These are **versioning indicators**! They are used to decide:
 
-- what to put in changelogs
-- when to merge something
-- when to release a new version
-- which version number should change
+ - what to put in changelogs
+ - when to merge something
+ - when to release a new version
+ - which version number should change
 
 Generally, these are for maintainer use, but if you think something's wrong,
 like a change being breaking when the indicator says it's not, please do
@@ -94,8 +101,10 @@ Specifically, though, enforcement will be handled thusly:
 
 5. In **extreme cases**, if the behaviour is systematic, severe, goes beyond
    the scope of this project, and/or endangers others, **outside help** may be
-   sought. GitHub support may be involved, leaders from the larger community
+   sought. GitHub support may be involved, [leaders from the larger community]
    may be contacted.
+
+[leaders from the larger community]: https://www.rust-lang.org/en-US/team.html#Moderation-team
 
 ## Running tests
 
@@ -113,21 +122,14 @@ and some time, you can help!
 Install Rust, clone the project, then run:
 
 ```bash
-cargo test
-cargo test -p notify-backend
-cargo test -p notify-backend-poll-tree
-
-# Any of these, depending on what your platform is
-cargo test -p notify-backend-inotify   # For linux
-cargo test -p notify-backend-fsevents  # For macOS
-cargo test -p notify-backend-kqueue    # For *BSD
+cargo test --all
 ```
 
 Then repeat the same with the `--release` flag appended.
 
-If any of these fail, and there is no [open issue] with the same failure for
-the same platform, copy the build/test logs into a new issue, and also provide
-your platform details and the SHA1 of the git commit you're on. Thank you!
+If anything fails, and there is no [open issue] with the same failure for the
+same platform, copy the build/test logs into a new issue, and also provide your
+platform details and the SHA1 of the git commit you're on. Thank you!
 
 ### If you have an x86\_64 Linux or macOS with Docker and Rust
 
@@ -167,6 +169,15 @@ Documentation changes will often be merged quickly, but will remain unreleased
 until the next version change, unless a maintainer thinks it would be worth
 releasing early for.
 
+The documentation is made of:
+
+ - **This document**
+ - [The readme](../README.md)
+ - [The API documentation](https://docs.rs/notify) (written alongside the code)
+ - [The Wiki](#the-wiki)
+ - [The issue and PR templates](./.github/)
+ - Any other document in this project not listed here
+
 ## Reproducing issues
 
 Because there are many different environments, platforms, setups, systems, and
@@ -181,18 +192,20 @@ elsewhere.
 When reproducing issues, provide **as much environmental information as
 possible** that you think may be relevant. At least the following are required:
 
-- OS/Platform name and version
-- Rust version
-- Notify version (or commit hash if building from source)
+ - OS/Platform name and version
+ - Rust version
+ - Notify version (or commit hash if building from source)
 
 Other things you might want to include:
 
-- Filesystem type and options
-- On Linux: Kernel version
-- On Windows: if you're running under Windows, Cygwin, Linux Subsystem
-- If you're running as a privileged user (root, System)
-- If you're running in a container, details on the runtime and overlay
-- If you're running in a VM, details on the hypervisor
+ - If you're coming from a downstream project that uses Notify: what that
+   project is, its version, and a link to the relevant issue there if any
+ - Filesystem type and options
+ - On Linux: Kernel version
+ - On Windows: if you're running under Windows, Cygwin, Linux Subsystem
+ - If you're running as a privileged user (root, System)
+ - If you're running in a container, details on the runtime and overlay
+ - If you're running in a VM, details on the hypervisor
 
 ## Upgrading dependents
 
@@ -216,7 +229,7 @@ with one of these systems is the job of **backends**.
 You can write a new backend in a matter of hours. There's an entire guide
 showing you how to do so: [docs/backend-guide.md](docs/backend-guide.md).
 
-Writing backends helps Noitfy in two ways:
+Writing backends helps Notify in two ways:
 
 1. it tests and informs improvements of the Core's backend interface; and
 2. most importantly, it provides more support for different platforms.
@@ -232,7 +245,12 @@ interface.
 
 ## Improving the core
 
-TODO.
+At minimum, you'll need to read [all internals articles on the Wiki][wiki-int].
+These provide important details as well as a general understanding of the core.
+
+TODO: dev environment, what to look for, checklists
+
+[wiki-int]: https://github.com/passcod/notify/wiki/Internals
 
 ## Thank you!
 
