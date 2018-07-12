@@ -133,7 +133,7 @@ platform details and the SHA1 of the git commit you're on. Thank you!
 
 ### If you have an x86\_64 Linux or macOS with Docker and Rust
 
-Install [cross], clone the project, then run:
+Install [cross](https://github.com/japaric/cross), clone the project, then run:
 
 ```bash
 ci/cross-tests.sh
