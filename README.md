@@ -48,7 +48,7 @@ Before any release
 - [x] Error reporting
 - [x] Runtime fallback to other methods ([#64](https://github.com/passcod/notify/issues/64))
 - [x] Less depending on Life directly, more to Manager
-- [ ] Being able to drop backends
+- [x] Being able to drop backends
 - [ ] Basic public (frontend) API
 
 Release first alpha here
