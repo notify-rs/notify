@@ -1,15 +1,19 @@
 use super::{
-    lifecycle::{LifeTrait, Status}, selector::{self, Selector},
+    lifecycle::{LifeTrait, Status, Sub}, selector::{self, Selector},
 };
 use backend::prelude::{BackendErrorWrap, PathBuf};
+use multiqueue::{broadcast_fut_queue, BroadcastFutReceiver, BroadcastFutSender};
 use std::fmt;
-use tokio::{reactor::Handle, runtime::TaskExecutor};
+use tokio::{
+    prelude::{Future, Sink, Stream}, reactor::Handle, runtime::TaskExecutor,
+};
 
 pub struct Manager<'f> {
     pub handle: Handle,
     pub executor: TaskExecutor,
     pub selectors: Vec<Selector<'f>>,
     pub lives: Vec<Box<LifeTrait + 'f>>,
+    queue: (BroadcastFutSender<Sub>, BroadcastFutReceiver<Sub>),
 }
 
 impl<'f> Manager<'f> {
@@ -19,6 +23,7 @@ impl<'f> Manager<'f> {
             executor,
             selectors: vec![],
             lives: vec![],
+            queue: broadcast_fut_queue(100),
         }
     }
 
@@ -55,12 +60,30 @@ impl<'f> Manager<'f> {
 
             if !l.capabilities().is_empty() {
                 let sub = l.sub();
-                sub.unsubscribe();
+                let mut maintx = self.queue.0.clone();
+
+                // TODO: Find a way to do this properly without using for_each
+                // all the time. Surely forward() or send_all() would be better!
+                let pipe = sub.for_each(move |event| {
+                    maintx.start_send(event).unwrap_or_else(|_| {
+                        panic!(
+                            "Receiver was dropped before Sender was done, failed to forward event"
+                        )
+                    });
+
+                    Ok(())
+                });
+
+                self.executor.spawn(pipe.map_err(|_| {}));
                 lives.push(l);
             }
         }
 
         self.lives = lives;
+    }
+
+    pub fn sub(&self) -> BroadcastFutReceiver<Sub> {
+        self.queue.1.clone()
     }
 
     pub fn bind(&mut self, paths: &[PathBuf]) -> Status {
@@ -80,10 +103,12 @@ impl<'f> Manager<'f> {
         let mut remaining = paths.to_vec();
         for life_index in 0..(self.lives.len()) {
             if remaining.is_empty() {
-                self.lives.get_mut(life_index).map(|life| {
-                    println!("Unbinding life that's not needed anymore: {:?}", life);
-                    life.unbind().ok()
-                });
+                if let Some(life) = self.lives.get_mut(life_index) {
+                    if life.active() {
+                        println!("Unbinding life that's not needed anymore: {:?}", life);
+                        life.unbind().ok();
+                    }
+                }
                 continue;
             }
 
@@ -142,8 +167,7 @@ impl<'f> Manager<'f> {
         //
         // we do that by parsing the error for pathed errors
 
-        let life = self
-            .lives
+        let life = self.lives
             .get_mut(index)
             .expect("bind_to_life was given a bad index, something is very wrong");
 
@@ -165,8 +189,7 @@ impl<'f> Manager<'f> {
                 return Err((e, vec![], paths.to_vec()))
             }
             BackendErrorWrap::Single(_, ref paths) => paths.clone(),
-            BackendErrorWrap::Multiple(ref tups) => tups
-                .iter()
+            BackendErrorWrap::Multiple(ref tups) => tups.iter()
                 .flat_map(|(_, ref paths)| paths.clone())
                 .collect(),
         };

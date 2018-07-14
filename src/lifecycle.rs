@@ -144,9 +144,9 @@ impl<B: Backend<Item = stream::Item, Error = stream::Error>> LifeTrait for Life<
 
                     txs.start_send(Ok(event.clone())).unwrap_or_else(|_| {
                         panic!(
-                        "Receiver was dropped before Sender was done, failed to send event: {:?}",
-                        event
-                    )
+                            "Receiver was dropped before Sender was done, failed to send event: {:?}",
+                            event
+                        )
                     });
 
                     Ok(())
@@ -155,9 +155,9 @@ impl<B: Backend<Item = stream::Item, Error = stream::Error>> LifeTrait for Life<
                     let erc = Arc::new(e);
                     txe.start_send(Err(erc.clone())).unwrap_or_else(|_| {
                         panic!(
-                        "Receiver was dropped before Sender was done, failed to send error: {:?}",
-                        erc
-                    )
+                            "Receiver was dropped before Sender was done, failed to send error: {:?}",
+                            erc
+                        )
                     });
                 }),
         );

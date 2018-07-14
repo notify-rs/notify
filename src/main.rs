@@ -17,6 +17,11 @@ fn main() {
     println!("Acquired tokio executor");
 
     let mut man = Manager::new(handle, executor);
+    println!("Acquired manager");
+
+    let events = man.sub();
+    println!("Acquired event sub");
+
     man.builtins();
     man.enliven();
     println!(
@@ -34,7 +39,7 @@ fn main() {
     println!("Retrieved command arguments: {:?}", args);
 
     if args.is_empty() {
-        args.push("/opt/notify-test".into());
+        args.push("src/".into());
         println!("No paths given, adding default path");
     }
 
@@ -43,12 +48,6 @@ fn main() {
 
     man.bind(&paths).unwrap();
     println!("Manager bound: {:?}", man);
-
-    let life = man.active().unwrap();
-    println!("Life bound: {:?}", life);
-
-    let events = life.sub();
-    println!("Acquired event sub");
 
     println!("Spawn reporter, filtering on Modify");
     runtime.spawn(events.for_each(|event| {
