@@ -123,10 +123,10 @@ impl<'f> Manager<'f> {
             if let Some(err) = final_err {
                 Err(err)
             } else {
-                unreachable!();
+                Ok(())
             }
         } else {
-            Ok(())
+            unreachable!();
         }
     }
 
