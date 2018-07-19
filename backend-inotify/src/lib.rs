@@ -1,6 +1,7 @@
 //! Notify Backend crate for Linux's inotify.
 
 #![deny(missing_docs)]
+#![forbid(unsafe_code)]
 #![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
 
 extern crate inotify;

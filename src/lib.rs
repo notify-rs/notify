@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
 
 extern crate multiqueue;

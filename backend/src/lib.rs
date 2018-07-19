@@ -24,6 +24,7 @@
 //! thorough walk-through of backend implementation.
 
 #![deny(missing_docs)]
+#![forbid(unsafe_code)]
 #![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
 #![cfg_attr(feature = "cargo-clippy", allow(stutter))]
 
