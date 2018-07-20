@@ -12,6 +12,9 @@
 
 _Cross-platform filesystem notification library for Rust._
 
+(Looking for desktop notifications instead? Have a look at [notify-rust] or
+[alert-after]!)
+
 - [Guides](https://github.com/passcod/notify/wiki/Guides)
 - [API Documentation][docs]
 - [Crate page][crate]
@@ -21,6 +24,7 @@ _Cross-platform filesystem notification library for Rust._
 As used by: [cargo watch], [mdBook], [rdiff], [watchexec].
 (Want to be added to this list? Open a pull request!)
 
+[alert-after]: https://github.com/frewsxcv/alert-after
 [build-unix]: https://travis-ci.org/passcod/notify
 [build-windows]: https://ci.appveyor.com/project/passcod/rsnotify
 [cargo watch]: https://github.com/passcod/cargo-watch
@@ -28,6 +32,7 @@ As used by: [cargo watch], [mdBook], [rdiff], [watchexec].
 [crate]: https://crates.io/crates/notify
 [docs]: https://docs.rs/notify
 [mdBook]: https://github.com/rust-lang-nursery/mdBook
+[notify-rust]: https://github.com/hoodie/notify-rust
 [rdiff]: https://github.com/dyule/rdiff
 [watchexec]: https://github.com/mattgreen/watchexec
 
