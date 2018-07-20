@@ -64,9 +64,6 @@ matrix:
     - env: TARGET=arm-unknown-linux-gnueabi DISABLE_TESTS=1
 
   allow_failures:
-    # Allow failing on Rust stable until first Notify beta
-    - rust: stable
-
     # From the not-Tier-1 list
     - env: TARGET=i686-unknown-linux-gnu
     - env: TARGET=x86_64-unknown-freebsd
