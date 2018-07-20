@@ -115,7 +115,7 @@ matrix:
 before_install:
   - set -e
   - rustup self update
-  - cargo install cargo-audit
+  - which cargo-audit || cargo install cargo-audit
 
 install:
   - |
