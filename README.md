@@ -21,7 +21,7 @@ _Cross-platform filesystem notification library for Rust._
 - [How to help](#how-to-help)
 - [Acknowledgements](./ACKNOWLEDGEMENTS.md)
 
-As used by: [cargo watch], [mdBook], [rdiff], [watchexec].
+As used by: [cargo watch], [mdBook], [pax], [rdiff], [watchexec].
 (Want to be added to this list? Open a pull request!)
 
 [alert-after]: https://github.com/frewsxcv/alert-after
@@ -33,6 +33,7 @@ As used by: [cargo watch], [mdBook], [rdiff], [watchexec].
 [docs]: https://docs.rs/notify
 [mdBook]: https://github.com/rust-lang-nursery/mdBook
 [notify-rust]: https://github.com/hoodie/notify-rust
+[pax]: https://pax.js.org/
 [rdiff]: https://github.com/dyule/rdiff
 [watchexec]: https://github.com/mattgreen/watchexec
 
