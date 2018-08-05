@@ -17,8 +17,7 @@ And as much of the following as you can / think is relevant:
  - If you're running in a container, details on the runtime and overlay
  - If you're running in a VM, details on the hypervisor
 
-When opening a pull request, you agree to release your contribution to the
-**public domain or the terms of the CC0 license**.
+When opening a pull request, you agree to [the terms of the license][./LICENSE].
 
 After opening a pull request, the test suite will run. It is expected that **if
 any failures occur** in the critical builds (there are a number of non-critical

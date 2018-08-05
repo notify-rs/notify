@@ -1,14 +1,14 @@
 # Notify
 
-[![Version](https://img.shields.io/crates/v/notify.svg?style=flat-square)][crate]
-[![License: CC0](https://img.shields.io/crates/l/notify.svg?style=flat-square)][cc0]
-[![Download count](https://img.shields.io/crates/d/notify.svg?style=flat-square)][crate]
+[![Version](https://flat.badgen.net/crates/v/notify)][crate]
+[![License: Artistic 2.0](https://flat.badgen.net/badge/license/Artistic 2.0/purple)][artistic]
+[![Download count](https://flat.badgen.net/crates/d/notify)][crate]
 
-<sup>**windows**:</sup> [![Windows CI](https://img.shields.io/appveyor/ci/passcod/rsnotify/next.svg?style=flat-square)][build-windows]
-<sup>**\*nix**:</sup> [![\*Nix CI](https://img.shields.io/travis/passcod/notify/next.svg?style=flat-square)][build-unix]
+<sup>**windows**:</sup> [![Windows CI](https://flat.badgen.net/appveyor/ci/passcod/rsnotify/next)][build-windows]
+<sup>**\*nix**:</sup> [![\*Nix CI](https://flat.badgen.net/travis/passcod/notify/next)][build-unix]
 
-[![Code of Conduct](https://img.shields.io/badge/contributor-covenant-5e0d73.svg?style=flat-square)](#conduct)
-[![Documentation](https://img.shields.io/badge/documentation-docs.rs-df3600.svg?style=flat-square)][docs]
+[![Code of Conduct](https://flat.badgen.net/badge/contributor/covenant/5e0d73)](#conduct)
+[![Documentation](https://flat.badgen.net/badge/documentation/docs.rs/df3600)][docs]
 
 _Cross-platform filesystem notification library for Rust._
 
@@ -28,7 +28,7 @@ As used by: [cargo watch], [mdBook], [pax], [rdiff], [watchexec].
 [build-unix]: https://travis-ci.org/passcod/notify
 [build-windows]: https://ci.appveyor.com/project/passcod/rsnotify
 [cargo watch]: https://github.com/passcod/cargo-watch
-[cc0]: https://creativecommons.org/publicdomain/zero/1.0/
+[artistic]: ./LICENSE
 [crate]: https://crates.io/crates/notify
 [docs]: https://docs.rs/notify
 [mdBook]: https://github.com/rust-lang-nursery/mdBook
@@ -158,9 +158,7 @@ This project's conduct policies are described in the
 
 ### License
 
-[![No Rights Reserved](https://licensebuttons.net/p/zero/1.0/88x31.png)][cc0]
-
-This work is released to the public domain under [CC0][cc0].
+[Artistic License 2.0](./LICENSE), see LICENSE file for details.
 
 Additionally, any suit or legal action relating to this work may only be
 brought in New Zealand.

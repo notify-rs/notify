@@ -1,4 +1,4 @@
-<!-- This project is in the public domain. By contributing, you agree to release your contribution under the terms of the CC0 license. -->
+<!-- By contributing, you agree to the terms of the license, available in the LICENSE file. -->
 
 <!-- After creating this pull request, the test suite will run.
 
