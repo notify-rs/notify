@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "4.0.3"
+version = "4.0.4"
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
