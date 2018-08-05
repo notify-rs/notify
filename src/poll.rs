@@ -165,9 +165,9 @@ impl PollWatcher {
                             (*paths).remove(&path);
                         }
                     }
-
-                    thread::sleep(delay);
                 }
+
+                thread::sleep(delay);
             }
         });
     }
