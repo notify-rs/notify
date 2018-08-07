@@ -4,11 +4,11 @@
 [![License: Artistic 2.0](https://flat.badgen.net/badge/license/Artistic%202.0/purple)][artistic]
 [![Download count](https://flat.badgen.net/crates/d/notify)][crate]
 
-<sup>**windows**:</sup> [![Windows CI](https://flat.badgen.net/appveyor/ci/passcod/rsnotify/next)][build-windows]
-<sup>**\*nix**:</sup> [![\*Nix CI](https://flat.badgen.net/travis/passcod/notify/next)][build-unix]
-
 [![Code of Conduct](https://flat.badgen.net/badge/contributor/covenant/5e0d73)](#conduct)
 [![Documentation](https://flat.badgen.net/badge/documentation/docs.rs/df3600)][docs]
+
+[![Appveyor CI](https://flat.badgen.net/appveyor/ci/passcod/rsnotify/next)][build-windows]
+[![Travis CI](https://flat.badgen.net/travis/passcod/notify/next)][build-unix]
 
 _Cross-platform filesystem notification library for Rust._
 
