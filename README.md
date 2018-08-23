@@ -101,13 +101,13 @@ Backends needed but not started:
 - [ ] Windows
 - [ ] kqueue (current implementation disabled, will need a rewrite using mio directly) ([#136](https://github.com/passcod/notify/issues/136))
 
-Delayed until after release:
+Delayed until after release and/or implemented by third-parties:
 
 - All non-essential backends:
   - Remote
   - Watchman
-  - fanotify
-  - demo Google Drive backend
+  - [fanotify / auditd](https://github.com/passcod/notify/issues/161)
+  - demo cloud storage backend
   - Dynamic
 - More debouncing options (possibly via feature)
 - Filesystem plugins (needed for advanced remote backends)
