@@ -13,18 +13,18 @@ use utils::*;
 #[test]
 fn test_inflate_events() {
     assert_eq!(inflate_events(vec![
-        (PathBuf::from("file1"), op::CREATE, None),
-        (PathBuf::from("file1"), op::WRITE, None),
+        (PathBuf::from("file1"), op::Op::CREATE, None),
+        (PathBuf::from("file1"), op::Op::WRITE, None),
     ]), vec![
-        (PathBuf::from("file1"), op::CREATE | op::WRITE, None),
+        (PathBuf::from("file1"), op::Op::CREATE | op::Op::WRITE, None),
     ]);
 
     assert_eq!(inflate_events(vec![
-        (PathBuf::from("file1"), op::RENAME, Some(1)),
-        (PathBuf::from("file1"), op::RENAME, Some(2)),
+        (PathBuf::from("file1"), op::Op::RENAME, Some(1)),
+        (PathBuf::from("file1"), op::Op::RENAME, Some(2)),
     ]), vec![
-        (PathBuf::from("file1"), op::RENAME, Some(1)),
-        (PathBuf::from("file1"), op::RENAME, Some(2)),
+        (PathBuf::from("file1"), op::Op::RENAME, Some(1)),
+        (PathBuf::from("file1"), op::Op::RENAME, Some(2)),
     ]);
 }
 
@@ -45,16 +45,16 @@ fn create_file() {
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("file1"), op::CREATE, None),
+            (tdir.mkpath("file1"), op::Op::CREATE, None),
         ]);
     } else if cfg!(target_os="windows") {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("file1"), op::CREATE, None)
+            (tdir.mkpath("file1"), op::Op::CREATE, None)
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("file1"), op::CREATE, None),
-            (tdir.mkpath("file1"), op::CLOSE_WRITE, None)
+            (tdir.mkpath("file1"), op::Op::CREATE, None),
+            (tdir.mkpath("file1"), op::Op::CLOSE_WRITE, None)
         ]);
     }
 }
@@ -79,16 +79,16 @@ fn write_file() {
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("file1"), op::CREATE | op::WRITE, None), // excessive create event
+            (tdir.mkpath("file1"), op::Op::CREATE | op::Op::WRITE, None), // excessive create event
         ]);
     } else if cfg!(target_os="windows") {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("file1"), op::WRITE, None)
+            (tdir.mkpath("file1"), op::Op::WRITE, None)
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("file1"), op::WRITE, None),
-            (tdir.mkpath("file1"), op::CLOSE_WRITE, None)
+            (tdir.mkpath("file1"), op::Op::WRITE, None),
+            (tdir.mkpath("file1"), op::Op::CLOSE_WRITE, None)
         ]);
     }
 }
@@ -116,17 +116,17 @@ fn modify_file() {
 
     if cfg!(target_os="windows") {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("file1"), op::WRITE, None),
+            (tdir.mkpath("file1"), op::Op::WRITE, None),
         ]);
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("file1"), op::CHMOD | op::CREATE, None),
+            (tdir.mkpath("file1"), op::Op::CHMOD | op::Op::CREATE, None),
         ]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("file1"), op::CHMOD, None),
+            (tdir.mkpath("file1"), op::Op::CHMOD, None),
         ]);
     }
 }
@@ -151,11 +151,11 @@ fn delete_file() {
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("file1"), op::CREATE | op::REMOVE, None), // excessive create event
+            (tdir.mkpath("file1"), op::Op::CREATE | op::Op::REMOVE, None), // excessive create event
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("file1"), op::REMOVE, None),
+            (tdir.mkpath("file1"), op::Op::REMOVE, None),
         ]);
     }
 }
@@ -183,16 +183,16 @@ fn rename_file() {
         let cookies = extract_cookies(&actual);
         assert_eq!(cookies.len(), 1);
         assert_eq!(actual, vec![
-            (tdir.mkpath("file1a"), op::CREATE | op::RENAME, Some(cookies[0])), // excessive create event
-            (tdir.mkpath("file1b"), op::RENAME, Some(cookies[0]))
+            (tdir.mkpath("file1a"), op::Op::CREATE | op::Op::RENAME, Some(cookies[0])), // excessive create event
+            (tdir.mkpath("file1b"), op::Op::RENAME, Some(cookies[0]))
         ]);
     } else {
         let actual = recv_events(&rx);
         let cookies = extract_cookies(&actual);
         assert_eq!(cookies.len(), 1);
         assert_eq!(actual, vec![
-            (tdir.mkpath("file1a"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("file1b"), op::RENAME, Some(cookies[0]))
+            (tdir.mkpath("file1a"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("file1b"), op::Op::RENAME, Some(cookies[0]))
         ]);
     }
 }
@@ -219,19 +219,19 @@ fn move_out_create_file() {
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("watch_dir/file1"), op::CREATE | op::RENAME, None), // fsevent interprets a move_out as a rename event
+            (tdir.mkpath("watch_dir/file1"), op::Op::CREATE | op::Op::RENAME, None), // fsevent interprets a move_out as a rename event
         ]);
         panic!("move event should be a remove event; fsevent conflates rename and create events");
     } else if cfg!(target_os="linux") {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("watch_dir/file1"), op::REMOVE, None),
-            (tdir.mkpath("watch_dir/file1"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/file1"), op::CLOSE_WRITE, None),
+            (tdir.mkpath("watch_dir/file1"), op::Op::REMOVE, None),
+            (tdir.mkpath("watch_dir/file1"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/file1"), op::Op::CLOSE_WRITE, None),
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("watch_dir/file1"), op::REMOVE, None),
-            (tdir.mkpath("watch_dir/file1"), op::CREATE, None),
+            (tdir.mkpath("watch_dir/file1"), op::Op::REMOVE, None),
+            (tdir.mkpath("watch_dir/file1"), op::Op::CREATE, None),
         ]);
     }
 }
@@ -255,23 +255,23 @@ fn create_write_modify_file() {
 
     if cfg!(target_os="windows") {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("file1"), op::CREATE, None),
-            (tdir.mkpath("file1"), op::WRITE, None),
-            (tdir.mkpath("file1"), op::WRITE, None),
+            (tdir.mkpath("file1"), op::Op::CREATE, None),
+            (tdir.mkpath("file1"), op::Op::WRITE, None),
+            (tdir.mkpath("file1"), op::Op::WRITE, None),
         ]);
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("file1"), op::CHMOD | op::CREATE | op::WRITE, None),
+            (tdir.mkpath("file1"), op::Op::CHMOD | op::Op::CREATE | op::Op::WRITE, None),
         ]);
         panic!("macos cannot distinguish between chmod and create");
     } else if cfg!(target_os="linux") {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("file1"), op::CREATE, None),
-            (tdir.mkpath("file1"), op::CLOSE_WRITE, None),
-            (tdir.mkpath("file1"), op::WRITE, None),
-            (tdir.mkpath("file1"), op::CLOSE_WRITE, None),
-            (tdir.mkpath("file1"), op::CHMOD, None),
+            (tdir.mkpath("file1"), op::Op::CREATE, None),
+            (tdir.mkpath("file1"), op::Op::CLOSE_WRITE, None),
+            (tdir.mkpath("file1"), op::Op::WRITE, None),
+            (tdir.mkpath("file1"), op::Op::CLOSE_WRITE, None),
+            (tdir.mkpath("file1"), op::Op::CHMOD, None),
         ]);
     }
 }
@@ -300,23 +300,23 @@ fn create_rename_overwrite_file() {
     if cfg!(target_os="windows") {
         // Windows interprets a move that overwrites a file as a delete of the source file and a write to the file that is being overwritten
         assert_eq!(actual, vec![
-            (tdir.mkpath("file1a"), op::CREATE, None),
-            (tdir.mkpath("file1a"), op::REMOVE, None),
-            (tdir.mkpath("file1b"), op::WRITE, None)
+            (tdir.mkpath("file1a"), op::Op::CREATE, None),
+            (tdir.mkpath("file1a"), op::Op::REMOVE, None),
+            (tdir.mkpath("file1b"), op::Op::WRITE, None)
         ]);
     } else if cfg!(target_os="macos") {
         assert_eq!(inflate_events(actual), vec![
-            (tdir.mkpath("file1a"), op::CREATE | op::RENAME, None),
-            (tdir.mkpath("file1b"), op::CREATE | op::RENAME, None)
+            (tdir.mkpath("file1a"), op::Op::CREATE | op::Op::RENAME, None),
+            (tdir.mkpath("file1b"), op::Op::CREATE | op::Op::RENAME, None)
         ]);
     } else {
         let cookies = extract_cookies(&actual);
         assert_eq!(cookies.len(), 1);
         assert_eq!(actual, vec![
-            (tdir.mkpath("file1a"), op::CREATE, None),
-            (tdir.mkpath("file1a"), op::CLOSE_WRITE, None),
-            (tdir.mkpath("file1a"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("file1b"), op::RENAME, Some(cookies[0]))
+            (tdir.mkpath("file1a"), op::Op::CREATE, None),
+            (tdir.mkpath("file1a"), op::Op::CLOSE_WRITE, None),
+            (tdir.mkpath("file1a"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("file1b"), op::Op::RENAME, Some(cookies[0]))
         ]);
     }
 }
@@ -345,19 +345,19 @@ fn rename_rename_file() {
         let cookies = extract_cookies(&actual);
         assert_eq!(cookies.len(), 1);
         assert_eq!(actual, vec![
-            (tdir.mkpath("file1a"), op::CREATE | op::RENAME, None),
-            (tdir.mkpath("file1b"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("file1c"), op::RENAME, Some(cookies[0]))
+            (tdir.mkpath("file1a"), op::Op::CREATE | op::Op::RENAME, None),
+            (tdir.mkpath("file1b"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("file1c"), op::Op::RENAME, Some(cookies[0]))
         ]);
     } else {
         let actual = recv_events(&rx);
         let cookies = extract_cookies(&actual);
         assert_eq!(cookies.len(), 2);
         assert_eq!(actual, vec![
-            (tdir.mkpath("file1a"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("file1b"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("file1b"), op::RENAME, Some(cookies[1])),
-            (tdir.mkpath("file1c"), op::RENAME, Some(cookies[1]))
+            (tdir.mkpath("file1a"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("file1b"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("file1b"), op::Op::RENAME, Some(cookies[1])),
+            (tdir.mkpath("file1c"), op::Op::RENAME, Some(cookies[1]))
         ]);
     }
 }
@@ -383,7 +383,7 @@ fn create_directory() {
     };
 
     assert_eq!(actual, vec![
-        (tdir.mkpath("dir1"), op::CREATE, None),
+        (tdir.mkpath("dir1"), op::Op::CREATE, None),
     ]);
 }
 
@@ -415,20 +415,20 @@ fn create_directory_watch_subdirectories() {
 
     if cfg!(target_os="linux") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1"), op::CREATE, None),
-            (tdir.mkpath("dir1/dir2/file1"), op::CREATE, None),
-            (tdir.mkpath("dir1/dir2/file1"), op::CLOSE_WRITE, None),
+            (tdir.mkpath("dir1"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1/dir2/file1"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1/dir2/file1"), op::Op::CLOSE_WRITE, None),
         ]);
     } else if cfg!(target_os="windows") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1"), op::CREATE, None),
-            (tdir.mkpath("dir1/dir2"), op::CREATE, None),
-            (tdir.mkpath("dir1/dir2/file1"), op::CREATE, None),
+            (tdir.mkpath("dir1"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1/dir2"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1/dir2/file1"), op::Op::CREATE, None),
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1"), op::CREATE, None),
-            (tdir.mkpath("dir1/dir2/file1"), op::CREATE, None),
+            (tdir.mkpath("dir1"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1/dir2/file1"), op::Op::CREATE, None),
         ]);
     }
 }
@@ -454,19 +454,19 @@ fn modify_directory() {
 
     if cfg!(target_os="windows") {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("dir1"), op::WRITE, None),
+            (tdir.mkpath("dir1"), op::Op::WRITE, None),
         ]);
         panic!("windows cannot distinguish between chmod and write");
     } else if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("dir1"), op::CHMOD | op::CREATE, None),
+            (tdir.mkpath("dir1"), op::Op::CHMOD | op::Op::CREATE, None),
         ]);
         panic!("macos cannot distinguish between chmod and create");
     } else {
         // TODO: emit chmod event only once
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("dir1"), op::CHMOD, None),
-            (tdir.mkpath("dir1"), op::CHMOD, None),
+            (tdir.mkpath("dir1"), op::Op::CHMOD, None),
+            (tdir.mkpath("dir1"), op::Op::CHMOD, None),
         ]);
     }
 }
@@ -491,11 +491,11 @@ fn delete_directory() {
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("dir1"), op::CREATE | op::REMOVE, None), // excessive create event
+            (tdir.mkpath("dir1"), op::Op::CREATE | op::Op::REMOVE, None), // excessive create event
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("dir1"), op::REMOVE, None),
+            (tdir.mkpath("dir1"), op::Op::REMOVE, None),
         ]);
     }
 }
@@ -523,16 +523,16 @@ fn rename_directory() {
         let cookies = extract_cookies(&actual);
         assert_eq!(cookies.len(), 1);
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1a"), op::CREATE | op::RENAME, Some(cookies[0])), // excessive create event
-            (tdir.mkpath("dir1b"), op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1a"), op::Op::CREATE | op::Op::RENAME, Some(cookies[0])), // excessive create event
+            (tdir.mkpath("dir1b"), op::Op::RENAME, Some(cookies[0])),
         ]);
     } else {
         let actual = recv_events(&rx);
         let cookies = extract_cookies(&actual);
         assert_eq!(cookies.len(), 1);
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1a"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("dir1b"), op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1a"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1b"), op::Op::RENAME, Some(cookies[0])),
         ]);
     }
 }
@@ -559,13 +559,13 @@ fn move_out_create_directory() {
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("watch_dir/dir1"), op::CREATE | op::RENAME, None), // fsevent interprets a move_out as a rename event
+            (tdir.mkpath("watch_dir/dir1"), op::Op::CREATE | op::Op::RENAME, None), // fsevent interprets a move_out as a rename event
         ]);
         panic!("move event should be a remove event; fsevent conflates rename and create events");
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("watch_dir/dir1"), op::REMOVE, None),
-            (tdir.mkpath("watch_dir/dir1"), op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1"), op::Op::REMOVE, None),
+            (tdir.mkpath("watch_dir/dir1"), op::Op::CREATE, None),
         ]);
     }
 }
@@ -596,18 +596,18 @@ fn move_in_directory_watch_subdirectories() {
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("watch_dir/dir1"), op::CREATE | op::RENAME, None),
+            (tdir.mkpath("watch_dir/dir1"), op::Op::CREATE | op::Op::RENAME, None),
         ]);
     } else if cfg!(target_os="linux") {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("watch_dir/dir1"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1/dir2/file1"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1/dir2/file1"), op::CLOSE_WRITE, None),
+            (tdir.mkpath("watch_dir/dir1"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1/dir2/file1"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1/dir2/file1"), op::Op::CLOSE_WRITE, None),
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("watch_dir/dir1"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1/dir2/file1"), op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1/dir2/file1"), op::Op::CREATE, None),
         ]);
     }
 }
@@ -639,18 +639,18 @@ fn create_rename_overwrite_directory() {
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir.mkpath("dir1a"), op::CREATE | op::RENAME, None),
-            (tdir.mkpath("dir1b"), op::CREATE | op::RENAME, None),
+            (tdir.mkpath("dir1a"), op::Op::CREATE | op::Op::RENAME, None),
+            (tdir.mkpath("dir1b"), op::Op::CREATE | op::Op::RENAME, None),
         ]);
     } else if cfg!(target_os="linux") {
         let actual = recv_events(&rx);
         let cookies = extract_cookies(&actual);
         assert_eq!(cookies.len(), 1);
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1a"), op::CREATE, None),
-            (tdir.mkpath("dir1a"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("dir1b"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("dir1b"), op::CHMOD, None),
+            (tdir.mkpath("dir1a"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1a"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1b"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1b"), op::Op::CHMOD, None),
         ]);
     } else {
         unimplemented!();
@@ -681,19 +681,19 @@ fn rename_rename_directory() {
         let cookies = extract_cookies(&actual);
         assert_eq!(cookies.len(), 1);
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1a"), op::CREATE | op::RENAME, None),
-            (tdir.mkpath("dir1b"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("dir1c"), op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1a"), op::Op::CREATE | op::Op::RENAME, None),
+            (tdir.mkpath("dir1b"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1c"), op::Op::RENAME, Some(cookies[0])),
         ]);
     } else {
         let actual = recv_events(&rx);
         let cookies = extract_cookies(&actual);
         assert_eq!(cookies.len(), 2);
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1a"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("dir1b"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("dir1b"), op::RENAME, Some(cookies[1])),
-            (tdir.mkpath("dir1c"), op::RENAME, Some(cookies[1])),
+            (tdir.mkpath("dir1a"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1b"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1b"), op::Op::RENAME, Some(cookies[1])),
+            (tdir.mkpath("dir1c"), op::Op::RENAME, Some(cookies[1])),
         ]);
     }
 }

@@ -1,18 +1,18 @@
 #![allow(dead_code)]
 
 bitflags! {
-  pub flags Mask: u32 {
+  pub struct Mask: u32 {
     #[doc = " Event: File was accessed."]
     #[doc = " "]
     #[doc = " When monitoring a directory, the event may occur both for the"]
     #[doc = " directory itself and the files within."]
-    const IN_ACCESS         = 0x00000001,
+    const IN_ACCESS         = 0x00000001;
 
     #[doc = "Event: File was modified."]
     #[doc = " "]
     #[doc = " When monitoring a directory, the event may occur *only* for"]
     #[doc = " the files within, not the directory itself."]
-    const IN_MODIFY         = 0x00000002,
+    const IN_MODIFY         = 0x00000002;
 
     #[doc = " Event: Metadata has changed."]
     #[doc = " "]
@@ -32,37 +32,37 @@ bitflags! {
     #[doc = " [link(2)]: http://man7.org/linux/man-pages/man2/link.2.html"]
     #[doc = " [unlink(2)]: http://man7.org/linux/man-pages/man2/link.2.html"]
     #[doc = " [chown(2)]: http://man7.org/linux/man-pages/man2/link.2.html"]
-    const IN_ATTRIB         = 0x00000004,
+    const IN_ATTRIB         = 0x00000004;
 
     #[doc = " Event: File opened for writing was closed."]
     #[doc = " "]
     #[doc = " When monitoring a directory, the event may occur both for the"]
     #[doc = " directory itself and the files within."]
-    const IN_CLOSE_WRITE    = 0x00000008,
+    const IN_CLOSE_WRITE    = 0x00000008;
 
     #[doc = " Event: File not opened for writing was closed."]
     #[doc = " "]
     #[doc = " When monitoring a directory, the event may occur both for the"]
     #[doc = " directory itself and the files within."]
-    const IN_CLOSE_NOWRITE  = 0x00000010,
+    const IN_CLOSE_NOWRITE  = 0x00000010;
 
     #[doc = " Event: File was opened."]
     #[doc = " "]
     #[doc = " When monitoring a directory, the event may occur both for the"]
     #[doc = " directory itself and the files within."]
-    const IN_OPEN           = 0x00000020,
+    const IN_OPEN           = 0x00000020;
 
     #[doc = " Event: File or directory was moved away."]
     #[doc = " "]
     #[doc = " When monitoring a directory, the event may occur *only* for"]
     #[doc = " the files within, not the directory itself."]
-    const IN_MOVED_FROM     = 0x00000040,
+    const IN_MOVED_FROM     = 0x00000040;
 
     #[doc = " Event: File or directory was moved in."]
     #[doc = " "]
     #[doc = " When monitoring a directory, the event may occur *only* for"]
     #[doc = " the files within, not the directory itself."]
-    const IN_MOVED_TO       = 0x00000080,
+    const IN_MOVED_TO       = 0x00000080;
 
     #[doc = " Event: File or directory was created."]
     #[doc = " "]
@@ -70,7 +70,7 @@ bitflags! {
     #[doc = " "]
     #[doc = " When monitoring a directory, the event may occur *only* for"]
     #[doc = " the files within, not the directory itself."]
-    const IN_CREATE         = 0x00000100,
+    const IN_CREATE         = 0x00000100;
 
     #[doc = " Event: File or directory was deleted."]
     #[doc = " "]
@@ -78,7 +78,7 @@ bitflags! {
     #[doc = " "]
     #[doc = " When monitoring a directory, the event may occur *only* for"]
     #[doc = " the files within, not the directory itself."]
-    const IN_DELETE         = 0x00000200,
+    const IN_DELETE         = 0x00000200;
 
     #[doc = " Event: Watched file or directory was deleted."]
     #[doc = " "]
@@ -89,44 +89,44 @@ bitflags! {
     #[doc = " An IN_IGNORED event will subsequently be generated."]
     #[doc = " "]
     #[doc = " [mv(1)]: http://man7.org/linux/man-pages/man1/mv.1.html"]
-    const IN_DELETE_SELF    = 0x00000400,
+    const IN_DELETE_SELF    = 0x00000400;
 
     #[doc = " Event: Watched file or directory was moved."]
-    const IN_MOVE_SELF      = 0x00000800,
+    const IN_MOVE_SELF      = 0x00000800;
 
     #[doc = " Event: File or directory was moved away or in."]
     #[doc = " "]
     #[doc = " When monitoring a directory, the event may occur *only* for"]
     #[doc = " the files within, not the directory itself."]
-    const IN_MOVE           = IN_MOVED_FROM.bits
-                            | IN_MOVED_TO.bits,
+    const IN_MOVE           = Self::IN_MOVED_FROM.bits
+                            | Self::IN_MOVED_TO.bits;
 
     #[doc = " Event: File opened was closed."]
     #[doc = " "]
     #[doc = " When monitoring a directory, the event may occur both for the"]
     #[doc = " directory itself and the files within."]
-    const IN_CLOSE          = IN_CLOSE_WRITE.bits
-                            | IN_CLOSE_NOWRITE.bits,
+    const IN_CLOSE          = Self::IN_CLOSE_WRITE.bits
+                            | Self::IN_CLOSE_NOWRITE.bits;
 
     #[doc = " Event: Any event occured."]
-    const IN_ALL_EVENTS     = IN_ACCESS.bits
-                            | IN_MODIFY.bits
-                            | IN_ATTRIB.bits
-                            | IN_CLOSE_WRITE.bits
-                            | IN_CLOSE_NOWRITE.bits
-                            | IN_OPEN.bits
-                            | IN_MOVED_FROM.bits
-                            | IN_MOVED_TO.bits
-                            | IN_CREATE.bits
-                            | IN_DELETE.bits
-                            | IN_DELETE_SELF.bits
-                            | IN_MOVE_SELF.bits,
+    const IN_ALL_EVENTS     = Self::IN_ACCESS.bits
+                            | Self::IN_MODIFY.bits
+                            | Self::IN_ATTRIB.bits
+                            | Self::IN_CLOSE_WRITE.bits
+                            | Self::IN_CLOSE_NOWRITE.bits
+                            | Self::IN_OPEN.bits
+                            | Self::IN_MOVED_FROM.bits
+                            | Self::IN_MOVED_TO.bits
+                            | Self::IN_CREATE.bits
+                            | Self::IN_DELETE.bits
+                            | Self::IN_DELETE_SELF.bits
+                            | Self::IN_MOVE_SELF.bits;
 
     #[doc = " Option: Don't watch children (if self is a directory)."]
-    const IN_ONLYDIR       = 0x01000000,
+    const IN_ONLYDIR       = 0x01000000;
 
     #[doc = " Option: Don't dereference (if self is a symlink)."]
-    const IN_DONT_FOLLOW   = 0x02000000,
+    const IN_DONT_FOLLOW   = 0x02000000;
 
     #[doc = " Option: Don't watch unlinked children."]
     #[doc = " "]
@@ -141,28 +141,28 @@ bitflags! {
     #[doc = " > IN_EXCL_UNLINK changes this behavior, so that events are"]
     #[doc = " > not generated for children after they have been unlinked"]
     #[doc = " > from the watched directory."]
-    const IN_EXCL_UNLINK   = 0x04000000,
+    const IN_EXCL_UNLINK   = 0x04000000;
 
     #[doc = " Option: Add events to an existing watch instead of replacing it."]
     #[doc = " "]
     #[doc = " > If a watch instance already exists for the filesystem"]
     #[doc = " > object corresponding to self, add (|) the events to the"]
     #[doc = " > watch mask instead of replacing it."]
-    const IN_MASK_ADD      = 0x20000000,
+    const IN_MASK_ADD      = 0x20000000;
 
     #[doc = " Option: Listen for one event, then remove the watch."]
-    const IN_ONESHOT       = 0x80000000,
+    const IN_ONESHOT       = 0x80000000;
 
     #[doc = " Info: Subject of this event is a directory."]
-    const IN_ISDIR         = 0x40000000,
+    const IN_ISDIR         = 0x40000000;
 
     #[doc = " Info: Filesystem containing self was unmounted."]
     #[doc = " "]
     #[doc = " An IN_IGNORED event will subsequently be generated."]
-    const IN_UNMOUNT       = 0x00002000,
+    const IN_UNMOUNT       = 0x00002000;
 
     #[doc = " Info: Event queue overflowed."]
-    const IN_Q_OVERFLOW    = 0x00004000,
+    const IN_Q_OVERFLOW    = 0x00004000;
 
     #[doc = " Info: Watch was removed."]
     #[doc = " "]
@@ -173,6 +173,6 @@ bitflags! {
     #[doc = " See the BUGS section of [inotify(7)] for more details."]
     #[doc = " "]
     #[doc = " [inotify(7)]: http://man7.org/linux/man-pages/man7/inotify.7.html"]
-    const IN_IGNORED       = 0x00008000,
+    const IN_IGNORED       = 0x00008000;
   }
 }

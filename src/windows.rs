@@ -285,7 +285,7 @@ fn send_pending_rename_event(event: Option<RawEvent>, event_tx: &mut EventTx) {
     if let Some(e) = event {
         event_tx.send(RawEvent {
             path: e.path,
-            op: Ok(op::REMOVE),
+            op: Ok(op::Op::REMOVE),
             cookie: None,
         });
     }
@@ -336,7 +336,7 @@ unsafe extern "system" fn handle_event(error_code: u32,
                     if request.data.file.is_some() {
                         event_tx.send(RawEvent {
                             path: Some(path),
-                            op: Ok(op::RENAME),
+                            op: Ok(op::Op::RENAME),
                             cookie: None,
                         });
                         rename_event = None;
@@ -344,7 +344,7 @@ unsafe extern "system" fn handle_event(error_code: u32,
                         COOKIE_COUNTER = COOKIE_COUNTER.wrapping_add(1);
                         rename_event = Some(RawEvent {
                             path: Some(path),
-                            op: Ok(op::RENAME),
+                            op: Ok(op::Op::RENAME),
                             cookie: Some(COOKIE_COUNTER),
                         });
                     }
@@ -357,19 +357,19 @@ unsafe extern "system" fn handle_event(error_code: u32,
                             if let Some(e) = rename_event {
                                 if let Some(cookie) = e.cookie {
                                     event_tx.send(e);
-                                    o.insert(op::RENAME);
+                                    o.insert(op::Op::RENAME);
                                     c = Some(cookie);
                                 } else {
-                                    o.insert(op::CREATE);
+                                    o.insert(op::Op::CREATE);
                                 }
                             } else {
-                                o.insert(op::CREATE);
+                                o.insert(op::Op::CREATE);
                             }
                             rename_event = None;
                         }
-                        winnt::FILE_ACTION_ADDED => o.insert(op::CREATE),
-                        winnt::FILE_ACTION_REMOVED => o.insert(op::REMOVE),
-                        winnt::FILE_ACTION_MODIFIED => o.insert(op::WRITE),
+                        winnt::FILE_ACTION_ADDED => o.insert(op::Op::CREATE),
+                        winnt::FILE_ACTION_REMOVED => o.insert(op::Op::REMOVE),
+                        winnt::FILE_ACTION_MODIFIED => o.insert(op::Op::WRITE),
                         _ => (),
                     };
 

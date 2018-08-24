@@ -254,7 +254,7 @@ fn inotify_queue_overflow() {
     let mut rescan_found = false;
     while !rescan_found && start.elapsed().as_secs() < 5 {
         match rx.try_recv() {
-            Ok(RawEvent{op: Ok(op::RESCAN), ..}) => rescan_found = true,
+            Ok(RawEvent{op: Ok(op::Op::RESCAN), ..}) => rescan_found = true,
             Ok(RawEvent{op: Err(e), ..}) => panic!("unexpected event err: {:?}", e),
             Ok(e) => (),
             Err(mpsc::TryRecvError::Empty) => (),
@@ -293,7 +293,7 @@ fn watch_recursive_create_directory() {
     let actual = if cfg!(target_os="windows") {
         // Windows may sneak a write event in there
         let mut events = recv_events(&rx);
-        events.retain(|&(_, op, _)| op != op::WRITE);
+        events.retain(|&(_, op, _)| op != op::Op::WRITE);
         events
     } else if cfg!(target_os="macos") {
         inflate_events(recv_events(&rx))
@@ -303,14 +303,14 @@ fn watch_recursive_create_directory() {
 
     if cfg!(target_os="linux") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1"), op::CREATE, None),
-            (tdir.mkpath("dir1/file1"), op::CREATE, None),
-            (tdir.mkpath("dir1/file1"), op::CLOSE_WRITE, None)
+            (tdir.mkpath("dir1"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1/file1"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1/file1"), op::Op::CLOSE_WRITE, None)
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1"), op::CREATE, None),
-            (tdir.mkpath("dir1/file1"), op::CREATE, None)
+            (tdir.mkpath("dir1"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1/file1"), op::Op::CREATE, None)
         ]);
     }
 }
@@ -339,7 +339,7 @@ fn watch_recursive_move() {
     let actual = if cfg!(target_os="windows") {
         // Windows may sneak a write event in there
         let mut events = recv_events(&rx);
-        events.retain(|&(_, op, _)| op != op::WRITE);
+        events.retain(|&(_, op, _)| op != op::Op::WRITE);
         events
     } else if cfg!(target_os="macos") {
         inflate_events(recv_events(&rx))
@@ -351,30 +351,30 @@ fn watch_recursive_move() {
         let cookies = extract_cookies(&actual);
         assert_eq!(cookies.len(), 1);
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1a/file1"), op::CREATE, None),
-            (tdir.mkpath("dir1a"), op::CREATE | op::RENAME, Some(cookies[0])), // excessive create event
-            (tdir.mkpath("dir1b"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("dir1b/file2"), op::CREATE, None)
+            (tdir.mkpath("dir1a/file1"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1a"), op::Op::CREATE | op::Op::RENAME, Some(cookies[0])), // excessive create event
+            (tdir.mkpath("dir1b"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1b/file2"), op::Op::CREATE, None)
         ]);
     } else if cfg!(target_os="linux") {
         let cookies = extract_cookies(&actual);
         assert_eq!(cookies.len(), 1);
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1a/file1"), op::CREATE, None),
-            (tdir.mkpath("dir1a/file1"), op::CLOSE_WRITE, None),
-            (tdir.mkpath("dir1a"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("dir1b"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("dir1b/file2"), op::CREATE, None),
-            (tdir.mkpath("dir1b/file2"), op::CLOSE_WRITE, None)
+            (tdir.mkpath("dir1a/file1"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1a/file1"), op::Op::CLOSE_WRITE, None),
+            (tdir.mkpath("dir1a"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1b"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1b/file2"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1b/file2"), op::Op::CLOSE_WRITE, None)
         ]);
     } else {
         let cookies = extract_cookies(&actual);
         assert_eq!(cookies.len(), 1);
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1a/file1"), op::CREATE, None),
-            (tdir.mkpath("dir1a"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("dir1b"), op::RENAME, Some(cookies[0])),
-            (tdir.mkpath("dir1b/file2"), op::CREATE, None)
+            (tdir.mkpath("dir1a/file1"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1a"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1b"), op::Op::RENAME, Some(cookies[0])),
+            (tdir.mkpath("dir1b/file2"), op::Op::CREATE, None)
         ]);
     }
 }
@@ -404,7 +404,7 @@ fn watch_recursive_move_in() {
     let actual = if cfg!(target_os="windows") {
         // Windows may sneak a write event in there
         let mut events = recv_events(&rx);
-        events.retain(|&(_, op, _)| op != op::WRITE);
+        events.retain(|&(_, op, _)| op != op::Op::WRITE);
         events
     } else if cfg!(target_os="macos") {
         inflate_events(recv_events(&rx))
@@ -414,20 +414,20 @@ fn watch_recursive_move_in() {
 
     if cfg!(target_os="macos") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("watch_dir/dir1b"), op::RENAME, None), // fsevent interprets a move_to as a rename event
-            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::CREATE, None)
+            (tdir.mkpath("watch_dir/dir1b"), op::Op::RENAME, None), // fsevent interprets a move_to as a rename event
+            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::Op::CREATE, None)
         ]);
         panic!("move event should be a create event");
     } else if cfg!(target_os="linux") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("watch_dir/dir1b"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::CLOSE_WRITE, None),
+            (tdir.mkpath("watch_dir/dir1b"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::Op::CLOSE_WRITE, None),
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("watch_dir/dir1b"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1b"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::Op::CREATE, None),
         ]);
     }
 }
@@ -457,7 +457,7 @@ fn watch_recursive_move_out() {
     let actual = if cfg!(target_os="windows") {
         // Windows may sneak a write event in there
         let mut events = recv_events(&rx);
-        events.retain(|&(_, op, _)| op != op::WRITE);
+        events.retain(|&(_, op, _)| op != op::Op::WRITE);
         events
     } else if cfg!(target_os="macos") {
         inflate_events(recv_events(&rx))
@@ -467,20 +467,20 @@ fn watch_recursive_move_out() {
 
     if cfg!(target_os="macos") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1a"), op::CREATE | op::RENAME, None) // excessive create event, fsevent interprets a move_out as a rename event
+            (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1a"), op::Op::CREATE | op::Op::RENAME, None) // excessive create event, fsevent interprets a move_out as a rename event
         ]);
         panic!("move event should be a remove event");
     } else if cfg!(target_os="linux") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::CLOSE_WRITE, None),
-            (tdir.mkpath("watch_dir/dir1a"), op::REMOVE, None),
+            (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::Op::CLOSE_WRITE, None),
+            (tdir.mkpath("watch_dir/dir1a"), op::Op::REMOVE, None),
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1a"), op::REMOVE, None),
+            (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1a"), op::Op::REMOVE, None),
         ]);
     }
 }
@@ -511,14 +511,14 @@ fn watch_nonrecursive() {
 
     if cfg!(target_os="linux") {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("dir2"), op::CREATE, None),
-            (tdir.mkpath("file0"), op::CREATE, None),
-            (tdir.mkpath("file0"), op::CLOSE_WRITE, None)
+            (tdir.mkpath("dir2"), op::Op::CREATE, None),
+            (tdir.mkpath("file0"), op::Op::CREATE, None),
+            (tdir.mkpath("file0"), op::Op::CLOSE_WRITE, None)
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("dir2"), op::CREATE, None),
-            (tdir.mkpath("file0"), op::CREATE, None)
+            (tdir.mkpath("dir2"), op::Op::CREATE, None),
+            (tdir.mkpath("file0"), op::Op::CREATE, None)
         ]);
     }
 }
@@ -544,16 +544,16 @@ fn watch_file() {
 
     if cfg!(target_os="macos") {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("file1"), op::CREATE | op::WRITE, None) // excessive write create
+            (tdir.mkpath("file1"), op::Op::CREATE | op::Op::WRITE, None) // excessive write create
         ]);
     } else if cfg!(target_os="linux") {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("file1"), op::WRITE, None),
-            (tdir.mkpath("file1"), op::CLOSE_WRITE, None)
+            (tdir.mkpath("file1"), op::Op::WRITE, None),
+            (tdir.mkpath("file1"), op::Op::CLOSE_WRITE, None)
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("file1"), op::WRITE, None)
+            (tdir.mkpath("file1"), op::Op::WRITE, None)
         ]);
     }
 }
@@ -580,9 +580,9 @@ fn poll_watch_recursive_create_directory() {
     actual.sort_by(|a, b| a.0.cmp(&b.0));
 
     assert_eq!(actual, vec![
-        (tdir.mkpath("."), op::WRITE, None), // parent directory gets modified
-        (tdir.mkpath("dir1"), op::CREATE, None),
-        (tdir.mkpath("dir1/file1"), op::CREATE, None)
+        (tdir.mkpath("."), op::Op::WRITE, None), // parent directory gets modified
+        (tdir.mkpath("dir1"), op::Op::CREATE, None),
+        (tdir.mkpath("dir1/file1"), op::Op::CREATE, None)
     ]);
 }
 
@@ -607,8 +607,8 @@ fn poll_watch_recursive_move() {
     actual.sort_by(|a, b| a.0.cmp(&b.0));
 
     assert_eq!(actual, vec![
-        (tdir.mkpath("dir1a"), op::WRITE, None), // parent directory gets modified
-        (tdir.mkpath("dir1a/file1"), op::CREATE, None),
+        (tdir.mkpath("dir1a"), op::Op::WRITE, None), // parent directory gets modified
+        (tdir.mkpath("dir1a/file1"), op::Op::CREATE, None),
     ]);
 
     sleep(1100); // PollWatcher has only a resolution of 1 second
@@ -621,22 +621,22 @@ fn poll_watch_recursive_move() {
 
     if cfg!(target_os="windows") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("."), op::WRITE, None), // parent directory gets modified
-            (tdir.mkpath("dir1a"), op::REMOVE, None),
-            (tdir.mkpath("dir1a/file1"), op::REMOVE, None),
-            (tdir.mkpath("dir1b"), op::CREATE, None),
-            (tdir.mkpath("dir1b"), op::WRITE, None), // parent directory gets modified
-            (tdir.mkpath("dir1b/file1"), op::CREATE, None),
-            (tdir.mkpath("dir1b/file2"), op::CREATE, None),
+            (tdir.mkpath("."), op::Op::WRITE, None), // parent directory gets modified
+            (tdir.mkpath("dir1a"), op::Op::REMOVE, None),
+            (tdir.mkpath("dir1a/file1"), op::Op::REMOVE, None),
+            (tdir.mkpath("dir1b"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1b"), op::Op::WRITE, None), // parent directory gets modified
+            (tdir.mkpath("dir1b/file1"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1b/file2"), op::Op::CREATE, None),
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("."), op::WRITE, None), // parent directory gets modified
-            (tdir.mkpath("dir1a"), op::REMOVE, None),
-            (tdir.mkpath("dir1a/file1"), op::REMOVE, None),
-            (tdir.mkpath("dir1b"), op::CREATE, None),
-            (tdir.mkpath("dir1b/file1"), op::CREATE, None),
-            (tdir.mkpath("dir1b/file2"), op::CREATE, None),
+            (tdir.mkpath("."), op::Op::WRITE, None), // parent directory gets modified
+            (tdir.mkpath("dir1a"), op::Op::REMOVE, None),
+            (tdir.mkpath("dir1a/file1"), op::Op::REMOVE, None),
+            (tdir.mkpath("dir1b"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1b/file1"), op::Op::CREATE, None),
+            (tdir.mkpath("dir1b/file2"), op::Op::CREATE, None),
         ]);
     }
 }
@@ -665,18 +665,18 @@ fn poll_watch_recursive_move_in() {
 
     if cfg!(target_os="windows") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("watch_dir"), op::WRITE, None), // parent directory gets modified
-            (tdir.mkpath("watch_dir/dir1b"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1b/dir1"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1b/dir1"), op::WRITE, None), // extra write event
-            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::CREATE, None),
+            (tdir.mkpath("watch_dir"), op::Op::WRITE, None), // parent directory gets modified
+            (tdir.mkpath("watch_dir/dir1b"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1b/dir1"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1b/dir1"), op::Op::WRITE, None), // extra write event
+            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::Op::CREATE, None),
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("watch_dir"), op::WRITE, None), // parent directory gets modified
-            (tdir.mkpath("watch_dir/dir1b"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1b/dir1"), op::CREATE, None),
-            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::CREATE, None),
+            (tdir.mkpath("watch_dir"), op::Op::WRITE, None), // parent directory gets modified
+            (tdir.mkpath("watch_dir/dir1b"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1b/dir1"), op::Op::CREATE, None),
+            (tdir.mkpath("watch_dir/dir1b/dir1/file1"), op::Op::CREATE, None),
         ]);
     }
 }
@@ -702,8 +702,8 @@ fn poll_watch_recursive_move_out() {
     actual.sort_by(|a, b| a.0.cmp(&b.0));
 
     assert_eq!(actual, vec![
-        (tdir.mkpath("watch_dir/dir1a/dir1"), op::WRITE, None), // parent directory gets modified
-        (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::CREATE, None),
+        (tdir.mkpath("watch_dir/dir1a/dir1"), op::Op::WRITE, None), // parent directory gets modified
+        (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::Op::CREATE, None),
     ]);
 
     sleep(1100); // PollWatcher has only a resolution of 1 second
@@ -715,10 +715,10 @@ fn poll_watch_recursive_move_out() {
     actual.sort_by(|a, b| a.0.cmp(&b.0));
 
     assert_eq!(actual, vec![
-        (tdir.mkpath("watch_dir"), op::WRITE, None), // parent directory gets modified
-        (tdir.mkpath("watch_dir/dir1a"), op::REMOVE, None),
-        (tdir.mkpath("watch_dir/dir1a/dir1"), op::REMOVE, None),
-        (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::REMOVE, None),
+        (tdir.mkpath("watch_dir"), op::Op::WRITE, None), // parent directory gets modified
+        (tdir.mkpath("watch_dir/dir1a"), op::Op::REMOVE, None),
+        (tdir.mkpath("watch_dir/dir1a/dir1"), op::Op::REMOVE, None),
+        (tdir.mkpath("watch_dir/dir1a/dir1/file1"), op::Op::REMOVE, None),
     ]);
 }
 
@@ -746,10 +746,10 @@ fn poll_watch_nonrecursive() {
     actual.sort_by(|a, b| a.0.cmp(&b.0));
 
     assert_eq!(actual, vec![
-        (tdir.mkpath("."), op::WRITE, None), // parent directory gets modified
-        (tdir.mkpath("dir1"), op::WRITE, None), // parent directory gets modified
-        (tdir.mkpath("dir2"), op::CREATE, None),
-        (tdir.mkpath("file1"), op::CREATE, None),
+        (tdir.mkpath("."), op::Op::WRITE, None), // parent directory gets modified
+        (tdir.mkpath("dir1"), op::Op::WRITE, None), // parent directory gets modified
+        (tdir.mkpath("dir2"), op::Op::CREATE, None),
+        (tdir.mkpath("file1"), op::Op::CREATE, None),
     ]);
 }
 
@@ -771,7 +771,7 @@ fn poll_watch_file() {
     tdir.create("file2");
 
     assert_eq!(recv_events(&rx), vec![
-        (tdir.mkpath("file1"), op::WRITE, None)
+        (tdir.mkpath("file1"), op::Op::WRITE, None)
     ]);
 }
 
@@ -796,16 +796,16 @@ fn watch_nonexisting() {
 
     if cfg!(target_os="macos") {
         assert_eq!(inflate_events(recv_events(&rx)), vec![
-            (tdir1.mkpath("file1"), op::CREATE, None),
+            (tdir1.mkpath("file1"), op::Op::CREATE, None),
         ]);
     } else if cfg!(target_os="windows") {
         assert_eq!(recv_events(&rx), vec![
-            (tdir1.mkpath("file1"), op::CREATE, None)
+            (tdir1.mkpath("file1"), op::Op::CREATE, None)
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![
-            (tdir1.mkpath("file1"), op::CREATE, None),
-            (tdir1.mkpath("file1"), op::CLOSE_WRITE, None)
+            (tdir1.mkpath("file1"), op::Op::CREATE, None),
+            (tdir1.mkpath("file1"), op::Op::CLOSE_WRITE, None)
         ]);
     }
 }
@@ -893,16 +893,16 @@ fn self_delete_file() {
 
     if cfg!(target_os="windows") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("file1"), op::REMOVE, None),
+            (tdir.mkpath("file1"), op::Op::REMOVE, None),
         ]);
     } else if cfg!(target_os="macos") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("file1"), op::CREATE | op::REMOVE, None),
+            (tdir.mkpath("file1"), op::Op::CREATE | op::Op::REMOVE, None),
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("file1"), op::CHMOD, None),
-            (tdir.mkpath("file1"), op::REMOVE, None),
+            (tdir.mkpath("file1"), op::Op::CHMOD, None),
+            (tdir.mkpath("file1"), op::Op::REMOVE, None),
         ]);
     }
 
@@ -950,11 +950,11 @@ fn self_delete_directory() {
         ]);
     } else if cfg!(target_os="macos") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1"), op::CREATE | op::REMOVE, None),
+            (tdir.mkpath("dir1"), op::Op::CREATE | op::Op::REMOVE, None),
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1"), op::REMOVE, None),
+            (tdir.mkpath("dir1"), op::Op::REMOVE, None),
         ]);
     }
 
@@ -968,7 +968,7 @@ fn self_delete_directory() {
 
     if cfg!(target_os="macos") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1"), op::CREATE | op::REMOVE, None), // excessive remove event
+            (tdir.mkpath("dir1"), op::Op::CREATE | op::Op::REMOVE, None), // excessive remove event
         ]);
     } else {
         assert_eq!(actual, vec![]);
@@ -1010,11 +1010,11 @@ fn self_rename_file() {
 
     if cfg!(target_os="macos") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("file1"), op::CREATE | op::RENAME, None), // excessive create event
+            (tdir.mkpath("file1"), op::Op::CREATE | op::Op::RENAME, None), // excessive create event
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("file1"), op::RENAME, None),
+            (tdir.mkpath("file1"), op::Op::RENAME, None),
         ]);
     }
 
@@ -1034,12 +1034,12 @@ fn self_rename_file() {
         assert_eq!(actual, vec![]);
     } else if cfg!(target_os="linux") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("file1"), op::WRITE, None), // path doesn't get updated
-            (tdir.mkpath("file1"), op::CLOSE_WRITE, None), // path doesn't get updated
+            (tdir.mkpath("file1"), op::Op::WRITE, None), // path doesn't get updated
+            (tdir.mkpath("file1"), op::Op::CLOSE_WRITE, None), // path doesn't get updated
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("file1"), op::WRITE, None), // path doesn't get updated
+            (tdir.mkpath("file1"), op::Op::WRITE, None), // path doesn't get updated
         ]);
     }
 
@@ -1048,7 +1048,7 @@ fn self_rename_file() {
     if cfg!(target_os="macos") {
         // macos doesn't watch files, but paths
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("file1"), op::CREATE | op::RENAME, None), // excessive rename event
+            (tdir.mkpath("file1"), op::Op::CREATE | op::Op::RENAME, None), // excessive rename event
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![]);
@@ -1092,11 +1092,11 @@ fn self_rename_directory() {
         assert_eq!(actual, vec![]);
     } else if cfg!(target_os="macos") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1"), op::CREATE | op::RENAME, None), // excessive create event
+            (tdir.mkpath("dir1"), op::Op::CREATE | op::Op::RENAME, None), // excessive create event
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1"), op::RENAME, None),
+            (tdir.mkpath("dir1"), op::Op::RENAME, None),
         ]);
     }
 
@@ -1113,12 +1113,12 @@ fn self_rename_directory() {
         assert_eq!(actual, vec![]);
     } else if cfg!(target_os="linux") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1/file1"), op::CREATE, None), // path doesn't get updated
-            (tdir.mkpath("dir1/file1"), op::CLOSE_WRITE, None)
+            (tdir.mkpath("dir1/file1"), op::Op::CREATE, None), // path doesn't get updated
+            (tdir.mkpath("dir1/file1"), op::Op::CLOSE_WRITE, None)
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1/file1"), op::CREATE, None) // path doesn't get updated
+            (tdir.mkpath("dir1/file1"), op::Op::CREATE, None) // path doesn't get updated
         ]);
     }
 
@@ -1133,7 +1133,7 @@ fn self_rename_directory() {
     if cfg!(target_os="macos") {
         // macos doesn't watch files, but paths
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1"), op::CREATE | op::RENAME, None), // excessive rename event
+            (tdir.mkpath("dir1"), op::Op::CREATE | op::Op::RENAME, None), // excessive rename event
         ]);
     } else {
         assert_eq!(actual, vec![]);
@@ -1189,12 +1189,12 @@ fn parent_rename_file() {
         assert_eq!(actual, vec![]);
     } else if cfg!(target_os="linux") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1/file1"), op::WRITE, None), // path doesn't get updated
-            (tdir.mkpath("dir1/file1"), op::CLOSE_WRITE, None)
+            (tdir.mkpath("dir1/file1"), op::Op::WRITE, None), // path doesn't get updated
+            (tdir.mkpath("dir1/file1"), op::Op::CLOSE_WRITE, None)
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1/file1"), op::WRITE, None) // path doesn't get updated
+            (tdir.mkpath("dir1/file1"), op::Op::WRITE, None) // path doesn't get updated
         ]);
     }
 
@@ -1203,7 +1203,7 @@ fn parent_rename_file() {
     if cfg!(target_os="macos") {
         // macos doesn't watch files, but paths
         assert_eq!(recv_events(&rx), vec![
-            (tdir.mkpath("dir1/file1"), op::CREATE, None),
+            (tdir.mkpath("dir1/file1"), op::Op::CREATE, None),
         ]);
     } else {
         assert_eq!(recv_events(&rx), vec![]);
@@ -1263,12 +1263,12 @@ fn parent_rename_directory() {
         assert_eq!(actual, vec![]);
     } else if cfg!(target_os="linux") {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1/watch_dir/file1"), op::CREATE, None), // path doesn't get updated
-            (tdir.mkpath("dir1/watch_dir/file1"), op::CLOSE_WRITE, None), // path doesn't get updated
+            (tdir.mkpath("dir1/watch_dir/file1"), op::Op::CREATE, None), // path doesn't get updated
+            (tdir.mkpath("dir1/watch_dir/file1"), op::Op::CLOSE_WRITE, None), // path doesn't get updated
         ]);
     } else {
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1/watch_dir/file1"), op::CREATE, None), // path doesn't get updated
+            (tdir.mkpath("dir1/watch_dir/file1"), op::Op::CREATE, None), // path doesn't get updated
         ]);
     }
 
@@ -1283,7 +1283,7 @@ fn parent_rename_directory() {
     if cfg!(target_os="macos") {
         // macos doesn't watch files, but paths
         assert_eq!(actual, vec![
-            (tdir.mkpath("dir1/watch_dir"), op::CREATE, None),
+            (tdir.mkpath("dir1/watch_dir"), op::Op::CREATE, None),
         ]);
     } else {
         assert_eq!(actual, vec![]);

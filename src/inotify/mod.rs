@@ -52,7 +52,7 @@ fn send_pending_rename_event(rename_event: &mut Option<RawEvent>, event_tx: &mut
     if let Some(e) = event {
         event_tx.send(RawEvent {
                           path: e.path,
-                          op: Ok(op::REMOVE),
+                          op: Ok(op::Op::REMOVE),
                           cookie: None,
                       });
     }
@@ -111,7 +111,7 @@ impl mio::Handler for INotifyHandler {
                                 if event.is_queue_overflow() {
                                     self.event_tx.send(RawEvent {
                                                            path: None,
-                                                           op: Ok(op::RESCAN),
+                                                           op: Ok(op::Op::RESCAN),
                                                            cookie: None,
                                                        });
                                 }
@@ -133,7 +133,7 @@ impl mio::Handler for INotifyHandler {
                                                           &mut remove_watches);
                                     self.rename_event = Some(RawEvent {
                                                                  path: path,
-                                                                 op: Ok(op::RENAME),
+                                                                 op: Ok(op::Op::RENAME),
                                                                  cookie: Some(event.cookie),
                                                              });
                                 } else {
@@ -145,13 +145,13 @@ impl mio::Handler for INotifyHandler {
                                         if let Some(e) = rename_event {
                                             if e.cookie == Some(event.cookie) {
                                                 self.event_tx.send(e);
-                                                o.insert(op::RENAME);
+                                                o.insert(op::Op::RENAME);
                                                 c = Some(event.cookie);
                                             } else {
-                                                o.insert(op::CREATE);
+                                                o.insert(op::Op::CREATE);
                                             }
                                         } else {
-                                            o.insert(op::CREATE);
+                                            o.insert(op::Op::CREATE);
                                         }
                                         add_watch_by_event(&path,
                                                            event,
@@ -159,29 +159,29 @@ impl mio::Handler for INotifyHandler {
                                                            &mut add_watches);
                                     }
                                     if event.is_move_self() {
-                                        o.insert(op::RENAME);
+                                        o.insert(op::Op::RENAME);
                                     }
                                     if event.is_create() {
-                                        o.insert(op::CREATE);
+                                        o.insert(op::Op::CREATE);
                                         add_watch_by_event(&path,
                                                            event,
                                                            &self.watches,
                                                            &mut add_watches);
                                     }
                                     if event.is_delete_self() || event.is_delete() {
-                                        o.insert(op::REMOVE);
+                                        o.insert(op::Op::REMOVE);
                                         remove_watch_by_event(&path,
                                                               &self.watches,
                                                               &mut remove_watches);
                                     }
                                     if event.is_modify() {
-                                        o.insert(op::WRITE);
+                                        o.insert(op::Op::WRITE);
                                     }
                                     if event.is_close_write() {
-                                        o.insert(op::CLOSE_WRITE);
+                                        o.insert(op::Op::CLOSE_WRITE);
                                     }
                                     if event.is_attrib() {
-                                        o.insert(op::CHMOD);
+                                        o.insert(op::Op::CHMOD);
                                     }
 
                                     if !o.is_empty() {
@@ -292,25 +292,25 @@ impl INotifyHandler {
                         is_recursive: bool,
                         watch_self: bool)
                         -> Result<()> {
-        let mut flags = flags::IN_ATTRIB | flags::IN_CREATE | flags::IN_DELETE |
-                        flags::IN_CLOSE_WRITE | flags::IN_MODIFY |
-                        flags::IN_MOVED_FROM | flags::IN_MOVED_TO;
+        let mut flags = flags::Mask::IN_ATTRIB | flags::Mask::IN_CREATE | flags::Mask::IN_DELETE |
+                        flags::Mask::IN_CLOSE_WRITE | flags::Mask::IN_MODIFY |
+                        flags::Mask::IN_MOVED_FROM | flags::Mask::IN_MOVED_TO;
 
         if watch_self {
-            flags.insert(flags::IN_DELETE_SELF);
-            flags.insert(flags::IN_MOVE_SELF);
+            flags.insert(flags::Mask::IN_DELETE_SELF);
+            flags.insert(flags::Mask::IN_MOVE_SELF);
         }
 
         if let Some(&(_, old_flags, _)) = self.watches.get(&path) {
             flags.insert(old_flags);
-            flags.insert(flags::IN_MASK_ADD);
+            flags.insert(flags::Mask::IN_MASK_ADD);
         }
 
         if let Some(ref inotify) = self.inotify {
             match inotify.add_watch(&path, flags.bits()) {
                 Err(e) => Err(Error::Io(e)),
                 Ok(w) => {
-                    flags.remove(flags::IN_MASK_ADD);
+                    flags.remove(flags::Mask::IN_MASK_ADD);
                     self.watches.insert(path.clone(), (w, flags, is_recursive));
                     self.paths.insert(w, path);
                     Ok(())

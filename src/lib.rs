@@ -305,21 +305,21 @@ pub mod op {
     /// For a list of possible values, have a look at the [notify::op](index.html) documentation.
     ///
     /// Multiple actions may be delivered in a single event.
-        pub flags Op: u32 {
+        pub struct Op: u32 {
     /// Attributes changed
-            const CHMOD       = 0b0000001,
+            const CHMOD       = 0b0000001;
     /// Created
-            const CREATE      = 0b0000010,
+            const CREATE      = 0b0000010;
     /// Removed
-            const REMOVE      = 0b0000100,
+            const REMOVE      = 0b0000100;
     /// Renamed
-            const RENAME      = 0b0001000,
+            const RENAME      = 0b0001000;
     /// Written
-            const WRITE       = 0b0010000,
+            const WRITE       = 0b0010000;
     /// File opened for writing was closed
-            const CLOSE_WRITE = 0b0100000,
+            const CLOSE_WRITE = 0b0100000;
     /// Directories need to be rescanned
-            const RESCAN      = 0b1000000,
+            const RESCAN      = 0b1000000;
         }
     }
 }

@@ -23,8 +23,8 @@ fn recv_events_simple(rx: &Receiver<RawEvent>) ->  Vec<(PathBuf, Op, Option<u32>
 fn recv_events_simple(rx: &Receiver<RawEvent>) ->  Vec<(PathBuf, Op, Option<u32>)> {
     let mut events = Vec::new();
     for (path, op, cookie) in inflate_events(recv_events(&rx)) {
-        if op == (op::CREATE | op::WRITE) {
-            events.push((path, op::WRITE, cookie));
+        if op == (op::Op::CREATE | op::Op::WRITE) {
+            events.push((path, op::Op::WRITE, cookie));
         } else {
             events.push((path, op, cookie));
         }
@@ -35,7 +35,7 @@ fn recv_events_simple(rx: &Receiver<RawEvent>) ->  Vec<(PathBuf, Op, Option<u32>
 #[cfg(target_os = "linux")]
 fn recv_events_simple(rx: &Receiver<RawEvent>) ->  Vec<(PathBuf, Op, Option<u32>)> {
     let mut events = recv_events(rx);
-    events.retain(|&(_, op, _)| op != op::CLOSE_WRITE);
+    events.retain(|&(_, op, _)| op != op::Op::CLOSE_WRITE);
     events
 }
 
@@ -60,11 +60,11 @@ fn watch_relative() {
 
         if cfg!(target_os = "macos") {
             assert_eq!(recv_events_simple(&rx), vec![
-                (tdir.mkpath("dir1/file1"), op::CREATE, None), // fsevents always returns canonicalized paths
+                (tdir.mkpath("dir1/file1"), op::Op::CREATE, None), // fsevents always returns canonicalized paths
             ]);
         } else {
             assert_eq!(recv_events_simple(&rx), vec![
-                (tdir.path().join("dir1/file1"), op::CREATE, None),
+                (tdir.path().join("dir1/file1"), op::Op::CREATE, None),
             ]);
         }
     }
@@ -84,11 +84,11 @@ fn watch_relative() {
 
         if cfg!(target_os = "macos") {
             assert_eq!(recv_events_simple(&rx), vec![
-                (tdir.mkpath("file1"), op::WRITE, None), // fsevents always returns canonicalized paths
+                (tdir.mkpath("file1"), op::Op::WRITE, None), // fsevents always returns canonicalized paths
             ]);
         } else {
             assert_eq!(recv_events_simple(&rx), vec![
-                (tdir.path().join("file1"), op::WRITE, None),
+                (tdir.path().join("file1"), op::Op::WRITE, None),
             ]);
         }
     }
@@ -108,7 +108,7 @@ fn watch_relative() {
         tdir.create("dir1/file1");
 
         assert_eq!(recv_events_simple(&rx), vec![
-            (tdir.path().join("dir1/file1"), op::CREATE, None),
+            (tdir.path().join("dir1/file1"), op::Op::CREATE, None),
         ]);
     }
     if cfg!(target_os = "windows") && !NETWORK_PATH.is_empty()
@@ -127,7 +127,7 @@ fn watch_relative() {
         tdir.write("file1");
 
         assert_eq!(recv_events_simple(&rx), vec![
-            (tdir.path().join("file1"), op::WRITE, None),
+            (tdir.path().join("file1"), op::Op::WRITE, None),
         ]);
     }
 }
@@ -150,11 +150,11 @@ fn watch_absolute_directory() {
 
     if cfg!(target_os = "macos") {
         assert_eq!(recv_events_simple(&rx), vec![
-            (tdir.mkpath("dir1/file1"), op::CREATE, None), // fsevents always returns canonicalized paths
+            (tdir.mkpath("dir1/file1"), op::Op::CREATE, None), // fsevents always returns canonicalized paths
         ]);
     } else {
         assert_eq!(recv_events_simple(&rx), vec![
-            (watch_path.join("file1"), op::CREATE, None),
+            (watch_path.join("file1"), op::Op::CREATE, None),
         ]);
     }
 }
@@ -175,11 +175,11 @@ fn watch_absolute_file() {
 
     if cfg!(target_os = "macos") {
         assert_eq!(recv_events_simple(&rx), vec![
-            (tdir.mkpath("file1"), op::WRITE, None), // fsevents always returns canonicalized paths
+            (tdir.mkpath("file1"), op::Op::WRITE, None), // fsevents always returns canonicalized paths
         ]);
     } else {
         assert_eq!(recv_events_simple(&rx), vec![
-            (watch_path, op::WRITE, None),
+            (watch_path, op::Op::WRITE, None),
         ]);
     }
 }
@@ -204,7 +204,7 @@ fn watch_absolute_network_directory() {
     tdir.create("dir1/file1");
 
     assert_eq!(recv_events_simple(&rx), vec![
-        (watch_path.join("file1"), op::CREATE, None),
+        (watch_path.join("file1"), op::Op::CREATE, None),
     ]);
 }
 
@@ -228,7 +228,7 @@ fn watch_absolute_network_file() {
     tdir.write("file1");
 
     assert_eq!(recv_events_simple(&rx), vec![
-        (watch_path, op::WRITE, None),
+        (watch_path, op::Op::WRITE, None),
     ]);
 }
 
@@ -249,7 +249,7 @@ fn watch_canonicalized_directory() {
     tdir.create("dir1/file1");
 
     assert_eq!(recv_events_simple(&rx), vec![
-        (watch_path.join("file1"), op::CREATE, None),
+        (watch_path.join("file1"), op::Op::CREATE, None),
     ]);
 }
 
@@ -268,7 +268,7 @@ fn watch_canonicalized_file() {
     tdir.write("file1");
 
     assert_eq!(recv_events_simple(&rx), vec![
-        (watch_path, op::WRITE, None),
+        (watch_path, op::Op::WRITE, None),
     ]);
 }
 
@@ -292,7 +292,7 @@ fn watch_canonicalized_network_directory() {
     tdir.create("dir1/file1");
 
     assert_eq!(recv_events_simple(&rx), vec![
-        (watch_path.join("file1"), op::CREATE, None),
+        (watch_path.join("file1"), op::Op::CREATE, None),
     ]);
 }
 
@@ -316,6 +316,6 @@ fn watch_canonicalized_network_file() {
     tdir.write("file1");
 
     assert_eq!(recv_events_simple(&rx), vec![
-        (watch_path, op::WRITE, None),
+        (watch_path, op::Op::WRITE, None),
     ]);
 }
