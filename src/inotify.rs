@@ -9,11 +9,13 @@ extern crate libc;
 extern crate walkdir;
 
 use mio::{self, EventLoop};
-use self::inotify_sys::wrapper::{self, INotify, Watch};
+use self::inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use self::walkdir::WalkDir;
 use std::collections::HashMap;
 use std::env;
+use std::ffi::OsStr;
 use std::fs::metadata;
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::mem;
@@ -23,19 +25,17 @@ use std::time::Duration;
 use super::{Error, RawEvent, DebouncedEvent, op, Op, Result, Watcher, RecursiveMode};
 use super::debounce::{Debounce, EventTx};
 
-mod flags;
-
 const INOTIFY: mio::Token = mio::Token(0);
 
 /// Watcher implementation based on inotify
 pub struct INotifyWatcher(mio::Sender<EventLoopMsg>);
 
 struct INotifyHandler {
-    inotify: Option<INotify>,
+    inotify: Option<Inotify>,
     event_loop_tx: mio::Sender<EventLoopMsg>,
     event_tx: EventTx,
-    watches: HashMap<PathBuf, (Watch, flags::Mask, bool)>,
-    paths: HashMap<Watch, PathBuf>,
+    watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool)>,
+    paths: HashMap<WatchDescriptor, PathBuf>,
     rename_event: Option<RawEvent>,
 }
 
@@ -60,11 +60,11 @@ fn send_pending_rename_event(rename_event: &mut Option<RawEvent>, event_tx: &mut
 
 #[inline]
 fn add_watch_by_event(path: &Option<PathBuf>,
-                      event: &wrapper::Event,
-                      watches: &HashMap<PathBuf, (Watch, flags::Mask, bool)>,
+                      event: &inotify_sys::Event<&OsStr>,
+                      watches: &HashMap<PathBuf, (WatchDescriptor, WatchMask, bool)>,
                       add_watches: &mut Vec<PathBuf>) {
     if let Some(ref path) = *path {
-        if event.is_dir() {
+        if event.mask.contains(EventMask::ISDIR) {
             if let Some(parent_path) = path.parent() {
                 if let Some(&(_, _, is_recursive)) = watches.get(parent_path) {
                     if is_recursive {
@@ -78,7 +78,7 @@ fn add_watch_by_event(path: &Option<PathBuf>,
 
 #[inline]
 fn remove_watch_by_event(path: &Option<PathBuf>,
-                         watches: &HashMap<PathBuf, (Watch, flags::Mask, bool)>,
+                         watches: &HashMap<PathBuf, (WatchDescriptor, WatchMask, bool)>,
                          remove_watches: &mut Vec<PathBuf>) {
     if let Some(ref path) = *path {
         if watches.contains_key(path) {
@@ -103,12 +103,11 @@ impl mio::Handler for INotifyHandler {
                 let mut remove_watches = Vec::new();
 
                 if let Some(ref mut inotify) = self.inotify {
-                    match inotify.available_events() {
+                    let mut buffer = [0; 1024];
+                    match inotify.read_events(&mut buffer) {
                         Ok(events) => {
-                            assert!(!events.is_empty());
-
                             for event in events {
-                                if event.is_queue_overflow() {
+                                if event.mask.contains(EventMask::Q_OVERFLOW) {
                                     self.event_tx.send(RawEvent {
                                                            path: None,
                                                            op: Ok(op::Op::RESCAN),
@@ -116,16 +115,14 @@ impl mio::Handler for INotifyHandler {
                                                        });
                                 }
 
-                                let path = if event.name.as_os_str().is_empty() {
-                                    match self.paths.get(&event.wd) {
-                                        Some(p) => Some(p.clone()),
-                                        None => None,
-                                    }
-                                } else {
-                                    self.paths.get(&event.wd).map(|root| root.join(&event.name))
+                                let path = match event.name {
+                                    Some(name) => {
+                                        self.paths.get(&event.wd).map(|root| root.join(&name))
+                                    },
+                                    None => self.paths.get(&event.wd).cloned()
                                 };
 
-                                if event.is_moved_from() {
+                                if event.mask.contains(EventMask::MOVED_FROM) {
                                     send_pending_rename_event(&mut self.rename_event,
                                                               &mut self.event_tx);
                                     remove_watch_by_event(&path,
@@ -139,7 +136,7 @@ impl mio::Handler for INotifyHandler {
                                 } else {
                                     let mut o = Op::empty();
                                     let mut c = None;
-                                    if event.is_moved_to() {
+                                    if event.mask.contains(EventMask::MOVED_TO) {
                                         let rename_event = mem::replace(&mut self.rename_event,
                                                                         None);
                                         if let Some(e) = rename_event {
@@ -154,33 +151,33 @@ impl mio::Handler for INotifyHandler {
                                             o.insert(op::Op::CREATE);
                                         }
                                         add_watch_by_event(&path,
-                                                           event,
+                                                           &event,
                                                            &self.watches,
                                                            &mut add_watches);
                                     }
-                                    if event.is_move_self() {
+                                    if event.mask.contains(EventMask::MOVE_SELF) {
                                         o.insert(op::Op::RENAME);
                                     }
-                                    if event.is_create() {
+                                    if event.mask.contains(EventMask::CREATE) {
                                         o.insert(op::Op::CREATE);
                                         add_watch_by_event(&path,
-                                                           event,
+                                                           &event,
                                                            &self.watches,
                                                            &mut add_watches);
                                     }
-                                    if event.is_delete_self() || event.is_delete() {
+                                    if event.mask.contains(EventMask::DELETE_SELF) || event.mask.contains(EventMask::DELETE) {
                                         o.insert(op::Op::REMOVE);
                                         remove_watch_by_event(&path,
                                                               &self.watches,
                                                               &mut remove_watches);
                                     }
-                                    if event.is_modify() {
+                                    if event.mask.contains(EventMask::MODIFY) {
                                         o.insert(op::Op::WRITE);
                                     }
-                                    if event.is_close_write() {
+                                    if event.mask.contains(EventMask::CLOSE_WRITE) {
                                         o.insert(op::Op::CLOSE_WRITE);
                                     }
-                                    if event.is_attrib() {
+                                    if event.mask.contains(EventMask::ATTRIB) {
                                         o.insert(op::Op::CHMOD);
                                     }
 
@@ -292,26 +289,26 @@ impl INotifyHandler {
                         is_recursive: bool,
                         watch_self: bool)
                         -> Result<()> {
-        let mut flags = flags::Mask::IN_ATTRIB | flags::Mask::IN_CREATE | flags::Mask::IN_DELETE |
-                        flags::Mask::IN_CLOSE_WRITE | flags::Mask::IN_MODIFY |
-                        flags::Mask::IN_MOVED_FROM | flags::Mask::IN_MOVED_TO;
+        let mut watchmask = WatchMask::ATTRIB | WatchMask::CREATE | WatchMask::DELETE |
+                            WatchMask::CLOSE_WRITE | WatchMask::MODIFY |
+                            WatchMask::MOVED_FROM | WatchMask::MOVED_TO;
 
         if watch_self {
-            flags.insert(flags::Mask::IN_DELETE_SELF);
-            flags.insert(flags::Mask::IN_MOVE_SELF);
+            watchmask.insert(WatchMask::DELETE_SELF);
+            watchmask.insert(WatchMask::MOVE_SELF);
         }
 
-        if let Some(&(_, old_flags, _)) = self.watches.get(&path) {
-            flags.insert(old_flags);
-            flags.insert(flags::Mask::IN_MASK_ADD);
+        if let Some(&(_, old_watchmask, _)) = self.watches.get(&path) {
+            watchmask.insert(old_watchmask);
+            watchmask.insert(WatchMask::MASK_ADD);
         }
 
-        if let Some(ref inotify) = self.inotify {
-            match inotify.add_watch(&path, flags.bits()) {
+        if let Some(ref mut inotify) = self.inotify {
+            match inotify.add_watch(&path, watchmask) {
                 Err(e) => Err(Error::Io(e)),
                 Ok(w) => {
-                    flags.remove(flags::Mask::IN_MASK_ADD);
-                    self.watches.insert(path.clone(), (w, flags, is_recursive));
+                    watchmask.remove(WatchMask::MASK_ADD);
+                    self.watches.insert(path.clone(), (w.clone(), watchmask, is_recursive));
                     self.paths.insert(w, path);
                     Ok(())
                 }
@@ -325,17 +322,17 @@ impl INotifyHandler {
         match self.watches.remove(&path) {
             None => return Err(Error::WatchNotFound),
             Some((w, _, is_recursive)) => {
-                if let Some(ref inotify) = self.inotify {
-                    try!(inotify.rm_watch(w).map_err(Error::Io));
+                if let Some(ref mut inotify) = self.inotify {
+                    try!(inotify.rm_watch(w.clone()).map_err(Error::Io));
                     self.paths.remove(&w);
 
                     if is_recursive || remove_recursive {
                         let mut remove_list = Vec::new();
                         for (w, p) in &self.paths {
                             if p.starts_with(&path) {
-                                try!(inotify.rm_watch(*w).map_err(Error::Io));
+                                try!(inotify.rm_watch(w.clone()).map_err(Error::Io));
                                 self.watches.remove(p);
-                                remove_list.push(*w);
+                                remove_list.push(w.clone());
                             }
                         }
                         for w in remove_list {
@@ -349,9 +346,9 @@ impl INotifyHandler {
     }
 
     fn remove_all_watches(&mut self) -> Result<()> {
-        if let Some(ref inotify) = self.inotify {
+        if let Some(ref mut inotify) = self.inotify {
             for w in self.paths.keys() {
-                try!(inotify.rm_watch(*w).map_err(Error::Io));
+                try!(inotify.rm_watch(w.clone()).map_err(Error::Io));
             }
             self.watches.clear();
             self.paths.clear();
@@ -362,10 +359,10 @@ impl INotifyHandler {
 
 impl Watcher for INotifyWatcher {
     fn new_raw(tx: Sender<RawEvent>) -> Result<INotifyWatcher> {
-        INotify::init()
+        Inotify::init()
             .and_then(|inotify| EventLoop::new().map(|l| (inotify, l)))
             .and_then(|(inotify, mut event_loop)| {
-                let inotify_fd = inotify.fd;
+                let inotify_fd = inotify.as_raw_fd();
                 let evented_inotify = mio::unix::EventedFd(&inotify_fd);
 
                 let handler = INotifyHandler {
@@ -387,7 +384,7 @@ impl Watcher for INotifyWatcher {
                 let channel = event_loop.channel();
 
                 ThreadBuilder::new()
-                    .name("INotify Watcher".to_owned())
+                    .name("Inotify Watcher".to_owned())
                     .spawn(move || event_loop.run(&mut handler))
                     .unwrap();
 
@@ -397,10 +394,10 @@ impl Watcher for INotifyWatcher {
     }
 
     fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<INotifyWatcher> {
-        INotify::init()
+        Inotify::init()
             .and_then(|inotify| EventLoop::new().map(|l| (inotify, l)))
             .and_then(|(inotify, mut event_loop)| {
-                let inotify_fd = inotify.fd;
+                let inotify_fd = inotify.as_raw_fd();
                 let evented_inotify = mio::unix::EventedFd(&inotify_fd);
 
                 let handler = INotifyHandler {
@@ -425,7 +422,7 @@ impl Watcher for INotifyWatcher {
                 let channel = event_loop.channel();
 
                 ThreadBuilder::new()
-                    .name("INotify Watcher".to_owned())
+                    .name("Inotify Watcher".to_owned())
                     .spawn(move || event_loop.run(&mut handler))
                     .unwrap();
 
