@@ -18,7 +18,7 @@ use super::debounce::{Debounce, EventTx};
 extern crate walkdir;
 
 struct PathData {
-    mtime: u64,
+    mtime: i64,
     last_check: Instant,
 }
 
