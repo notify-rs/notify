@@ -1,7 +1,10 @@
 //! The `Event` type and the hierarchical `EventKind` descriptor.
 
-use chrono;
+use anymap::{any::CloneAny, Map};
 use std::path::PathBuf;
+
+/// An `AnyMap` convenience type with the needed bounds for events.
+pub type AnyMap = Map<CloneAny + Send + Sync>;
 
 /// An event describing open or close operations on files.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -234,11 +237,14 @@ impl EventKind {
     }
 }
 
-/// Convenience alias for the `DateTime` type used in an `Event`.
-pub type DateTime = chrono::DateTime<chrono::Utc>;
+impl Default for EventKind {
+    fn default() -> Self {
+        EventKind::Any
+    }
+}
 
 /// Notify event.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Event {
     /// Kind of the event.
     ///
@@ -273,26 +279,42 @@ pub struct Event {
     /// with an identical `relid` or "cookie". The value is normalised to `usize`.
     pub relid: Option<usize>,
 
-    /// Timestamp of the event.
+    /// Additional attributes of the event.
     ///
-    /// If the backend knows authoritatively the timestamp of the event, it should supply it here.
-    /// Otherwise, it should set this to `None`.
+    /// Arbitrary data may be added to this field, without restriction beyond the `Sync` and
+    /// `Clone` properties. Any data added here is _not_ considered for equality comparisons.
     ///
-    /// Notify will populate this value upon event receipt only as needed (i.e. if the backend has
-    /// not provided one) such that it will always be safe to unwrap. The timestamp is in UTC.
+    /// For vendor or custom information, it is recommended to use type wrappers to differentiate
+    /// entries within the `AnyMap` container and avoid conflicts.
     ///
-    /// Note that Notify provides _no guarantee of ordering_ based on this value nor on the order
-    /// of events when received. Notably, an `Access(Open)` event has been known to appear _after_
-    /// a corresponding `Access(Close)` in some circumstances.
-    ///
-    /// Why a chrono timestamp and not a stdlib `SystemTime`? Because the expected use for this is
-    /// with external authoritative times, which will be represented in ISO8601 or similar, and
-    /// will not make sense as a system time. There appears to be no _local_ filechange API that
-    /// provides timestamps for changes, likely because it is assumed latency will not be an issue.
-    pub time: Option<DateTime>,
+    /// Notify may use data present in this field at so-called "well-known" entries, a list of
+    /// which is available on the wiki: https://github.com/passcod/notify/wiki/Well_Known_Attrs
+    pub attrs: AnyMap,
 
     /// Source of the event.
     ///
     /// This is the same string returned by the `name()` method of a backend.
     pub source: &'static str,
+}
+
+impl Default for Event {
+    fn default() -> Self {
+        Self {
+            kind: EventKind::default(),
+            paths: Vec::with_capacity(1),
+            relid: None,
+            attrs: AnyMap::new(),
+            source: ""
+        }
+    }
+}
+
+impl Eq for Event {}
+impl PartialEq for Event {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind.eq(&other.kind) &&
+        self.paths.eq(&other.paths) &&
+        self.relid.eq(&other.relid) &&
+        self.source.eq(other.source)
+    }
 }

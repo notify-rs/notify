@@ -134,7 +134,7 @@ impl Backend {
             kind: kind,
             paths: vec![PathBuf::from(filename)],
             relid: None,
-            time: None,
+            attrs: AnyMap::new(),
             source: BACKEND_NAME,
         });
 

@@ -4,6 +4,6 @@ name = "notify-backend"
 version = "1.0.0"
 
 [dependencies]
-chrono = "0.4.2"
+anymap = "0.12.1"
 futures = "0.1.21"
 mio = "0.6.15"

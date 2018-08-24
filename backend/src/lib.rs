@@ -28,7 +28,7 @@
 #![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
 #![cfg_attr(feature = "cargo-clippy", allow(stutter))]
 
-pub extern crate chrono;
+extern crate anymap;
 pub extern crate futures;
 pub extern crate mio;
 
@@ -49,8 +49,6 @@ pub mod compliance;
 ///
 /// All that is needed to implement a `Backend`, except for the optional `Buffer`.
 pub mod prelude {
-    pub use chrono;
-
     pub use futures::{self, Future, Poll, Stream};
 
     pub use mio::{
@@ -74,8 +72,8 @@ pub mod prelude {
     pub use super::capability::Capability;
 
     pub use super::event::{
-        AccessKind, AccessMode, CreateKind, DataChange, DateTime, Event, EventKind, MetadataKind,
-        ModifyKind, RemoveKind, RenameMode,
+        AccessKind, AccessMode, AnyMap, CreateKind, DataChange, Event, EventKind,
+        MetadataKind, ModifyKind, RemoveKind, RenameMode,
     };
 
     pub use super::stream::{

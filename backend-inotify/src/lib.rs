@@ -179,7 +179,7 @@ impl Backend {
                     0 => None,
                     c => Some(c as usize),
                 },
-                time: None,
+                attrs: AnyMap::new(),
                 source: BACKEND_NAME,
             })
         }

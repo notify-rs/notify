@@ -1,6 +1,6 @@
 use backend::{
     prelude::{
-        chrono::Utc, futures::{stream::poll_fn, Async, Future, Poll, Sink, Stream},
+        futures::{stream::poll_fn, Async, Future, Poll, Sink, Stream},
         BackendErrorWrap, BoxedBackend, Capability, Evented, NotifyBackend as Backend, PathBuf,
     },
     stream,
@@ -137,10 +137,11 @@ impl<B: Backend<Item = stream::Item, Error = stream::Error>> LifeTrait for Life<
         let mut txe = self.queue.0.clone();
         self.executor.spawn(
             poller
-                .for_each(move |mut event| {
-                    if event.time.is_none() {
-                        event.time = Some(Utc::now());
-                    }
+                .for_each(move |event| {
+                    // TODO: rethink this, and implement using event.attrs instead
+                    //if event.time.is_none() {
+                    //    event.time = Some(Utc::now());
+                    //}
 
                     txs.start_send(Ok(event.clone())).unwrap_or_else(|_| {
                         panic!(
