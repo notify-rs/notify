@@ -94,6 +94,8 @@
 extern crate bitflags;
 #[cfg(target_os="linux")]
 extern crate mio;
+#[cfg(target_os="linux")]
+extern crate mio_extras;
 #[cfg(target_os="macos")]
 extern crate fsevent_sys;
 #[cfg(target_os="windows")]
@@ -482,6 +484,12 @@ impl StdError for Error {
             Error::Io(ref cause) => Some(cause),
             _ => None,
         }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Error {
+        Error::Io(err)
     }
 }
 
