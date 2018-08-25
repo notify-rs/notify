@@ -8,15 +8,15 @@ use tokio::{
     prelude::{Future, Sink, Stream}, reactor::Handle, runtime::TaskExecutor,
 };
 
-pub struct Manager<'f> {
+pub struct Manager<'selector_fn> {
     pub handle: Handle,
     pub executor: TaskExecutor,
-    pub selectors: Vec<Selector<'f>>,
-    pub lives: Vec<Box<LifeTrait + 'f>>,
+    pub selectors: Vec<Selector<'selector_fn>>,
+    pub lives: Vec<Box<LifeTrait + 'selector_fn>>,
     queue: (BroadcastFutSender<Sub>, BroadcastFutReceiver<Sub>),
 }
 
-impl<'f> Manager<'f> {
+impl<'selector_fn> Manager<'selector_fn> {
     pub fn new(handle: Handle, executor: TaskExecutor) -> Self {
         Self {
             handle,
@@ -27,7 +27,7 @@ impl<'f> Manager<'f> {
         }
     }
 
-    pub fn add(&mut self, f: Selector<'f>) {
+    pub fn add(&mut self, f: Selector<'selector_fn>) {
         self.selectors.push(f)
     }
 
@@ -209,7 +209,7 @@ impl<'f> Manager<'f> {
     }
 
     #[cfg_attr(feature = "cargo-clippy", allow(borrowed_box))]
-    pub fn active(&mut self) -> Option<&mut Box<LifeTrait + 'f>> {
+    pub fn active(&mut self) -> Option<&mut Box<LifeTrait + 'selector_fn>> {
         for life in &mut self.lives {
             if life.active() {
                 return Some(life);
@@ -220,7 +220,7 @@ impl<'f> Manager<'f> {
     }
 }
 
-impl<'f> fmt::Debug for Manager<'f> {
+impl<'selector_fn> fmt::Debug for Manager<'selector_fn> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Manager")
             .field("handle", &self.handle)
