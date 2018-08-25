@@ -31,6 +31,29 @@ impl<'selector_fn> Manager<'selector_fn> {
         self.selectors.push(f)
     }
 
+    // sketch for processors:
+    //
+    // prelims (processor declares):
+    // - whether it will operate on one backend's output or many/all
+    // - what capabilities it needs
+    // - what capabilities it provides
+    // - what options it takes
+    //
+    // inputs:
+    // - backend(s) capabilities
+    // - paths watched for events it will receive
+    // - stream of events
+    // - options
+    //
+    // outputs:
+    // - stream of events
+    // - instructions for the manager
+    //
+    // instructions can be:
+    // - watch this
+    // - unwatch this
+    // - ...?
+
     pub fn builtins(&mut self) {
         #[cfg(any(target_os = "linux", target_os = "android"))]
         self.add(Selector {
