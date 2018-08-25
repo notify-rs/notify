@@ -7,6 +7,16 @@ use tokio::prelude::{Future, Stream};
 use tokio::runtime::Runtime;
 
 fn main() {
+    println!("Size of String: {}", std::mem::size_of::<String>());
+    println!(
+        "Size of Event: {} (kind: {}, paths: {}, relid: {}, attrs: {})",
+        std::mem::size_of::<notify::backend::event::Event>(),
+        std::mem::size_of::<notify::backend::event::EventKind>(),
+        std::mem::size_of::<Vec<PathBuf>>(),
+        std::mem::size_of::<Option<usize>>(),
+        std::mem::size_of::<notify::backend::event::AnyMap>(),
+    );
+
     let mut runtime = Runtime::new().unwrap();
     println!("Initialised tokio runtime");
 
