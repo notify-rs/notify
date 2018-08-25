@@ -7,9 +7,13 @@
 
 extern crate kernel32;
 
-use winapi::{OVERLAPPED, LPOVERLAPPED, HANDLE, INVALID_HANDLE_VALUE, INFINITE, TRUE,
-             WAIT_OBJECT_0, ERROR_OPERATION_ABORTED, FILE_NOTIFY_INFORMATION, fileapi, winbase,
-             winnt};
+use winapi::shared::minwindef::TRUE;
+use winapi::shared::winerror::ERROR_OPERATION_ABORTED;
+use winapi::um::fileapi;
+use winapi::um::handleapi::INVALID_HANDLE_VALUE;
+use winapi::um::minwinbase::{OVERLAPPED, LPOVERLAPPED};
+use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
+use winapi::um::winnt::{self, HANDLE, FILE_NOTIFY_INFORMATION};
 
 use std::collections::HashMap;
 use std::env;
@@ -259,14 +263,14 @@ fn start_read(rd: &ReadData, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
 
         // This is using an asynchronous call with a completion routine for receiving notifications
         // An I/O completion port would probably be more performant
-        let ret = kernel32::ReadDirectoryChangesW(handle,
-                                                  req_buf,
-                                                  BUF_SIZE,
-                                                  monitor_subdir,
-                                                  flags,
-                                                  &mut 0u32 as *mut u32, // not used for async reqs
-                                                  &mut *overlapped as *mut OVERLAPPED,
-                                                  Some(handle_event));
+        let ret = winbase::ReadDirectoryChangesW(handle,
+                                                 req_buf,
+                                                 BUF_SIZE,
+                                                 monitor_subdir,
+                                                 flags,
+                                                 &mut 0u32 as *mut u32, // not used for async reqs
+                                                 &mut *overlapped as *mut OVERLAPPED,
+                                                 Some(handle_event));
 
         if ret == 0 {
             // error reading. retransmute request memory to allow drop.
