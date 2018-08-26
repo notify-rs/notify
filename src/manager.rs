@@ -14,6 +14,12 @@ pub struct Manager<'selector_fn> {
     pub selectors: Vec<Selector<'selector_fn>>,
     pub lives: Vec<Box<LifeTrait + 'selector_fn>>,
     queue: (BroadcastFutSender<Sub>, BroadcastFutReceiver<Sub>),
+    // add here a Arc<Set<PathBuf>>
+    // idea is that this would be updated in block, all at once, instead of
+    // adding or removing entries. Processors get an immut owned reference
+    // (an arc clone) of the set, then on change they're send another
+    // reference to replace their own copy (not a copy). When all processors
+    // have dropped the old ref, the memory is reclaimed.
 }
 
 impl<'selector_fn> Manager<'selector_fn> {
@@ -33,26 +39,28 @@ impl<'selector_fn> Manager<'selector_fn> {
 
     // sketch for processors:
     //
+    // they live from the moment they're needed to the moment they're not
+    // often that will be the entirety of the program
+    // i.e. they're very much stateful
+    //
     // prelims (processor declares):
     // - whether it will operate on one backend's output or many/all
     // - what capabilities it needs
     // - what capabilities it provides
-    // - what options it takes
+    //
+    // methods:
+    //   - here's a new arc clone of watched paths
+    //   - finish up
     //
     // inputs:
-    // - backend(s) capabilities
-    // - paths watched for events it will receive
     // - stream of events
-    // - options
+    // - instruction channel
     //
     // outputs:
     // - stream of events
-    // - instructions for the manager
-    //
-    // instructions can be:
-    // - watch this
-    // - unwatch this
-    // - ...?
+    // - instructions
+    //   - watch this
+    //   - unwatch this
 
     pub fn builtins(&mut self) {
         #[cfg(any(target_os = "linux", target_os = "android"))]
