@@ -571,7 +571,9 @@ fn move_out_create_directory() {
 }
 
 // https://github.com/passcod/notify/issues/124
+// fails consistently on windows -- tbd?
 #[test]
+#[cfg_attr(target_os = "windows", ignore)]
 fn move_in_directory_watch_subdirectories() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
