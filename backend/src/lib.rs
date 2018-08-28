@@ -19,12 +19,18 @@
 //! use backend::Buffer;
 //! ```
 //!
-//! The prelude imports all types needed to implement a Backend. Refer to the [implementor's guide]
-//! for a thorough walk-through of backend implementation.
+//! The prelude imports all types needed to implement a Backend, and re-exports dependent libraries
+//! so there is no need to independently include them. Refer to the [implementor's guide] for a
+//! thorough walk-through of backend implementation.
 
 #![deny(missing_docs)]
+#![forbid(unsafe_code)]
+#![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
+#![cfg_attr(feature = "cargo-clippy", allow(stutter))]
 
-extern crate futures;
+extern crate anymap;
+pub extern crate futures;
+pub extern crate mio;
 
 pub use self::buffer::Buffer;
 
@@ -34,37 +40,43 @@ pub mod capability;
 pub mod event;
 pub mod stream;
 
-#[macro_use] pub mod compliance;
+#[cfg(unix)]
+pub mod unix;
+#[macro_use]
+pub mod compliance;
 
 /// The Notify prelude.
 ///
 /// All that is needed to implement a `Backend`, except for the optional `Buffer`.
 pub mod prelude {
-    pub use super::backend::{
-        Backend as NotifyBackend,
-        BoxedBackend,
-        Error as BackendError,
-        Result as BackendResult,
+    pub use futures::{self, Future, Poll, Stream};
+
+    pub use mio::{
+        self, event::Evented, Poll as MioPoll, PollOpt as MioPollOpt, Ready as MioReady,
+        Registration as MioRegistration, Token as MioToken,
     };
+
+    pub use std::path::PathBuf;
+
+    /// An empty `io::Result` used for mio's Evented trait signatures
+    pub type MioResult = ::std::io::Result<()>;
+
+    pub use super::backend::{
+        Backend as NotifyBackend, BoxedBackend, Error as BackendError,
+        ErrorWrap as BackendErrorWrap, NewResult as NewBackendResult,
+    };
+
+    #[cfg(unix)]
+    pub use super::unix::OwnedEventedFd;
 
     pub use super::capability::Capability;
 
     pub use super::event::{
-        AccessKind,
-        AccessMode,
-        CreateKind,
-        DataChange,
-        Event,
-        EventKind,
-        MetadataKind,
-        ModifyKind,
-        RemoveKind,
-        RenameMode,
+        AccessKind, AccessMode, AnyMap, CreateKind, DataChange, Event, EventKind,
+        MetadataKind, ModifyKind, RemoveKind, RenameMode,
     };
 
     pub use super::stream::{
-        Error as StreamError,
-        Item as StreamItem,
-        EmptyResult as EmptyStreamResult,
+        EmptyResult as EmptyStreamResult, Error as StreamError, Item as StreamItem,
     };
 }

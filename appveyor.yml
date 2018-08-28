@@ -5,14 +5,14 @@ environment:
 
   matrix:
     # Stable: MINGW, MSVC, 64/32
-    - TARGET: i686-pc-windows-gnu
-    - TARGET: x86_64-pc-windows-gnu
-    - TARGET: i686-pc-windows-msvc
-    - TARGET: x86_64-pc-windows-msvc
+    #- TARGET: i686-pc-windows-gnu // uncomment for first beta
+    #- TARGET: x86_64-pc-windows-gnu
+    #- TARGET: i686-pc-windows-msvc
+    #- TARGET: x86_64-pc-windows-msvc
 
     # Beta: MSVC 64/32
-    - TARGET: i686-pc-windows-msvc
-      RUST_VERSION: beta
+    #- TARGET: i686-pc-windows-msvc // uncomment for first alpha
+    #  RUST_VERSION: beta
     - TARGET: x86_64-pc-windows-msvc
       RUST_VERSION: beta
 

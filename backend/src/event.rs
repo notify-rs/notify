@@ -1,9 +1,14 @@
 //! The `Event` type and the hierarchical `EventKind` descriptor.
 
+use anymap::{any::CloneAny, Map};
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
+/// An `AnyMap` convenience type with the needed bounds for events.
+pub type AnyMap = Map<CloneAny + Send + Sync>;
+
 /// An event describing open or close operations on files.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum AccessMode {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -22,7 +27,7 @@ pub enum AccessMode {
 }
 
 /// An event describing non-mutating access operations on files.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum AccessKind {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -41,7 +46,7 @@ pub enum AccessKind {
 }
 
 /// An event describing creation operations on files.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum CreateKind {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -57,7 +62,7 @@ pub enum CreateKind {
 }
 
 /// An event emitted when the data content of a file is changed.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum DataChange {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -73,7 +78,7 @@ pub enum DataChange {
 }
 
 /// An event emitted when the metadata of a file or folder is changed.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MetadataKind {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -90,12 +95,15 @@ pub enum MetadataKind {
     /// An event emitted when the ownership of the file or folder is changed.
     Ownership,
 
+    /// An event emitted when an extended attribute of the file or folder is changed.
+    Extended(String),
+
     /// An event which specific kind is known but cannot be represented otherwise.
     Other(String),
 }
 
 /// An event emitted when the name of a file or folder is changed.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RenameMode {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -111,7 +119,7 @@ pub enum RenameMode {
 }
 
 /// An event describing mutation of content, name, or metadata.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum ModifyKind {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -130,7 +138,7 @@ pub enum ModifyKind {
 }
 
 /// An event describing removal operations on files.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RemoveKind {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -150,7 +158,7 @@ pub enum RemoveKind {
 /// This is arguably the most important classification for events. All subkinds below this one
 /// represent details that may or may not be available for any particular backend, but most tools
 /// and Notify systems will only care about which of these four general kinds an event is about.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum EventKind {
     /// The catch-all event kind, for unsupported/unknown events.
     ///
@@ -199,39 +207,45 @@ pub enum EventKind {
 impl EventKind {
     /// Indicates whether an event is an Access variant.
     pub fn is_access(&self) -> bool {
-        match self {
-            &EventKind::Access(_) => true,
-            _ => false
+        match *self {
+            EventKind::Access(_) => true,
+            _ => false,
         }
     }
 
     /// Indicates whether an event is a Create variant.
     pub fn is_create(&self) -> bool {
-        match self {
-            &EventKind::Create(_) => true,
-            _ => false
+        match *self {
+            EventKind::Create(_) => true,
+            _ => false,
         }
     }
 
     /// Indicates whether an event is a Modify variant.
     pub fn is_modify(&self) -> bool {
-        match self {
-            &EventKind::Modify(_) => true,
-            _ => false
+        match *self {
+            EventKind::Modify(_) => true,
+            _ => false,
         }
     }
 
     /// Indicates whether an event is a Remove variant.
     pub fn is_remove(&self) -> bool {
-        match self {
-            &EventKind::Remove(_) => true,
-            _ => false
+        match *self {
+            EventKind::Remove(_) => true,
+            _ => false,
         }
     }
 }
 
+impl Default for EventKind {
+    fn default() -> Self {
+        EventKind::Any
+    }
+}
+
 /// Notify event.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Event {
     /// Kind of the event.
     ///
@@ -265,5 +279,51 @@ pub struct Event {
     /// capability. Those backends _may_ emit events that are related to each other, and tag those
     /// with an identical `relid` or "cookie". The value is normalised to `usize`.
     pub relid: Option<usize>,
+
+    /// Additional attributes of the event.
+    ///
+    /// Arbitrary data may be added to this field, without restriction beyond the `Sync` and
+    /// `Clone` properties. Any data added here is _not_ considered for comparing and hashing.
+    ///
+    /// For vendor or custom information, it is recommended to use type wrappers to differentiate
+    /// entries within the `AnyMap` container and avoid conflicts. For interoperability, one of the
+    /// “well-known” types (or propose a new one) should be used instead. See the list on the wiki:
+    /// https://github.com/passcod/notify/wiki/Well-Known-Event-Attrs
+    pub attrs: AnyMap,
+
+    /// Source of the event.
+    ///
+    /// This is the same string returned by the `name()` method of a backend.
+    pub source: &'static str,
 }
 
+impl Default for Event {
+    fn default() -> Self {
+        Self {
+            kind: EventKind::default(),
+            paths: Vec::with_capacity(1),
+            relid: None,
+            attrs: AnyMap::new(),
+            source: ""
+        }
+    }
+}
+
+impl Eq for Event {}
+impl PartialEq for Event {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind.eq(&other.kind) &&
+        self.paths.eq(&other.paths) &&
+        self.relid.eq(&other.relid) &&
+        self.source.eq(other.source)
+    }
+}
+
+impl Hash for Event {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.kind.hash(state);
+        self.paths.hash(state);
+        self.relid.hash(state);
+        self.source.hash(state);
+    }
+}

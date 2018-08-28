@@ -1,17 +1,19 @@
 //! Notify Backend crate for Linux's inotify.
 
 #![deny(missing_docs)]
+#![forbid(unsafe_code)]
+#![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
 
-extern crate notify_backend as backend;
-extern crate futures;
 extern crate inotify;
+extern crate notify_backend as backend;
 
 use backend::prelude::*;
 use backend::Buffer;
 
-use futures::{Poll, Stream};
-use inotify::{Inotify, EventMask, Events, WatchMask};
-use std::path::PathBuf;
+use inotify::{EventMask, Events, Inotify, WatchMask};
+use std::{fmt, os::unix::io::AsRawFd};
+
+const BACKEND_NAME: &str = "inotify";
 
 /// A Notify Backend for Linux's [inotify].
 ///
@@ -35,8 +37,9 @@ use std::path::PathBuf;
 /// [inotify]: http://man7.org/linux/man-pages/man7/inotify.7.html
 /// [Buffer]: ../notify_backend/buffer/struct.Buffer.html
 pub struct Backend {
-    inotify: Inotify,
     buffer: Buffer,
+    driver: OwnedEventedFd,
+    inotify: Inotify,
 }
 
 #[cfg(target_pointer_width = "64")]
@@ -46,20 +49,27 @@ const BUFFER_SIZE: usize = 4800;
 const BUFFER_SIZE: usize = 4000;
 
 impl NotifyBackend for Backend {
-    fn new(paths: Vec<PathBuf>) -> BackendResult<BoxedBackend> {
-        let mut inotify = Inotify::init()
-            .or_else(|err| Err(BackendError::Io(err)))?;
-
-        for path in paths {
-            inotify.add_watch(&path, WatchMask::ALL_EVENTS)
-                .or_else(|err| Err(BackendError::Io(err)))?;
-        }
-
-        Ok(Box::new(Backend { buffer: Buffer::new(), inotify }))
+    fn name() -> &'static str {
+        BACKEND_NAME
     }
 
-    fn caps(&self) -> Vec<Capability> {
-        Self::capabilities()
+    fn new(paths: Vec<PathBuf>) -> NewBackendResult {
+        let mut inotify = Inotify::init()?;
+
+        for path in paths {
+            // TODO: extract io NotFound errors manually for richer NonExistent error
+            inotify.add_watch(&path, WatchMask::ALL_EVENTS)?;
+        }
+
+        Ok(Box::new(Self {
+            buffer: Buffer::new(),
+            driver: OwnedEventedFd(inotify.as_raw_fd()),
+            inotify,
+        }))
+    }
+
+    fn driver(&self) -> Box<Evented> {
+        Box::new(self.driver)
     }
 
     fn capabilities() -> Vec<Capability> {
@@ -71,23 +81,20 @@ impl NotifyBackend for Backend {
             Capability::WatchFolders,
         ]
     }
-
-    fn await(&mut self) -> EmptyStreamResult {
-        if self.buffer.closed() {
-            return Ok(())
-        }
-
-        let mut buf = [0; BUFFER_SIZE];
-        let from_kernel = self.inotify.read_events_blocking(&mut buf)
-            .or_else(|err| Err(StreamError::Io(err)))?;
-
-        self.process_events(from_kernel)?;
-        Ok(())
-    }
 }
 
 impl Drop for Backend {
     fn drop(&mut self) {}
+}
+
+impl fmt::Debug for Backend {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Backend")
+            .field("buffer", &self.buffer)
+            .field("driver", &self.driver)
+            .field("inotify", &self.inotify.as_raw_fd())
+            .finish()
+    }
 }
 
 impl Stream for Backend {
@@ -96,12 +103,11 @@ impl Stream for Backend {
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         if self.buffer.closed() {
-            return self.buffer.poll()
+            return self.buffer.poll();
         }
 
         let mut buf = [0; BUFFER_SIZE];
-        let from_kernel = self.inotify.read_events(&mut buf)
-            .or_else(|err| Err(StreamError::Io(err)))?;
+        let from_kernel = self.inotify.read_events(&mut buf)?;
 
         self.process_events(from_kernel)?;
         self.buffer.poll()
@@ -122,12 +128,12 @@ impl Backend {
                 // the received events, even in the case of an error/overflow
                 // upstream.
                 self.buffer.close();
-                return Err(StreamError::UpstreamOverflow)
+                return Err(StreamError::UpstreamOverflow);
             }
 
             if e.mask.contains(EventMask::IGNORED) {
                 self.buffer.close();
-                break
+                break;
             }
 
             self.buffer.push(Event {
@@ -145,13 +151,9 @@ impl Backend {
                     } else {
                         CreateKind::File
                     })
-                } else if e.mask.contains(EventMask::DELETE) {
-                    EventKind::Remove(if e.mask.contains(EventMask::ISDIR) {
-                        RemoveKind::Folder
-                    } else {
-                        RemoveKind::File
-                    })
-                } else if e.mask.contains(EventMask::DELETE_SELF) {
+                } else if e.mask.contains(EventMask::DELETE)
+                    || e.mask.contains(EventMask::DELETE_SELF)
+                {
                     EventKind::Remove(if e.mask.contains(EventMask::ISDIR) {
                         RemoveKind::Folder
                     } else {
@@ -172,11 +174,13 @@ impl Backend {
                 } else {
                     EventKind::Any
                 },
-                paths: e.name.map(|s| vec![s.into()]).unwrap_or(vec![]),
+                paths: e.name.map_or_else(|| vec![], |s| vec![s.into()]),
                 relid: match e.cookie {
                     0 => None,
-                    c @ _ => Some(c as usize)
-                }
+                    c => Some(c as usize),
+                },
+                attrs: AnyMap::new(),
+                source: BACKEND_NAME,
             })
         }
 

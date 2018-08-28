@@ -3,7 +3,20 @@ authors = ["Félix Saparelli <felix@passcod.name>"]
 name = "notify"
 version = "5.0.0-alpha.1"
 
+[workspace]
+members = [
+  "backend",
+  "backend-poll-tree",
+  "backend-inotify",
+  # "backend-kqueue",
+]
+
 [dependencies]
+multiqueue = "0.3.2"
+tokio = "0.1.5"
+
+[replace]
+"multiqueue:0.3.2" = { git = 'https://github.com/passcod/multiqueue', branch = 'upgrade-smallvec' }
 
 [dependencies.notify-backend]
 path = "./backend"
@@ -14,17 +27,17 @@ path = "./backend-inotify"
 [target.'cfg(target_os="android")'.dependencies.notify-backend-inotify]
 path = "./backend-inotify"
 
-[target.'cfg(target_os="dragonfly")'.dependencies.notify-backend-kqueue]
-path = "./backend-kqueue"
-
-[target.'cfg(target_os="freebsd")'.dependencies.notify-backend-kqueue]
-path = "./backend-kqueue"
-
-[target.'cfg(target_os="netbsd")'.dependencies.notify-backend-kqueue]
-path = "./backend-kqueue"
-
-[target.'cfg(target_os="openbsd")'.dependencies.notify-backend-kqueue]
-path = "./backend-kqueue"
+# [target.'cfg(target_os="dragonfly")'.dependencies.notify-backend-kqueue]
+# path = "./backend-kqueue"
+#
+# [target.'cfg(target_os="freebsd")'.dependencies.notify-backend-kqueue]
+# path = "./backend-kqueue"
+#
+# [target.'cfg(target_os="netbsd")'.dependencies.notify-backend-kqueue]
+# path = "./backend-kqueue"
+#
+# [target.'cfg(target_os="openbsd")'.dependencies.notify-backend-kqueue]
+# path = "./backend-kqueue"
 
 [dependencies.notify-backend-poll-tree]
 path = "./backend-poll-tree"

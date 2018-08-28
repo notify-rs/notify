@@ -1,5 +1,7 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
+
 extern crate notify_backend as backend;
-extern crate futures;
 extern crate walkdir;
 extern crate id_tree;
 extern crate filetime;
@@ -10,15 +12,17 @@ use poll_thread::poll_thread;
 
 use backend::prelude::*;
 use backend::Buffer;
-
+use std::sync::{Arc, mpsc};
 use futures::{Poll, Stream};
 use futures::task::{self, Task};
 use std::path::PathBuf;
-use std::sync::mpsc;
 use std::io;
 use std::time::Duration;
 use std::thread;
 
+const BACKEND_NAME: &str = "poll tree";
+
+#[derive(Debug)]
 pub struct Backend {
     poll_thread: Option<thread::JoinHandle<()>>,
     task: Option<Task>,
@@ -29,6 +33,10 @@ pub struct Backend {
 }
 
 impl NotifyBackend for Backend {
+    fn name() -> &'static str {
+        BACKEND_NAME
+    }
+
     fn new(paths: Vec<PathBuf>) -> BackendResult<BoxedBackend> {
         let interval = Duration::from_millis(20);
         let (event_tx, event_rx) = mpsc::channel();
@@ -42,8 +50,8 @@ impl NotifyBackend for Backend {
         Ok(Box::new(Backend { poll_thread, task: None, buffer: Buffer::new(), event_rx, task_tx, shutdown_tx }))
     }
 
-    fn caps(&self) -> Vec<Capability> {
-        Self::capabilities()
+    fn new(_paths: Vec<PathBuf>) -> NewBackendResult {
+        Err(BackendError::NotImplemented.into())
     }
 
     fn capabilities() -> Vec<Capability> {
