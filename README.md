@@ -43,7 +43,6 @@ As used by: [cargo watch], [mdBook], [pax], [rdiff], [watchexec].
 **In development.**
 
 - Use Tokio Reform until ecosystem stabilises.
-- Use Rust beta while developing, then switch to stable for first Notify beta.
 
 Lists are in no particular order within sections.
 
@@ -55,31 +54,40 @@ Before any release
 - [x] Runtime fallback to other methods ([#64](https://github.com/passcod/notify/issues/64))
 - [x] Less depending on Life directly, more to Manager
 - [x] Being able to drop backends
+- [ ] Processors design and integration
 - [ ] Basic public (frontend) API
+- Merge in and update pull requests:
+  - [ ] ~~polling~~ (pushed to later. some code is in the `merge-polling` branch.)
+  - [ ] fsevents
+  - [ ] compliance tests
 
-Release first alpha here
+Cut first alpha here
 
-- [ ] Filling in capabilities
-- [ ] User-provided backends
+- [ ] Filling in capabilities (i.e. implement processors)
+- [ ] User-provided backends (API and docs)
 - [ ] Being able to shutdown notify
-- [ ] Basic internals documentation
+- [ ] Basic documentation
 - All Tier 1 platforms:
   - [ ] Windows
   - [ ] Linux
   - [ ] macOS
   - [ ] polling
 
-Release second alpha here
+Cut second alpha here
 
 - [ ] Debouncing
 - [ ] Future-less API
 - [ ] More extensive testing
 - [ ] Full documentation
+- [ ] Public API to customise processors
+- [ ] Decide whether to add timestamps to events (via `attrs`) by default
 
-Release more alphas as the above gets in
+Cut more alphas as the above get in
 
 Beta checklist:
 
+- [ ] Update all dependencies
+- [ ] Check minimum Rust version
 - [ ] Freeze Event
 - [ ] Freeze Backend trait
 - [ ] Freeze Backend prelude
@@ -93,8 +101,8 @@ Release beta here!
 Backends that have good progress:
 
 - [x] inotify (linux)
-- [ ] fsevent (macOS, in a branch)
-- [ ] polling (in a branch)
+- [x] fsevent (macOS)
+- [x] polling
 
 Backends needed but not started:
 
