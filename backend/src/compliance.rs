@@ -35,15 +35,15 @@ macro_rules! test_compliance {
         use futures::stream::Stream;
         use tokio::executor::current_thread;
         use notify_backend::prelude::*;
-        use std::fs::{File, create_dir, rename};
+        use std::fs::{create_dir, rename, File};
         use std::io::Write;
+        #[cfg(unix)]
+        use std::os::unix::fs::symlink;
         use std::path::PathBuf;
         use std::thread;
         use std::sync::mpsc;
         use std::time::Duration;
         use tempdir::TempDir;
-        #[cfg(unix)]
-        use std::os::unix::fs::symlink;
 
         struct BackendExecutor {
             event_rx: mpsc::Receiver<Event>,
@@ -96,7 +96,10 @@ macro_rules! test_compliance {
                 assert!(creates.count() > 0, "receive at least one Create event");
             }
 
-            writeln!(filewithin, "Everybody can talk to crickets, the trick is getting them to talk back.").expect("write to file");
+            writeln!(
+                filewithin,
+                "Everybody can talk to crickets, the trick is getting them to talk back."
+            ).expect("write to file");
 
             {
                 let events = executor.events();
@@ -120,7 +123,10 @@ macro_rules! test_compliance {
 
             let executor = BackendExecutor::new(vec![filepathwithin]);
 
-            writeln!(filewithin, "That's a rabbit! I'm not eating a bunny rabbit.").expect("write to file");
+            writeln!(
+                filewithin,
+                "That's a rabbit! I'm not eating a bunny rabbit."
+            ).expect("write to file");
 
             {
                 let events = executor.events();
@@ -217,7 +223,10 @@ macro_rules! test_compliance {
 
                 let executor = BackendExecutor::new(vec![linkpath]);
 
-                writeln!(file, "Everybody can talk to crickets, the trick is getting them to talk back.").expect("write to file");
+                writeln!(
+                    file,
+                    "Everybody can talk to crickets, the trick is getting them to talk back."
+                ).expect("write to file");
 
                 {
                     let events = executor.events();
@@ -254,14 +263,24 @@ macro_rules! test_compliance {
                     let events = executor.events();
                     assert!(events.len() > 0, "receive at least one event");
 
-                    let modify_events_with_relids = events.iter().filter(|e| e.kind.is_modify() && e.relid.is_some()).collect::<Vec<_>>();
+                    let modify_events_with_relids = events
+                        .iter()
+                        .filter(|e| e.kind.is_modify() && e.relid.is_some())
+                        .collect::<Vec<_>>();
 
                     if modify_events_with_relids.len() > 0 {
                         let relid = modify_events_with_relids[0].relid;
-                        let modifies = modify_events_with_relids.iter().filter(|e| e.relid == relid);
-                        assert!(modifies.count() == 2, "receive exactly two related Modify events");
+                        let modifies = modify_events_with_relids
+                            .iter()
+                            .filter(|e| e.relid == relid);
+                        assert!(
+                            modifies.count() == 2,
+                            "receive exactly two related Modify events"
+                        );
                     } else {
-                        let modifies = events.iter().filter(|e| e.kind.is_modify() && e.paths.len() > 1);
+                        let modifies = events
+                            .iter()
+                            .filter(|e| e.kind.is_modify() && e.paths.len() > 1);
                         assert!(modifies.count() > 0, "receive related Modify events");
                     }
                 }
@@ -269,5 +288,5 @@ macro_rules! test_compliance {
                 unimplemented!();
             }
         }
-    )
+    };
 }

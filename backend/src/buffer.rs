@@ -1,9 +1,9 @@
 //! The `Buffer` utility.
 
-use futures::{Async, Poll};
-use std::collections::VecDeque;
 use super::event::Event;
 use super::stream::{Error, Item};
+use futures::{Async, Poll};
+use std::collections::VecDeque;
 
 /// An internal buffer to store events obtained from native interfaces.
 ///
@@ -25,22 +25,26 @@ use super::stream::{Error, Item};
 /// will irrevocably close the buffer. A closed buffer will not accept any new items, but continue
 /// to serve items through the `poll()` method until it empties, at which point it will indicate
 /// that the `Stream` is ended.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct Buffer {
     closed: bool,
     internal: VecDeque<Event>,
-    limit: usize
+    limit: usize,
 }
 
 impl Buffer {
     /// Creates an empty Buffer with the default limit (16384).
-    pub fn new() -> Buffer {
-        Buffer::new_with_limit(16384)
+    pub fn new() -> Self {
+        Self::new_with_limit(16384)
     }
 
     /// Creates an empty Buffer with a configurable limit.
-    pub fn new_with_limit(limit: usize) -> Buffer {
-        Buffer { closed: false, internal: VecDeque::new(), limit: limit }
+    pub fn new_with_limit(limit: usize) -> Self {
+        Self {
+            closed: false,
+            internal: VecDeque::new(),
+            limit,
+        }
     }
 
     /// Pushes an `Event` at the "back" of the buffer.
@@ -50,8 +54,12 @@ impl Buffer {
     ///  - the buffer is full, or
     ///  - the buffer is closed.
     pub fn push(&mut self, event: Event) {
-        if self.closed { return }
-        if self.free_space().is_none() { return }
+        if self.closed {
+            return;
+        }
+        if self.free_space().is_none() {
+            return;
+        }
         self.internal.push_back(event)
     }
 
@@ -68,10 +76,11 @@ impl Buffer {
     pub fn poll(&mut self) -> Poll<Option<Item>, Error> {
         Ok(match self.pull() {
             Some(item) => Async::Ready(Some(item)),
-            None => match self.closed {
-                true => Async::Ready(None),
-                false => Async::NotReady
-            }
+            None => if self.closed {
+                Async::Ready(None)
+            } else {
+                Async::NotReady
+            },
         })
     }
 

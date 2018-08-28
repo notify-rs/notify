@@ -2,12 +2,13 @@
 authors = ["Félix Saparelli <felix@passcod.name>"]
 name = "notify-backend-poll-tree"
 version = "0.1.0"
-workspace = ".."
 
 [dependencies]
 futures = "0.1.10"
-tempdir = "0.3.5"
 walkdir = "1.0.7"
+
+[dev-dependencies]
+tempdir = "0.3.5"
 
 [dependencies.notify-backend]
 path = "../backend"

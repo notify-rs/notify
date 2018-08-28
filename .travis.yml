@@ -112,6 +112,7 @@ matrix:
 before_install:
   - set -e
   - rustup self update
+  - which cargo-audit || cargo install cargo-audit
 
 install:
   - |
@@ -122,6 +123,7 @@ install:
 
 script:
   - bash ci/script.sh
+  - cargo audit
 
 after_script: set +e
 

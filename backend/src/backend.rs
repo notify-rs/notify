@@ -1,32 +1,44 @@
 //! The `Backend` trait and related types.
 
+use super::{capability::Capability, stream};
 use futures::Stream;
-use std::{ffi, io};
-use std::path::PathBuf;
-use std::result::Result as StdResult;
-use super::capability::Capability;
-use super::stream::{self, EmptyResult};
+use mio::event::Evented;
+use std::{ffi, fmt::Debug, io, path::PathBuf, sync::Arc};
 
-/// Convenient type alias for the Boxed Trait Object for Backend.
-pub type BoxedBackend = Box<Backend<Item=stream::Item, Error=stream::Error>>;
+/// Convenient type alias for the Backend trait object.
+pub type BoxedBackend = Box<Backend<Item = stream::Item, Error = stream::Error>>;
+
+/// Convenient type alias for the `::new()` function return signature.
+pub type NewResult = Result<BoxedBackend, ErrorWrap>;
 
 /// A trait for types that implement Notify backends.
 ///
-/// Be sure to thoroughly read the `Stream` documentation when implementing a `Backend`, as the
-/// semantics described are relied upon by Notify, and incorrectly or incompletely implementing
-/// them will result in bad behaviour.
+/// Be sure to thoroughly read the [`Evented`] and [`Stream`] documentations when implementing a
+/// `Backend`, as the semantics described are relied upon by Notify, and incorrectly or
+/// incompletely implementing them will result in bad behaviour.
 ///
-/// Also take care to correctly free all resources via the `Drop` trait.
-pub trait Backend: Stream + Drop {
+/// Take care to correctly free all resources via the `Drop` trait. For ease of debugging, the
+/// [`Debug`] trait is required. Often this can be derived automatically, but for some backends
+/// a manual implementation may be needed. Additionally, a backend may want to provide a custom
+/// Debug to add useful information rather than e.g. opaque FD numbers.
+///
+/// [`Debug`]: https://doc.rust-lang.org/std/fmt/trait.Debug.html
+/// [`Evented`]: https://docs.rs/mio/0.6/mio/event/trait.Evented.html
+/// [`Stream`]: https://docs.rs/futures/0.1/futures/stream/trait.Stream.html
+pub trait Backend: Stream + Send + Drop + Debug {
     /// Creates an instance of a `Backend` that watches over a set of paths.
     ///
     /// While the `paths` argument is a `Vec` for implementation simplicity, Notify guarantees that
-    /// it will only contain unique entries.
+    /// it will only contain unique entries. Notify will also _try_ to make sure that they are
+    /// pointing to unique trees on the filesystem but cannot offer a guarantee because of the very
+    /// nature of filesystems aka "if trees or links are moved by someone else".
     ///
     /// This function must initialise all resources needed to watch over the paths, and only those
     /// paths. When the set of paths to be watched changes, the `Backend` will be `Drop`ped, and a
     /// new one recreated in its place. Thus, the `Backend` is immutable in this respect.
-    fn new(paths: Vec<PathBuf>) -> Result<BoxedBackend> where Self: Sized;
+    fn new(paths: Vec<PathBuf>) -> NewResult
+    where
+        Self: Sized;
 
     /// Returns the operational capabilities of this `Backend`.
     ///
@@ -39,54 +51,50 @@ pub trait Backend: Stream + Drop {
     /// instead an `Unavailable` error should be returned from `::new()`.
     ///
     /// [cap]: ../capability/enum.Capability.html
-    fn capabilities() -> Vec<Capability> where Self: Sized;
+    fn capabilities() -> Vec<Capability>
+    where
+        Self: Sized;
 
-    /// Returns the operational capabilities of this `Backend`.
+    /// Returns an [`Evented`] implementation that is used to efficently drive the event loop.
     ///
-    /// This should be implemented by invoking `::capabilities()`.
+    /// Backends often wrap kernel APIs, which can also be used to drive the Tokio event loop to
+    /// avoid busy waiting or inefficient polling. If no such API is available, for example in the
+    /// case of a polling `Backend`, this mechanism may be implemented in userspace and use
+    /// whatever clues and cues the `Backend` has available to drive the readiness state.
     ///
-    /// It is necessary due to an implementation issue: Backend needs to be compatible as a Trait
-    /// Object, but only methods with receivers can be present on the Trait Object. Yet, the
-    /// capabilities of the backend must be accessible from a non-instance context for tests and
-    /// other purposes. Thus, this duplication. It is also not possible to have one of the two as a
-    /// provided method, as that invalidates the Trait Object compatibility.
+    /// There is currently no facility or support for a `Backend` to opt out of registering an
+    /// `Evented` driver. If this is needed, request it on the issue tracker. In the meantime, a
+    /// workaround is to implement a `Registration` that immediately sets itself as ready.
     ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// fn caps(&self) -> Vec<Capability> {
-    ///     Self::capabilities()
-    /// }
-    /// ```
-    fn caps(&self) -> Vec<Capability>;
+    /// [`Evented`]: https://docs.rs/mio/0.6/mio/event/trait.Evented.html
+    fn driver(&self) -> Box<Evented>;
 
-    /// Blocks until events are available on this `Backend`.
+    /// Returns the name of this Backend.
     ///
-    /// The `wait()` method on Stream waits using cond-vars to implement similar functionality.
-    /// However, we have additional knowledge and capabilities as we can rely often rely on the
-    /// kernel to block until it's ready.
-    ///
-    /// Another difference from `wait()` is that it returns a Stream, i.e. it is a blocking
-    /// iterator. This method instead only blocks once, until the next event is available.
-    fn await(&mut self) -> EmptyResult;
+    /// This is used for primarily for debugging and post-processing/filtering. Having two backends
+    /// with the same name running at once is undefined behaviour and may be disallowed by Notify.
+    /// The value should not change.
+    fn name() -> &'static str
+    where
+        Self: Sized;
 
     /// The version of the Backend trait this implementation was built against.
-    fn trait_version() -> String where Self: Sized {
+    fn trait_version() -> String
+    where
+        Self: Sized,
+    {
         env!("CARGO_PKG_VERSION").into()
     }
 }
 
-/// A specialised Result for `Backend::new()`.
-pub type Result<T: Backend> = StdResult<T, Error>;
-
 /// Any error which may occur during the initialisation of a `Backend`.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Error {
     /// An error represented by an arbitrary string.
     Generic(String),
 
     /// An I/O error.
-    Io(io::Error),
+    Io(Arc<io::Error>),
 
     /// An error indicating that this Backend's implementation is incomplete.
     ///
@@ -105,6 +113,9 @@ pub enum Error {
     /// path is gone between the time the frontend checks it and the Backend initialises.
     ///
     /// It may contain the list of files that are reported to be non-existent if that is known.
+    ///
+    /// `io::Error`s of kind `NotFound` will be auto-converted to this variant for convenience, but
+    /// whenever possible this should be done manually to populate the paths argument.
     NonExistent(Vec<PathBuf>),
 
     /// An error indicating that one or more of the paths given is not supported by the `Backend`,
@@ -118,12 +129,15 @@ pub enum Error {
     FfiIntoString(ffi::IntoStringError),
 
     /// A str conversion issue (nul too early or absent) from an FFI binding.
-    FfiFromBytes(ffi::FromBytesWithNulError)
+    FfiFromBytes(ffi::FromBytesWithNulError),
 }
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Self {
-        Error::Io(err)
+        match err.kind() {
+            io::ErrorKind::NotFound => Error::NonExistent(vec![]),
+            _ => Error::Io(Arc::new(err)),
+        }
     }
 }
 
@@ -148,5 +162,98 @@ impl From<ffi::IntoStringError> for Error {
 impl From<ffi::FromBytesWithNulError> for Error {
     fn from(err: ffi::FromBytesWithNulError) -> Self {
         Error::FfiFromBytes(err)
+    }
+}
+
+/// A composite error wrapper type.
+///
+/// When initialising a `Backend`, errors that occur may either be general or only affect certain
+/// paths. This special type encodes which case is the situation, and comes with implementations to
+/// make it easier and less verbose to use in most common ways.
+///
+/// In all the error scenarios described below that affect _subsets_ of paths, the assumption is
+/// that if _only_ the _non-erroring_ paths were passed again, the creation of the `Backend` would
+/// be _likely_ to succeed.
+#[derive(Clone, Debug)]
+pub enum ErrorWrap {
+    /// An error about the backend itself or in general.
+    General(Error),
+
+    /// An error that affects all paths passed in.
+    ///
+    /// May be also represented by a `Multiple` or a `Single` with all the paths associated to
+    /// errors. However, this variant is more efficient.
+    All(Error),
+
+    /// An error that only affects some paths.
+    ///
+    /// This is for a single _error_ that affects a subset of the paths that were passed in.
+    Single(Error, Vec<PathBuf>),
+
+    /// Several errors associated with different paths.
+    ///
+    /// This is for multiple _errors_ that affect subsets of paths. The subsets may all be the
+    /// same, or may be empty to denote a general error as well as specific ones, or may duplicate
+    /// paths. It is however expected that within `Vec`s, paths are unique (but this will not be
+    /// enforced strictly).
+    Multiple(Vec<(Error, Vec<PathBuf>)>),
+}
+
+impl ErrorWrap {
+    /// Reduces to a set of errors, discarding all path information.
+    pub fn as_error_vec(&self) -> Vec<&Error> {
+        match self {
+            ErrorWrap::Multiple(ve) => ve.iter().map(|(e, _)| e).collect(),
+            ErrorWrap::General(ref err)
+            | ErrorWrap::All(ref err)
+            | ErrorWrap::Single(ref err, _) => vec![err],
+        }
+    }
+}
+
+impl From<Error> for ErrorWrap {
+    fn from(err: Error) -> Self {
+        ErrorWrap::General(err)
+    }
+}
+
+impl<'a> From<&'a Error> for ErrorWrap {
+    fn from(err: &'a Error) -> Self {
+        ErrorWrap::General(err.clone())
+    }
+}
+
+impl From<io::Error> for ErrorWrap {
+    fn from(err: io::Error) -> Self {
+        let e: Error = err.into();
+        e.into()
+    }
+}
+
+impl From<Capability> for ErrorWrap {
+    fn from(cap: Capability) -> Self {
+        let e: Error = cap.into();
+        e.into()
+    }
+}
+
+impl From<ffi::NulError> for ErrorWrap {
+    fn from(err: ffi::NulError) -> Self {
+        let e: Error = err.into();
+        e.into()
+    }
+}
+
+impl From<ffi::IntoStringError> for ErrorWrap {
+    fn from(err: ffi::IntoStringError) -> Self {
+        let e: Error = err.into();
+        e.into()
+    }
+}
+
+impl From<ffi::FromBytesWithNulError> for ErrorWrap {
+    fn from(err: ffi::FromBytesWithNulError) -> Self {
+        let e: Error = err.into();
+        e.into()
     }
 }
