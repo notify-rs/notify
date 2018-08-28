@@ -14,7 +14,7 @@ use mio::{
 /// events related to the FD, that is the responsibility of the Backend.
 ///
 /// [`EventedFd`]: https://docs.rs/mio/0.6/mio/unix/struct.EventedFd.html
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub struct OwnedEventedFd(pub RawFd);
 
 impl Evented for OwnedEventedFd {
