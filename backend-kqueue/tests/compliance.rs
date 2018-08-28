@@ -1,4 +1,3 @@
-extern crate futures;
 #[macro_use] extern crate notify_backend;
 extern crate notify_backend_kqueue;
 extern crate tempdir;

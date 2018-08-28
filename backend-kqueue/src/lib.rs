@@ -1,6 +1,8 @@
 //! Notify Backend crate for BSD (or others) kqueue.
 
 #![deny(missing_docs)]
+#![forbid(unsafe_code)]
+#![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
 
 extern crate notify_backend as backend;
 extern crate kqueue;
@@ -12,7 +14,9 @@ use futures::{Poll, Stream};
 use kqueue::{Event as KEvent, EventData, EventFilter, Ident, Vnode};
 use std::path::PathBuf;
 
-/// A Notify Backend for [kqueue].
+const BACKEND_NAME: &str = "kqueue";
+
+/// A Notify Backend for [kqueue]. TODO redo backend using mio directly
 ///
 /// Kqueue has been in *BSD since 2000.
 ///
@@ -37,12 +41,16 @@ use std::path::PathBuf;
 /// [kqueue]: https://www.freebsd.org/cgi/man.cgi?kqueue(2)
 /// [kqueue binding]: https://docs.worrbase.com/rust/kqueue/
 /// [revoked]: https://www.freebsd.org/cgi/man.cgi?revoke(2)
+#[derive(Debug)]
 pub struct Backend {
     buffer: Buffer,
+    driver: OwnedEventedFd,
     kqueue: kqueue::Watcher,
 }
 
 impl NotifyBackend for Backend {
+    fn name() -> &'static str { BACKEND_NAME }
+
     fn new(paths: Vec<PathBuf>) -> BackendResult<Backend> {
         let mut watcher = kqueue::Watcher::new()?;
 
@@ -58,14 +66,14 @@ impl NotifyBackend for Backend {
         Ok(Backend { buffer: Buffer::new(), kqueue: watcher })
     }
 
-    fn caps(&self) -> Vec<Capability> {
-        Self::capabilities()
-    }
-
     fn capabilities() -> Vec<Capability> {
         vec![
             Capability::WatchFiles,
         ]
+    }
+
+    fn driver(&self) -> Box<Evented> {
+        //
     }
 
     fn await(&mut self) -> EmptyStreamResult {
@@ -125,7 +133,9 @@ impl Backend {
         self.buffer.push(Event {
             kind: kind,
             paths: vec![PathBuf::from(filename)],
-            relid: None
+            relid: None,
+            attrs: AnyMap::new(),
+            source: BACKEND_NAME,
         });
 
         Ok(())

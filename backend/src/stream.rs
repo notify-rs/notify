@@ -1,7 +1,7 @@
 //! The types related to implementing the `Stream` trait.
 
-use std::io;
 use super::event::Event;
+use std::io;
 
 /// A specialised error for `Backend::await()`.
 pub type EmptyResult = Result<(), Error>;
@@ -21,6 +21,8 @@ impl From<io::Error> for Error {
         Error::Io(err)
     }
 }
+
+// TODO: impl Display and Error
 
 /// A handy reference to the correct `Stream::Item` associated type.
 pub type Item = Event;

@@ -1,26 +1,30 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
+
 extern crate notify_backend as backend;
-extern crate futures;
 extern crate walkdir;
 
 use backend::prelude::*;
 use backend::Buffer;
+use std::sync::Arc;
 
-use futures::{Poll, Stream};
-use std::path::PathBuf;
+const BACKEND_NAME: &str = "poll tree";
 
+#[derive(Debug)]
 pub struct Backend {
     buffer: Buffer,
+    reg: Arc<MioRegistration>,
     trees: Vec<String>,
-    watches: Vec<PathBuf>
+    watches: Vec<PathBuf>,
 }
 
 impl NotifyBackend for Backend {
-    fn new(paths: Vec<PathBuf>) -> BackendResult<BoxedBackend> {
-        Err(BackendError::NotImplemented)
+    fn name() -> &'static str {
+        BACKEND_NAME
     }
 
-    fn caps(&self) -> Vec<Capability> {
-        Self::capabilities()
+    fn new(_paths: Vec<PathBuf>) -> NewBackendResult {
+        Err(BackendError::NotImplemented.into())
     }
 
     fn capabilities() -> Vec<Capability> {
@@ -33,8 +37,8 @@ impl NotifyBackend for Backend {
         ]
     }
 
-    fn await(&mut self) -> EmptyStreamResult {
-        Ok(())
+    fn driver(&self) -> Box<Evented> {
+        Box::new(self.reg.clone())
     }
 }
 
@@ -48,10 +52,8 @@ impl Stream for Backend {
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         if self.buffer.closed() {
-            return self.buffer.poll()
+            return self.buffer.poll();
         }
-
-        // QUESTION: trigger resolves here? or on an interval in a thread?
 
         self.buffer.poll()
     }

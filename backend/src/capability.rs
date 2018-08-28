@@ -11,7 +11,8 @@
 ///
 /// The ideal solution is to have backends advertise which features they do support and only "fill
 /// in" for them when they don't support something we require. Thus, these capabilities.
-#[derive(Clone, Debug, Eq, PartialEq)] pub enum Capability {
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum Capability {
     /// The backend generates `EventKind::Access` events.
     EmitOnAccess,
 

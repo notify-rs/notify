@@ -12,8 +12,8 @@ buildx() {
 }
 
 testx() {
-  cross test --target $*
-  cross test --release --target $*
+  cross test --all --target $*
+  cross test --all --release --target $*
 }
 
 logfile() {
@@ -24,26 +24,7 @@ target() {
   check="${1}x"
   target="$2"
 
-  $check $target \
-    2>&1 | tee $(logfile $check $target notify)
-
-  $check $target -p notify-backend \
-    2>&1 | tee $(logfile $check $target notify-backend)
-
-  #$check $target -p notify-backend-poll-tree \
-  #  2>&1 | tee $(logfile $check $target notify-backend-poll-tree)
-
-  if [[ "$target" =~ -linux- ]]; then
-    $check $target -p notify-backend-inotify \
-      2>&1 | tee $(logfile $check $target notify-backend-inotify)
-  elif [[ "$target" =~ -darwin$ ]]; then
-    echo not ready yet
-    $check $target -p notify-backend-fsevent \
-      2>&1 | tee $(logfile $check $target notify-backend-fsevent)
-  elif [[ "$target" =~ bsd ]]; then
-    $check $target -p notify-backend-kqueue \
-      2>&1 | tee $(logfile $check $target notify-backend-kqueue)
-  fi
+  $check $target 2>&1 | tee $(logfile $check $target notify)
 }
 
 packlogs() {
