@@ -300,6 +300,7 @@ mod debounce;
 /// __Windows__
 ///
 /// On Windows a `WRITE` event is emitted when attributes change.
+#[allow(missing_docs)]
 pub mod op {
     bitflags! {
     /// Holds a set of bit flags representing the actions for the event.
@@ -323,6 +324,33 @@ pub mod op {
     /// Directories need to be rescanned
             const RESCAN      = 0b1000000;
         }
+    }
+
+    pub const CHMOD: Op = Op::CHMOD;
+    pub const CREATE: Op = Op::CREATE;
+    pub const REMOVE: Op = Op::REMOVE;
+    pub const RENAME: Op = Op::RENAME;
+    pub const WRITE: Op = Op::WRITE;
+    pub const CLOSE_WRITE: Op = Op::CLOSE_WRITE;
+    pub const RESCAN: Op = Op::RESCAN;
+}
+
+#[cfg(test)]
+mod op_test {
+    #[test] fn mixed_bitflags_form() {
+        let op = super::op::Op::CHMOD | super::op::WRITE;
+        assert!(op.contains(super::op::CHMOD));
+        assert!(op.contains(super::op::Op::WRITE));
+    }
+
+    #[test] fn new_bitflags_form() {
+        let op = super::op::Op::CHMOD | super::op::Op::WRITE;
+        assert!(op.contains(super::op::Op::WRITE));
+    }
+
+    #[test] fn old_bitflags_form() {
+        let op = super::op::CHMOD | super::op::WRITE;
+        assert!(op.contains(super::op::WRITE));
     }
 }
 
