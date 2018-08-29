@@ -7,9 +7,13 @@
 
 extern crate kernel32;
 
-use winapi::{OVERLAPPED, LPOVERLAPPED, HANDLE, INVALID_HANDLE_VALUE, INFINITE, TRUE,
-             WAIT_OBJECT_0, ERROR_OPERATION_ABORTED, FILE_NOTIFY_INFORMATION, fileapi, winbase,
-             winnt};
+use winapi::shared::minwindef::TRUE;
+use winapi::shared::winerror::ERROR_OPERATION_ABORTED;
+use winapi::um::fileapi;
+use winapi::um::handleapi::INVALID_HANDLE_VALUE;
+use winapi::um::minwinbase::{OVERLAPPED, LPOVERLAPPED};
+use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
+use winapi::um::winnt::{self, HANDLE, FILE_NOTIFY_INFORMATION};
 
 use std::collections::HashMap;
 use std::env;
@@ -259,14 +263,14 @@ fn start_read(rd: &ReadData, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
 
         // This is using an asynchronous call with a completion routine for receiving notifications
         // An I/O completion port would probably be more performant
-        let ret = kernel32::ReadDirectoryChangesW(handle,
-                                                  req_buf,
-                                                  BUF_SIZE,
-                                                  monitor_subdir,
-                                                  flags,
-                                                  &mut 0u32 as *mut u32, // not used for async reqs
-                                                  &mut *overlapped as *mut OVERLAPPED,
-                                                  Some(handle_event));
+        let ret = winbase::ReadDirectoryChangesW(handle,
+                                                 req_buf,
+                                                 BUF_SIZE,
+                                                 monitor_subdir,
+                                                 flags,
+                                                 &mut 0u32 as *mut u32, // not used for async reqs
+                                                 &mut *overlapped as *mut OVERLAPPED,
+                                                 Some(handle_event));
 
         if ret == 0 {
             // error reading. retransmute request memory to allow drop.
@@ -285,7 +289,7 @@ fn send_pending_rename_event(event: Option<RawEvent>, event_tx: &mut EventTx) {
     if let Some(e) = event {
         event_tx.send(RawEvent {
             path: e.path,
-            op: Ok(op::REMOVE),
+            op: Ok(op::Op::REMOVE),
             cookie: None,
         });
     }
@@ -336,7 +340,7 @@ unsafe extern "system" fn handle_event(error_code: u32,
                     if request.data.file.is_some() {
                         event_tx.send(RawEvent {
                             path: Some(path),
-                            op: Ok(op::RENAME),
+                            op: Ok(op::Op::RENAME),
                             cookie: None,
                         });
                         rename_event = None;
@@ -344,7 +348,7 @@ unsafe extern "system" fn handle_event(error_code: u32,
                         COOKIE_COUNTER = COOKIE_COUNTER.wrapping_add(1);
                         rename_event = Some(RawEvent {
                             path: Some(path),
-                            op: Ok(op::RENAME),
+                            op: Ok(op::Op::RENAME),
                             cookie: Some(COOKIE_COUNTER),
                         });
                     }
@@ -357,19 +361,19 @@ unsafe extern "system" fn handle_event(error_code: u32,
                             if let Some(e) = rename_event {
                                 if let Some(cookie) = e.cookie {
                                     event_tx.send(e);
-                                    o.insert(op::RENAME);
+                                    o.insert(op::Op::RENAME);
                                     c = Some(cookie);
                                 } else {
-                                    o.insert(op::CREATE);
+                                    o.insert(op::Op::CREATE);
                                 }
                             } else {
-                                o.insert(op::CREATE);
+                                o.insert(op::Op::CREATE);
                             }
                             rename_event = None;
                         }
-                        winnt::FILE_ACTION_ADDED => o.insert(op::CREATE),
-                        winnt::FILE_ACTION_REMOVED => o.insert(op::REMOVE),
-                        winnt::FILE_ACTION_MODIFIED => o.insert(op::WRITE),
+                        winnt::FILE_ACTION_ADDED => o.insert(op::Op::CREATE),
+                        winnt::FILE_ACTION_REMOVED => o.insert(op::Op::REMOVE),
+                        winnt::FILE_ACTION_MODIFIED => o.insert(op::Op::WRITE),
                         _ => (),
                     };
 

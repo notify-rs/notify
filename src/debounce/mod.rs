@@ -32,7 +32,7 @@ impl EventTx {
             }
             EventTx::Debounced { ref tx, ref mut debounce } => {
                 match (event.path, event.op, event.cookie) {
-                    (None, Ok(op::RESCAN), None) => {
+                    (None, Ok(op::Op::RESCAN), None) => {
                         let _ = tx.send(DebouncedEvent::Rescan);
                     }
                     (Some(path), Ok(op), cookie) => {
@@ -48,7 +48,7 @@ impl EventTx {
             }
             EventTx::DebouncedTx { ref tx } => {
                 match (event.path, event.op, event.cookie) {
-                    (None, Ok(op::RESCAN), None) => {
+                    (None, Ok(op::Op::RESCAN), None) => {
                         let _ = tx.send(DebouncedEvent::Rescan);
                     }
                     (Some(_path), Ok(_op), _cookie) => {
@@ -100,19 +100,19 @@ impl Debounce {
             // (https://github.com/passcod/notify/issues/101).
             if let Some(&mut (ref mut operation, ref mut from_path, ref mut timer_id)) =
                 op_buf.get_mut(self.rename_path.as_ref().unwrap()) {
-                if op != op::RENAME || self.rename_cookie.is_none() ||
+                if op != op::Op::RENAME || self.rename_cookie.is_none() ||
                    self.rename_cookie != cookie {
                     if self.rename_path.as_ref().unwrap().exists() {
                         match *operation {
-                            Some(op::RENAME) if from_path.is_none() => {
+                            Some(op::Op::RENAME) if from_path.is_none() => {
                                 // file has been moved into the watched directory
-                                *operation = Some(op::CREATE);
+                                *operation = Some(op::Op::CREATE);
                                 restart_timer(timer_id, path, &mut self.timer);
                             }
-                            Some(op::REMOVE) => {
+                            Some(op::Op::REMOVE) => {
                                 // file has been moved removed before and has now been moved into
                                 // the watched directory
-                                *operation = Some(op::WRITE);
+                                *operation = Some(op::Op::WRITE);
                                 restart_timer(timer_id, path, &mut self.timer);
                             }
                             _ => {
@@ -123,7 +123,7 @@ impl Debounce {
                         }
                     } else {
                         match *operation {
-                            Some(op::CREATE) => {
+                            Some(op::Op::CREATE) => {
                                 // file was just created, so just remove the operations_buffer
                                 // entry / no need to emit NoticeRemove because the file has just
                                 // been created.
@@ -136,20 +136,20 @@ impl Debounce {
                                 // remember for deletion
                                 remove_path = Some(path);
                             }
-                            Some(op::WRITE) | // change to remove event
-                            Some(op::CHMOD) => { // change to remove event
-                                *operation = Some(op::REMOVE);
+                            Some(op::Op::WRITE) | // change to remove event
+                            Some(op::Op::CHMOD) => { // change to remove event
+                                *operation = Some(op::Op::REMOVE);
                                 let _ = self.tx.send(DebouncedEvent::NoticeRemove(path.clone()));
                                 restart_timer(timer_id, path, &mut self.timer);
                             }
-                            Some(op::RENAME) => {
+                            Some(op::Op::RENAME) => {
 
                                 // file has been renamed before, change to remove event / no need
                                 // to emit NoticeRemove because the file has been renamed before
-                                *operation = Some(op::REMOVE);
+                                *operation = Some(op::Op::REMOVE);
                                 restart_timer(timer_id, path, &mut self.timer);
                             }
-                            Some(op::REMOVE) => {
+                            Some(op::Op::REMOVE) => {
 
                                 // file has been renamed and then removed / keep write event
                                 // this code can only be reached with fsevents because it may
@@ -174,7 +174,7 @@ impl Debounce {
     }
 
     pub fn event(&mut self, path: PathBuf, mut op: op::Op, cookie: Option<u32>) {
-        if op.contains(op::RESCAN) {
+        if op.contains(op::Op::RESCAN) {
             let _ = self.tx.send(DebouncedEvent::Rescan);
         }
 
@@ -185,42 +185,42 @@ impl Debounce {
         if let Ok(mut op_buf) = self.operations_buffer.lock() {
             if let Some(&(ref operation, _, _)) = op_buf.get(&path) {
                 op = remove_repeated_events(op, operation);
-            } else if op.contains(op::CREATE | op::REMOVE) {
+            } else if op.contains(op::Op::CREATE | op::Op::REMOVE) {
                 if path.exists() {
-                    op.remove(op::REMOVE);
+                    op.remove(op::Op::REMOVE);
                 } else {
-                    op.remove(op::CREATE);
+                    op.remove(op::Op::CREATE);
                 }
             }
 
-            if op.contains(op::CREATE) {
+            if op.contains(op::Op::CREATE) {
                 let &mut (ref mut operation, _, ref mut timer_id) = op_buf.entry(path.clone())
                     .or_insert((None, None, None));
                 match *operation {
                     // file can't be created twice
-                    Some(op::CREATE) |
+                    Some(op::Op::CREATE) |
 
                     // file can't be written to before being created
-                    Some(op::WRITE) |
+                    Some(op::Op::WRITE) |
 
                     // file can't be changed before being created
-                    Some(op::CHMOD) |
+                    Some(op::Op::CHMOD) |
 
                     // file can't be renamed to before being created
                     // (repetitions are removed anyway),
                     // but with fsevents everything is possible
-                    Some(op::RENAME) => {}
+                    Some(op::Op::RENAME) => {}
 
                     // file has been removed and is now being re-created;
                     // convert this to a write event
-                    Some(op::REMOVE) => {
-                        *operation = Some(op::WRITE);
+                    Some(op::Op::REMOVE) => {
+                        *operation = Some(op::Op::WRITE);
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
 
                     // operations_buffer entry didn't exist
                     None => {
-                        *operation = Some(op::CREATE);
+                        *operation = Some(op::Op::CREATE);
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
 
@@ -228,72 +228,72 @@ impl Debounce {
                 }
             }
 
-            if op.contains(op::WRITE) {
+            if op.contains(op::Op::WRITE) {
                 let &mut (ref mut operation, _, ref mut timer_id) = op_buf.entry(path.clone())
                     .or_insert((None, None, None));
                 match *operation {
                     // keep create event / no need to emit NoticeWrite because
                     // the file has just been created
-                    Some(op::CREATE) |
+                    Some(op::Op::CREATE) |
 
                     // keep write event / not need to emit NoticeWrite because
                     // it already was a write event
-                    Some(op::WRITE) => {
+                    Some(op::Op::WRITE) => {
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
 
                     // upgrade to write event
-                    Some(op::CHMOD) |
+                    Some(op::Op::CHMOD) |
 
                     // file has been renamed before, upgrade to write event
-                    Some(op::RENAME) |
+                    Some(op::Op::RENAME) |
 
                     // operations_buffer entry didn't exist
                     None => {
-                        *operation = Some(op::WRITE);
+                        *operation = Some(op::Op::WRITE);
                         let _ = self.tx.send(DebouncedEvent::NoticeWrite(path.clone()));
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
 
                     // writing to a deleted file is impossible,
                     // but with fsevents everything is possible
-                    Some(op::REMOVE) => {}
+                    Some(op::Op::REMOVE) => {}
 
                     _ => { unreachable!(); }
                 }
             }
 
-            if op.contains(op::CHMOD) {
+            if op.contains(op::Op::CHMOD) {
                 let &mut (ref mut operation, _, ref mut timer_id) = op_buf.entry(path.clone())
                     .or_insert((None, None, None));
                 match *operation {
                     // keep create event
-                    Some(op::CREATE) |
+                    Some(op::Op::CREATE) |
 
                     // keep write event
-                    Some(op::WRITE) |
+                    Some(op::Op::WRITE) |
 
                     // keep chmod event
-                    Some(op::CHMOD) => { restart_timer(timer_id, path.clone(), &mut self.timer); }
+                    Some(op::Op::CHMOD) => { restart_timer(timer_id, path.clone(), &mut self.timer); }
 
                     // file has been renamed before, upgrade to chmod event
-                    Some(op::RENAME) |
+                    Some(op::Op::RENAME) |
 
                     // operations_buffer entry didn't exist
                     None => {
-                        *operation = Some(op::CHMOD);
+                        *operation = Some(op::Op::CHMOD);
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
 
                     // changing a deleted file is impossible,
                     // but with fsevents everything is possible
-                    Some(op::REMOVE) => {}
+                    Some(op::Op::REMOVE) => {}
 
                     _ => { unreachable!(); }
                 }
             }
 
-            if op.contains(op::RENAME) {
+            if op.contains(op::Op::RENAME) {
                 // unwrap is safe because rename_path is Some
                 if self.rename_path.is_some() && self.rename_cookie.is_some() &&
                    self.rename_cookie == cookie &&
@@ -318,7 +318,7 @@ impl Debounce {
 
                     match from_operation {
                         // file has just been created, so move the create event to the new path
-                        Some(op::CREATE) => {
+                        Some(op::Op::CREATE) => {
                             *operation = from_operation;
                             *from_path = None;
                             restart_timer(timer_id, path.clone(), &mut self.timer);
@@ -326,15 +326,15 @@ impl Debounce {
 
                         // file has been written to, so move the event to the new path, but keep
                         // the write event
-                        Some(op::WRITE) |
+                        Some(op::Op::WRITE) |
 
                         // file has been changed, so move the event to the new path, but keep the
                         // chmod event
-                        Some(op::CHMOD) |
+                        Some(op::Op::CHMOD) |
 
                         // file has been renamed before, so move the event to the new path and
                         // update the from_path
-                        Some(op::RENAME) => {
+                        Some(op::Op::RENAME) => {
                             *operation = from_operation;
                             *from_path = use_from_path;
                             restart_timer(timer_id, path.clone(), &mut self.timer);
@@ -342,7 +342,7 @@ impl Debounce {
 
                         // file can't be renamed after being removed,
                         // but with fsevents everything is possible
-                        Some(op::REMOVE) => {}
+                        Some(op::Op::REMOVE) => {}
 
                         _ => { unreachable!(); }
                     }
@@ -360,27 +360,27 @@ impl Debounce {
                     match *operation {
                         // keep create event / no need to emit NoticeRemove because
                         // the file has just been created
-                        Some(op::CREATE) |
+                        Some(op::Op::CREATE) |
 
                         // file has been renamed before, so
                         // keep rename event / no need to emit NoticeRemove because
                         // the file has been renamed before
-                        Some(op::RENAME) => {
+                        Some(op::Op::RENAME) => {
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
 
                         // keep write event
-                        Some(op::WRITE) |
+                        Some(op::Op::WRITE) |
 
                         // keep chmod event
-                        Some(op::CHMOD) => {
+                        Some(op::Op::CHMOD) => {
                             let _ = self.tx.send(DebouncedEvent::NoticeRemove(path.clone()));
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
 
                         // operations_buffer entry didn't exist
                         None => {
-                            *operation = Some(op::RENAME);
+                            *operation = Some(op::Op::RENAME);
                             let _ = self.tx.send(DebouncedEvent::NoticeRemove(path.clone()));
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
@@ -388,14 +388,14 @@ impl Debounce {
                         // renaming a deleted file should be impossible,
                         // but with fsevents everything is possible
                         // (https://github.com/passcod/notify/issues/101)
-                        Some(op::REMOVE) => {}
+                        Some(op::Op::REMOVE) => {}
 
                         _ => { unreachable!(); }
                     }
                 }
             }
 
-            if op.contains(op::REMOVE) {
+            if op.contains(op::Op::REMOVE) {
                 let mut remove_path: Option<PathBuf> = None;
                 {
                     if let Some(&(_, ref from_path, ref timer_id)) = op_buf.get(&path) {
@@ -423,7 +423,7 @@ impl Debounce {
                         match *operation {
                             // file was just created, so just remove the operations_buffer entry / no
                             // need to emit NoticeRemove because the file has just been created
-                            Some(op::CREATE) => {
+                            Some(op::Op::CREATE) => {
                                 // ignore running timer
                                 if let Some(timer_id) = *timer_id {
                                     self.timer.ignore(timer_id);
@@ -434,28 +434,28 @@ impl Debounce {
                             }
 
                             // change to remove event
-                            Some(op::WRITE) |
+                            Some(op::Op::WRITE) |
 
                             // change to remove event
-                            Some(op::CHMOD) |
+                            Some(op::Op::CHMOD) |
 
                             // operations_buffer entry didn't exist
                             None => {
-                                *operation = Some(op::REMOVE);
+                                *operation = Some(op::Op::REMOVE);
                                 let _ = self.tx.send(DebouncedEvent::NoticeRemove(path.clone()));
                                 restart_timer(timer_id, path.clone(), &mut self.timer);
                             }
 
                             // file has been renamed before, change to remove event /
                             // no need to emit NoticeRemove because the file has been renamed before
-                            Some(op::RENAME) => {
-                                *operation = Some(op::REMOVE);
+                            Some(op::Op::RENAME) => {
+                                *operation = Some(op::Op::REMOVE);
                                 restart_timer(timer_id, path.clone(), &mut self.timer);
                             }
 
                             // multiple remove events are possible if the file/directory
                             // is itself watched and in a watched directory
-                            Some(op::REMOVE) => {}
+                            Some(op::Op::REMOVE) => {}
 
                             _ => { unreachable!(); }
                         }
@@ -474,16 +474,16 @@ impl Debounce {
 
 fn remove_repeated_events(mut op: op::Op, prev_op: &Option<op::Op>) -> op::Op {
     if let Some(prev_op) = *prev_op {
-        if prev_op.intersects(op::CREATE | op::WRITE | op::CHMOD | op::RENAME) {
-            op.remove(op::CREATE);
+        if prev_op.intersects(op::Op::CREATE | op::Op::WRITE | op::Op::CHMOD | op::Op::RENAME) {
+            op.remove(op::Op::CREATE);
         }
 
-        if prev_op.contains(op::REMOVE) {
-            op.remove(op::REMOVE);
+        if prev_op.contains(op::Op::REMOVE) {
+            op.remove(op::Op::REMOVE);
         }
 
-        if prev_op.contains(op::RENAME) && op & !op::RENAME != op::Op::empty() {
-            op.remove(op::RENAME);
+        if prev_op.contains(op::Op::RENAME) && op & !op::Op::RENAME != op::Op::empty() {
+            op.remove(op::Op::RENAME);
         }
     }
     op

@@ -18,7 +18,7 @@ use super::debounce::{Debounce, EventTx};
 extern crate walkdir;
 
 struct PathData {
-    mtime: u64,
+    mtime: i64,
     last_check: Instant,
 }
 
@@ -92,7 +92,7 @@ impl PollWatcher {
                                             if mtime > old_mtime {
                                                 event_tx.send(RawEvent {
                                                     path: Some(watch.clone()),
-                                                    op: Ok(op::WRITE),
+                                                    op: Ok(op::Op::WRITE),
                                                     cookie: None,
                                                 });
                                             }
@@ -127,7 +127,7 @@ impl PollWatcher {
                                                     None => {
                                                         event_tx.send(RawEvent {
                                                             path: Some(path.to_path_buf()),
-                                                            op: Ok(op::CREATE),
+                                                            op: Ok(op::Op::CREATE),
                                                             cookie: None,
                                                         });
                                                     }
@@ -135,7 +135,7 @@ impl PollWatcher {
                                                         if mtime > old_mtime {
                                                             event_tx.send(RawEvent {
                                                                 path: Some(path.to_path_buf()),
-                                                                op: Ok(op::WRITE),
+                                                                op: Ok(op::Op::WRITE),
                                                                 cookie: None,
                                                             });
                                                         }
@@ -155,7 +155,7 @@ impl PollWatcher {
                             if last_check < current_time {
                                 event_tx.send(RawEvent {
                                     path: Some(path.clone()),
-                                    op: Ok(op::REMOVE),
+                                    op: Ok(op::Op::REMOVE),
                                     cookie: None,
                                 });
                                 removed.push(path.clone());

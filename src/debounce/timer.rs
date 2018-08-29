@@ -93,11 +93,11 @@ impl ScheduleWorker {
                             self.tx.send(DebouncedEvent::Rename(from_path, path.clone())).unwrap();
                         }
                         let message = match op {
-                            Some(op::CREATE) => Some(DebouncedEvent::Create(path)),
-                            Some(op::WRITE) => Some(DebouncedEvent::Write(path)),
-                            Some(op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
-                            Some(op::REMOVE) => Some(DebouncedEvent::Remove(path)),
-                            Some(op::RENAME) if is_partial_rename => {
+                            Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
+                            Some(op::Op::WRITE) => Some(DebouncedEvent::Write(path)),
+                            Some(op::Op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
+                            Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
+                            Some(op::Op::RENAME) if is_partial_rename => {
                                 if path.exists() {
                                     Some(DebouncedEvent::Create(path))
                                 } else {

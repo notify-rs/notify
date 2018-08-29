@@ -52,19 +52,19 @@ unsafe impl Sync for FsEventWatcher {}
 fn translate_flags(flags: fse::StreamFlags) -> op::Op {
     let mut ret = op::Op::empty();
     if flags.contains(fse::ITEM_XATTR_MOD) || flags.contains(fse::ITEM_CHANGE_OWNER) {
-        ret.insert(op::CHMOD);
+        ret.insert(op::Op::CHMOD);
     }
     if flags.contains(fse::ITEM_CREATED) {
-        ret.insert(op::CREATE);
+        ret.insert(op::Op::CREATE);
     }
     if flags.contains(fse::ITEM_REMOVED) {
-        ret.insert(op::REMOVE);
+        ret.insert(op::Op::REMOVE);
     }
     if flags.contains(fse::ITEM_RENAMED) {
-        ret.insert(op::RENAME);
+        ret.insert(op::Op::RENAME);
     }
     if flags.contains(fse::ITEM_MODIFIED) {
-        ret.insert(op::WRITE);
+        ret.insert(op::Op::WRITE);
     }
     ret
 }
@@ -283,7 +283,7 @@ pub unsafe extern "C" fn callback(
             if flag.contains(fse::MUST_SCAN_SUBDIRS) {
                 event_tx.send(RawEvent {
                     path: None,
-                    op: Ok(op::RESCAN),
+                    op: Ok(op::Op::RESCAN),
                     cookie: None,
                 });
             }
@@ -368,7 +368,7 @@ impl Watcher for FsEventWatcher {
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         self.stop();
-        let result = self.append_path(path, recursive_mode);  
+        let result = self.append_path(path, recursive_mode);
         // ignore return error: may be empty path list
         let _ = self.run();
         result
