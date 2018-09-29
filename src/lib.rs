@@ -592,6 +592,13 @@ pub trait Watcher: Sized {
     ///
     /// If the `path` is a file, `recursive_mode` will be ignored and events will be delivered only
     /// for the file.
+    ///
+    /// If the `path` is renamed (moved) or deleted, it will automatically be unwatched.  I.e.
+    /// watch does not follow moved directories or files.  (This is independent of the underlying
+    /// OS library used by notify.)  If at a later point another file or directory is moved into
+    /// the same location, it will not be automatically watched.  If you need that behaviour, it is
+    /// recommended that you also watch the parent directory non-recursively and implement an
+    /// opportunistic watcher yourself.
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()>;
 
     /// Stop watching a path.
