@@ -1,7 +1,7 @@
 use backend::{
     prelude::{
-        futures::{stream::poll_fn, Async, Future, Poll, Sink, Stream},
-        BackendErrorWrap, BoxedBackend, Capability, Evented, NotifyBackend as Backend, PathBuf,
+        futures::{stream::poll_fn, Async, Future, Poll, Sink, Stream}, BackendErrorWrap,
+        BoxedBackend, Capability, Evented, NotifyBackend as Backend, PathBuf,
     },
     stream,
 };

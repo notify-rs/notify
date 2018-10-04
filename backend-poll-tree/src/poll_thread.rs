@@ -1,22 +1,25 @@
 use backend::prelude::*;
-use futures::task::Task;
-use walkdir::WalkDir;
-use id_tree::{Tree, TreeBuilder, InsertBehavior, Node, NodeId};
 use filetime::FileTime;
+use futures::task::Task;
+use id_tree::{InsertBehavior, Node, NodeId, Tree, TreeBuilder};
+use walkdir::WalkDir;
 
-use std::path::{PathBuf, Path};
-use std::ffi::{OsString, OsStr};
-use std::sync::mpsc::{self, TryRecvError};
-use std::io;
+use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::time::{Duration, Instant};
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
+use std::time::{Duration, Instant};
+
+use BACKEND_NAME;
 
 struct Element {
     name: OsString,
     mtime: u64,
     size: u64,
-    #[cfg(unix)] mode: u32,
+    #[cfg(unix)]
+    mode: u32,
 }
 
 impl Default for Element {
@@ -25,7 +28,8 @@ impl Default for Element {
             name: OsString::new(),
             mtime: 0,
             size: 0,
-            #[cfg(unix)] mode: 0,
+            #[cfg(unix)]
+            mode: 0,
         }
     }
 }
@@ -41,20 +45,41 @@ struct Ancestor {
     children: Vec<OsString>,
 }
 
-fn notify(task: &Option<Task>, event_tx: &mpsc::Sender<io::Result<Event>>, event: Result<Event, io::Error>) {
+// Before you forget again: what you're doing here is replacing the channels out
+// of the thread to carry events and readiness by mio primitives. You'll need to
+// implement on both sides, but mostly pass in here a SetReadiness to... set
+// readiness (when an event is detected), and a multiqueue channel (which are
+// more efficient than native apparently, as well as easily future-able) to
+// carry the events out.
+//
+// A further goal (but can be done later) is to also carry out errors, and handle
+// the fatal ones outside by killing the thread gracefully and closing up the
+// event buffer.
+fn notify(
+    ready: ,
+    event_tx: &mpsc::Sender<io::Result<Event>>,
+    event: Result<Event, io::Error>,
+) {
     // send event to the backend
-    event_tx.send(event).expect("notify: main thread unreachable");
+    event_tx
+        .send(event)
+        .expect("notify: main thread unreachable");
     // notify the executor to schedule a poll
     task.as_ref().map(|t| t.notify());
 }
 
-pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Sender<io::Result<Event>>, task_rx: mpsc::Receiver<Task>, shutdown_rx: mpsc::Receiver<bool>) {
+pub fn poll_thread(
+    paths: Vec<PathBuf>,
+    interval: Duration,
+    event_tx: mpsc::Sender<io::Result<Event>>,
+    task_rx: mpsc::Receiver<Task>,
+    shutdown_rx: mpsc::Receiver<()>,
+    readiness: MioReadiness,
+) {
     // check if the poll thread has received a shutdown notification
-    let shutdown_in_progress = || {
-        match shutdown_rx.try_recv() {
-            Ok(_) | Err(TryRecvError::Disconnected) => true,
-            Err(TryRecvError::Empty) => false
-        }
+    let shutdown_in_progress = || match shutdown_rx.try_recv() {
+        Ok(_) | Err(TryRecvError::Disconnected) => true,
+        Err(TryRecvError::Empty) => false,
     };
 
     let mut task: Option<Task> = None;
@@ -72,7 +97,7 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                 };
                 watches.push(watch);
             }
-            Err(err) => notify(&task, &event_tx, Err(err))
+            Err(err) => notify(&task, &event_tx, Err(err)),
         }
     }
 
@@ -90,16 +115,15 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
             if watch.is_dir {
                 let mut parent_node_id = watch.tree.root_node_id().unwrap().clone();
                 let mut parent_path = watch.path.clone();
-                let mut ancestors = vec![
-                    Ancestor {
-                        name: OsString::new(),
-                        children: watch.tree
-                            .children(&parent_node_id)
-                            .expect("bug in notify: invalid parent node id")
-                            .map(|child| child.data().name.clone())
-                            .collect(),
-                    }
-                ];
+                let mut ancestors = vec![Ancestor {
+                    name: OsString::new(),
+                    children: watch
+                        .tree
+                        .children(&parent_node_id)
+                        .expect("bug in notify: invalid parent node id")
+                        .map(|child| child.data().name.clone())
+                        .collect(),
+                }];
 
                 for entry in WalkDir::new(&watch.path)
                     .min_depth(1)
@@ -108,7 +132,8 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                     .filter_map(|e| e.ok())
                 {
                     let path = entry.path();
-                    let file_name = path.file_name().unwrap(); // NOTE all paths returned by walkdir have a file name
+                    let file_name = path.file_name().unwrap();
+                    // NOTE all paths returned by walkdir have a file name
 
                     let p = path.parent().unwrap(); // NOTE all paths returned by walkdir have a parent
                     if p != parent_path {
@@ -116,7 +141,8 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                         // walk the tree up to the last common ancestor
                         if !p.starts_with(&parent_path) {
                             while p != parent_path {
-                                let directory = ancestors.pop().expect("bug in notify: ancestors is empty");
+                                let directory =
+                                    ancestors.pop().expect("bug in notify: ancestors is empty");
                                 if !directory.children.is_empty() {
                                     // file(s) were removed
                                     // TODO emit events
@@ -129,29 +155,33 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                         // update current parent
                         parent_node_id = tree_get_element(
                             &watch.tree,
-                            p.strip_prefix(&watch.path).unwrap(), // NOTE the parent path is always either equal to the watch path or below the watch path
+                            p.strip_prefix(&watch.path).unwrap(),
+                            // NOTE the parent path is always either
+                            // equal to the watch path or
+                            // below the watch path
                         ).expect("bug in notify: child element not found");
                         parent_path = p.to_path_buf();
-                        ancestors.push(
-                            Ancestor {
-                                name: file_name.to_os_string(),
-                                children: watch.tree
-                                    .children(&parent_node_id)
-                                    .expect("bug in notify: invalid parent node id")
-                                    .map(|child| child.data().name.clone())
-                                    .collect(),
-                            }
-                        );
+                        ancestors.push(Ancestor {
+                            name: file_name.to_os_string(),
+                            children: watch
+                                .tree
+                                .children(&parent_node_id)
+                                .expect("bug in notify: invalid parent node id")
+                                .map(|child| child.data().name.clone())
+                                .collect(),
+                        });
                     }
 
-                    let parent = ancestors.last_mut().expect("bug in notify: ancestors is empty");
+                    let parent = ancestors
+                        .last_mut()
+                        .expect("bug in notify: ancestors is empty");
                     vec_remove_item(&mut parent.children, file_name);
 
                     match entry.metadata() {
                         Ok(metadata) => {
-                            let mtime = FileTime::from_last_modification_time(&metadata)
-                                .seconds();
-                            let children_ids = watch.tree
+                            let mtime = FileTime::from_last_modification_time(&metadata).seconds();
+                            let children_ids = watch
+                                .tree
                                 .children_ids(&parent_node_id)
                                 .expect("bug in notify: invalid parent node id")
                                 .cloned()
@@ -164,22 +194,30 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                                     if data.size != metadata.len() {
                                         data.size = metadata.len();
                                         let event = Event {
-                                            kind: EventKind::Modify(ModifyKind::Data(DataChange::Size)),
+                                            kind: EventKind::Modify(ModifyKind::Data(
+                                                DataChange::Size,
+                                            )),
                                             paths: vec![path.to_path_buf()],
                                             relid: None,
+                                            attrs: AnyMap::new(),
+                                            source: BACKEND_NAME,
                                         };
                                         notify(&task, &event_tx, Ok(event));
                                     }
                                     if data.mtime != mtime {
                                         data.mtime = mtime;
                                         let event = Event {
-                                            kind: EventKind::Modify(ModifyKind::Metadata(MetadataKind::WriteTime)),
+                                            kind: EventKind::Modify(ModifyKind::Metadata(
+                                                MetadataKind::WriteTime,
+                                            )),
                                             paths: vec![path.to_path_buf()],
                                             relid: None,
+                                            attrs: AnyMap::new(),
+                                            source: BACKEND_NAME,
                                         };
                                         notify(&task, &event_tx, Ok(event));
                                     }
-                                    // TODO check for mode changes
+                                    // TODO check for mode and xattrs changes
                                     found = true;
                                     break;
                                 }
@@ -189,12 +227,16 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                                     name: file_name.to_os_string(),
                                     mtime,
                                     size: metadata.len(),
-                                    #[cfg(unix)] mode: 0,
+                                    #[cfg(unix)]
+                                    mode: 0,
                                 };
-                                watch.tree.insert(
-                                    Node::new(element),
-                                    InsertBehavior::UnderNode(&parent_node_id),
-                                ).expect("bug in notify: invalid parent node id");
+                                watch
+                                    .tree
+                                    .insert(
+                                        Node::new(element),
+                                        InsertBehavior::UnderNode(&parent_node_id),
+                                    )
+                                    .expect("bug in notify: invalid parent node id");
                                 let event = Event {
                                     kind: EventKind::Create(if metadata.is_dir() {
                                         CreateKind::Folder
@@ -203,6 +245,8 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                                     }),
                                     paths: vec![path.to_path_buf()],
                                     relid: None,
+                                    attrs: AnyMap::new(),
+                                    source: BACKEND_NAME,
                                 };
                                 notify(&task, &event_tx, Ok(event));
                             }
@@ -217,8 +261,7 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
             } else {
                 match watch.path.metadata() {
                     Ok(metadata) => {
-                        let mtime = FileTime::from_last_modification_time(&metadata)
-                            .seconds();
+                        let mtime = FileTime::from_last_modification_time(&metadata).seconds();
                         let root_node_id = watch.tree.root_node_id().unwrap().clone();
                         let mut node = watch.tree.get_mut(&root_node_id).unwrap();
                         let mut data = node.data_mut();
@@ -228,19 +271,25 @@ pub fn poll_thread(paths: Vec<PathBuf>, interval: Duration, event_tx: mpsc::Send
                                 kind: EventKind::Modify(ModifyKind::Data(DataChange::Size)),
                                 paths: vec![watch.path.clone()],
                                 relid: None,
+                                attrs: AnyMap::new(),
+                                source: BACKEND_NAME,
                             };
                             notify(&task, &event_tx, Ok(event));
                         }
                         if data.mtime != mtime {
                             data.mtime = mtime;
                             let event = Event {
-                                kind: EventKind::Modify(ModifyKind::Metadata(MetadataKind::WriteTime)),
+                                kind: EventKind::Modify(ModifyKind::Metadata(
+                                    MetadataKind::WriteTime,
+                                )),
                                 paths: vec![watch.path.clone()],
                                 relid: None,
+                                attrs: AnyMap::new(),
+                                source: BACKEND_NAME,
                             };
                             notify(&task, &event_tx, Ok(event));
                         }
-                        // TODO check for mode changes
+                        // TODO check for mode and xattrs changes
                     }
                     Err(err) => notify(&task, &event_tx, Err(err.into())),
                 }

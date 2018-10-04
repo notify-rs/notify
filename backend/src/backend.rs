@@ -71,7 +71,7 @@ pub trait Backend: Stream + Send + Drop + Debug {
 
     /// Returns the name of this Backend.
     ///
-    /// This is used for primarily for debugging and post-processing/filtering. Having two backends
+    /// This is used primarily for debugging and post-processing/filtering. Having two backends
     /// with the same name running at once is undefined behaviour and may be disallowed by Notify.
     /// The value should not change.
     fn name() -> &'static str

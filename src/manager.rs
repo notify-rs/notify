@@ -198,7 +198,8 @@ impl<'selector_fn> Manager<'selector_fn> {
         //
         // we do that by parsing the error for pathed errors
 
-        let life = self.lives
+        let life = self
+            .lives
             .get_mut(index)
             .expect("bind_to_life was given a bad index, something is very wrong");
 
@@ -220,7 +221,8 @@ impl<'selector_fn> Manager<'selector_fn> {
                 return Err((e, vec![], paths.to_vec()))
             }
             BackendErrorWrap::Single(_, ref paths) => paths.clone(),
-            BackendErrorWrap::Multiple(ref tups) => tups.iter()
+            BackendErrorWrap::Multiple(ref tups) => tups
+                .iter()
                 .flat_map(|(_, ref paths)| paths.clone())
                 .collect(),
         };

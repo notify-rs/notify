@@ -53,7 +53,7 @@ pub mod prelude {
 
     pub use mio::{
         self, event::Evented, Poll as MioPoll, PollOpt as MioPollOpt, Ready as MioReady,
-        Registration as MioRegistration, Token as MioToken,
+        Registration as MioRegistration, SetReadiness as MioReadiness, Token as MioToken,
     };
 
     pub use std::path::PathBuf;
@@ -72,8 +72,8 @@ pub mod prelude {
     pub use super::capability::Capability;
 
     pub use super::event::{
-        AccessKind, AccessMode, AnyMap, CreateKind, DataChange, Event, EventKind,
-        MetadataKind, ModifyKind, RemoveKind, RenameMode,
+        AccessKind, AccessMode, AnyMap, CreateKind, DataChange, Event, EventKind, MetadataKind,
+        ModifyKind, RemoveKind, RenameMode,
     };
 
     pub use super::stream::{
