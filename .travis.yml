@@ -136,7 +136,12 @@ branches:
   only:
     # release tags
     # - /^v\d+\.\d+\.\d+.*$/
-    # - master
+
+    # test branches
+    - /^try-/
+
+    # main branches
+    # - main
     - next
 
 # notifications:
