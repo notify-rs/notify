@@ -85,7 +85,7 @@ Specifically, though, enforcement will be handled thusly:
 
 1. (This should be 90% of cases.) **A simple reminder not to do the relevant
    thing.** Anyone can do this! The proper response here is to **apologise**,
-   edit your comment to remove the offending thing if needed, and not do it
+   edit the comment to remove the offending thing if applicable, and not do it
    again. That's it :)
 
 2. If the editing part above is not done and a maintainer thinks there is
@@ -129,6 +129,8 @@ Then repeat the same with the `--release` flag appended.
 If anything fails, and there is no [open issue] with the same failure for the
 same platform, copy the build/test logs into a new issue, and also provide your
 platform details and the SHA1 of the git commit you're on. Thank you!
+
+[open issue]: https://github.com/passcod/notify/issues
 
 ### If you have an x86\_64 Linux or macOS with Docker and Rust
 
@@ -226,7 +228,7 @@ example, polling relies only on being able to read filesystems. Interfacing
 with one of these systems is the job of **backends**.
 
 You can write a new backend in a matter of hours. There's an entire guide
-showing you how to do so: [docs/backend-guide.md](docs/backend-guide.md).
+showing you how to do so: [Writing a Backend].
 
 Writing backends helps Notify in two ways:
 
@@ -242,7 +244,15 @@ that has a file monitoring solution baked in, you can write a backend to make
 use of it within Notify-backed programs without publishing or publicising its
 interface.
 
+[Writing a Backend]: https://github.com/passcod/notify/wiki/Writing-a-backend
+
 ## Improving the core
+
+The core is made of the Notify crate itself, which interfaces with backends,
+processors, and user code to abstract away their differences and provide to
+their needs; the built-in processors; the “core backends,” included in this
+repo and available by default. The innards of Notify are what make it all work,
+and this machinery can be challenging to take in and work on.
 
 At minimum, you'll want to read [all internals articles on the Wiki][wiki-int].
 These provide important details as well as a general understanding of the core.
@@ -251,13 +261,13 @@ These provide important details as well as a general understanding of the core.
 
 ### Environment
 
-Nothing special is needed to work on core. A typical Rust environment, with the
-latest stable Rust. Rustup is recommended but not required (sometimes it is
+Nothing special is needed to work on core. **A typical Rust environment**, with
+the latest stable Rust. Rustup is recommended but not required (sometimes it is
 useful to test with older Rusts, or on other channels).
 
 ### Internal docs
 
-The core is internally documented. You can generate those docs using:
+The core is **internally documented**. You can generate those docs using:
 
 ```
 cargo doc --document-private-items
@@ -269,13 +279,13 @@ Alternatively, read them straight from the source.
 
 As an external contributor, sending a Pull Request will subject your code to a
 battery of CI tests, on many platforms. When you have access to only one
-platform, and limited time, that can be very useful. Feel free to open up Pull
-Requests early on, even if you're just experimenting and simply wish for a
-check. Indicate your intent clearly, though: a `WIP` or `CHECK ONLY; DO NOT
+platform, and limited time, that can be very useful. Feel free to **open up
+Pull Requests early** on, even if you're just experimenting and simply wish for
+a check. Indicate your intent clearly, though: a `WIP` or `CHECK ONLY; DO NOT
 MERGE` mark will help maintainers along.
 
-Internal contributors and maintainers can push branches to the main repo. Any
-branch that starts with `try-` will be automatically picked up by CI, others
+Internal contributors and maintainers can push branches to the main repo. **Any
+branch that starts with `try-` will be automatically picked up** by CI, others
 will be ignored. It's a useful mechanism to test without having to open up Pull
 Requests for experiments, while keeping pressure off CI when not needed.
 
@@ -285,7 +295,7 @@ Running `cargo fmt` is good form but never required. Fixing warnings is a noble
 endeavour, but also never required. Passing `cargo clippy`, which is
 intentionally set strict but not run in CI, is a bonus, but never required.
 
-The only requirement, lint-wise, is that the code builds and tests pass.
+The only requirement, lint-wise, is that **the code builds and tests pass**.
 
 Maintainers will take care of fixing trivial warnings and running the formatter
 if needed. While everyone likes clean code and clean build output, features and
@@ -295,14 +305,14 @@ fixes take priority. Go for it, and don't fret the small stuff.
 
 If there are no open issues with work to do, search through the code for `TODO`
 and `FIXME`. If nothing else, extracting those into issues would be useful. If
-details are lacking or things don't make sense, ask! Open an issue or make
+details are lacking or things don't make sense, **ask**! Open an issue or make
 contact out of band.
 
 Improvements or entirely new features made unprompted are of course welcome,
-but pitch us first by opening an issue, if you can. Some things won't fit in
-Notify itself, others might already be worked on or planned, and knowing what
-people are working on helps choosing what to work on. We'll also be glad to
-offer feedback or ask details!
+but **pitch us first** by opening an issue, if you can. Some things won't fit
+in Notify itself, others might already be worked on or planned, and knowing
+what people are working on helps choosing what to work on. We'll also be glad
+to offer feedback or ask details!
 
 ## Thank you!
 
