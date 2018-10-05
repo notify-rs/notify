@@ -55,9 +55,14 @@ cache:
 
 branches:
   only:
-    # Release tags
+    # release tags
     # - /^v\d+\.\d+\.\d+.*$/
-    # - master
+
+    # test branches
+    - /^try-/
+
+    # main branches
+    # - main
     - next
 
 # notifications:
