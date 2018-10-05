@@ -64,39 +64,6 @@ fn main() {
 }
 ```
 
-## Version 2.x
-
-The documentation for the previous major version is [available on
-docs.rs][docs-v2]. While version 2.x will no longer be maintained and we
-encourage all library authors to switch to version 3+ (a short guide is
-provided below), it is still a dependency of many packages. Here is a list of
-changes you may need to take note of:
-
-- Notify 2.x by default provided the events immediately as reported from the
-  backend API. Notify 3+ by default [debounces the events][docs-debounce] — if
-  the backend reports two similar events in close succession, Notify will only
-  report one. The old behaviour may be obtained through the
-  `Watcher::new_raw()` function and `RawEvent` type, see [the
-  documentation][docs-raw].
-
-- Notify 2.x always tried to watch paths recursively in the case of
-  directories. Notify 3+ gives you the choice of what mode you'd like to use
-  per-watch, using the [`RecursiveMode`][docs-recursivemode] enum. The
-  `watch(...)` function thus takes the mode as a second argument.
-
-- Notify 2.x had two behaviour bugs with the **inotify** backend, that are
-  corrected in Notify 3+. Nonetheless, these are breaking changes:
-
-  * **inotify** did not _remove_ watches recursively; and
-  * **inotify** did not watch _newly created folders_.
-
-To upgrade to Notify 3+ with minimal behaviour change:
-
-- Replace `Watcher::new` with `Watcher::new_raw`.
-- Replace `Event` with `EventRaw`.
-- Import `notify::RecursiveMode` and add `RecursiveMode::Recursive` as second
-  argument to the `watch()` function.
-
 ## Platforms
 
 - Linux / Android: inotify
@@ -113,10 +80,9 @@ with a slight performance cost.
 
 ## Todo
 
-- BSD / macOS / iOS: kqueue
-- Solaris 11: FEN
-
-Pull requests and bug reports happily accepted!
+Further development happens on the `next` branch for version 5. Development for
+version 4 (this version) is frozen: there will be no new features, only bug
+fixes and documentation updates.
 
 ## Origins
 
@@ -126,6 +92,8 @@ cross-platform notify libraries.
 
 Written by [Félix Saparelli] and awesome [contributors], and released in the
 Public Domain using the [Creative Commons Zero Declaration][cc0].
+
+Note that licensing is changed from version 5 to **Artistic 2.0**.
 
 [Chokidar]: https://github.com/paulmillr/chokidar
 [FileSystemEventSecurity]: https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html
