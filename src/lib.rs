@@ -592,6 +592,13 @@ pub trait Watcher: Sized {
     ///
     /// If the `path` is a file, `recursive_mode` will be ignored and events will be delivered only
     /// for the file.
+    ///
+    /// On some platforms, if the `path` is renamed or removed while being watched, behaviour may
+    /// be unexpected. See discussions in [#165] and [#166]. If less surprising behaviour is wanted
+    /// one may non-recursively watch the _parent_ directory as well and manage related events.
+    ///
+    /// [#165]: https://github.com/passcod/notify/issues/165
+    /// [#166]: https://github.com/passcod/notify/issues/166
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()>;
 
     /// Stop watching a path.
