@@ -86,6 +86,7 @@ Cut more alphas as the above get in
 
 Beta checklist:
 
+- [ ] Rename `next` branch to `main` and make it default
 - [ ] Update all dependencies
 - [ ] Check minimum Rust version
 - [ ] Freeze Event
