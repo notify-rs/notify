@@ -846,7 +846,7 @@ fn create_rename_delete_directory() {
 }
 
 #[test]
-#[cfg(not(target_os="windows"))]
+#[cfg_attr(target_os = "windows", ignore)]
 fn create_rename_overwrite_directory() {
     // overwriting directories doesn't work on windows
     if cfg!(target_os="windows") {
@@ -1023,7 +1023,7 @@ fn modify_delete_directory() {
 // consistent failures on macOS CI — ignored for now
 // https://github.com/passcod/notify/issues/124
 #[test]
-#[cfg(not(target_os = "macos"))]
+#[cfg_attr(target_os = "macos", ignore)]
 fn move_in_directory_watch_subdirectories() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -1052,7 +1052,7 @@ fn move_in_directory_watch_subdirectories() {
 
 // https://github.com/passcod/notify/issues/129
 #[test]
-#[cfg(not(target_os = "macos"))]
+#[cfg_attr(target_os = "macos", ignore)]
 fn rename_create_remove_temp_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -1076,7 +1076,7 @@ fn rename_create_remove_temp_file() {
 }
 
 #[test]
-#[cfg(not(target_os = "macos"))]
+#[cfg_attr(target_os = "macos", ignore)]
 fn rename_rename_remove_temp_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 

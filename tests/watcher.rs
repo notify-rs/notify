@@ -380,7 +380,7 @@ fn watch_recursive_move() {
 }
 
 #[test]
-#[cfg(not(target_os="macos"))]
+#[cfg_attr(target_os = "macos", ignore)]
 fn watch_recursive_move_in() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -433,7 +433,7 @@ fn watch_recursive_move_in() {
 }
 
 #[test]
-#[cfg(not(target_os="macos"))]
+#[cfg_attr(target_os = "macos", ignore)]
 fn watch_recursive_move_out() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -851,7 +851,7 @@ fn unwatch_directory() {
 }
 
 #[test]
-#[cfg(not(target_os="windows"))]
+#[cfg_attr(target_os = "windows", ignore)]
 fn unwatch_nonexisting() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -920,7 +920,7 @@ fn self_delete_file() {
 }
 
 #[test]
-#[cfg(not(target_os="windows"))]
+#[cfg_attr(target_os = "windows", ignore)]
 fn self_delete_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -984,7 +984,7 @@ fn self_delete_directory() {
 }
 
 #[test]
-#[cfg(not(target_os="windows"))]
+#[cfg_attr(target_os = "windows", ignore)]
 fn self_rename_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -1227,7 +1227,7 @@ fn parent_rename_file() {
 }
 
 #[test]
-#[cfg(not(target_os="windows"))]
+#[cfg_attr(target_os = "windows", ignore)]
 fn parent_rename_directory() {
     // removing the parent directory doesn't work on windows
     if cfg!(target_os="windows") {

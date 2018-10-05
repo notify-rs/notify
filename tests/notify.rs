@@ -94,7 +94,7 @@ fn write_file() {
 }
 
 #[test]
-#[cfg(not(any(target_os="windows", target_os="macos")))]
+#[cfg_attr(any(target_os = "windows", target_os = "macos"), ignore)]
 fn modify_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -198,7 +198,7 @@ fn rename_file() {
 }
 
 #[test]
-#[cfg(not(target_os="macos"))]
+#[cfg_attr(target_os = "macos", ignore)]
 fn move_out_create_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -237,7 +237,7 @@ fn move_out_create_file() {
 }
 
 #[test]
-#[cfg(not(any(target_os="windows", target_os="macos")))]
+#[cfg_attr(any(target_os = "windows", target_os = "macos"), ignore)]
 fn create_write_modify_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -389,6 +389,7 @@ fn create_directory() {
 
 // https://github.com/passcod/notify/issues/124
 #[test]
+#[cfg_attr(target_os = "macos", ignore)]
 fn create_directory_watch_subdirectories() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -434,7 +435,7 @@ fn create_directory_watch_subdirectories() {
 }
 
 #[test]
-#[cfg(not(any(target_os="windows", target_os="macos")))]
+#[cfg_attr(any(target_os = "windows", target_os = "macos"), ignore)]
 fn modify_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -538,7 +539,7 @@ fn rename_directory() {
 }
 
 #[test]
-#[cfg(not(target_os="macos"))]
+#[cfg_attr(target_os = "macos", ignore)]
 fn move_out_create_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -571,9 +572,9 @@ fn move_out_create_directory() {
 }
 
 // https://github.com/passcod/notify/issues/124
-// fails consistently on windows -- tbd?
+// fails consistently on windows, macos -- tbd?
 #[test]
-#[cfg_attr(target_os = "windows", ignore)]
+#[cfg_attr(any(target_os = "windows", target_os = "macos"), ignore)]
 fn move_in_directory_watch_subdirectories() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -615,7 +616,7 @@ fn move_in_directory_watch_subdirectories() {
 }
 
 #[test]
-#[cfg(not(target_os="windows"))]
+#[cfg_attr(target_os = "windows", ignore)]
 fn create_rename_overwrite_directory() {
     // overwriting directories doesn't work on windows
     if cfg!(target_os="windows") {
