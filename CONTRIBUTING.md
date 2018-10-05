@@ -244,12 +244,65 @@ interface.
 
 ## Improving the core
 
-At minimum, you'll need to read [all internals articles on the Wiki][wiki-int].
+At minimum, you'll want to read [all internals articles on the Wiki][wiki-int].
 These provide important details as well as a general understanding of the core.
 
-TODO: dev environment, what to look for, checklists
-
 [wiki-int]: https://github.com/passcod/notify/wiki/Internals
+
+### Environment
+
+Nothing special is needed to work on core. A typical Rust environment, with the
+latest stable Rust. Rustup is recommended but not required (sometimes it is
+useful to test with older Rusts, or on other channels).
+
+### Internal docs
+
+The core is internally documented. You can generate those docs using:
+
+```
+cargo doc --document-private-items
+```
+
+Alternatively, read them straight from the source.
+
+### Branches
+
+As an external contributor, sending a Pull Request will subject your code to a
+battery of CI tests, on many platforms. When you have access to only one
+platform, and limited time, that can be very useful. Feel free to open up Pull
+Requests early on, even if you're just experimenting and simply wish for a
+check. Indicate your intent clearly, though: a `WIP` or `CHECK ONLY; DO NOT
+MERGE` mark will help maintainers along.
+
+Internal contributors and maintainers can push branches to the main repo. Any
+branch that starts with `try-` will be automatically picked up by CI, others
+will be ignored. It's a useful mechanism to test without having to open up Pull
+Requests for experiments, while keeping pressure off CI when not needed.
+
+### Lints
+
+Running `cargo fmt` is good form but never required. Fixing warnings is a noble
+endeavour, but also never required. Passing `cargo clippy`, which is
+intentionally set strict but not run in CI, is a bonus, but never required.
+
+The only requirement, lint-wise, is that the code builds and tests pass.
+
+Maintainers will take care of fixing trivial warnings and running the formatter
+if needed. While everyone likes clean code and clean build output, features and
+fixes take priority. Go for it, and don't fret the small stuff.
+
+### Finding work
+
+If there are no open issues with work to do, search through the code for `TODO`
+and `FIXME`. If nothing else, extracting those into issues would be useful. If
+details are lacking or things don't make sense, ask! Open an issue or make
+contact out of band.
+
+Improvements or entirely new features made unprompted are of course welcome,
+but pitch us first by opening an issue, if you can. Some things won't fit in
+Notify itself, others might already be worked on or planned, and knowing what
+people are working on helps choosing what to work on. We'll also be glad to
+offer feedback or ask details!
 
 ## Thank you!
 
