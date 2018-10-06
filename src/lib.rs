@@ -21,6 +21,7 @@ extern crate notify_backend_inotify as inotify;
 
 pub mod lifecycle;
 pub mod manager;
+pub mod processor;
 pub mod selector;
 
 #[cfg(test)]

@@ -304,7 +304,7 @@ impl Default for Event {
             paths: Vec::with_capacity(1),
             relid: None,
             attrs: AnyMap::new(),
-            source: ""
+            source: "",
         }
     }
 }
@@ -312,10 +312,10 @@ impl Default for Event {
 impl Eq for Event {}
 impl PartialEq for Event {
     fn eq(&self, other: &Self) -> bool {
-        self.kind.eq(&other.kind) &&
-        self.paths.eq(&other.paths) &&
-        self.relid.eq(&other.relid) &&
-        self.source.eq(other.source)
+        self.kind.eq(&other.kind)
+            && self.paths.eq(&other.paths)
+            && self.relid.eq(&other.relid)
+            && self.source.eq(other.source)
     }
 }
 

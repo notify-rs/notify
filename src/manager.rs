@@ -37,31 +37,6 @@ impl<'selector_fn> Manager<'selector_fn> {
         self.selectors.push(f)
     }
 
-    // sketch for processors:
-    //
-    // they live from the moment they're needed to the moment they're not
-    // often that will be the entirety of the program
-    // i.e. they're very much stateful
-    //
-    // prelims (processor declares):
-    // - whether it will operate on one backend's output or many/all
-    // - what capabilities it needs
-    // - what capabilities it provides
-    //
-    // methods:
-    //   - here's a new arc clone of watched paths
-    //   - finish up
-    //
-    // inputs:
-    // - stream of events
-    // - instruction channel
-    //
-    // outputs:
-    // - stream of events
-    // - instructions
-    //   - watch this
-    //   - unwatch this
-
     pub fn builtins(&mut self) {
         #[cfg(any(target_os = "linux", target_os = "android"))]
         self.add(Selector {
@@ -74,6 +49,7 @@ impl<'selector_fn> Manager<'selector_fn> {
         //     target_os = "freebsd",
         //     target_os = "netbsd",
         //     target_os = "openbsd",
+        //     target_os = "macos",
         // ))]
         // self.add(Selector { f: &selector::kqueue_life, name: "Kqueue".into() });
 
@@ -198,7 +174,8 @@ impl<'selector_fn> Manager<'selector_fn> {
         //
         // we do that by parsing the error for pathed errors
 
-        let life = self.lives
+        let life = self
+            .lives
             .get_mut(index)
             .expect("bind_to_life was given a bad index, something is very wrong");
 
@@ -220,7 +197,8 @@ impl<'selector_fn> Manager<'selector_fn> {
                 return Err((e, vec![], paths.to_vec()))
             }
             BackendErrorWrap::Single(_, ref paths) => paths.clone(),
-            BackendErrorWrap::Multiple(ref tups) => tups.iter()
+            BackendErrorWrap::Multiple(ref tups) => tups
+                .iter()
                 .flat_map(|(_, ref paths)| paths.clone())
                 .collect(),
         };

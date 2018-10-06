@@ -72,8 +72,8 @@ pub mod prelude {
     pub use super::capability::Capability;
 
     pub use super::event::{
-        AccessKind, AccessMode, AnyMap, CreateKind, DataChange, Event, EventKind,
-        MetadataKind, ModifyKind, RemoveKind, RenameMode,
+        AccessKind, AccessMode, AnyMap, CreateKind, DataChange, Event, EventKind, MetadataKind,
+        ModifyKind, RemoveKind, RenameMode,
     };
 
     pub use super::stream::{
