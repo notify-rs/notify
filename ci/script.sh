@@ -30,7 +30,8 @@ main() {
     echo bothx test -p notify-backend-poll-tree
 
     if [[ "$TARGET" =~ -darwin$ ]]; then
-      echo bothx test -p notify-backend-fsevents
+      echo bothx test -p notify-backend-fsevent
+      bothx test -p notify-backend-fsevent
     elif [[ "$TARGET" =~ -linux- ]]; then
       bothx test -p notify-backend-inotify
     fi
