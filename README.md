@@ -42,8 +42,6 @@ As used by: [cargo watch], [mdBook], [pax], [rdiff], [watchexec].
 
 **In development.**
 
-- Use Tokio Reform until ecosystem stabilises.
-
 Lists are in no particular order within sections.
 
 Before any release
@@ -56,31 +54,30 @@ Before any release
 - [x] Being able to drop backends
 - [ ] Processors design and integration
 - [ ] Basic public (frontend) API
-- Merge in and update pull requests:
-  - [ ] ~~polling~~ (pushed to later. some code is in the `merge-polling` branch.)
-  - [ ] fsevents
-  - [ ] compliance tests
 
 Cut first alpha here
 
+- [ ] Remake kqueue backend (with mio)
+- [ ] Merge or port polling backend
+- [ ] Drive tests with tokio ([#151](https://github.com/passcod/notify/issues/151))
 - [ ] Filling in capabilities (i.e. implement processors)
 - [ ] User-provided backends (API and docs)
 - [ ] Being able to shutdown notify
 - [ ] Basic documentation
-- All Tier 1 platforms:
-  - [ ] Windows
-  - [ ] Linux
-  - [ ] macOS
-  - [ ] polling
 
 Cut second alpha here
 
-- [ ] Debouncing
+- [ ] Debouncing processor
 - [ ] Future-less API
 - [ ] More extensive testing
 - [ ] Full documentation
-- [ ] Public API to customise processors
+- [ ] Public processor API
 - [ ] Decide whether to add timestamps to events (via `attrs`) by default
+- All Tier 1 platforms:
+  - [ ] Windows
+  - [x] Linux
+  - [ ] macOS + BSD (kqueue)
+  - [ ] polling
 
 Cut more alphas as the above get in
 
@@ -93,6 +90,7 @@ Beta checklist:
 - [ ] Freeze Backend trait
 - [ ] Freeze Backend prelude
 - [ ] Freeze public API
+- [ ] Freeze processor API
 - [ ] Recheck all documentation (API, Wiki, Readme, Contributing, GH Templates)
 
 Release beta here!
@@ -102,13 +100,12 @@ Release beta here!
 Backends that have good progress:
 
 - [x] inotify (linux)
-- [x] fsevent (macOS)
+- [x] kqueue (macOS, BSD)
 - [x] polling
 
 Backends needed but not started:
 
 - [ ] Windows
-- [ ] kqueue (current implementation disabled, will need a rewrite using mio directly) ([#136](https://github.com/passcod/notify/issues/136))
 
 Delayed until after release and/or implemented by third-parties:
 
@@ -116,6 +113,7 @@ Delayed until after release and/or implemented by third-parties:
   - Remote
   - Watchman
   - [fanotify / auditd](https://github.com/passcod/notify/issues/161)
+  - FSEvents (as external crate)
   - demo cloud storage backend
   - Dynamic
 - More debouncing options (possibly via feature)
