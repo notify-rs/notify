@@ -2,7 +2,7 @@ use backend::{
     prelude::{Capability, PathBuf}, stream,
 };
 use multiqueue::{BroadcastFutReceiver, BroadcastFutSender};
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 // sketch for processors:
 //
@@ -21,6 +21,7 @@ use std::sync::Arc;
 //
 // inputs:
 // - stream of events
+// - instruction channel
 //
 // outputs:
 // - stream of events
@@ -28,18 +29,28 @@ use std::sync::Arc;
 //   - watch this
 //   - unwatch this
 
-pub trait Processor {
+pub trait Processor: fmt::Debug {
     fn needs_capabilities() -> Vec<Capability>;
     fn provides_capabilities() -> Vec<Capability>;
 
     fn new(
         events_in: BroadcastFutReceiver<stream::Item>,
         events_out: BroadcastFutSender<stream::Item>,
+        instruct: BroadcastFutSender<Instruction>,
+        // consider:
+        // instruct_in: Receiver<Enum { UpdateWatches(Arc<Vec>), Finish }>
+        // instead of the methods, then treat the entire thing as a Future
     ) -> Result<Box<Self>, stream::Error>;
     fn spawn(&mut self); // -> Future
 
-    fn update_watches(&mut self, paths: Arc<PathBuf>) -> Result<(), stream::Error>;
+    fn update_watches(&mut self, paths: Arc<Vec<PathBuf>>) -> Result<(), stream::Error>;
     fn finish(&mut self);
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum Instruction {
+    AddWatch(Vec<PathBuf>),
+    RemoveWatch(Vec<PathBuf>),
 }
 
 // the processor definition lives in the notify core
