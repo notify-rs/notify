@@ -115,13 +115,13 @@ _people_ maintaining and developing these libraries. I thank:
   some pretty instrumental Twitter threads that shaped my understanding and
   desires in this regard.
 
-- **[Fiona Aeterna]** for compiler-related threads, which made me aware and
+- **[Fiora Aeterna]** for compiler-related threads, which made me aware and get
   thinking about things like instructions and cache lines, even though I
   probably don't do that enough. I then went on to learn lots about cosplay and
   semi-professional prop manufacture, but that's just bonus.
 
 [Steve Klabnik]: https://twitter.com/steveklabnik
-[Fiona Aeterna]: https://twitter.com/fioraaeterna
+[Fiora Aeterna]: https://twitter.com/fioraaeterna
 
 ## Special thanks
 
