@@ -24,7 +24,10 @@ has them all, but I give particular mention to:
   They helped build up the original backends, which made this library truly
   useful.
 
-- **[Colin Rofls]** for the new FSEvent backend and associated work.
+- **[Colin Rofls]** for what was to be the new FSEvent backend and associated
+  work and discussion. It ended up that the backend wasn't used in Notify (by
+  default), but that in itself was an important step in figuring things out and
+  refocusing.
 
 - All who did not contribute code, but words and time and effort.
 
@@ -50,8 +53,6 @@ _people_ maintaining and developing these libraries. I thank:
 
 - **[Hanno Braun]**, for the excellent [inotify wrapper], as well as feedback
   on the early Notify v5 design.
-
-- [Pierre Baillet] again for the [FSEvent wrapper].
 
 - **[Peter Atashian]** for the [winapi] crate.
 
@@ -106,6 +107,21 @@ _people_ maintaining and developing these libraries. I thank:
 
 [rtss]: https://github.com/Freaky/rtss
 [ripgrep]: https://github.com/BurntSushi/ripgrep
+
+## From afar
+
+- **[Steve Klabnik]** and the Rust docs team, for providing inspiration and
+  will to create good documentation for Notify v5 from the get go. There were
+  some pretty instrumental Twitter threads that shaped my understanding and
+  desires in this regard.
+
+- **[Fiona Aeterna]** for compiler-related threads, which made me aware and
+  thinking about things like instructions and cache lines, even though I
+  probably don't do that enough. I then went on to learn lots about cosplay and
+  semi-professional prop manufacture, but that's just bonus.
+
+[Steve Klabnik]: https://twitter.com/steveklabnik
+[Fiona Aeterna]: https://twitter.com/fioraaeterna
 
 ## Special thanks
 
