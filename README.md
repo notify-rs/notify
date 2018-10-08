@@ -52,6 +52,7 @@ Before any release
 - [x] Runtime fallback to other methods ([#64](https://github.com/passcod/notify/issues/64))
 - [x] Less depending on Life directly, more to Manager
 - [x] Being able to drop backends
+- [ ] Track which event came from which backend through TypeIds rather than strings
 - [ ] Processors design and integration
 - [ ] Basic public (frontend) API
 
@@ -64,6 +65,8 @@ Cut first alpha here
 - [ ] User-provided backends (API and docs)
 - [ ] Being able to shutdown notify
 - [ ] Basic documentation
+- [x] Review event struct layout
+- [ ] Add builder for events to help guard against future internal changes
 
 Cut second alpha here
 

@@ -180,15 +180,12 @@ impl Backend {
                     // source: BACKEND_NAME,
 
                     if e.mask.contains(EventMask::UNMOUNT) {
-                        map.insert::<String>("unmount".into());
+                        map.insert(event::Info("unmount".into()));
                     }
 
-                    match e.cookie {
-                        0 => {}
-                        c => {
-                            map.insert::<usize>(c as usize);
-                        }
-                    };
+                    if e.cookie != 0 {
+                        map.insert(event::Tracker(e.cookie as usize));
+                    }
 
                     map
                 },

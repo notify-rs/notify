@@ -244,16 +244,16 @@ macro_rules! test_compliance {
                     let events = settle_events(&mut backend);
                     assert!(events.len() > 0, "receive at least one event");
 
-                    let modify_events_with_relids = events
+                    let tracked_modify_events = events
                         .iter()
-                        .filter(|e| e.kind.is_modify() && e.relid.is_some())
+                        .filter(|e| e.kind.is_modify() && e.tracker().is_some())
                         .collect::<Vec<_>>();
 
-                    if modify_events_with_relids.len() > 0 {
-                        let relid = modify_events_with_relids[0].relid;
-                        let modifies = modify_events_with_relids
+                    if tracked_modify_events.len() > 0 {
+                        let track = tracked_modify_events[0].tracker().unwrap();
+                        let modifies = tracked_modify_events
                             .iter()
-                            .filter(|e| e.relid == relid);
+                            .filter(|e| e.tracker().unwrap() == track);
                         assert!(
                             modifies.count() == 2,
                             "receive exactly two related Modify events"
