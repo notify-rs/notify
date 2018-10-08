@@ -22,6 +22,8 @@
 //! The prelude imports all types needed to implement a Backend, and re-exports dependent libraries
 //! so there is no need to independently include them. Refer to the [implementor's guide] for a
 //! thorough walk-through of backend implementation.
+//!
+//! [implementor's guide]: https://github.com/passcod/notify/wiki/Writing-a-Backend
 
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
@@ -72,8 +74,8 @@ pub mod prelude {
     pub use super::capability::Capability;
 
     pub use super::event::{
-        AccessKind, AccessMode, AnyMap, CreateKind, DataChange, Event, EventKind, MetadataKind,
-        ModifyKind, RemoveKind, RenameMode,
+        self, AccessKind, AccessMode, AnyMap, CreateKind, DataChange, Event, EventKind,
+        MetadataKind, ModifyKind, RemoveKind, RenameMode,
     };
 
     pub use super::stream::{

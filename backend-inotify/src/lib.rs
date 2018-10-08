@@ -170,17 +170,28 @@ impl Backend {
                 } else if e.mask.contains(EventMask::OPEN) {
                     EventKind::Access(AccessKind::Open(AccessMode::Any))
                 } else if e.mask.contains(EventMask::UNMOUNT) {
-                    EventKind::Remove(RemoveKind::Other("unmount".into()))
+                    EventKind::Remove(RemoveKind::Other)
                 } else {
                     EventKind::Any
                 },
                 paths: e.name.map_or_else(|| vec![], |s| vec![s.into()]),
-                relid: match e.cookie {
-                    0 => None,
-                    c => Some(c as usize),
+                attrs: {
+                    let mut map = AnyMap::new();
+                    // source: BACKEND_NAME,
+
+                    if e.mask.contains(EventMask::UNMOUNT) {
+                        map.insert::<String>("unmount".into());
+                    }
+
+                    match e.cookie {
+                        0 => {}
+                        c => {
+                            map.insert::<usize>(c as usize);
+                        }
+                    };
+
+                    map
                 },
-                attrs: AnyMap::new(),
-                source: BACKEND_NAME,
             })
         }
 
