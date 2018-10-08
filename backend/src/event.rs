@@ -1,6 +1,7 @@
 //! The `Event` type and the hierarchical `EventKind` descriptor.
 
 use anymap::{any::CloneAny, Map};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
@@ -248,7 +249,7 @@ impl Default for EventKind {
 }
 
 /// Notify event.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Event {
     /// Kind of the event.
     ///
@@ -299,7 +300,7 @@ pub struct Event {
 /// events that are related to each other, and tag those with an identical "tracking id" or
 /// "cookie". The value is normalised to `usize`.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub struct Tracker(usize);
+pub struct Tracker(pub usize);
 
 /// Additional information on the event.
 ///
@@ -313,7 +314,7 @@ pub struct Tracker(usize);
 ///
 /// This should be a short string, and changes may be considered breaking.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub struct Info(String);
+pub struct Info(pub String);
 
 /// The source of the event.
 ///
@@ -321,7 +322,7 @@ pub struct Info(String);
 /// cases this may be dynamically generated, but should contain a prefix to make it unambiguous
 /// between backends.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub struct Source(String);
+pub struct Source(pub String);
 
 // + typeid attr?
 
@@ -342,6 +343,17 @@ impl Event {
     }
 }
 
+impl fmt::Debug for Event {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Event")
+            .field("kind", &self.kind)
+            .field("paths", &self.paths)
+            .field("attr:tracker", &self.tracker())
+            .field("attr:info", &self.info())
+            .field("attr:source", &self.source())
+            .finish()
+    }
+}
 impl Default for Event {
     fn default() -> Self {
         Self {

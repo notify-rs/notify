@@ -14,11 +14,20 @@ fn events_have_useful_debug_representation() {
         String::from("Access(Open(Execute))")
     );
 
+    let mut attrs = AnyMap::new();
+    attrs.insert(event::Info("unmount".into()));
+
     assert_eq!(
         format!(
             "{:?}",
-            EventKind::Remove(RemoveKind::Other("unmount".into()))
+            Event {
+                kind: EventKind::Remove(RemoveKind::Other),
+                paths: vec![],
+                attrs
+            }
         ),
-        String::from("Remove(Other(\"unmount\"))")
+        String::from(
+            "Event { kind: Remove(Other), paths: [], attr:tracker: None, attr:info: Some(\"unmount\"), attr:source: None }"
+        )
     );
 }
