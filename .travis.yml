@@ -34,7 +34,6 @@ matrix:
       sudo: false
       services: false
 
-
     # Linux: container, fast
     - env: NO_CROSS=1
       rust: nightly
@@ -50,21 +49,18 @@ matrix:
       services: false
 
     # macOS: services not supported
-   - env: NO_CROSS=1
+    - env: NO_CROSS=1
       os: osx
       rust: nightly
       sudo: false
-      services: false
-   - env: NO_CROSS=1
+    - env: NO_CROSS=1
       os: osx
       rust: beta
       sudo: false
-      services: false
-   - env: NO_CROSS=1
+    - env: NO_CROSS=1
       os: osx
       rust: stable
       sudo: false
-      services: false
 
     # Tested, but no Tier 1 support (cross-compiles)
     - env: TARGET=i686-unknown-linux-gnu
