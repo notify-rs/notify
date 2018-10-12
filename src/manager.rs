@@ -3,7 +3,7 @@ use super::{
 };
 use backend::prelude::{BackendErrorWrap, PathBuf};
 use multiqueue::{broadcast_fut_queue, BroadcastFutReceiver, BroadcastFutSender};
-use std::{fmt, sync::Arc};
+use std::{collections::HashSet, fmt, sync::Arc};
 use tokio::{
     prelude::{Future, Sink, Stream}, reactor::Handle, runtime::TaskExecutor,
 };
@@ -15,7 +15,6 @@ pub struct Manager<'selector_fn> {
     pub lives: Vec<Box<LifeTrait + 'selector_fn>>,
     queue: (BroadcastFutSender<Sub>, BroadcastFutReceiver<Sub>),
     watches: WatchesRef,
-    // add here a Arc<Set<PathBuf>>
     // idea is that this would be updated in block, all at once, instead of
     // adding or removing entries. Processors get an immut owned reference
     // (an arc clone) of the set, then on change they're send another
@@ -31,7 +30,7 @@ impl<'selector_fn> Manager<'selector_fn> {
             selectors: vec![],
             lives: vec![],
             queue: broadcast_fut_queue(100),
-            watches: Arc::new(vec![]),
+            watches: Arc::new(HashSet::new()),
         }
     }
 
@@ -87,6 +86,11 @@ impl<'selector_fn> Manager<'selector_fn> {
                 lives.push(l);
             }
         }
+
+        // Only here so it's compiled and checked
+        use super::processor::{Passthru, Processor};
+        let proc = Passthru::default();
+        self.executor.spawn(proc);
 
         self.lives = lives;
     }
@@ -176,7 +180,8 @@ impl<'selector_fn> Manager<'selector_fn> {
         //
         // we do that by parsing the error for pathed errors
 
-        let life = self.lives
+        let life = self
+            .lives
             .get_mut(index)
             .expect("bind_to_life was given a bad index, something is very wrong");
 
@@ -198,7 +203,8 @@ impl<'selector_fn> Manager<'selector_fn> {
                 return Err((e, vec![], paths.to_vec()))
             }
             BackendErrorWrap::Single(_, ref paths) => paths.clone(),
-            BackendErrorWrap::Multiple(ref tups) => tups.iter()
+            BackendErrorWrap::Multiple(ref tups) => tups
+                .iter()
                 .flat_map(|(_, ref paths)| paths.clone())
                 .collect(),
         };

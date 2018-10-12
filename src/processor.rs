@@ -1,11 +1,11 @@
 use backend::{
-    prelude::{Capability, PathBuf}, stream,
+    futures::{future, Async, Future, Poll}, prelude::{Capability, PathBuf}, stream,
 };
 use multiqueue::{BroadcastFutReceiver, BroadcastFutSender};
-use std::{fmt, sync::Arc};
+use std::{collections::HashSet, fmt, sync::Arc};
 
 /// Convenience type alias for the watches currently in force.
-pub type WatchesRef = Arc<Vec<PathBuf>>;
+pub type WatchesRef = Arc<HashSet<PathBuf>>;
 // should be a Set, not a Vec
 
 // sketch for processors:
@@ -34,60 +34,68 @@ pub type WatchesRef = Arc<Vec<PathBuf>>;
 //   - unwatch this
 
 /// Trait for processors, which post-process event streams.
-pub trait Processor: fmt::Debug {
+pub trait Processor: fmt::Debug + Future<Item = (), Error = ()> {
     fn needs_capabilities() -> Vec<Capability>;
     fn provides_capabilities() -> Vec<Capability>;
 
     fn new(
         events_in: BroadcastFutReceiver<stream::Item>,
         events_out: BroadcastFutSender<stream::Item>,
-        instruct: BroadcastFutSender<Instruction>,
-        // consider:
-        // instruct_in: Receiver<Enum { UpdateWatches(Arc<Vec>), Finish }>
-        // instead of the methods, then treat the entire thing as a Future
+        instruct_in: BroadcastFutReceiver<InstructionIn>,
+        instruct_out: BroadcastFutSender<InstructionOut>,
     ) -> Result<Box<Self>, stream::Error>;
-    fn spawn(&mut self); // -> Future
+}
 
-    fn update_watches(&mut self, paths: WatchesRef) -> Result<(), stream::Error>;
-    fn finish(&mut self);
+/// Instructions issued to a `Processor` from the manager.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InstructionIn {
+    UpdateWatches(WatchesRef),
+    Finish,
 }
 
 /// Instructions issued from a `Processor` for the manager.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum Instruction {
-    AddWatch(Vec<PathBuf>),
-    RemoveWatch(Vec<PathBuf>),
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InstructionOut {
+    AddWatch(HashSet<PathBuf>),
+    RemoveWatch(HashSet<PathBuf>),
 }
 
 // the processor definition lives in the notify core
 // because they're really only useful with notify,
+//
 // whereas the backend definition is split into a crate
 // because it's feasible that something could use a
 // backend directly without going through notify core.
 
 /// A sample processor that passes through every event it gets.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct Passthru {
     watches: WatchesRef,
 }
 
 impl Processor for Passthru {
-    fn needs_capabilities() -> Vec<Capability> { vec![] }
-    fn provides_capabilities() -> Vec<Capability> { vec![] }
+    fn needs_capabilities() -> Vec<Capability> {
+        vec![]
+    }
+    fn provides_capabilities() -> Vec<Capability> {
+        vec![]
+    }
 
     fn new(
         _events_in: BroadcastFutReceiver<stream::Item>,
         _events_out: BroadcastFutSender<stream::Item>,
-        _instruct: BroadcastFutSender<Instruction>,
+        _instruct_in: BroadcastFutReceiver<InstructionIn>,
+        _instruct_out: BroadcastFutSender<InstructionOut>,
     ) -> Result<Box<Self>, stream::Error> {
         Ok(Box::new(Self::default()))
     }
+}
 
-    fn spawn(&mut self) {}
-    fn update_watches(&mut self, paths: WatchesRef) -> Result<(), stream::Error> {
-        self.watches = paths;
-        Ok(())
+impl Future for Passthru {
+    type Item = ();
+    type Error = ();
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        Ok(Async::NotReady)
     }
-
-    fn finish(&mut self) {}
 }
