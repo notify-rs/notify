@@ -11,6 +11,12 @@ matrix:
   fast_finish: true
   include:
 
+    # Audit only
+    - env: CARGO_AUDIT=1
+      rust: stable
+      sudo: false
+      services: false
+
     # Container: Linux, macOS, Windows on Nightly
     - env: NO_CROSS=1
       rust: nightly
@@ -124,22 +130,30 @@ matrix:
 
 before_install:
   - set -e
-  - which cargo-audit || cargo install cargo-audit
   - |
     if [ $TRAVIS_OS_NAME = windows ]; then
         choco install windows-sdk-10.0
     fi
+    if [[ ! -z "$CARGO_AUDIT" ]]; then
+      which cargo-audit || cargo install --debug cargo-audit
+    fi
+# --debug for faster build at runtime speed cost
 
 install:
   - |
-    if [[ -z "$NO_CROSS" ]]; then
+    if [[ -z "$NO_CROSS" && -z "$CARGO_AUDIT" ]]; then
       sh ci/install.sh
       source ~/.cargo/env || true
     fi
 
 script:
-  - bash ci/script.sh
-  - cargo audit
+  - |
+    if [[ -z "$CARGO_AUDIT" ]]; then
+      bash ci/script.sh
+    else
+      cargo check
+      cargo audit
+    fi
 
 after_script: set +e
 
