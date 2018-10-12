@@ -11,7 +11,7 @@ matrix:
   fast_finish: true
   include:
 
-    # Container: Linux, macOS on Nightly
+    # Container: Linux, macOS, Windows on Nightly
     - env: NO_CROSS=1
       rust: nightly
       sudo: false
@@ -21,8 +21,13 @@ matrix:
       rust: nightly
       sudo: false
       services: false
+    - env: NO_CROSS=1
+      os: windows
+      rust: nightly
+      sudo: false
+      services: false
 
-    # Container: Linux, macOS on Beta
+    # Container: Linux, macOS, Windows on Beta
     - env: NO_CROSS=1
       rust: beta
       sudo: false
@@ -32,14 +37,24 @@ matrix:
       rust: beta
       sudo: false
       services: false
+    - env: NO_CROSS=1
+      os: windows
+      rust: beta
+      sudo: false
+      services: false
 
-    # Container: Linux, macOS on Stable
+    # Container: Linux, macOS, Windows on Stable
     - env: NO_CROSS=1
       rust: stable
       sudo: false
       services: false
     - env: NO_CROSS=1
       os: osx
+      rust: stable
+      sudo: false
+      services: false
+    - env: NO_CROSS=1
+      os: windows
       rust: stable
       sudo: false
       services: false
@@ -60,7 +75,6 @@ matrix:
     - env: TARGET=x86_64-unknown-freebsd DISABLE_TESTS=1
     - env: TARGET=i686-unknown-freebsd DISABLE_TESTS=1
     - env: TARGET=x86_64-unknown-netbsd DISABLE_TESTS=1
-    - env: TARGET=x86_64-pc-windows-gnu DISABLE_TESTS=1
     - env: TARGET=arm-unknown-linux-gnueabi DISABLE_TESTS=1
 
   allow_failures:
@@ -78,7 +92,6 @@ matrix:
     - env: TARGET=x86_64-unknown-freebsd DISABLE_TESTS=1
     - env: TARGET=i686-unknown-freebsd DISABLE_TESTS=1
     - env: TARGET=x86_64-unknown-netbsd DISABLE_TESTS=1
-    - env: TARGET=x86_64-pc-windows-gnu DISABLE_TESTS=1
     - env: TARGET=arm-unknown-linux-gnueabi DISABLE_TESTS=1
 
     # List of other potential platforms
@@ -111,8 +124,11 @@ matrix:
 
 before_install:
   - set -e
-  - rustup self update
   - which cargo-audit || cargo install cargo-audit
+  - |
+    if [ $TRAVIS_OS_NAME = windows ]; then
+        choco install windows-sdk-10.0
+    fi
 
 install:
   - |
