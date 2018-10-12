@@ -17,30 +17,10 @@ matrix:
       sudo: false
       services: false
 
-    # Container: Linux, macOS, Windows on Nightly
-    - env: NO_CROSS=1
-      rust: nightly
-      sudo: false
-      services: false
-    - env: NO_CROSS=1
-      os: osx
-      rust: nightly
-      sudo: false
-      services: false
+    # Windows: first as they take longest
     - env: NO_CROSS=1
       os: windows
       rust: nightly
-      sudo: false
-      services: false
-
-    # Container: Linux, macOS, Windows on Beta
-    - env: NO_CROSS=1
-      rust: beta
-      sudo: false
-      services: false
-    - env: NO_CROSS=1
-      os: osx
-      rust: beta
       sudo: false
       services: false
     - env: NO_CROSS=1
@@ -48,19 +28,40 @@ matrix:
       rust: beta
       sudo: false
       services: false
+    - env: NO_CROSS=1
+      os: windows
+      rust: stable
+      sudo: false
+      services: false
 
-    # Container: Linux, macOS, Windows on Stable
+
+    # Linux: container, fast
+    - env: NO_CROSS=1
+      rust: nightly
+      sudo: false
+      services: false
+    - env: NO_CROSS=1
+      rust: beta
+      sudo: false
+      services: false
     - env: NO_CROSS=1
       rust: stable
       sudo: false
       services: false
-    - env: NO_CROSS=1
+
+    # macOS: services not supported
+   - env: NO_CROSS=1
       os: osx
-      rust: stable
+      rust: nightly
       sudo: false
       services: false
-    - env: NO_CROSS=1
-      os: windows
+   - env: NO_CROSS=1
+      os: osx
+      rust: beta
+      sudo: false
+      services: false
+   - env: NO_CROSS=1
+      os: osx
       rust: stable
       sudo: false
       services: false
