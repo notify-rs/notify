@@ -7,8 +7,7 @@
 [![Code of Conduct](https://flat.badgen.net/badge/contributor/covenant/5e0d73)](#conduct)
 [![Documentation](https://flat.badgen.net/badge/documentation/docs.rs/df3600)][docs]
 
-[![Appveyor CI](https://flat.badgen.net/appveyor/ci/passcod/rsnotify/next)][build-windows]
-[![Travis CI](https://flat.badgen.net/travis/passcod/notify/next)][build-unix]
+[![Build status on Travis CI](https://flat.badgen.net/travis/passcod/notify/next)][build]
 
 _Cross-platform filesystem notification library for Rust._
 
@@ -25,8 +24,7 @@ As used by: [cargo watch], [mdBook], [pax], [rdiff], [watchexec].
 (Want to be added to this list? Open a pull request!)
 
 [alert-after]: https://github.com/frewsxcv/alert-after
-[build-unix]: https://travis-ci.org/passcod/notify
-[build-windows]: https://ci.appveyor.com/project/passcod/rsnotify
+[build]: https://travis-ci.org/passcod/notify
 [cargo watch]: https://github.com/passcod/cargo-watch
 [artistic]: ./LICENSE
 [crate]: https://crates.io/crates/notify
