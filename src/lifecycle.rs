@@ -9,7 +9,7 @@ use backend::{
 use multiqueue::{broadcast_fut_queue, BroadcastFutReceiver, BroadcastFutSender};
 
 use std::{
-    fmt, marker::PhantomData, sync::{Arc, Mutex},
+    any::TypeId, fmt, marker::PhantomData, sync::{Arc, Mutex},
 };
 
 use tokio::{
@@ -90,7 +90,7 @@ pub trait LifeTrait: fmt::Debug {
     fn name(&self) -> &'static str;
 }
 
-impl<B: Backend<Item = stream::Item, Error = stream::Error>> LifeTrait for Life<B> {
+impl<B: Backend<Item = stream::Item, Error = stream::Error> + 'static> LifeTrait for Life<B> {
     fn active(&self) -> bool {
         self.driver.is_some()
     }
@@ -137,11 +137,8 @@ impl<B: Backend<Item = stream::Item, Error = stream::Error>> LifeTrait for Life<
         let mut txe = self.queue.0.clone();
         self.executor.spawn(
             poller
-                .for_each(move |event| {
-                    // TODO: rethink this, and implement using event.attrs instead
-                    //if event.time.is_none() {
-                    //    event.time = Some(Utc::now());
-                    //}
+                .for_each(move |mut event| {
+                    event.attrs.insert(TypeId::of::<B>());
 
                     txs.start_send(Ok(event.clone())).unwrap_or_else(|_| {
                         panic!(
@@ -196,7 +193,7 @@ impl<B: Backend<Item = stream::Item, Error = stream::Error>> LifeTrait for Life<
     }
 }
 
-impl<B: Backend<Item = stream::Item, Error = stream::Error>> fmt::Debug for Life<B> {
+impl<B: Backend<Item = stream::Item, Error = stream::Error> + 'static> fmt::Debug for Life<B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct(&format!("Life<{}>", self.name()))
             .field("backend", &self.backend)

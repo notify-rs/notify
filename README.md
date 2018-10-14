@@ -50,7 +50,7 @@ Before any release
 - [x] Runtime fallback to other methods ([#64](https://github.com/passcod/notify/issues/64))
 - [x] Less depending on Life directly, more to Manager
 - [x] Being able to drop backends
-- [ ] Track which event came from which backend through TypeIds rather than strings
+- [x] Track which event came from which backend through TypeIds rather than strings
 - [ ] Processors design and integration
 - [ ] Basic public (frontend) API
 
