@@ -20,6 +20,24 @@ pub struct Manager<'selector_fn> {
     // (an arc clone) of the set, then on change they're send another
     // reference to replace their own copy (not a copy). When all processors
     // have dropped the old ref, the memory is reclaimed.
+    //
+    // the watches here are different from "the paths the user gave us"!
+    //  - this watches list is what we're watching
+    //  - it's derived from the inputs, but it might not be them exactly
+    //
+    // 1. User gives us paths
+    // 2. Paths are resolved as best we can
+    // 3. Paths that are subtrees are ignored/subsummed
+    // 4. We might also watch "one higher" to get more events on the top of the trees
+    // 5. If we have the capability of watching an entire mountpoint we might do that
+    // 6. Watches are placed
+    // 7. Events are received
+    // 8. During event processing, events for watches the user didn't ask for are discarded
+    //
+    // The path resolution/preprocessing also runs (with the entire state)
+    // every time the user gives us more or less to watch during a run.
+    //
+    // And of course processors can tell us to add/remove watches so there's that too.
 }
 
 impl<'selector_fn> Manager<'selector_fn> {
