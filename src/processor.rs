@@ -2,11 +2,10 @@ use backend::{
     futures::{future, Async, Future, Poll}, prelude::{Capability, PathBuf}, stream,
 };
 use multiqueue::{BroadcastFutReceiver, BroadcastFutSender};
-use std::{collections::HashSet, fmt, sync::Arc};
+use std::{fmt, sync::Arc};
 
 /// Convenience type alias for the watches currently in force.
-pub type WatchesRef = Arc<HashSet<PathBuf>>;
-// should be a Set, not a Vec
+pub type WatchesRef = Arc<Vec<PathBuf>>;
 
 // sketch for processors:
 //
@@ -56,8 +55,8 @@ pub enum InstructionIn {
 /// Instructions issued from a `Processor` for the manager.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum InstructionOut {
-    AddWatch(HashSet<PathBuf>),
-    RemoveWatch(HashSet<PathBuf>),
+    AddWatch(Vec<PathBuf>),
+    RemoveWatch(Vec<PathBuf>),
 }
 
 // the processor definition lives in the notify core

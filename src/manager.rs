@@ -48,7 +48,7 @@ impl<'selector_fn> Manager<'selector_fn> {
             selectors: vec![],
             lives: vec![],
             queue: broadcast_fut_queue(100),
-            watches: Arc::new(HashSet::new()),
+            watches: Arc::new(Vec::new()),
         }
     }
 
