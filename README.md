@@ -51,7 +51,8 @@ Before any release
 - [x] Less depending on Life directly, more to Manager
 - [x] Being able to drop backends
 - [x] Track which event came from which backend through TypeIds rather than strings
-- [ ] Processors design and integration
+- [x] Review event struct layout
+- [ ] Processors design, integration, and PoC passthru
 - [ ] Basic public (frontend) API
 
 Cut first alpha here
@@ -60,14 +61,12 @@ Cut first alpha here
 - [ ] Merge or port polling backend
 - [ ] Drive tests with tokio ([#151](https://github.com/passcod/notify/issues/151))
 - [ ] Filling in capabilities (i.e. implement processors)
+- [ ] Unwatching / removing paths
+- [ ] Path resolution preprocessing and event-path filtering postprocessing
 - [ ] User-provided backends (API and docs)
 - [ ] Being able to shutdown notify
 - [ ] Basic documentation
-- [x] Review event struct layout
 - [ ] Add builder for events to help guard against future internal changes
-
-Cut second alpha here
-
 - [ ] Debouncing processor
 - [ ] Future-less API
 - [ ] More extensive testing
