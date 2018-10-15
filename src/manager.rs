@@ -132,6 +132,7 @@ impl<'selector_fn> Manager<'selector_fn> {
 
         let mut final_err = None;
         let mut remaining = paths.to_vec();
+        let all = remaining.clone();
         for life_index in 0..(self.lives.len()) {
             if remaining.is_empty() {
                 if let Some(life) = self.lives.get_mut(life_index) {
@@ -179,6 +180,8 @@ impl<'selector_fn> Manager<'selector_fn> {
             if let Some(err) = final_err {
                 Err(err)
             } else {
+                self.watches = Arc::new(all);
+                //self.update_processors(InstructionIn::UpdateWatches(self.watches.clone()));
                 Ok(())
             }
         } else {
