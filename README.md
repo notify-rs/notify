@@ -57,6 +57,7 @@ Before any release
 
 Cut first alpha here
 
+- [ ] Decide whether to have the `backend#driver()` method return an `Option::None` if the backend doesn't have one... or hasn't implemented it yet?
 - [ ] Remake kqueue backend (with mio)
 - [ ] Merge or port polling backend
 - [ ] Drive tests with tokio ([#151](https://github.com/passcod/notify/issues/151))
@@ -87,6 +88,7 @@ Beta checklist:
 - [ ] Update all dependencies
 - [ ] Check minimum Rust version
 - [ ] Freeze Event
+- [ ] Freeze Event builder
 - [ ] Freeze Backend trait
 - [ ] Freeze Backend prelude
 - [ ] Freeze public API
