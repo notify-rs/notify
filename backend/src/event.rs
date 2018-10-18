@@ -1,4 +1,10 @@
 //! The `Event` type and the hierarchical `EventKind` descriptor.
+//!
+//! Note that neither of those types have been designed for FFI use. Notably, at time of writing
+//! the size of `EventKind` is **3**, which is not very helpful for alignment. Also, `Event` has
+//! both a `Vec` (which is not FFI-compatible per se) and an `AnyMap` (which is even worse).
+//!
+//! This may be addressed at some future time.
 
 use anymap::{any::CloneAny, Map};
 use std::fmt;
