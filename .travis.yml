@@ -1,7 +1,6 @@
 dist: trusty
 language: rust
-services: docker
-sudo: required
+sudo: false
 
 env:
   global:
@@ -14,71 +13,77 @@ matrix:
     # Audit only
     - env: CARGO_AUDIT=1
       rust: stable
-      sudo: false
-      services: false
 
     # Windows: first as they take longest
     - env: NO_CROSS=1
       os: windows
       rust: nightly
-      sudo: false
-      services: false
     - env: NO_CROSS=1
       os: windows
       rust: beta
-      sudo: false
-      services: false
     - env: NO_CROSS=1
       os: windows
       rust: stable
-      sudo: false
-      services: false
 
     # Linux: container, fast
     - env: NO_CROSS=1
       rust: nightly
-      sudo: false
-      services: false
     - env: NO_CROSS=1
       rust: beta
-      sudo: false
-      services: false
     - env: NO_CROSS=1
       rust: stable
-      sudo: false
-      services: false
 
     # macOS: services not supported
     - env: NO_CROSS=1
       os: osx
       rust: nightly
-      sudo: false
     - env: NO_CROSS=1
       os: osx
       rust: beta
-      sudo: false
     - env: NO_CROSS=1
       os: osx
       rust: stable
-      sudo: false
 
     # Tested, but no Tier 1 support (cross-compiles)
     - env: TARGET=i686-unknown-linux-gnu
-    - env: TARGET=x86_64-linux-android
+      services: docker
+      sudo: required
     - env: TARGET=x86_64-unknown-linux-musl
+      services: docker
+      sudo: required
     - env: TARGET=i686-unknown-linux-musl
-    - env: TARGET=x86_64-apple-ios
-      os: osx
-    - env: TARGET=i386-apple-ios
-      os: osx
+      services: docker
+      sudo: required
     - env: TARGET=i686-apple-darwin
       os: osx
+      sudo: required
+    # above list are candidates for emulation-less build/test (architecture is compatible)
+    # but require a lot more fiddling to figure out the correct travis incantation
+    # perhaps a lead: https://raw.githubusercontent.com/carllerche/travis-rust-matrix/master/test
+
+    - env: TARGET=x86_64-linux-android
+      services: docker
+      sudo: required
+    - env: TARGET=x86_64-apple-ios
+      os: osx
+      sudo: required
+    - env: TARGET=i386-apple-ios
+      os: osx
+      sudo: required
 
     # Builds only, no tests (cross-compiles)
     - env: TARGET=x86_64-unknown-freebsd DISABLE_TESTS=1
+      services: docker
+      sudo: required
     - env: TARGET=i686-unknown-freebsd DISABLE_TESTS=1
+      services: docker
+      sudo: required
     - env: TARGET=x86_64-unknown-netbsd DISABLE_TESTS=1
+      services: docker
+      sudo: required
     - env: TARGET=arm-unknown-linux-gnueabi DISABLE_TESTS=1
+      services: docker
+      sudo: required
 
   allow_failures:
     # From the not-Tier-1 list
@@ -134,7 +139,7 @@ before_install:
     if [[ ! -z "$CARGO_AUDIT" ]]; then
       which cargo-audit || cargo install --debug cargo-audit
     fi
-# --debug for faster build at runtime speed cost
+# --debug for faster build at the minimal expense of runtime speed
 
 install:
   - |
