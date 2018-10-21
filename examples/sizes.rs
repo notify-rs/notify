@@ -6,6 +6,11 @@ use backend::event;
 use std::mem::size_of;
 use std::path::PathBuf;
 
+struct EventSlim {
+    pub kind: event::EventKind,
+    pub attrs: event::AnyMap,
+}
+
 fn main() {
     println!(
         "
@@ -19,14 +24,31 @@ Sizes of types
 
 Struct. Sum of field sizes.
 
- - paths: Vec<PathBuf>:  {}
- - attrs: AnyMap:        {}
- - kind:  EventKind:     {}
+ - kind:  EventKind:       {}
+ - path:  Option<PathBuf>: {}
+ - attrs: AnyMap:          {}
+
+ - PathBuf:                {}
 ",
         size_of::<event::Event>(),
-        size_of::<Vec<PathBuf>>(),
-        size_of::<event::AnyMap>(),
         size_of::<event::EventKind>(),
+        size_of::<Option<PathBuf>>(),
+        size_of::<event::AnyMap>(),
+        size_of::<PathBuf>(),
+    );
+
+    println!(
+        "
+## Event (slim): {}
+
+Struct. Sum of field sizes.
+
+ - kind:  EventKind:       {}
+ - attrs: AnyMap:          {}
+",
+        size_of::<EventSlim>(),
+        size_of::<event::EventKind>(),
+        size_of::<event::AnyMap>(),
     );
 
     println!(

@@ -174,7 +174,7 @@ impl Backend {
                 } else {
                     EventKind::Any
                 },
-                paths: e.name.map_or_else(|| vec![], |s| vec![s.into()]),
+                path: e.name.map(|p| p.into()),
                 attrs: {
                     let mut map = AnyMap::new();
                     // source: BACKEND_NAME,

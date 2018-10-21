@@ -281,11 +281,13 @@ pub struct Event {
     /// backend will not gain bugs due to not matching new unknown event types.
     pub kind: EventKind,
 
-    /// Paths that the event is about.
+    /// Path the event is about, if known.
     ///
-    /// Generally that will be a single path, but it may be more in backends that track e.g.
-    /// renames by path instead of "cookie".
-    pub paths: Vec<PathBuf>,
+    /// If an event concerns two or more paths, two options are available: either create two or
+    /// more events with the same properties and vary this field (in which case adding a `Tracker`
+    /// value to the `attrs` would be beneficial), or stick the other paths as metadata in the
+    /// `attrs` structure. Which option is best depends on the exact situation.
+    pub path: Option<PathBuf>,
 
     /// Additional attributes of the event.
     ///
@@ -353,7 +355,7 @@ impl fmt::Debug for Event {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Event")
             .field("kind", &self.kind)
-            .field("paths", &self.paths)
+            .field("path", &self.path)
             .field("attr:tracker", &self.tracker())
             .field("attr:info", &self.info())
             .field("attr:source", &self.source())
@@ -364,7 +366,7 @@ impl Default for Event {
     fn default() -> Self {
         Self {
             kind: EventKind::default(),
-            paths: Vec::with_capacity(1),
+            path: None,
             attrs: AnyMap::new(),
         }
     }
@@ -374,7 +376,7 @@ impl Eq for Event {}
 impl PartialEq for Event {
     fn eq(&self, other: &Self) -> bool {
         self.kind.eq(&other.kind)
-            && self.paths.eq(&other.paths)
+            && self.path.eq(&other.path)
             && self.tracker().eq(&other.tracker())
             && self.info().eq(&other.info())
             && self.source().eq(&other.source())
@@ -384,7 +386,7 @@ impl PartialEq for Event {
 impl Hash for Event {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.kind.hash(state);
-        self.paths.hash(state);
+        self.path.hash(state);
         self.tracker().hash(state);
         self.info().hash(state);
         self.source().hash(state);
