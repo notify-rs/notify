@@ -289,6 +289,27 @@ pub struct Event {
     /// `attrs` structure. Which option is best depends on the exact situation.
     pub path: Option<PathBuf>,
 
+    // "What should be in the struct" and "what can go in the attrs" is an interesting question.
+    //
+    // Technically, the path could go in the attrs. That would reduce the type size to 4 pointer
+    // widths, instead of 7 like it is now. Anything 8 and below is probably good — on x64 that's
+    // the size of an L1 cache line. The entire kind classification fits in 3 bytes, and an AnyMap
+    // is 3 pointers. A PathBuf (and an Option<PathBuf>) is another 3 pointers.
+    //
+    // Type size aside, what's behind these structures? A PathBuf is stored on the heap. An AnyMap
+    // is stored on the heap. But a PathBuf is directly there, requiring about one access to get,
+    // while retrieving anything in the AnyMap requires at least one or two accesses as overhead.
+    //
+    // So things that are used often should be on the struct, and things that are used more rarely
+    // should go in the attrs. Additionally, arbitrary data can _only_ go in the attrs.
+    //
+    // The kind and the path vie for first place on this scale, depending on how downstream wishes
+    // to use the information. Everything else is secondary. So far, that's why path lives here.
+    //
+    // In the future, it might be possible to have more data and to benchmark things properly, so
+    // the perfomance can be actually quantified. Also, it might turn out that I have no idea what
+    // I was talking about, so the above may be discarded or reviewed. We'll see!
+
     /// Additional attributes of the event.
     ///
     /// Arbitrary data may be added to this field, without restriction beyond the `Sync` and

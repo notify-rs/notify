@@ -38,6 +38,14 @@ pub struct Manager<'selector_fn> {
     // every time the user gives us more or less to watch during a run.
     //
     // And of course processors can tell us to add/remove watches so there's that too.
+    //
+    // Thus, storing just the watch ref is probably temporary here. The real solution will be a
+    // structure that tracks what proposed which change while processing events for which watches,
+    // so when a user requests a path not be watched anymore, the watches can be trimmed as
+    // necessary (or vice versa, or all the other edge cases). It's not quite as simple as a
+    // watchlist. When the watchlist changes the manager should ask it for a WatchesRef, then clone
+    // that pointer and distribute it as needed. The watchlist should also be kept informed of who
+    // watches/processes what. A whole production. But for a first alpha, a vec ref will do.
 }
 
 impl<'selector_fn> Manager<'selector_fn> {
