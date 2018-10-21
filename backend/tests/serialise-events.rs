@@ -22,12 +22,12 @@ fn events_have_useful_debug_representation() {
             "{:?}",
             Event {
                 kind: EventKind::Remove(RemoveKind::Other),
-                paths: vec![],
+                path: Some("/example".into()),
                 attrs
             }
         ),
         String::from(
-            "Event { kind: Remove(Other), paths: [], attr:tracker: None, attr:info: Some(\"unmount\"), attr:source: None }"
+            "Event { kind: Remove(Other), path: Some(\"/example\"), attr:tracker: None, attr:info: Some(\"unmount\"), attr:source: None }"
         )
     );
 }

@@ -258,11 +258,6 @@ macro_rules! test_compliance {
                             modifies.count() == 2,
                             "receive exactly two related Modify events"
                         );
-                    } else {
-                        let modifies = events
-                            .iter()
-                            .filter(|e| e.kind.is_modify() && e.paths.len() > 1);
-                        assert!(modifies.count() > 0, "receive related Modify events");
                     }
                 }
             } else {
