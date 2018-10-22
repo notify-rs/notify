@@ -25,7 +25,10 @@
 //! [standard logging facade](https://crates.io/crates/log), and so changing this incompatibly
 //! would be breaking. However, and as example, removing a `trace!()` call will not be breaking.
 //! - Project-wise, both the License and the Code of Conduct are API.
+//! - The minimum buildable rustc version is API, and a raise will be a major bump.
 //! - Tests, CI configuration, examples, and docs are _not_ API.
+//!
+//! None of these apply while Notify v5 is in alpha/beta.
 
 #![forbid(unsafe_code)]
 #![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
