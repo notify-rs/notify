@@ -27,9 +27,8 @@ const BACKEND_NAME: &str = "inotify";
 ///  - watch individual files
 ///  - watch folders (but not recursively)
 ///
-/// The backend reads events into a ~4KB buffer, corresponding to 200 events (24 bytes per event on
-/// 64-bit architectures, and 20 bytes on 32-bit architectures), then pushes them to an internal
-/// [Buffer] after translation into Notify events.
+/// The backend reads events into a small buffer, corresponding to at least one event. If more than
+/// one event is received, the second one is pushed to an internal [Buffer].
 ///
 /// Inotify emits an event when a filesystem whose mountpoint is watched is unmounted. In this
 /// backend, this event is mapped as `RemoveKind::Other("unmount")`.
@@ -42,11 +41,11 @@ pub struct Backend {
     inotify: Inotify,
 }
 
-#[cfg(target_pointer_width = "64")]
-const BUFFER_SIZE: usize = 4800;
-
-#[cfg(not(target_pointer_width = "64"))]
-const BUFFER_SIZE: usize = 4000;
+// Buffer needs to be at least event size + NAME_MAX + 1.
+// - On x64, event size is 24. On x86, 20.
+// - NAME_MAX is generally 255.
+// TODO: get those from extern and compute.
+const BUFFER_SIZE: usize = 280;
 
 impl NotifyBackend for Backend {
     fn name() -> &'static str {
@@ -62,7 +61,7 @@ impl NotifyBackend for Backend {
         }
 
         Ok(Box::new(Self {
-            buffer: Buffer::new(),
+            buffer: Buffer::default(),
             driver: OwnedEventedFd(inotify.as_raw_fd()),
             inotify,
         }))
@@ -117,20 +116,6 @@ impl Stream for Backend {
 impl Backend {
     fn process_events(&mut self, events: Events) -> Result<(), StreamError> {
         for e in events {
-            if e.mask.contains(EventMask::Q_OVERFLOW) {
-                // Currently, futures::Stream don't terminate on Error, so we
-                // close the buffer such that the rest of the events trickle
-                // through and the stream ends with Ready(None) after all are
-                // through. If futures::Stream change so they terminate on
-                // Error, we'll need to change the Buffer so it may carry an
-                // Error value, and output it at the end of the stream. In
-                // either case, it's important that we do continue to provide
-                // the received events, even in the case of an error/overflow
-                // upstream.
-                self.buffer.close();
-                return Err(StreamError::UpstreamOverflow);
-            }
-
             if e.mask.contains(EventMask::IGNORED) {
                 self.buffer.close();
                 break;
@@ -189,7 +174,11 @@ impl Backend {
 
                     map
                 },
-            })
+            });
+
+            if e.mask.contains(EventMask::Q_OVERFLOW) {
+                self.buffer.push(Event { kind: EventKind::Missed(None), path: None, attrs: AnyMap::new() });
+            }
         }
 
         Ok(())
