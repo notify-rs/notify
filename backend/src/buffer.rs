@@ -79,18 +79,20 @@ impl Buffer {
         if self.closed || self.free_space().is_none() {
             // Length will only be 0 if the buffer is closed and it has drained completely.
             // At that point, no new data should be added, including Missed events.
-            if self.internal.len() == 0 { return; }
+            if self.internal.len() == 0 {
+                return;
+            }
 
             let mut hint = match event.kind {
                 EventKind::Missed(Some(h)) => h.get(),
-                _ => 1
+                _ => 1,
             };
 
             if self.has_missed() {
                 let prior_missed = self.internal.pop_back().unwrap(); // Safe because of has_missed()
                 let prior_hint = match prior_missed.kind {
                     EventKind::Missed(Some(h)) => h.get(),
-                    _ => 0 // just in case a non-buffer-added Missed is there and None
+                    _ => 0, // just in case a non-buffer-added Missed is there and None
                 };
 
                 hint += prior_hint;
@@ -152,8 +154,8 @@ impl Buffer {
             None => false,
             Some(e) => match e.kind {
                 EventKind::Missed(_) => true,
-                _ => false
-            }
+                _ => false,
+            },
         }
     }
 
@@ -171,7 +173,7 @@ impl Buffer {
         if len < self.limit {
             Some(NonZeroU16::new(match self.limit - len {
                 hint @ 0...U16MAX => hint,
-                _ => U16MAX
+                _ => U16MAX,
             } as u16)?)
         } else {
             None
@@ -189,6 +191,6 @@ impl Default for Buffer {
     ///
     /// The default limit is computed as 16 KiB divided by the size of `Event`.
     fn default() -> Self {
-        Self::new(16*1024 / size_of::<Event>())
+        Self::new(16 * 1024 / size_of::<Event>())
     }
 }

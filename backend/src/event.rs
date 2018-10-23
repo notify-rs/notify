@@ -6,10 +6,9 @@
 //! This may be addressed at some future time.
 
 use anymap::{any::CloneAny, Map};
-use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
-use std::num::NonZeroU16;
+use std::{
+    fmt, hash::{Hash, Hasher}, num::NonZeroU16, path::PathBuf,
+};
 
 /// An `AnyMap` convenience type with the needed bounds for events.
 pub type AnyMap = Map<CloneAny + Send + Sync>;
@@ -320,7 +319,6 @@ pub struct Event {
     // In the future, it might be possible to have more data and to benchmark things properly, so
     // the perfomance can be actually quantified. Also, it might turn out that I have no idea what
     // I was talking about, so the above may be discarded or reviewed. We'll see!
-
     /// Additional attributes of the event.
     ///
     /// Arbitrary data may be added to this field, without restriction beyond the `Sync` and

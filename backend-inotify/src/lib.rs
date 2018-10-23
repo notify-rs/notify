@@ -177,7 +177,11 @@ impl Backend {
             });
 
             if e.mask.contains(EventMask::Q_OVERFLOW) {
-                self.buffer.push(Event { kind: EventKind::Missed(None), path: None, attrs: AnyMap::new() });
+                self.buffer.push(Event {
+                    kind: EventKind::Missed(None),
+                    path: None,
+                    attrs: AnyMap::new(),
+                });
             }
         }
 

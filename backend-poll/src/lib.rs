@@ -28,15 +28,12 @@ impl NotifyBackend for Backend {
         Ok(Box::new(Self {
             buffer: Buffer::default(),
             reg: Arc::new(reg),
-            watches
+            watches,
         }))
     }
 
     fn capabilities() -> Vec<Capability> {
-        vec![
-            Capability::FollowSymlinks,
-            Capability::WatchFiles,
-        ]
+        vec![Capability::FollowSymlinks, Capability::WatchFiles]
     }
 
     fn driver(&self) -> Box<Evented> {
