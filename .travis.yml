@@ -20,7 +20,7 @@ matrix:
       rust: nightly
     - env: NO_CROSS=1
       os: windows
-      rust: beta
+      rust: 1.29.2
     - env: NO_CROSS=1
       os: windows
       rust: stable
@@ -29,7 +29,7 @@ matrix:
     - env: NO_CROSS=1
       rust: nightly
     - env: NO_CROSS=1
-      rust: beta
+      rust: 1.29.2
     - env: NO_CROSS=1
       rust: stable
 
@@ -39,7 +39,7 @@ matrix:
       rust: nightly
     - env: NO_CROSS=1
       os: osx
-      rust: beta
+      rust: 1.29.2
     - env: NO_CROSS=1
       os: osx
       rust: stable
