@@ -6,7 +6,7 @@ version = "5.0.0-alpha.1"
 [workspace]
 members = [
   "backend",
-  "backend-poll-tree",
+  "backend-poll",
   "backend-inotify",
   # "backend-kqueue",
 ]
@@ -39,5 +39,5 @@ path = "./backend-inotify"
 # [target.'cfg(target_os="openbsd")'.dependencies.notify-backend-kqueue]
 # path = "./backend-kqueue"
 
-[dependencies.notify-backend-poll-tree]
-path = "./backend-poll-tree"
+[dependencies.notify-backend-poll]
+path = "./backend-poll"

@@ -1,0 +1,10 @@
+[package]
+authors = ["Félix Saparelli <felix@passcod.name>"]
+name = "notify-backend-poll"
+version = "0.1.0"
+
+[dependencies.notify-backend]
+path = "../backend"
+
+[dev-dependencies]
+tempdir = "0.3.5"

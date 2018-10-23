@@ -31,7 +31,7 @@ usefn!(inotify => inotify_life);
 // ))]
 // usefn!(kqueue => kqueue_life);
 
-usefn!(poll_tree => poll_life);
+usefn!(poll => poll_life);
 
 type SelectFn = Fn(Handle, TaskExecutor) -> Box<LifeTrait>;
 

@@ -2,19 +2,17 @@
 #![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
 
 extern crate notify_backend as backend;
-extern crate walkdir;
 
 use backend::prelude::*;
 use backend::Buffer;
 use std::sync::Arc;
 
-const BACKEND_NAME: &str = "poll tree";
+const BACKEND_NAME: &str = "poll";
 
 #[derive(Debug)]
 pub struct Backend {
     buffer: Buffer,
     reg: Arc<MioRegistration>,
-    trees: Vec<String>,
     watches: Vec<PathBuf>,
 }
 
@@ -23,17 +21,21 @@ impl NotifyBackend for Backend {
         BACKEND_NAME
     }
 
-    fn new(_paths: Vec<PathBuf>) -> NewBackendResult {
-        Err(BackendError::NotImplemented.into())
+    fn new(watches: Vec<PathBuf>) -> NewBackendResult {
+        let (reg, readiness) = MioRegistration::new2();
+        readiness.set_readiness(MioReady::readable());
+
+        Ok(Box::new(Self {
+            buffer: Buffer::default(),
+            reg: Arc::new(reg),
+            watches
+        }))
     }
 
     fn capabilities() -> Vec<Capability> {
         vec![
             Capability::FollowSymlinks,
             Capability::WatchFiles,
-            Capability::WatchFolders,
-            Capability::WatchNewFolders,
-            Capability::WatchRecursively,
         ]
     }
 
@@ -51,10 +53,6 @@ impl Stream for Backend {
     type Error = StreamError;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        if self.buffer.closed() {
-            return self.buffer.poll();
-        }
-
         self.buffer.poll()
     }
 }
