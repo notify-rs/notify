@@ -65,6 +65,7 @@ Enum. Size of largest variant (*) + 1-8 bytes.
    + MetadataKind: {}
    + RenameMode: {}
  - RemoveKind: {}
+ - Option<NonZeroU16>: {}
 ",
         size_of::<event::EventKind>(),
         size_of::<event::AccessKind>(),
@@ -75,5 +76,6 @@ Enum. Size of largest variant (*) + 1-8 bytes.
         size_of::<event::MetadataKind>(),
         size_of::<event::RenameMode>(),
         size_of::<event::RemoveKind>(),
+        size_of::<Option<std::num::NonZeroU16>>(),
     );
 }

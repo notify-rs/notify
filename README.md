@@ -86,7 +86,7 @@ Beta checklist:
 
 - [ ] Rename `next` branch to `main` and make it default
 - [ ] Update all dependencies
-- [ ] Check minimum Rust version
+- [ ] Check minimum Rust version and add travis builds for it
 - [ ] Freeze Event
 - [ ] Freeze Event builder
 - [ ] Freeze Backend trait

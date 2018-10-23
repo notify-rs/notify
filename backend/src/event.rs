@@ -1,8 +1,7 @@
 //! The `Event` type and the hierarchical `EventKind` descriptor.
 //!
-//! Note that neither of those types have been designed for FFI use. Notably, at time of writing
-//! the size of `EventKind` is **3**, which is not very helpful for alignment. Also, `Event` has
-//! both a `Vec` (which is not FFI-compatible per se) and an `AnyMap` (which is even worse).
+//! Note that neither of those types have been designed for FFI use. Notably, `Event` has both a
+//! `Vec` (which is not FFI-compatible per se) and an `AnyMap` (which is even worse).
 //!
 //! This may be addressed at some future time.
 
@@ -10,6 +9,7 @@ use anymap::{any::CloneAny, Map};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+use std::num::NonZeroU16;
 
 /// An `AnyMap` convenience type with the needed bounds for events.
 pub type AnyMap = Map<CloneAny + Send + Sync>;
@@ -207,6 +207,17 @@ pub enum EventKind {
     /// Some editors also trigger Remove events when saving files as they may opt for removing (or
     /// renaming) the original then creating a new file in-place.
     Remove(RemoveKind),
+
+    /// An event indicating that some amount of events are missing.
+    ///
+    /// This is used when a queue or stream fills to capacity and no further events can be
+    /// buffered. In those cases, a Missed event may be issued, along with an optional hint of how
+    /// many events were dropped, if that is known or can be estimated.
+    ///
+    /// The absence of this event does not mean that no events were dropped.
+    ///
+    /// The count may be inaccurate. It is a hint only. Do not rely on its exact value.
+    Missed(Option<NonZeroU16>),
 
     /// An event not fitting in any of the above four categories.
     ///
