@@ -14,8 +14,8 @@
 _Cross-platform filesystem notification library for Rust._
 
 
-As used by: [cargo watch], [cobalt], [handlebars-iron], [rdiff], [docket], and
-[watchexec]. (Want to be added to this list? Open a pull request!)
+As used by: [cargo watch], [cobalt], [handlebars-iron], [rdiff], [docket],
+[watchexec], and [timetrack]. (Want to be added to this list? Open a pull request!)
 
 Version 5 status: [branch `next`](https://github.com/passcod/notify/tree/next#status).
 
@@ -116,3 +116,4 @@ Note that licensing is changed from version 5 to **Artistic 2.0**.
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
 [rdiff]: https://github.com/dyule/rdiff
 [watchexec]: https://github.com/mattgreen/watchexec
+[timetrack]: https://github.com/joshmcguigan/timetrack
