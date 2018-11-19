@@ -27,6 +27,7 @@
 //! - Project-wise, both the License and the Code of Conduct are API.
 //! - The minimum buildable rustc version is API, and a raise will be a major bump.
 //! - Tests, CI configuration, examples, and docs are _not_ API.
+//! - This list is API. How meta!
 //!
 //! None of these apply while Notify v5 is in alpha/beta.
 
