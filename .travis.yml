@@ -46,6 +46,10 @@ matrix:
       os: osx
       rust: stable
 
+    # Clippy only
+    - env: CARGO_CLIPPY=1
+      rust: stable
+
     # Tested, but no Tier 1 support (cross-compiles)
     - env: TARGET=i686-unknown-linux-gnu
     - env: TARGET=x86_64-unknown-linux-musl
@@ -69,6 +73,8 @@ matrix:
     - env: TARGET=arm-unknown-linux-gnueabi DISABLE_TESTS=1
 
   allow_failures:
+    - env: CARGO_CLIPPY=1
+
     # From the not-Tier-1 list
     - env: TARGET=i686-unknown-linux-gnu
     - env: TARGET=x86_64-unknown-freebsd
@@ -119,25 +125,27 @@ before_install:
     if [ $TRAVIS_OS_NAME = windows ]; then
         choco install windows-sdk-10.0
     fi
-    if [[ ! -z "$CARGO_AUDIT" ]]; then
+    if [[ ! -z "$CARGO_AUDIT" || ! -z "$CARGO_CLIPPY" ]]; then
       which cargo-audit || cargo install --debug cargo-audit
     fi
 # --debug for faster build at the minimal expense of runtime speed
 
 install:
   - |
-    if [[ -z "$NO_CROSS" && -z "$CARGO_AUDIT" ]]; then
+    if [[ -z "$NO_CROSS" && -z "$CARGO_AUDIT" && -z "$CARGO_CLIPPY" ]]; then
       sh ci/install.sh
       source ~/.cargo/env || true
     fi
 
 script:
   - |
-    if [[ -z "$CARGO_AUDIT" ]]; then
-      bash ci/script.sh
-    else
+    if [[ ! -z "$CARGO_AUDIT" ]]; then
       cargo check
       cargo audit
+    elif [[ ! -z "$CARGO_CLIPPY" ]]; then
+      cargo clippy
+    else
+      bash ci/script.sh
     fi
 
 after_script: set +e
