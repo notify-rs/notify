@@ -1,4 +1,4 @@
-<!-- By contributing, you agree to the terms of the license, available in the LICENSE file. -->
+<!-- By contributing, you agree to the terms of the license, available in the LICENSE file, and of the code of conduct, available in the CONTRIBUTING.md file. -->
 
 <!-- After creating this pull request, the test suite will run.
 
@@ -10,6 +10,6 @@ It is expected that if any failures occur in the critical builds (there are a nu
 
 If you do not, a maintainer may prompt you and/or do it themselves, but do note that it will take longer for your contribution to be reviewed if the build does not pass.
 
-Running `cargo fmt` and/or `cargo +nightly clippy` is NOT required but appreciated!
+Running `cargo fmt` and/or `cargo clippy` is NOT required but appreciated!
 
 You can remove this text. -->

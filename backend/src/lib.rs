@@ -27,8 +27,8 @@
 
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
-#![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
-#![cfg_attr(feature = "cargo-clippy", allow(stutter))]
+#![deny(clippy::pedantic)]
+#![allow(clippy::stutter)]
 
 extern crate anymap;
 pub extern crate futures;

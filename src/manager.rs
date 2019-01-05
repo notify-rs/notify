@@ -18,8 +18,8 @@ pub struct Manager<'selector_fn> {
     // idea is that this would be updated in block, all at once, instead of
     // adding or removing entries. Processors get an immut owned reference
     // (an arc clone) of the set, then on change they're send another
-    // reference to replace their own copy (not a copy). When all processors
-    // have dropped the old ref, the memory is reclaimed.
+    // reference to replace their own ref. When all processors have dropped the
+    // old ref, the memory is reclaimed.
     //
     // the watches here are different from "the paths the user gave us"!
     //  - this watches list is what we're watching
@@ -252,7 +252,7 @@ impl<'selector_fn> Manager<'selector_fn> {
         Err((err, passes, fails))
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(borrowed_box))]
+    #[allow(clippy::borrowed_box)]
     pub fn active(&mut self) -> Option<&mut Box<LifeTrait + 'selector_fn>> {
         for life in &mut self.lives {
             if life.active() {

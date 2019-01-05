@@ -18,13 +18,11 @@ pub type WatchesRef = Arc<Vec<PathBuf>>;
 // - what capabilities it needs
 // - what capabilities it provides
 //
-// methods:
-//   - here's a new arc clone of watched paths
-//   - finish up
-//
 // inputs:
 // - stream of events
-// - instruction channel
+// - instructions:
+//   - here's a new arc clone of watched paths
+//   - finish up
 //
 // outputs:
 // - stream of events

@@ -54,21 +54,25 @@ Before any release
 - [x] Review event struct layout
 - [ ] Processors design, integration, and PoC passthru
 - [ ] Basic public (frontend) API
+- [ ] Basic documentation
 
 Cut first alpha here
 
+- [ ] Rust 2018
 - [ ] Decide whether to have the `backend#driver()` method return an `Option::None` if the backend doesn't have one... or hasn't implemented it yet?
 - [ ] Remake kqueue backend (with mio)
 - [ ] Merge or port polling backend
 - [ ] Drive tests with tokio ([#151](https://github.com/passcod/notify/issues/151))
 - [ ] Filling in capabilities (i.e. implement processors)
 - [ ] Unwatching / removing paths
+- [ ] API documentation
 - [ ] Path resolution preprocessing and event-path filtering postprocessing
 - [ ] User-provided backends (API and docs)
 - [ ] Being able to shutdown notify
-- [ ] Basic documentation
+- [ ] Internals documentation
 - [ ] Add builder for events to help guard against future internal changes
 - [ ] Debouncing processor
+- [ ] Examples
 - [ ] Future-less API
 - [ ] More extensive testing
 - [ ] Full documentation
@@ -110,15 +114,16 @@ Backends needed but not started:
 
 Delayed until after release and/or implemented by third-parties:
 
+- Filesystem abstraction and plugins (needed for advanced remote backends)
 - All non-essential backends:
+  - Daemonised
   - Remote
   - Watchman
   - [fanotify / auditd](https://github.com/passcod/notify/issues/161)
+  - eBPF (Linux)
   - FSEvents (as external crate)
   - demo cloud storage backend
   - Dynamic
-- More debouncing options (possibly via feature)
-- Filesystem plugins (needed for advanced remote backends)
 
 ## Installation
 

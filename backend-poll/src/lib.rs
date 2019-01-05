@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
+#![deny(clippy::pedantic)]
 
 extern crate notify_backend as backend;
 

@@ -2,7 +2,7 @@
 
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
-#![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
+#![deny(clippy::pedantic)]
 
 extern crate inotify;
 extern crate notify_backend as backend;

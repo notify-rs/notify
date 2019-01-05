@@ -31,7 +31,7 @@
 //! None of these apply while Notify v5 is in alpha/beta.
 
 #![forbid(unsafe_code)]
-#![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
+#![deny(clippy::pedantic)]
 
 extern crate multiqueue;
 extern crate tokio;

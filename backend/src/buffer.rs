@@ -5,7 +5,7 @@ use super::stream::{Error, Item};
 use futures::{Async, Poll};
 use std::{collections::VecDeque, mem::size_of, num::NonZeroU16, u16};
 
-const U16MAX: usize = u16::MAX as usize;
+const U16MAX: usize = u16::max_value() as usize;
 
 /// An internal buffer to store events obtained from native platforms.
 ///
@@ -79,7 +79,7 @@ impl Buffer {
         if self.closed || self.free_space().is_none() {
             // Length will only be 0 if the buffer is closed and it has drained completely.
             // At that point, no new data should be added, including Missed events.
-            if self.internal.len() == 0 {
+            if self.internal.is_empty() {
                 return;
             }
 
@@ -171,6 +171,7 @@ impl Buffer {
         }
 
         if len < self.limit {
+            #[allow(clippy::cast_possible_truncation)]
             Some(NonZeroU16::new(match self.limit - len {
                 hint @ 0...U16MAX => hint,
                 _ => U16MAX,
