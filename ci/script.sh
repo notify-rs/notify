@@ -1,31 +1,32 @@
 set -ex
 
 bothx() {
+  OPTS="$* --target $TARGET"
+  if [ ! -z $TRAVIS_TAG ]; then
+    OPTS="$OPTS --release"
+  fi
+
   if [ -z $NO_CROSS ]; then
-    cross $* --target $TARGET
+    cross $OPTS
   else
-    cargo $*
+    cargo $OPTS
   fi
 }
 
 main() {
   if [ ! -z $DISABLE_TESTS ]; then
       bothx build
-      return
-  fi
-
-  if [ ! -z $NO_CROSS ]; then
-    if [[ "$TRAVIS_OS_NAME" = "linux" ]]; then
-      TARGET="x86_64-unknown-linux-gnu"
-    elif [[ "$TRAVIS_OS_NAME" = "osx" ]]; then
-      TARGET="x86_64-apple-darwin"
+  else
+    if [ ! -z $NO_CROSS ]; then
+      if [[ "$TRAVIS_OS_NAME" = "linux" ]]; then
+        TARGET="x86_64-unknown-linux-gnu"
+      elif [[ "$TRAVIS_OS_NAME" = "osx" ]]; then
+        TARGET="x86_64-apple-darwin"
+      elif [[ "$TRAVIS_OS_NAME" = "windows" ]]; then
+        TARGET="x86_64-pc-windows-msvc"
+      fi
     fi
+
+    bothx test
   fi
-
-  bothx test
 }
-
-# we don't run the "test phase" when doing deploys
-if [ -z $TRAVIS_TAG ]; then
-    main
-fi
