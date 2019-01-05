@@ -1,6 +1,6 @@
-dist: trusty
+dist: xenial
 language: rust
-sudo: false
+services: docker
 
 env:
   global:
@@ -48,44 +48,25 @@ matrix:
 
     # Tested, but no Tier 1 support (cross-compiles)
     - env: TARGET=i686-unknown-linux-gnu
-      services: docker
-      sudo: required
     - env: TARGET=x86_64-unknown-linux-musl
-      services: docker
-      sudo: required
     - env: TARGET=i686-unknown-linux-musl
-      services: docker
-      sudo: required
     - env: TARGET=i686-apple-darwin
       os: osx
-      sudo: required
     # above list are candidates for emulation-less build/test (architecture is compatible)
     # but require a lot more fiddling to figure out the correct travis incantation
     # perhaps a lead: https://raw.githubusercontent.com/carllerche/travis-rust-matrix/master/test
 
     - env: TARGET=x86_64-linux-android
-      services: docker
-      sudo: required
     - env: TARGET=x86_64-apple-ios
       os: osx
-      sudo: required
     - env: TARGET=i386-apple-ios
       os: osx
-      sudo: required
 
     # Builds only, no tests (cross-compiles)
     - env: TARGET=x86_64-unknown-freebsd DISABLE_TESTS=1
-      services: docker
-      sudo: required
     - env: TARGET=i686-unknown-freebsd DISABLE_TESTS=1
-      services: docker
-      sudo: required
     - env: TARGET=x86_64-unknown-netbsd DISABLE_TESTS=1
-      services: docker
-      sudo: required
     - env: TARGET=arm-unknown-linux-gnueabi DISABLE_TESTS=1
-      services: docker
-      sudo: required
 
   allow_failures:
     # From the not-Tier-1 list
