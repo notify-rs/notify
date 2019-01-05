@@ -14,7 +14,6 @@ matrix:
 
     # Audit only
     - env: CARGO_AUDIT=1
-      rust: stable
 
     # Windows: first as they take longest
     - env: NO_CROSS=1
@@ -25,7 +24,6 @@ matrix:
       rust: 1.31.1
     - env: NO_CROSS=1
       os: windows
-      rust: stable
 
     # Linux: container, fast
     - env: NO_CROSS=1
@@ -33,7 +31,6 @@ matrix:
     - env: NO_CROSS=1
       rust: 1.31.1
     - env: NO_CROSS=1
-      rust: stable
 
     # macOS: services not supported
     - env: NO_CROSS=1
@@ -44,11 +41,9 @@ matrix:
       rust: 1.31.1
     - env: NO_CROSS=1
       os: osx
-      rust: stable
 
     # Clippy only
     - env: CARGO_CLIPPY=1
-      rust: stable
 
     # Tested, but no Tier 1 support (cross-compiles)
     - env: TARGET=i686-unknown-linux-gnu
