@@ -16,3 +16,6 @@ indent_size = 2
 
 [*.md]
 indent_size = 3
+
+[*.sh]
+indent_size = 2
