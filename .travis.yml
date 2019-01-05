@@ -2,6 +2,15 @@ dist: xenial
 language: rust
 services: docker
 
+cache:
+  - directories:
+    - $HOME/.cargo
+    - target/debug/deps
+    - target/$TARGET/debug/deps
+before_cache:
+  # Travis can't cache files that are not readable by "others"
+  - chmod -R a+r $HOME/.cargo
+
 env:
   global:
     - CRATE_NAME=notify
@@ -146,11 +155,6 @@ script:
     fi
 
 after_script: set +e
-
-cache: cargo
-before_cache:
-  # Travis can't cache files that are not readable by "others"
-  - chmod -R a+r $HOME/.cargo
 
 branches:
   only:
