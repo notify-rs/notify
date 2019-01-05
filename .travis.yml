@@ -22,7 +22,7 @@ matrix:
       rust: nightly
     - env: NO_CROSS=1
       os: windows
-      rust: 1.29.2
+      rust: 1.31.1
     - env: NO_CROSS=1
       os: windows
       rust: stable
@@ -31,7 +31,7 @@ matrix:
     - env: NO_CROSS=1
       rust: nightly
     - env: NO_CROSS=1
-      rust: 1.29.2
+      rust: 1.31.1
     - env: NO_CROSS=1
       rust: stable
 
@@ -41,7 +41,7 @@ matrix:
       rust: nightly
     - env: NO_CROSS=1
       os: osx
-      rust: 1.29.2
+      rust: 1.31.1
     - env: NO_CROSS=1
       os: osx
       rust: stable
