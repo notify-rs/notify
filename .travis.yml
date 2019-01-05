@@ -5,6 +5,8 @@ sudo: false
 env:
   global:
     - CRATE_NAME=notify
+    - RUSTFLAGS=-Awhere_clauses_object_safety
+    # https://github.com/rust-lang/rust/issues/51443 for AnyMap
 
 matrix:
   fast_finish: true
