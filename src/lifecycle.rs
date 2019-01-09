@@ -87,7 +87,7 @@ pub trait LifeTrait: fmt::Debug {
     fn capabilities(&self) -> Vec<Capability>;
 
     /// Returns the name of the Backend and therefore of this Life.
-    fn name(&self) -> &'static str;
+    fn name(&self) -> String;
 }
 
 impl<B: Backend<Item = stream::Item, Error = stream::Error> + 'static> LifeTrait for Life<B> {
@@ -188,7 +188,7 @@ impl<B: Backend<Item = stream::Item, Error = stream::Error> + 'static> LifeTrait
         B::capabilities()
     }
 
-    fn name(&self) -> &'static str {
+    fn name(&self) -> String {
         B::name()
     }
 }

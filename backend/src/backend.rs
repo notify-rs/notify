@@ -71,10 +71,26 @@ pub trait Backend: Stream + Send + Drop + Debug {
 
     /// Returns the name of this Backend.
     ///
-    /// This is used for primarily for debugging and post-processing/filtering. Having two backends
-    /// with the same name running at once is undefined behaviour and may be disallowed by Notify.
-    /// The value should not change.
-    fn name() -> &'static str
+    /// The name should be a short string in `namespace/name` format, although that is not enforced.
+    /// It is used for three things:
+    ///
+    /// 1. Debug output
+    /// 2. Debugging and issue reporting (so an end-user can provide useful info)
+    /// 3. Backend differentiation
+    ///
+    /// For purpose 2., I strongly encourage using the recommended namespaced format. The namespace
+    /// may be anything, like your github name or organisation or some other grouping. Official
+    /// Notify backends, whether built-in or external, are namespaced under `official/`. Please do
+    /// not use that namespace for non-official backends.
+    ///
+    /// Regarding purpose 3., Notify explicitly and loudly disallows backends with the same name.
+    /// In other words, if one attempts to load a backend with the same name as a previous backend,
+    /// Notify will error and refuse to do so.
+    ///
+    /// The value this function returns may change, and this may be valid behaviour, for example for
+    /// backends that themselves connect to different backends (remote, dynamic, etc). It _is_ thus
+    /// possible to circumvent 3. using such behaviour... the consequences are undefined.
+    fn name() -> String
     where
         Self: Sized;
 

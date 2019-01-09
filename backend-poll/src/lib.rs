@@ -7,8 +7,6 @@ use backend::prelude::*;
 use backend::Buffer;
 use std::sync::Arc;
 
-const BACKEND_NAME: &str = "poll";
-
 #[derive(Debug)]
 pub struct Backend {
     buffer: Buffer,
@@ -17,8 +15,8 @@ pub struct Backend {
 }
 
 impl NotifyBackend for Backend {
-    fn name() -> &'static str {
-        BACKEND_NAME
+    fn name() -> String {
+        "official/polling".into()
     }
 
     fn new(watches: Vec<PathBuf>) -> NewBackendResult {
