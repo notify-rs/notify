@@ -1,13 +1,11 @@
 # Notify
 
-[![Version](https://flat.badgen.net/crates/v/notify)][crate]
-[![License: Artistic 2.0](https://flat.badgen.net/badge/license/Artistic%202.0/purple)][artistic]
-[![Download count](https://flat.badgen.net/crates/d/notify)][crate]
-
-[![Code of Conduct](https://flat.badgen.net/badge/contributor/covenant/5e0d73)](#conduct)
-[![Documentation](https://flat.badgen.net/badge/documentation/docs.rs/df3600)][docs]
-
-[![Build status on Travis CI](https://flat.badgen.net/travis/passcod/notify/next)][build]
+[![» Crate](https://flat.badgen.net/crates/v/notify)][crate]
+[![» Docs](https://flat.badgen.net/badge/api/docs.rs/df3600)][docs]
+[![» CI](https://flat.badgen.net/travis/passcod/notify/next)][build]
+[![» Downloads](https://flat.badgen.net/crates/d/notify)][crate]
+[![» Conduct](https://flat.badgen.net/badge/contributor/covenant/5e0d73)](#conduct)
+[![» Artistic 2.0](https://flat.badgen.net/badge/license/Artistic%202.0/purple)][artistic]
 
 _Cross-platform filesystem notification library for Rust._
 
@@ -20,8 +18,10 @@ _Cross-platform filesystem notification library for Rust._
 - [How to help](#how-to-help)
 - [Acknowledgements](./ACKNOWLEDGEMENTS.md)
 
+<!-- To be re-added once they've gone to v5
 As used by: [cargo watch], [mdBook], [pax], [rdiff], [watchexec].
 (Want to be added to this list? Open a pull request!)
+-->
 
 [alert-after]: https://github.com/frewsxcv/alert-after
 [build]: https://travis-ci.org/passcod/notify
