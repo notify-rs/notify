@@ -13,6 +13,7 @@ use debounce::OperationsBuffer;
 enum Action {
     Schedule(ScheduledEvent),
     Ignore(u64),
+    Stop,
 }
 
 #[derive(PartialEq, Eq)]
@@ -59,7 +60,7 @@ impl ScheduleWorker {
         }
     }
 
-    fn drain_request_queue(&mut self) {
+    fn drain_request_queue(&mut self) -> bool {
         while let Ok(action) = self.request_source.try_recv() {
             match action {
                 Action::Schedule(event) => self.schedule.push(event),
@@ -70,9 +71,11 @@ impl ScheduleWorker {
                             break;
                         }
                     }
-                }
+                },
+                Action::Stop => return false
             }
         }
+        true
     }
 
     fn has_event_now(&self) -> bool {
@@ -136,7 +139,9 @@ impl ScheduleWorker {
         let mut g = m.lock().unwrap();
 
         loop {
-            self.drain_request_queue();
+            if !self.drain_request_queue() {
+                break;
+            }
 
             while self.has_event_now() {
                 self.fire_event();
@@ -203,5 +208,14 @@ impl WatchTimer {
         self.schedule_tx
             .send(Action::Ignore(id))
             .expect("Failed to send a request to the global scheduling worker");
+    }
+}
+
+impl std::ops::Drop for WatchTimer {
+    fn drop(&mut self) {
+        self.schedule_tx
+            .send(Action::Stop)
+            .expect("Failed to send a request to the global scheduling worker");
+        self.trigger.notify_one();
     }
 }
