@@ -13,7 +13,6 @@ use debounce::OperationsBuffer;
 enum Action {
     Schedule(ScheduledEvent),
     Ignore(u64),
-    Stop,
 }
 
 #[derive(PartialEq, Eq)]
@@ -42,6 +41,7 @@ struct ScheduleWorker {
     ignore: HashSet<u64>,
     tx: mpsc::Sender<DebouncedEvent>,
     operations_buffer: OperationsBuffer,
+    stopped: bool,
 }
 
 impl ScheduleWorker {
@@ -57,14 +57,15 @@ impl ScheduleWorker {
             ignore: HashSet::new(),
             tx: tx,
             operations_buffer: operations_buffer,
+            stopped: false,
         }
     }
 
-    fn drain_request_queue(&mut self) -> bool {
-        while let Ok(action) = self.request_source.try_recv() {
-            match action {
-                Action::Schedule(event) => self.schedule.push(event),
-                Action::Ignore(ignore_id) => {
+    fn drain_request_queue(&mut self) {
+        loop {
+            match self.request_source.try_recv(){
+                Ok(Action::Schedule(event)) => self.schedule.push(event),
+                Ok(Action::Ignore(ignore_id)) => {
                     for &ScheduledEvent { ref id, .. } in &self.schedule {
                         if *id == ignore_id {
                             self.ignore.insert(ignore_id);
@@ -72,10 +73,13 @@ impl ScheduleWorker {
                         }
                     }
                 },
-                Action::Stop => return false
+                Err(mpsc::TryRecvError::Empty)=> break,
+                Err(mpsc::TryRecvError::Disconnected)=> {
+                    self.stopped = true;
+                    break;
+                },
             }
         }
-        true
     }
 
     fn has_event_now(&self) -> bool {
@@ -139,15 +143,17 @@ impl ScheduleWorker {
         let mut g = m.lock().unwrap();
 
         loop {
-            if !self.drain_request_queue() {
-                break;
-            }
+            self.drain_request_queue();
 
             while self.has_event_now() {
                 self.fire_event();
             }
 
             let wait_duration = self.duration_until_next_event();
+
+            if self.stopped {
+                break;
+            }
 
             // Unwrapping is safe because the mutex can't be poisoned,
             // since we haven't shared it with another thread.
@@ -213,9 +219,6 @@ impl WatchTimer {
 
 impl std::ops::Drop for WatchTimer {
     fn drop(&mut self) {
-        self.schedule_tx
-            .send(Action::Stop)
-            .expect("Failed to send a request to the global scheduling worker");
         self.trigger.notify_one();
     }
 }
