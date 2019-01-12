@@ -13,6 +13,7 @@ use debounce::OperationsBuffer;
 enum Action {
     Schedule(ScheduledEvent),
     Ignore(u64),
+    Stop
 }
 
 #[derive(PartialEq, Eq)]
@@ -73,8 +74,9 @@ impl ScheduleWorker {
                         }
                     }
                 },
-                Err(mpsc::TryRecvError::Empty)=> break,
-                Err(mpsc::TryRecvError::Disconnected)=> {
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected)
+                | Ok(Action::Stop) => {
                     self.stopped = true;
                     break;
                 },
@@ -219,6 +221,9 @@ impl WatchTimer {
 
 impl std::ops::Drop for WatchTimer {
     fn drop(&mut self) {
+        self.schedule_tx
+            .send(Action::Stop)
+            .expect("Failed to send a request to the global scheduling worker");
         self.trigger.notify_one();
     }
 }
