@@ -13,6 +13,7 @@ use debounce::OperationsBuffer;
 enum Action {
     Schedule(ScheduledEvent),
     Ignore(u64),
+    Stop
 }
 
 #[derive(PartialEq, Eq)]
@@ -41,6 +42,7 @@ struct ScheduleWorker {
     ignore: HashSet<u64>,
     tx: mpsc::Sender<DebouncedEvent>,
     operations_buffer: OperationsBuffer,
+    stopped: bool,
 }
 
 impl ScheduleWorker {
@@ -56,21 +58,28 @@ impl ScheduleWorker {
             ignore: HashSet::new(),
             tx: tx,
             operations_buffer: operations_buffer,
+            stopped: false,
         }
     }
 
     fn drain_request_queue(&mut self) {
-        while let Ok(action) = self.request_source.try_recv() {
-            match action {
-                Action::Schedule(event) => self.schedule.push(event),
-                Action::Ignore(ignore_id) => {
+        loop {
+            match self.request_source.try_recv(){
+                Ok(Action::Schedule(event)) => self.schedule.push(event),
+                Ok(Action::Ignore(ignore_id)) => {
                     for &ScheduledEvent { ref id, .. } in &self.schedule {
                         if *id == ignore_id {
                             self.ignore.insert(ignore_id);
                             break;
                         }
                     }
-                }
+                },
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected)
+                | Ok(Action::Stop) => {
+                    self.stopped = true;
+                    break;
+                },
             }
         }
     }
@@ -144,6 +153,10 @@ impl ScheduleWorker {
 
             let wait_duration = self.duration_until_next_event();
 
+            if self.stopped {
+                break;
+            }
+
             // Unwrapping is safe because the mutex can't be poisoned,
             // since we haven't shared it with another thread.
             g = if let Some(wait_duration) = wait_duration {
@@ -203,5 +216,14 @@ impl WatchTimer {
         self.schedule_tx
             .send(Action::Ignore(id))
             .expect("Failed to send a request to the global scheduling worker");
+    }
+}
+
+impl std::ops::Drop for WatchTimer {
+    fn drop(&mut self) {
+        self.schedule_tx
+            .send(Action::Stop)
+            .expect("Failed to send a request to the global scheduling worker");
+        self.trigger.notify_one();
     }
 }

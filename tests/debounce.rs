@@ -1111,3 +1111,16 @@ fn rename_rename_remove_temp_file() {
         ]);
     }
 }
+
+#[test]
+fn watcher_terminates() {
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS)).expect("failed to create debounced watcher");
+    let thread = thread::spawn(move || {
+        for e in rx.into_iter() {
+            println!("{:?}", e);
+        }
+    });
+    drop(watcher);
+    thread.join().unwrap();
+}
