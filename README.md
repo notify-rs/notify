@@ -17,7 +17,9 @@ _Cross-platform filesystem notification library for Rust._
 As used by: [cargo watch], [cobalt], [handlebars-iron], [rdiff], [docket],
 [watchexec], and [timetrack]. (Want to be added to this list? Open a pull request!)
 
-Version 5 status: [branch `next`](https://github.com/passcod/notify/tree/next#status).
+Version Next status and progress: [branch `next`](https://github.com/passcod/notify/tree/next#status).
+
+As a clarification: **version 4 is not "frozen"!** I'm just not actively spending time on it. (Originally I thought that Version Next or "5" would take less time to get out, so I prepared for not doing anything with Version 4 anymore, but it has now been clear for a while that the finish line for Version Next is quite far away still.) I do accept pull requests for fixes _and features_, and would even consider breaking changes with enough justification. Do contribute, please!
 
 ## Installation
 
