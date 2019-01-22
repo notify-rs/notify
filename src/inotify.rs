@@ -146,11 +146,10 @@ impl EventLoop {
 
     fn event_loop_thread(mut self) {
         let mut events = mio::Events::with_capacity(16);
-        let timeout = Duration::from_millis(100);
         loop {
             // Wait for something to happen.
             self.poll
-                .poll(&mut events, Some(timeout))
+                .poll(&mut events, None)
                 .expect("poll failed");
 
             // Process whatever happened.
