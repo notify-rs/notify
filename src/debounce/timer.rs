@@ -219,7 +219,7 @@ impl WatchTimer {
     }
 }
 
-impl std::ops::Drop for WatchTimer {
+impl Drop for WatchTimer {
     fn drop(&mut self) {
         self.schedule_tx
             .send(Action::Stop)
