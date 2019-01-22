@@ -92,41 +92,41 @@
 
 #[macro_use]
 extern crate bitflags;
-#[cfg(target_os="linux")]
-extern crate mio;
-#[cfg(target_os="linux")]
-extern crate mio_extras;
-#[cfg(target_os="macos")]
-extern crate fsevent_sys;
-#[cfg(target_os="windows")]
-extern crate winapi;
-extern crate libc;
 extern crate filetime;
+#[cfg(target_os = "macos")]
+extern crate fsevent_sys;
+extern crate libc;
+#[cfg(target_os = "linux")]
+extern crate mio;
+#[cfg(target_os = "linux")]
+extern crate mio_extras;
+#[cfg(target_os = "windows")]
+extern crate winapi;
 
 pub use self::op::Op;
+use std::convert::AsRef;
+use std::error::Error as StdError;
+use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Sender;
-use std::convert::AsRef;
-use std::fmt;
-use std::error::Error as StdError;
 use std::result::Result as StdResult;
+use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-#[cfg(target_os="macos")]
+#[cfg(target_os = "macos")]
 pub use self::fsevent::FsEventWatcher;
-#[cfg(target_os="linux")]
+#[cfg(target_os = "linux")]
 pub use self::inotify::INotifyWatcher;
-#[cfg(target_os="windows")]
-pub use self::windows::ReadDirectoryChangesWatcher;
 pub use self::null::NullWatcher;
 pub use self::poll::PollWatcher;
+#[cfg(target_os = "windows")]
+pub use self::windows::ReadDirectoryChangesWatcher;
 
-#[cfg(target_os="linux")]
-pub mod inotify;
-#[cfg(target_os="macos")]
+#[cfg(target_os = "macos")]
 pub mod fsevent;
-#[cfg(target_os="windows")]
+#[cfg(target_os = "linux")]
+pub mod inotify;
+#[cfg(target_os = "windows")]
 pub mod windows;
 
 pub mod null;
@@ -337,18 +337,21 @@ pub mod op {
 
 #[cfg(test)]
 mod op_test {
-    #[test] fn mixed_bitflags_form() {
+    #[test]
+    fn mixed_bitflags_form() {
         let op = super::op::Op::CHMOD | super::op::WRITE;
         assert!(op.contains(super::op::CHMOD));
         assert!(op.contains(super::op::Op::WRITE));
     }
 
-    #[test] fn new_bitflags_form() {
+    #[test]
+    fn new_bitflags_form() {
         let op = super::op::Op::CHMOD | super::op::Op::WRITE;
         assert!(op.contains(super::op::Op::WRITE));
     }
 
-    #[test] fn old_bitflags_form() {
+    #[test]
+    fn old_bitflags_form() {
         let op = super::op::CHMOD | super::op::WRITE;
         assert!(op.contains(super::op::WRITE));
     }
@@ -448,12 +451,12 @@ pub enum DebouncedEvent {
 impl PartialEq for DebouncedEvent {
     fn eq(&self, other: &DebouncedEvent) -> bool {
         match (self, other) {
-            (&DebouncedEvent::NoticeWrite(ref a), &DebouncedEvent::NoticeWrite(ref b)) |
-            (&DebouncedEvent::NoticeRemove(ref a), &DebouncedEvent::NoticeRemove(ref b)) |
-            (&DebouncedEvent::Create(ref a), &DebouncedEvent::Create(ref b)) |
-            (&DebouncedEvent::Write(ref a), &DebouncedEvent::Write(ref b)) |
-            (&DebouncedEvent::Chmod(ref a), &DebouncedEvent::Chmod(ref b)) |
-            (&DebouncedEvent::Remove(ref a), &DebouncedEvent::Remove(ref b)) => a == b,
+            (&DebouncedEvent::NoticeWrite(ref a), &DebouncedEvent::NoticeWrite(ref b))
+            | (&DebouncedEvent::NoticeRemove(ref a), &DebouncedEvent::NoticeRemove(ref b))
+            | (&DebouncedEvent::Create(ref a), &DebouncedEvent::Create(ref b))
+            | (&DebouncedEvent::Write(ref a), &DebouncedEvent::Write(ref b))
+            | (&DebouncedEvent::Chmod(ref a), &DebouncedEvent::Chmod(ref b))
+            | (&DebouncedEvent::Remove(ref a), &DebouncedEvent::Remove(ref b)) => a == b,
             (&DebouncedEvent::Rename(ref a1, ref a2), &DebouncedEvent::Rename(ref b1, ref b2)) => {
                 (a1 == b1 && a2 == b2)
             }
@@ -638,15 +641,20 @@ pub fn watcher(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<Recommende
     Watcher::new(tx, delay)
 }
 
-
 #[test]
 fn display_formatted_errors() {
     let expected = "Some error";
 
-    assert_eq!(expected,
-               format!("{}", Error::Generic(String::from(expected))));
+    assert_eq!(
+        expected,
+        format!("{}", Error::Generic(String::from(expected)))
+    );
 
-    assert_eq!(expected,
-               format!("{}",
-                       Error::Io(io::Error::new(io::ErrorKind::Other, expected))));
+    assert_eq!(
+        expected,
+        format!(
+            "{}",
+            Error::Io(io::Error::new(io::ErrorKind::Other, expected))
+        )
+    );
 }

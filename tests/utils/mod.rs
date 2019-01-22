@@ -1,5 +1,5 @@
-use tempdir::TempDir;
 use notify::*;
+use tempdir::TempDir;
 
 use std::fs;
 use std::io::Write;
@@ -8,35 +8,42 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[cfg(not(target_os="windows"))]
+#[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
 
-#[cfg(not(target_os="windows"))]
+#[cfg(not(target_os = "windows"))]
 const TIMEOUT_MS: u64 = 100;
-#[cfg(target_os="windows")]
+#[cfg(target_os = "windows")]
 const TIMEOUT_MS: u64 = 3000; // windows can take a while
 
-pub fn recv_events_with_timeout(rx: &Receiver<RawEvent>, timeout: Duration) ->  Vec<(PathBuf, Op, Option<u32>)> {
+pub fn recv_events_with_timeout(
+    rx: &Receiver<RawEvent>,
+    timeout: Duration,
+) -> Vec<(PathBuf, Op, Option<u32>)> {
     let start = Instant::now();
 
     let mut evs = Vec::new();
 
     while start.elapsed() < timeout {
         match rx.try_recv() {
-            Ok(RawEvent{path: Some(path), op: Ok(op), cookie}) => {
+            Ok(RawEvent {
+                path: Some(path),
+                op: Ok(op),
+                cookie,
+            }) => {
                 evs.push((path, op, cookie));
-            },
-            Ok(RawEvent{path: None, ..})  => (),
-            Ok(RawEvent{op: Err(e), ..}) => panic!("unexpected event err: {:?}", e),
+            }
+            Ok(RawEvent { path: None, .. }) => (),
+            Ok(RawEvent { op: Err(e), .. }) => panic!("unexpected event err: {:?}", e),
             Err(TryRecvError::Empty) => (),
-            Err(e) => panic!("unexpected channel err: {:?}", e)
+            Err(e) => panic!("unexpected channel err: {:?}", e),
         }
         thread::sleep(Duration::from_millis(1));
     }
     evs
 }
 
-pub fn recv_events(rx: &Receiver<RawEvent>) ->  Vec<(PathBuf, Op, Option<u32>)> {
+pub fn recv_events(rx: &Receiver<RawEvent>) -> Vec<(PathBuf, Op, Option<u32>)> {
     recv_events_with_timeout(rx, Duration::from_millis(TIMEOUT_MS))
 }
 
@@ -51,11 +58,11 @@ pub fn inflate_events(input: Vec<(PathBuf, Op, Option<u32>)>) -> Vec<(PathBuf, O
     for (e_p, e_o, e_c) in input {
         let p = match path {
             Some(p) => p,
-            None => e_p.clone()
+            None => e_p.clone(),
         };
         let c = match cookie {
             Some(c) => Some(c),
-            None => e_c
+            None => e_c,
         };
         if p == e_p && c == e_c {
             ops |= e_o;
@@ -122,7 +129,11 @@ pub trait TestHelpers {
 
 impl TestHelpers for TempDir {
     fn mkpath(&self, p: &str) -> PathBuf {
-        let mut path = self.path().canonicalize().expect("failed to canonicalize path").to_owned();
+        let mut path = self
+            .path()
+            .canonicalize()
+            .expect("failed to canonicalize path")
+            .to_owned();
         for part in p.split('/').collect::<Vec<_>>() {
             if part != "." {
                 path.push(part);
@@ -133,10 +144,21 @@ impl TestHelpers for TempDir {
 
     fn create(&self, p: &str) {
         let path = self.mkpath(p);
-        if path.components().last().unwrap().as_os_str().to_str().unwrap().contains("dir") {
+        if path
+            .components()
+            .last()
+            .unwrap()
+            .as_os_str()
+            .to_str()
+            .unwrap()
+            .contains("dir")
+        {
             fs::create_dir_all(path).expect("failed to create directory");
         } else {
-            let parent = path.parent().expect("failed to get parent directory").to_owned();
+            let parent = path
+                .parent()
+                .expect("failed to get parent directory")
+                .to_owned();
             if !parent.exists() {
                 fs::create_dir_all(parent).expect("failed to create parent directory");
             }
@@ -156,25 +178,25 @@ impl TestHelpers for TempDir {
         fs::rename(&path_a, &path_b).expect("failed to rename file or directory");
     }
 
-    #[cfg(not(target_os="windows"))]
+    #[cfg(not(target_os = "windows"))]
     fn chmod(&self, p: &str) {
         let path = self.mkpath(p);
-        let mut permissions = fs::metadata(&path).expect("failed to get metadata").permissions();
+        let mut permissions = fs::metadata(&path)
+            .expect("failed to get metadata")
+            .permissions();
         let u = (permissions.mode() / 100) % 10;
         let g = (permissions.mode() / 10) % 10;
-        let o = if permissions.mode() % 10 == 0 {
-            g
-        } else {
-            0
-        };
+        let o = if permissions.mode() % 10 == 0 { g } else { 0 };
         permissions.set_mode(u * 100 + g * 10 + o);
         fs::set_permissions(path, permissions).expect("failed to chmod file or directory");
     }
 
-    #[cfg(target_os="windows")]
+    #[cfg(target_os = "windows")]
     fn chmod(&self, p: &str) {
         let path = self.mkpath(p);
-        let mut permissions = fs::metadata(&path).expect("failed to get metadata").permissions();
+        let mut permissions = fs::metadata(&path)
+            .expect("failed to get metadata")
+            .permissions();
         let r = permissions.readonly();
         permissions.set_readonly(!r);
         fs::set_permissions(path, permissions).expect("failed to chmod file or directory");

@@ -2,10 +2,10 @@
 
 #![allow(unused_variables)]
 
-use std::sync::mpsc::Sender;
+use super::{DebouncedEvent, RawEvent, RecursiveMode, Result, Watcher};
 use std::path::Path;
+use std::sync::mpsc::Sender;
 use std::time::Duration;
-use super::{RawEvent, DebouncedEvent, Result, Watcher, RecursiveMode};
 
 /// Stub `Watcher` implementation
 ///

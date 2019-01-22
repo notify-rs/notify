@@ -1,6 +1,6 @@
 extern crate notify;
 
-use notify::{RecommendedWatcher, Watcher, RecursiveMode};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
 use std::sync::mpsc::channel;
 
@@ -20,7 +20,11 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
     // for example to handle I/O.
     loop {
         match rx.recv() {
-            Ok(notify::RawEvent{path: Some(path), op: Ok(op), cookie}) => println!("{:?} {:?} ({:?})", op, path, cookie),
+            Ok(notify::RawEvent {
+                path: Some(path),
+                op: Ok(op),
+                cookie,
+            }) => println!("{:?} {:?} ({:?})", op, path, cookie),
             Ok(event) => println!("broken event: {:?}", event),
             Err(e) => println!("watch error: {:?}", e),
         }
@@ -28,7 +32,9 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
 }
 
 fn main() {
-    let path = std::env::args().nth(1).expect("Argument 1 needs to be a path");
+    let path = std::env::args()
+        .nth(1)
+        .expect("Argument 1 needs to be a path");
     println!("watching {}", path);
     if let Err(e) = watch(path) {
         println!("error: {:?}", e)

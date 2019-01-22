@@ -148,9 +148,7 @@ impl EventLoop {
         let mut events = mio::Events::with_capacity(16);
         loop {
             // Wait for something to happen.
-            self.poll
-                .poll(&mut events, None)
-                .expect("poll failed");
+            self.poll.poll(&mut events, None).expect("poll failed");
 
             // Process whatever happened.
             for event in &events {

@@ -7,21 +7,19 @@ extern crate tempdir;
 mod windows_tests {
     use super::notify::*;
     use super::tempdir::TempDir;
+    use std::sync::mpsc;
     use std::thread;
     use std::time::{Duration, Instant};
-    use std::sync::mpsc;
 
     fn wait_for_disconnect(rx: &mpsc::Receiver<RawEvent>) {
         loop {
             match rx.try_recv() {
                 Err(mpsc::TryRecvError::Disconnected) => break,
                 Err(mpsc::TryRecvError::Empty) => (),
-                Ok(res) => {
-                    match res.op {
-                        Err(e) => panic!("unexpected err: {:?}: {:?}", e, res.path),
-                        _ => (),
-                    }
-                }
+                Ok(res) => match res.op {
+                    Err(e) => panic!("unexpected err: {:?}: {:?}", e, res.path),
+                    _ => (),
+                },
             }
             thread::sleep(Duration::from_millis(10));
         }
@@ -60,14 +58,15 @@ mod windows_tests {
 
         wait_for_disconnect(&rx);
 
-        const TIMEOUT_MS: u64 = 60000;  // give it PLENTY of time before we declare failure
+        const TIMEOUT_MS: u64 = 60000; // give it PLENTY of time before we declare failure
         let start = Instant::now();
 
         let mut watchers_shutdown = 0;
-        while watchers_shutdown != dir_count && start.elapsed() < Duration::from_millis(TIMEOUT_MS) {
+        while watchers_shutdown != dir_count && start.elapsed() < Duration::from_millis(TIMEOUT_MS)
+        {
             if let Ok(actual) = meta_rx.try_recv() {
                 match actual {
-                    windows::MetaEvent::SingleWatchComplete =>  watchers_shutdown += 1,
+                    windows::MetaEvent::SingleWatchComplete => watchers_shutdown += 1,
                     _ => (),
                 }
             }

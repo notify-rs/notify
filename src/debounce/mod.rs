@@ -2,26 +2,30 @@
 
 mod timer;
 
-use super::{op, RawEvent, DebouncedEvent};
+use super::{op, DebouncedEvent, RawEvent};
 
 use self::timer::WatchTimer;
 
-use std::sync::mpsc;
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-pub type OperationsBuffer = Arc<Mutex<HashMap<PathBuf,
-                                              (Option<op::Op>, Option<PathBuf>, Option<u64>)>>>;
+pub type OperationsBuffer =
+    Arc<Mutex<HashMap<PathBuf, (Option<op::Op>, Option<PathBuf>, Option<u64>)>>>;
 
 pub enum EventTx {
-    Raw { tx: mpsc::Sender<RawEvent> },
+    Raw {
+        tx: mpsc::Sender<RawEvent>,
+    },
     Debounced {
         tx: mpsc::Sender<DebouncedEvent>,
         debounce: Debounce,
     },
-    DebouncedTx { tx: mpsc::Sender<DebouncedEvent> },
+    DebouncedTx {
+        tx: mpsc::Sender<DebouncedEvent>,
+    },
 }
 
 impl EventTx {
@@ -30,7 +34,10 @@ impl EventTx {
             EventTx::Raw { ref tx } => {
                 let _ = tx.send(event);
             }
-            EventTx::Debounced { ref tx, ref mut debounce } => {
+            EventTx::Debounced {
+                ref tx,
+                ref mut debounce,
+            } => {
                 match (event.path, event.op, event.cookie) {
                     (None, Ok(op::Op::RESCAN), None) => {
                         let _ = tx.send(DebouncedEvent::Rescan);
@@ -99,9 +106,12 @@ impl Debounce {
             // the last rename event might not be found in case the timer already fired
             // (https://github.com/passcod/notify/issues/101).
             if let Some(&mut (ref mut operation, ref mut from_path, ref mut timer_id)) =
-                op_buf.get_mut(self.rename_path.as_ref().unwrap()) {
-                if op != op::Op::RENAME || self.rename_cookie.is_none() ||
-                   self.rename_cookie != cookie {
+                op_buf.get_mut(self.rename_path.as_ref().unwrap())
+            {
+                if op != op::Op::RENAME
+                    || self.rename_cookie.is_none()
+                    || self.rename_cookie != cookie
+                {
                     if self.rename_path.as_ref().unwrap().exists() {
                         match *operation {
                             Some(op::Op::RENAME) if from_path.is_none() => {
@@ -194,8 +204,8 @@ impl Debounce {
             }
 
             if op.contains(op::Op::CREATE) {
-                let &mut (ref mut operation, _, ref mut timer_id) = op_buf.entry(path.clone())
-                    .or_insert((None, None, None));
+                let &mut (ref mut operation, _, ref mut timer_id) =
+                    op_buf.entry(path.clone()).or_insert((None, None, None));
                 match *operation {
                     // file can't be created twice
                     Some(op::Op::CREATE) |
@@ -229,8 +239,8 @@ impl Debounce {
             }
 
             if op.contains(op::Op::WRITE) {
-                let &mut (ref mut operation, _, ref mut timer_id) = op_buf.entry(path.clone())
-                    .or_insert((None, None, None));
+                let &mut (ref mut operation, _, ref mut timer_id) =
+                    op_buf.entry(path.clone()).or_insert((None, None, None));
                 match *operation {
                     // keep create event / no need to emit NoticeWrite because
                     // the file has just been created
@@ -264,8 +274,8 @@ impl Debounce {
             }
 
             if op.contains(op::Op::CHMOD) {
-                let &mut (ref mut operation, _, ref mut timer_id) = op_buf.entry(path.clone())
-                    .or_insert((None, None, None));
+                let &mut (ref mut operation, _, ref mut timer_id) =
+                    op_buf.entry(path.clone()).or_insert((None, None, None));
                 match *operation {
                     // keep create event
                     Some(op::Op::CREATE) |
@@ -295,9 +305,11 @@ impl Debounce {
 
             if op.contains(op::Op::RENAME) {
                 // unwrap is safe because rename_path is Some
-                if self.rename_path.is_some() && self.rename_cookie.is_some() &&
-                   self.rename_cookie == cookie &&
-                   op_buf.contains_key(self.rename_path.as_ref().unwrap()) {
+                if self.rename_path.is_some()
+                    && self.rename_cookie.is_some()
+                    && self.rename_cookie == cookie
+                    && op_buf.contains_key(self.rename_path.as_ref().unwrap())
+                {
                     // This is the second part of a rename operation, the old path is stored in the
                     // rename_path variable.
 
@@ -355,8 +367,8 @@ impl Debounce {
                     self.rename_path = Some(path.clone());
                     self.rename_cookie = cookie;
 
-                    let &mut (ref mut operation, _, ref mut timer_id) = op_buf.entry(path.clone())
-                        .or_insert((None, None, None));
+                    let &mut (ref mut operation, _, ref mut timer_id) =
+                        op_buf.entry(path.clone()).or_insert((None, None, None));
                     match *operation {
                         // keep create event / no need to emit NoticeRemove because
                         // the file has just been created
@@ -416,8 +428,8 @@ impl Debounce {
                         }
                     }
 
-                    let &mut (ref mut operation, _, ref mut timer_id) = op_buf.entry(path.clone())
-                        .or_insert((None, None, None));
+                    let &mut (ref mut operation, _, ref mut timer_id) =
+                        op_buf.entry(path.clone()).or_insert((None, None, None));
 
                     if remove_path.is_none() {
                         match *operation {

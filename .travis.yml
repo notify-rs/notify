@@ -1,9 +1,86 @@
 dist: xenial
 language: rust
-cache: cargo
-rust:
-  - stable
-  - beta
-os:
-  - linux
-  - osx
+
+cache:
+  - directories:
+    - $HOME/.cargo
+    - target/debug/deps
+    - target/$TARGET/debug/deps
+before_cache:
+  # Travis can't cache files that are not readable by "others"
+  - chmod -R a+r $HOME/.cargo
+
+matrix:
+  fast_finish: true
+  include:
+
+    # Audit only
+    - env: CARGO_AUDIT=1
+
+    # Stable on windows first to get it going (very slow)
+    - os: windows
+
+    # Linux
+    - os: linux
+      rust: nightly
+    - os: linux
+      rust: 1.26.1
+    - os: linux
+
+    # macOS
+    - os: osx
+      rust: nightly
+    - os: osx
+      rust: 1.26.1
+    - os: osx
+
+    # Other windowses later
+    - os: windows
+      rust: nightly
+    - os: windows
+      rust: 1.26.1
+
+    # Clippy only
+    - env: CARGO_CLIPPY=1
+
+  allow_failures:
+    - env: CARGO_CLIPPY=1
+
+before_install:
+  - set -e
+  - |
+    if [ $TRAVIS_OS_NAME = windows ]; then
+      choco install windows-sdk-10.0
+    fi
+    if [[ ! -z "$CARGO_AUDIT" ]]; then
+      which cargo-audit || cargo install --debug cargo-audit
+    elif [[ ! -z "$CARGO_CLIPPY" ]]; then
+      rustup component add clippy
+    fi
+# --debug for faster build at the minimal expense of runtime speed
+
+script:
+  - |
+    if [[ ! -z "$CARGO_AUDIT" ]]; then
+      cargo check
+      cargo audit
+    elif [[ ! -z "$CARGO_CLIPPY" ]]; then
+      cargo clippy
+    else
+      cargo test
+    fi
+
+after_script: set +e
+
+branches:
+  only:
+    # release tags
+    - /^v\d+\.\d+\.\d+.*$/
+
+    # test branches
+    - /^try-/
+
+    # main branches
+    # - main
+    - next
+    - v4-legacy

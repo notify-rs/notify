@@ -1,6 +1,6 @@
 extern crate notify;
 
-use notify::{RecommendedWatcher, Watcher, RecursiveMode};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
 use std::sync::mpsc::channel;
 use std::time::Duration;
@@ -28,7 +28,9 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
 }
 
 fn main() {
-    let path = std::env::args().nth(1).expect("Argument 1 needs to be a path");
+    let path = std::env::args()
+        .nth(1)
+        .expect("Argument 1 needs to be a path");
     println!("watching {}", path);
     if let Err(e) = watch(path) {
         println!("error: {:?}", e)

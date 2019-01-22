@@ -1,19 +1,19 @@
 use super::super::{op, DebouncedEvent};
 
-use std::sync::mpsc;
-use std::thread;
-use std::time::{Duration, Instant};
-use std::sync::{Arc, Condvar, Mutex};
+use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
 use std::path::PathBuf;
-use std::cmp::Ordering;
+use std::sync::mpsc;
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use debounce::OperationsBuffer;
 
 enum Action {
     Schedule(ScheduledEvent),
     Ignore(u64),
-    Stop
+    Stop,
 }
 
 #[derive(PartialEq, Eq)]
@@ -46,11 +46,12 @@ struct ScheduleWorker {
 }
 
 impl ScheduleWorker {
-    fn new(trigger: Arc<Condvar>,
-           request_source: mpsc::Receiver<Action>,
-           tx: mpsc::Sender<DebouncedEvent>,
-           operations_buffer: OperationsBuffer)
-           -> ScheduleWorker {
+    fn new(
+        trigger: Arc<Condvar>,
+        request_source: mpsc::Receiver<Action>,
+        tx: mpsc::Sender<DebouncedEvent>,
+        operations_buffer: OperationsBuffer,
+    ) -> ScheduleWorker {
         ScheduleWorker {
             trigger: trigger,
             request_source: request_source,
@@ -64,7 +65,7 @@ impl ScheduleWorker {
 
     fn drain_request_queue(&mut self) {
         loop {
-            match self.request_source.try_recv(){
+            match self.request_source.try_recv() {
                 Ok(Action::Schedule(event)) => self.schedule.push(event),
                 Ok(Action::Ignore(ignore_id)) => {
                     for &ScheduledEvent { ref id, .. } in &self.schedule {
@@ -73,13 +74,12 @@ impl ScheduleWorker {
                             break;
                         }
                     }
-                },
+                }
                 Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected)
-                | Ok(Action::Stop) => {
+                Err(mpsc::TryRecvError::Disconnected) | Ok(Action::Stop) => {
                     self.stopped = true;
                     break;
-                },
+                }
             }
         }
     }
@@ -99,7 +99,9 @@ impl ScheduleWorker {
                     if let Some((op, from_path, _)) = op_buf.remove(&path) {
                         let is_partial_rename = from_path.is_none();
                         if let Some(from_path) = from_path {
-                            self.tx.send(DebouncedEvent::Rename(from_path, path.clone())).unwrap();
+                            self.tx
+                                .send(DebouncedEvent::Rename(from_path, path.clone()))
+                                .unwrap();
                         }
                         let message = match op {
                             Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
@@ -176,10 +178,11 @@ pub struct WatchTimer {
 }
 
 impl WatchTimer {
-    pub fn new(tx: mpsc::Sender<DebouncedEvent>,
-               operations_buffer: OperationsBuffer,
-               delay: Duration)
-               -> WatchTimer {
+    pub fn new(
+        tx: mpsc::Sender<DebouncedEvent>,
+        operations_buffer: OperationsBuffer,
+        delay: Duration,
+    ) -> WatchTimer {
         let (schedule_tx, schedule_rx) = mpsc::channel();
         let trigger = Arc::new(Condvar::new());
 

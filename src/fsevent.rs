@@ -13,6 +13,8 @@
 #![allow(non_upper_case_globals, dead_code)]
 extern crate fsevent as fse;
 
+use super::debounce::{Debounce, EventTx};
+use super::{op, DebouncedEvent, Error, RawEvent, RecursiveMode, Result, Watcher};
 use fsevent_sys::core_foundation as cf;
 use fsevent_sys::fsevent as fs;
 use libc;
@@ -23,12 +25,10 @@ use std::mem::transmute;
 use std::path::{Path, PathBuf};
 use std::slice;
 use std::str::from_utf8;
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
 use std::time::Duration;
-use super::{Error, RawEvent, DebouncedEvent, op, Result, Watcher, RecursiveMode};
-use super::debounce::{Debounce, EventTx};
 
 /// FSEvents-based `Watcher` implementation
 pub struct FsEventWatcher {
@@ -132,9 +132,10 @@ impl FsEventWatcher {
             let mut to_remove = Vec::new();
             for idx in 0..cf::CFArrayGetCount(self.paths) {
                 let item = cf::CFArrayGetValueAtIndex(self.paths, idx);
-                if cf::CFStringCompare(item, cf_path, cf::kCFCompareCaseInsensitive) ==
-                   cf::kCFCompareEqualTo {
-                       to_remove.push(idx);
+                if cf::CFStringCompare(item, cf_path, cf::kCFCompareCaseInsensitive)
+                    == cf::kCFCompareEqualTo
+                {
+                    to_remove.push(idx);
                 }
             }
 
@@ -154,19 +155,25 @@ impl FsEventWatcher {
     }
 
     // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
-    fn append_path<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
-		if !path.as_ref().exists() {
-			 return Err(Error::PathNotFound);
-		}
+    fn append_path<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+        recursive_mode: RecursiveMode,
+    ) -> Result<()> {
+        if !path.as_ref().exists() {
+            return Err(Error::PathNotFound);
+        }
         let str_path = path.as_ref().to_str().unwrap();
         unsafe {
             let cf_path = cf::str_path_to_cfstring_ref(str_path);
             cf::CFArrayAppendValue(self.paths, cf_path);
             cf::CFRelease(cf_path);
         }
-        self.recursive_info.insert(path.as_ref().to_path_buf().canonicalize().unwrap(),
-                                   recursive_mode.is_recursive());
-		Ok(())
+        self.recursive_info.insert(
+            path.as_ref().to_path_buf().canonicalize().unwrap(),
+            recursive_mode.is_recursive(),
+        );
+        Ok(())
     }
 
     fn run(&mut self) -> Result<()> {
@@ -194,13 +201,15 @@ impl FsEventWatcher {
 
         let cb = callback as *mut _;
         let stream = unsafe {
-            fs::FSEventStreamCreate(cf::kCFAllocatorDefault,
-                                    cb,
-                                    &stream_context,
-                                    self.paths,
-                                    self.since_when,
-                                    self.latency,
-                                    self.flags)
+            fs::FSEventStreamCreate(
+                cf::kCFAllocatorDefault,
+                cb,
+                &stream_context,
+                self.paths,
+                self.since_when,
+                self.latency,
+                self.flags,
+            )
         };
 
         // move into thread
@@ -213,20 +222,25 @@ impl FsEventWatcher {
             unsafe {
                 let cur_runloop = cf::CFRunLoopGetCurrent();
 
-                fs::FSEventStreamScheduleWithRunLoop(stream,
-                                                     cur_runloop,
-                                                     cf::kCFRunLoopDefaultMode);
+                fs::FSEventStreamScheduleWithRunLoop(
+                    stream,
+                    cur_runloop,
+                    cf::kCFRunLoopDefaultMode,
+                );
                 fs::FSEventStreamStart(stream);
 
                 // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
-                rl_tx.send(cur_runloop as *mut libc::c_void as usize)
+                rl_tx
+                    .send(cur_runloop as *mut libc::c_void as usize)
                     .expect("Unable to send runloop to watcher");
                 cf::CFRunLoopRun();
                 fs::FSEventStreamStop(stream);
                 fs::FSEventStreamInvalidate(stream);
                 fs::FSEventStreamRelease(stream);
             }
-            done_tx.send(()).expect("error while signal run loop is done");
+            done_tx
+                .send(())
+                .expect("error while signal run loop is done");
         });
         // block until runloop has been set
         self.runloop = Some(rl_rx.recv().unwrap());
@@ -238,13 +252,13 @@ impl FsEventWatcher {
 #[allow(unused_variables)]
 #[doc(hidden)]
 pub unsafe extern "C" fn callback(
-  stream_ref: fs::FSEventStreamRef,
-  info: *mut libc::c_void,
-  num_events: libc::size_t,                // size_t numEvents
-  event_paths: *const *const libc::c_char, // void *eventPaths
-  event_flags: *mut libc::c_void,          // const FSEventStreamEventFlags eventFlags[]
-  event_ids: *mut libc::c_void,            // const FSEventStreamEventId eventIds[]
-  ) {
+    stream_ref: fs::FSEventStreamRef,
+    info: *mut libc::c_void,
+    num_events: libc::size_t,                // size_t numEvents
+    event_paths: *const *const libc::c_char, // void *eventPaths
+    event_flags: *mut libc::c_void,          // const FSEventStreamEventFlags eventFlags[]
+    event_ids: *mut libc::c_void,            // const FSEventStreamEventId eventIds[]
+) {
     let num = num_events as usize;
     let e_ptr = event_flags as *mut u32;
     let i_ptr = event_ids as *mut u64;
@@ -331,7 +345,6 @@ pub unsafe extern "C" fn callback(
     }
 }
 
-
 impl Watcher for FsEventWatcher {
     fn new_raw(tx: Sender<RawEvent>) -> Result<FsEventWatcher> {
         Ok(FsEventWatcher {
@@ -415,9 +428,11 @@ fn test_fsevent_watcher_drop() {
     // if drop() works, this loop will quit after all Sender freed
     // otherwise will block forever
     for e in rx.iter() {
-        println!("debug => {:?} {:?}",
-                 e.op.map(|e| e.bits()).unwrap_or(0),
-                 e.path);
+        println!(
+            "debug => {:?} {:?}",
+            e.op.map(|e| e.bits()).unwrap_or(0),
+            e.path
+        );
     }
 
     println!("in test: {} works", file!());
