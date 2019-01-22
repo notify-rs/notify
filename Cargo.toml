@@ -18,6 +18,10 @@ license = "CC0-1.0"
 keywords = ["events", "filesystem", "notify", "watch"]
 categories = ["filesystem"]
 
+[badges]
+travis-ci = { repository = "passcod/notify", branch = "v4-legacy" }
+maintenance = { status = "passively-maintained" }
+
 [dependencies]
 bitflags = "^1.0.4"
 libc = "^0.2.4"
