@@ -1,25 +1,25 @@
 # Notify
 
-[![Crate version](https://img.shields.io/crates/v/notify.svg?style=flat-square)][crate]
-[![Crate license](https://img.shields.io/crates/l/notify.svg?style=flat-square)][cc0]
-[![Crate download count](https://img.shields.io/crates/d/notify.svg?style=flat-square)][crate]
-
-[![Appveyor](https://img.shields.io/appveyor/ci/passcod/rsnotify.svg?style=flat-square)][build-windows] <sup>(Windows)</sup>
-[![Travis](https://img.shields.io/travis/passcod/notify.svg?style=flat-square)][build-unix] <sup>(Linux and macOS)</sup>
-
-[![Code of Conduct](https://img.shields.io/badge/contributor-covenant-123456.svg?style=flat-square)][coc]
-[![Documentation](https://img.shields.io/badge/documentation-docs.rs-df3600.svg?style=flat-square)][docs]
-
+[![» Crate](https://flat.badgen.net/crates/v/notify)][crate]
+[![» Docs](https://flat.badgen.net/badge/api/docs.rs/df3600)][docs]
+[![» CI](https://flat.badgen.net/travis/passcod/notify/v4-legacy)][build]
+[![» Downloads](https://flat.badgen.net/crates/d/notify)][crate]
+[![» Conduct](https://flat.badgen.net/badge/contributor/covenant/5e0d73)][coc]
+[![» Public Domain](https://flat.badgen.net/badge/license/CC0-1.0/purple)][cc0]
 
 _Cross-platform filesystem notification library for Rust._
 
+(Looking for desktop notifications instead? Have a look at [notify-rust] or
+[alert-after]!)
 
-As used by: [cargo watch], [cobalt], [handlebars-iron], [rdiff], [docket],
-[watchexec], and [timetrack]. (Want to be added to this list? Open a pull request!)
+- [API Documentation][docs]
+- [Crate page][crate]
+- [Version 5 progress](https://github.com/passcod/notify/tree/next#status)
+- Earliest supported Rust version: **1.26.1**
 
-Version Next status and progress: [branch `next`](https://github.com/passcod/notify/tree/next#status).
-
-As a clarification: **version 4 is not "frozen"!** I'm just not actively spending time on it. (Originally I thought that Version Next or "5" would take less time to get out, so I prepared for not doing anything with Version 4 anymore, but it has now been clear for a while that the finish line for Version Next is quite far away still.) I do accept pull requests for fixes _and features_, and would even consider breaking changes with enough justification. Do contribute, please!
+As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
+[mdBook], [pax], [rdiff], [timetrack], [watchexec], and others.
+(Want to be added to this list? Open a pull request!)
 
 ## Installation
 
@@ -82,9 +82,14 @@ with a slight performance cost.
 
 ## Todo
 
-Further development happens on the `next` branch for version 5. Development for
-version 4 (this version) is frozen: there will be no new features, only bug
-fixes and documentation updates.
+**Version 4 is not frozen!** I'm just not actively spending time on it.
+
+I do accept pull requests for fixes _and features_, and would even consider
+breaking changes with enough justification. Do contribute, please!
+
+(Originally I thought that Version 5 would take less time to get out, but it
+has now been clear for a while that the finish line is quite far away still.
+I'm still at it, but expect nothing soon.)
 
 ## Origins
 
@@ -95,13 +100,15 @@ cross-platform notify libraries.
 Written by [Félix Saparelli] and awesome [contributors], and released in the
 Public Domain using the [Creative Commons Zero Declaration][cc0].
 
-Note that licensing is changed from version 5 to **Artistic 2.0**.
+Note that licensing will change from version 5 to **[Artistic 2.0][artistic]**.
 
 [Chokidar]: https://github.com/paulmillr/chokidar
 [FileSystemEventSecurity]: https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html
 [Félix Saparelli]: https://passcod.name
-[build-unix]: https://travis-ci.org/passcod/notify
-[build-windows]: https://ci.appveyor.com/project/passcod/rsnotify
+[alert-after]: https://github.com/frewsxcv/alert-after
+[alacritty]: https://github.com/jwilm/alacritty
+[artistic]: https://github.com/passcod/notify/blob/next/LICENSE
+[build]: https://travis-ci.org/passcod/notify
 [cargo watch]: https://github.com/passcod/cargo-watch
 [cc0]: https://creativecommons.org/publicdomain/zero/1.0/
 [cobalt]: https://github.com/cobalt-org/cobalt.rs
@@ -111,11 +118,13 @@ Note that licensing is changed from version 5 to **Artistic 2.0**.
 [docs-debounce]: https://docs.rs/notify/#default-debounced-api
 [docs-raw]: https://docs.rs/notify/#raw-api
 [docs-recursivemode]: https://docs.rs/notify/*/notify/enum.RecursiveMode.html
-[docs-v2]: https://docs.rs/notify/2
 [docs]: https://docs.rs/notify
 [docket]: https://iwillspeak.github.io/docket/
 [fsnotify]: https://github.com/go-fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
+[mdBook]: https://github.com/rust-lang-nursery/mdBook
+[notify-rust]: https://github.com/hoodie/notify-rust
+[pax]: https://pax.js.org/
 [rdiff]: https://github.com/dyule/rdiff
 [watchexec]: https://github.com/mattgreen/watchexec
 [timetrack]: https://github.com/joshmcguigan/timetrack
