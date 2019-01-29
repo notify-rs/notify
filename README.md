@@ -66,6 +66,20 @@ fn main() {
 }
 ```
 
+Looking overly verbose? Too much boilerplate? Have a look at [hotwatch], a friendly wrapper:
+
+```rust
+// Taken from the hotwatch readme
+use hotwatch::{Hotwatch, Event};
+
+let mut hotwatch = Hotwatch::new().expect("Hotwatch failed to initialize.");
+hotwatch.watch("war.png", |event: Event| {
+    if let Event::Write(path) = event {
+        println!("War has changed.");
+    }
+}).expect("Failed to watch file!");
+```
+
 ## Platforms
 
 - Linux / Android: inotify
@@ -122,6 +136,7 @@ Note that licensing will change from version 5 to **[Artistic 2.0][artistic]**.
 [docket]: https://iwillspeak.github.io/docket/
 [fsnotify]: https://github.com/go-fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
+[hotwatch]: https://github.com/francesca64/hotwatch
 [mdBook]: https://github.com/rust-lang-nursery/mdBook
 [notify-rust]: https://github.com/hoodie/notify-rust
 [pax]: https://pax.js.org/
