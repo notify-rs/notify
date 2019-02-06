@@ -131,11 +131,285 @@
 
 - FEATURE: \[macOS\] Implement Send and Sync for FsWatcher. [#82]
 - FEATURE: \[Windows\] Implement Send and Sync for ReadDirectoryChangesWatcher. [#82]
-- DOCS: Add example to monitor a given file or directory.
+- DOCS: Add example to monitor a given file or directory. [#77]
 
+[#77]: https://github.com/passcod/notify/issues/77
 [#82]: https://github.com/passcod/notify/issues/82
 
 
 ## 2.6.1 (2016-06-09)
 
-- FIX: \[Linux\] Only register _directories_ for watching.
+- FIX: \[Linux\] Only register _directories_ for watching. [#74]
+- DOCS: Update Readme example code. [`ccfb54be`]
+
+[`ccfb54be`]: https://github.com/passcod/notify/commit/ccfb54bed3df7c4c5e0058566f10232e92b526a4
+[#74]: https://github.com/passcod/notify/issues/74
+
+
+## 2.6.0 (2016-06-06)
+
+- Fix clippy lints. [#57]
+- Run formatter. [#59]
+- Fix warnings. [#58]
+- FEATURE: Add `Result` alias. [#72]
+- DEPS: Update inotify (0.2). [#49], [#70]
+- DOCS: Write API docs. [#65]
+- FEATURE: \[Linux\] Add op::IGNORED. [#73]
+- Simplify Cargo.toml. [#75]
+- FEATURE: Implement std::Error for our Error type. [#71]
+
+[#57]: https://github.com/passcod/notify/issues/57
+[#59]: https://github.com/passcod/notify/issues/59
+[#58]: https://github.com/passcod/notify/issues/58
+[#72]: https://github.com/passcod/notify/issues/72
+[#49]: https://github.com/passcod/notify/issues/49
+[#70]: https://github.com/passcod/notify/issues/70
+[#65]: https://github.com/passcod/notify/issues/65
+[#73]: https://github.com/passcod/notify/issues/73
+[#75]: https://github.com/passcod/notify/issues/75
+[#71]: https://github.com/passcod/notify/issues/71
+
+
+## 2.5.5 (2016-03-27)
+
+- DOCS: Explain an FSEvent limitation. [#51]
+- DOCS: Clean up example code. [#52]
+- RELENG: \[macOS\] Support i686. [#54]
+- FEATURE: Implement `Display` on `Error`. [#56]
+
+[#51]: https://github.com/passcod/notify/issues/51
+[#52]: https://github.com/passcod/notify/issues/52
+[#54]: https://github.com/passcod/notify/issues/54
+[#56]: https://github.com/passcod/notify/issues/56
+
+
+## 2.5.4 (2016-01-23)
+
+- META: Remove all `*` specifiers to comply with Crates.io policy. [`9f44843f`]
+
+[`9f44843f`]: https://github.com/passcod/notify/commit/9f44843f2e70b2e1fcb3ef8b0834692fe75a99a6
+
+
+## 2.5.3 (2015-12-25)
+
+- RELENG: \[Linux\] Support i686. [#46]
+
+[#46]: https://github.com/passcod/notify/issues/46
+
+
+## 2.5.2 (2015-12-21)
+
+- META: Fix AppVeyor build. [#43], [#45]
+- FIX: \[Linux\] Use a mio loop instead of handmade. [#40]
+- DEPS: Replace walker by walkdir (0.1). [#44]
+
+[#43]: https://github.com/passcod/notify/issues/43
+[#45]: https://github.com/passcod/notify/issues/45
+[#40]: https://github.com/passcod/notify/issues/40
+[#44]: https://github.com/passcod/notify/issues/44
+
+
+## 2.5.1 (2015-12-05)
+
+- META: Update Code of Conduct. [`c963bdf0`]
+- RELENG: Support musl. [#42]
+
+[`c963bdf0`]: https://github.com/passcod/notify/commit/c963bdf0a94d951f5d11ca2a691eeb42746e721b
+[#42]: https://github.com/passcod/notify/issues/42
+
+
+## 2.5.0 (2015-11-29)
+
+- FEATURE: Add Windows backend. [#39]
+- META: Add AppVeyor CI. [`304473c3`]
+
+[`304473c3`]: https://github.com/passcod/notify/commit/304473c32a76ec60bbcb20a1d673fa7c5879767d
+[#39]: https://github.com/passcod/notify/issues/39
+
+
+## 2.4.1 (2015-11-06)
+
+- FIX: \[macOS\] Race condition in FSEvent. [#33]
+
+
+## 2.4.0 (2015-10-25)
+
+- FIX: \[macOS\] Stop segfault when watcher is moved. [#33], [#35]
+- FEATURE: Add `::with_delay` to poll. [#34]
+
+[#33]: https://github.com/passcod/notify/issues/33
+[#35]: https://github.com/passcod/notify/issues/35
+[#34]: https://github.com/passcod/notify/issues/34
+
+
+## 2.3.3 (2015-10-08)
+
+- FIX: Comply with Rust RFC 1214, adding `Sized` bound to trait. [#32]
+
+[#32]: https://github.com/passcod/notify/issues/32
+
+
+## 2.3.2 (2015-09-08)
+
+- META: Use Travis CI Linux containers, macOS builds. [`7081297d`]
+- FIX: \[macOS\] Symlinks and broken tests. [#27]
+
+[`7081297d`]: https://github.com/passcod/notify/commit/7081297de6c557484e4cc7fbf8b2837a7d408870
+[#27]: https://github.com/passcod/notify/issues/27
+
+
+## 2.3.1 (2015-08-24)
+
+- FIX: Move paths instead of borrowing. [`3340d740`]
+
+[`3340d740`]: https://github.com/passcod/notify/commit/3340d7401230be5f5ed59956b29f8db3a1c12d1c
+
+
+## 2.3.0 (2015-07-29)
+
+- FEATURE: Use `AsRef<Path>` instead of `Path` in signatures. [#25]
+
+[#25]: https://github.com/passcod/notify/issues/25
+
+
+## 2.2.0 (2015-07-12)
+
+- FEATURE: \[Linux\] Support watching single file. [#22]
+- META: Change release commit message style to be just the version, instead of "Cut ${version}".
+
+[#22]: https://github.com/passcod/notify/issues/22
+
+
+## 2.1.0 (2015-06-26)
+
+- META: Add Code of Conduct. [`4b88f7d9`]
+- FEATURE: Restore Poll backend. [#12]
+- FIX: \[Linux\] Inverse op::WRITE and op::REMOVE. [#18]
+- DEPS: \[macOS\] Use fsevent (0.2). [#14]
+
+[`4b88f7d9`]: https://github.com/passcod/notify/commit/4b88f7d9fcc4c41bb942c46c792f64afc848db2c
+[#12]: https://github.com/passcod/notify/issues/12
+[#18]: https://github.com/passcod/notify/issues/18
+[#14]: https://github.com/passcod/notify/issues/14
+
+
+## 2.0.0 (2015-06-09)
+
+- RUST: 1.0 is out! Use stable, migrate to walker crate. [`0b127a38`]
+- FEATURE: \[macOS\] FSEvent backend. [#13]
+- BREAKING: Remove Poll backend. [`92936460`]
+
+[`0b127a38`]: https://github.com/passcod/notify/commit/0b127a383072b0136bb44f74d5580abae01e7627
+[`92936460`]: https://github.com/passcod/notify/commit/92936460070d4dd44090fc9e3b4c4150c2ef434c
+[#13]: https://github.com/passcod/notify/issues/13
+
+
+## 1.2.2 (2015-05-09)
+
+- RUST: Update to latest, migrate to bitflags crate. [#11]
+
+[#11]: https://github.com/passcod/notify/issues/11
+
+
+## 1.2.1 (2015-04-03)
+
+- RUST: Update to latest, thread upgrades. [#9]
+
+[#9]: https://github.com/passcod/notify/issues/9
+
+
+## 1.2.0 (2015-03-05)
+
+- FEATURE: Provide full path to file that caused an event. [#8]
+
+[#8]: https://github.com/passcod/notify/issues/8
+
+
+## 1.1.3 (2015-02-18)
+
+- META: Add Travis CI. [`2c865803`]
+- DOCS: Build using Rust-CI. [`9c7dd960`]
+- RUST: Update to latest, upgrade to new IO. [#5]
+- FIX: \[Linux\] Keep watching when there are no events received. [#6]
+
+[`2c865803`]: https://github.com/passcod/notify/commit/2c865803ba9d04227661e3cd320732da22526634
+[`9c7dd960`]: https://github.com/passcod/notify/commit/9c7dd960f3f4e635046b6a1dd4b847c69dfd4f94
+[#5]: https://github.com/passcod/notify/issues/5
+[#6]: https://github.com/passcod/notify/issues/6
+
+
+## 1.1.2 (2015-02-03)
+
+- RUST: Update to latest, using `old_io`. [`116af0c4`]
+
+[`116af0c4`]: https://github.com/passcod/notify/commit/116af0c4e00b5d5b268a9d69bba772cc1f2f67fa
+
+
+## 1.1.1 (2015-01-06)
+
+- RUST: Update to latest and fix changes to channels. [`327075c2`]
+
+[`327075c2`]: https://github.com/passcod/notify/commit/327075c2ecd1d0c4123e9979aeebde4248015ef6
+
+
+## 1.1.0 (2015-01-06)
+
+- FEATURE: \[Linux\] Recursive watch. [#2]
+
+[#2]: https://github.com/passcod/notify/issues/2
+
+
+## 1.0.5 (2015-01-03)
+
+- RELENG: Publish on crates.io. [`6f7d38a9`]
+- RUST: Update to latest. [`fd78d0e4`]
+- FIX: \[Linux\] Stop panic when inotify backend is dropped. [`6f7d38a9`]
+
+[`6f7d38a9`]: https://github.com/passcod/notify/commit/6f7d38a94aead30c2f059bb6bea8bdcda542d4af
+[`fd78d0e4`]: https://github.com/passcod/notify/commit/fd78d0e4b988d92d1be81e05e1812432ad476149
+
+
+## 1.0.4 (2014-12-23)
+
+- RUST: Update to latest. [`d45c954c`]
+
+[`d45c954c`]: https://github.com/passcod/notify/commit/d45c954c03f2d4d948e252abdcf7136a139b378b
+
+
+## 1.0.3 (2014-12-23)
+
+- DEPS: Update inotify (0.1). [`fcda20bb`]
+
+[`fcda20bb`]: https://github.com/passcod/notify/commit/fcda20bb17e9b2b30645350c57d9bfe2ce9b78d9
+
+
+## 1.0.2 (2014-12-21)
+
+- FIX: Build on non-Linux platforms. [`55c8d7b0`]
+
+[`55c8d7b0`]: https://github.com/passcod/notify/commit/55c8d7b0bb7ae767b3032ccb57571de5d506e842
+
+
+## 1.0.1 (2014-12-20)
+
+- DOCS: Add example code to Readme. [`f14e83f3`]
+- META: Add cargo metadata. [`f14e83f3`]
+
+[`f14e83f3`]: https://github.com/passcod/notify/commit/f14e83f33df33f362f151525bce768911933d0dd
+
+
+## 1.0.0 (2014-12-20)
+
+- FEATURE: Invent Notify.
+- FEATURE: \[Linux\] inotify backend. [`d4b61fd2`]
+- FEATURE: Poll backend. [`b24a5339`]
+- FEATURE: Recommended watcher selection mechanism. [`a9c60ebf`]
+
+[`d4b61fd2`]: https://github.com/passcod/notify/commit/d4b61fd29c82880c473f20a2d7119977817530e0
+[`b24a5339`]: https://github.com/passcod/notify/commit/b24a5339680792cbd7b4f25ad7ec23a04b2eba57
+[`a9c60ebf`]: https://github.com/passcod/notify/commit/a9c60ebf0fcc630bd745dc7e5106a24311c5f1bf
+
+
+## 0.0.1 (2014-12-11)
+
+- Empty release (no code)
