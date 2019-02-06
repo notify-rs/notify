@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.0.8 (2019-02-06)
+
+- DOCS: Mention hotwatch as alternative API. [#175], [`34775f26`]
+- DEPS: \[Linux\] Disable `stream` feature for inotify. [#176], [`e729e279`]
+- DOCS: Add dates to releases in changelog. [`cc621398`]
+- DOCS: Backfill changelog: 4.0.2 to 4.0.7. [`6457f697`]
+- DOCS: Backfill changelog: 0.0.1 to 2.6.0. [`d34e6ee7`]
+
+[#175]: https://github.com/passcod/notify/issues/175
+[`34775f26`]: https://github.com/passcod/notify/commit/34775f2695ec236fabc79f2c938e12e4cd54047b
+[#176]: https://github.com/passcod/notify/issues/176
+[`e729e279`]: https://github.com/passcod/notify/commit/e729e279f0721c4a5729e725a7cd5e4d761efb58
+[`cc621398`]: https://github.com/passcod/notify/commit/cc621398e56e2257daf5816e8c2bb01ca79e8ddb
+[`6457f697`]: https://github.com/passcod/notify/commit/6457f6975a9171483d531fcdafb956d2ee334d55
+[`d34e6ee7`]: https://github.com/passcod/notify/commit/d34e6ee70df9b4905cbd04fe1a2b5770a9d2a4d4
+
+
 ## 4.0.7 (2019-01-23)
 
 - DOCS: Document unexpected behaviour around watching a tree root. [#165], [#166]
