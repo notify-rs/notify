@@ -1342,20 +1342,21 @@ fn one_file_many_events() {
     watcher.watch(&dir, RecursiveMode::Recursive).unwrap();
 
     let dir = dir.to_path_buf();
+    let io_duration = Duration::from_millis(500);
     let now = Instant::now();
-    // spam with writes for the duration of the delay
+    // spam with writes
     let io_thread = thread::spawn(move || {
         use std::fs::File;
         use std::io::prelude::*;
         let mut file = File::create(dir.join("foo.txt")).unwrap();
-        while now.elapsed() < delay {
+        while now.elapsed() < io_duration {
             file.write_all(b"Hello, world!").unwrap();
         }
     });
     // wait for 1 event
     let _ = rx.recv().unwrap();
-    // should be recieved within the delay
-    let cutoff = delay + delay / 10;
+    // should be recieved within the delay since the end of the writes
+    let cutoff = io_duration + delay + delay / 10;
     let elapsed = now.elapsed();
     assert!(
         elapsed < cutoff,
