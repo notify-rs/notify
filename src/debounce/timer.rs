@@ -29,24 +29,6 @@ struct ScheduleWorker {
 }
 
 impl ScheduleWorker {
-    fn new(
-        new_event_trigger: Arc<Condvar>,
-        stop_trigger: Arc<Condvar>,
-        events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
-        tx: mpsc::Sender<DebouncedEvent>,
-        operations_buffer: OperationsBuffer,
-        stopped: Arc<AtomicBool>,
-    ) -> ScheduleWorker {
-        ScheduleWorker {
-            new_event_trigger,
-            stop_trigger,
-            events,
-            tx,
-            operations_buffer,
-            stopped,
-        }
-    }
-
     fn fire_due_events(&self) -> Option<Instant> {
         let mut events = self.events.lock().unwrap();
         while let Some(event) = events.pop_front() {
@@ -145,19 +127,19 @@ impl WatchTimer {
         let stop_trigger = Arc::new(Condvar::new());
         let stopped = Arc::new(AtomicBool::new(false));
 
-        let new_event_trigger_worker = new_event_trigger.clone();
-        let stop_trigger_worker = stop_trigger.clone();
-        let events_worker = events.clone();
-        let stopped_worker = stopped.clone();
+        let worker_new_event_trigger = new_event_trigger.clone();
+        let worker_stop_trigger = stop_trigger.clone();
+        let worker_events = events.clone();
+        let worker_stopped = stopped.clone();
         thread::spawn(move || {
-            ScheduleWorker::new(
-                new_event_trigger_worker,
-                stop_trigger_worker,
-                events_worker,
+            ScheduleWorker {
+                new_event_trigger: worker_new_event_trigger,
+                stop_trigger: worker_stop_trigger,
+                events: worker_events,
                 tx,
                 operations_buffer,
-                stopped_worker,
-            )
+                stopped: worker_stopped,
+            }
             .run();
         });
 
