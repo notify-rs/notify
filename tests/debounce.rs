@@ -1318,7 +1318,7 @@ fn rename_rename_remove_temp_file() {
 #[test]
 fn watcher_terminates() {
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
+    let watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     let thread = thread::spawn(move || {
         for e in rx.into_iter() {
@@ -1327,4 +1327,42 @@ fn watcher_terminates() {
     });
     drop(watcher);
     thread.join().unwrap();
+}
+
+#[test]
+fn one_file_many_events() {
+    let delay = Duration::from_millis(250);
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let dir = tdir.path();
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher =
+        Watcher::new(tx, delay).expect("failed to create debounced watcher");
+
+    watcher.watch(&dir, RecursiveMode::Recursive).unwrap();
+
+    let dir = dir.to_path_buf();
+    let io_duration = Duration::from_millis(500);
+    let now = Instant::now();
+    // spam with writes
+    let io_thread = thread::spawn(move || {
+        use std::fs::File;
+        use std::io::prelude::*;
+        let mut file = File::create(dir.join("foo.txt")).unwrap();
+        while now.elapsed() < io_duration {
+            file.write_all(b"Hello, world!").unwrap();
+        }
+    });
+    // wait for 1 event
+    let _ = rx.recv().unwrap();
+    // should be recieved within the delay since the end of the writes
+    let cutoff = io_duration + delay + delay / 10;
+    let elapsed = now.elapsed();
+    assert!(
+        elapsed < cutoff,
+        "elapsed: {:?}, cutoff: {:?}",
+        elapsed,
+        cutoff
+    );
+    io_thread.join().unwrap();
 }

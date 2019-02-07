@@ -1,20 +1,16 @@
 use super::super::{op, DebouncedEvent};
 
-use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{
+    atomic::{self, AtomicBool},
+    Arc, Condvar, Mutex,
+};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use debounce::OperationsBuffer;
-
-enum Action {
-    Schedule(ScheduledEvent),
-    Ignore(u64),
-    Stop,
-}
 
 #[derive(PartialEq, Eq)]
 struct ScheduledEvent {
@@ -23,120 +19,62 @@ struct ScheduledEvent {
     path: PathBuf,
 }
 
-impl Ord for ScheduledEvent {
-    fn cmp(&self, other: &ScheduledEvent) -> Ordering {
-        other.when.cmp(&self.when)
-    }
-}
-
-impl PartialOrd for ScheduledEvent {
-    fn partial_cmp(&self, other: &ScheduledEvent) -> Option<Ordering> {
-        other.when.partial_cmp(&self.when)
-    }
-}
-
 struct ScheduleWorker {
-    trigger: Arc<Condvar>,
-    request_source: mpsc::Receiver<Action>,
-    schedule: BinaryHeap<ScheduledEvent>,
-    ignore: HashSet<u64>,
+    new_event_trigger: Arc<Condvar>,
+    stop_trigger: Arc<Condvar>,
+    events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
     tx: mpsc::Sender<DebouncedEvent>,
     operations_buffer: OperationsBuffer,
-    stopped: bool,
+    stopped: Arc<AtomicBool>,
 }
 
 impl ScheduleWorker {
-    fn new(
-        trigger: Arc<Condvar>,
-        request_source: mpsc::Receiver<Action>,
-        tx: mpsc::Sender<DebouncedEvent>,
-        operations_buffer: OperationsBuffer,
-    ) -> ScheduleWorker {
-        ScheduleWorker {
-            trigger: trigger,
-            request_source: request_source,
-            schedule: BinaryHeap::new(),
-            ignore: HashSet::new(),
-            tx: tx,
-            operations_buffer: operations_buffer,
-            stopped: false,
-        }
-    }
-
-    fn drain_request_queue(&mut self) {
-        loop {
-            match self.request_source.try_recv() {
-                Ok(Action::Schedule(event)) => self.schedule.push(event),
-                Ok(Action::Ignore(ignore_id)) => {
-                    for &ScheduledEvent { ref id, .. } in &self.schedule {
-                        if *id == ignore_id {
-                            self.ignore.insert(ignore_id);
-                            break;
-                        }
-                    }
-                }
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) | Ok(Action::Stop) => {
-                    self.stopped = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    fn has_event_now(&self) -> bool {
-        if let Some(event) = self.schedule.peek() {
-            event.when <= Instant::now()
-        } else {
-            false
-        }
-    }
-
-    fn fire_event(&mut self) {
-        if let Some(ScheduledEvent { id, path, .. }) = self.schedule.pop() {
-            if !self.ignore.remove(&id) {
-                if let Ok(ref mut op_buf) = self.operations_buffer.lock() {
-                    if let Some((op, from_path, _)) = op_buf.remove(&path) {
-                        let is_partial_rename = from_path.is_none();
-                        if let Some(from_path) = from_path {
-                            self.tx
-                                .send(DebouncedEvent::Rename(from_path, path.clone()))
-                                .unwrap();
-                        }
-                        let message = match op {
-                            Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
-                            Some(op::Op::WRITE) => Some(DebouncedEvent::Write(path)),
-                            Some(op::Op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
-                            Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
-                            Some(op::Op::RENAME) if is_partial_rename => {
-                                if path.exists() {
-                                    Some(DebouncedEvent::Create(path))
-                                } else {
-                                    Some(DebouncedEvent::Remove(path))
-                                }
-                            }
-                            _ => None,
-                        };
-                        if let Some(m) = message {
-                            let _ = self.tx.send(m);
-                        }
-                    } else {
-                        // TODO error!("path not found in operations_buffer: {}", path.display())
-                    }
-                }
-            }
-        }
-    }
-
-    fn duration_until_next_event(&self) -> Option<Duration> {
-        self.schedule.peek().map(|event| {
-            let now = Instant::now();
-            if event.when <= now {
-                Duration::from_secs(0)
+    fn fire_due_events(&self) -> Option<Instant> {
+        let mut events = self.events.lock().unwrap();
+        while let Some(event) = events.pop_front() {
+            if event.when <= Instant::now() {
+                self.fire_event(event)
             } else {
-                event.when.duration_since(now)
+                // not due yet, put it back
+                let next_when = event.when;
+                events.push_front(event);
+                return Some(next_when);
             }
-        })
+        }
+        None
+    }
+
+    fn fire_event(&self, ev: ScheduledEvent) {
+        let ScheduledEvent { path, .. } = ev;
+        if let Ok(ref mut op_buf) = self.operations_buffer.lock() {
+            if let Some((op, from_path, _)) = op_buf.remove(&path) {
+                let is_partial_rename = from_path.is_none();
+                if let Some(from_path) = from_path {
+                    self.tx
+                        .send(DebouncedEvent::Rename(from_path, path.clone()))
+                        .unwrap();
+                }
+                let message = match op {
+                    Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
+                    Some(op::Op::WRITE) => Some(DebouncedEvent::Write(path)),
+                    Some(op::Op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
+                    Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
+                    Some(op::Op::RENAME) if is_partial_rename => {
+                        if path.exists() {
+                            Some(DebouncedEvent::Create(path))
+                        } else {
+                            Some(DebouncedEvent::Remove(path))
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(m) = message {
+                    let _ = self.tx.send(m);
+                }
+            } else {
+                // TODO error!("path not found in operations_buffer: {}", path.display())
+            }
+        }
     }
 
     fn run(&mut self) {
@@ -147,24 +85,24 @@ impl ScheduleWorker {
         let mut g = m.lock().unwrap();
 
         loop {
-            self.drain_request_queue();
+            let next_when = self.fire_due_events();
 
-            while self.has_event_now() {
-                self.fire_event();
-            }
-
-            let wait_duration = self.duration_until_next_event();
-
-            if self.stopped {
+            if self.stopped.load(atomic::Ordering::SeqCst) {
                 break;
             }
 
             // Unwrapping is safe because the mutex can't be poisoned,
             // since we haven't shared it with another thread.
-            g = if let Some(wait_duration) = wait_duration {
-                self.trigger.wait_timeout(g, wait_duration).unwrap().0
+            g = if let Some(next_when) = next_when {
+                // wait for stop notification or timeout to send next event
+                self.stop_trigger
+                    .wait_timeout(g, next_when - Instant::now())
+                    .unwrap()
+                    .0
             } else {
-                self.trigger.wait(g).unwrap()
+                // no pending events
+                // wait for new event, to check when it should be send and then wait to send it
+                self.new_event_trigger.wait(g).unwrap()
             };
         }
     }
@@ -172,9 +110,11 @@ impl ScheduleWorker {
 
 pub struct WatchTimer {
     counter: u64,
-    schedule_tx: mpsc::Sender<Action>,
-    trigger: Arc<Condvar>,
+    new_event_trigger: Arc<Condvar>,
+    stop_trigger: Arc<Condvar>,
     delay: Duration,
+    events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
+    stopped: Arc<AtomicBool>,
 }
 
 impl WatchTimer {
@@ -183,50 +123,64 @@ impl WatchTimer {
         operations_buffer: OperationsBuffer,
         delay: Duration,
     ) -> WatchTimer {
-        let (schedule_tx, schedule_rx) = mpsc::channel();
-        let trigger = Arc::new(Condvar::new());
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        let new_event_trigger = Arc::new(Condvar::new());
+        let stop_trigger = Arc::new(Condvar::new());
+        let stopped = Arc::new(AtomicBool::new(false));
 
-        let trigger_worker = trigger.clone();
+        let worker_new_event_trigger = new_event_trigger.clone();
+        let worker_stop_trigger = stop_trigger.clone();
+        let worker_events = events.clone();
+        let worker_stopped = stopped.clone();
         thread::spawn(move || {
-            ScheduleWorker::new(trigger_worker, schedule_rx, tx, operations_buffer).run();
+            ScheduleWorker {
+                new_event_trigger: worker_new_event_trigger,
+                stop_trigger: worker_stop_trigger,
+                events: worker_events,
+                tx,
+                operations_buffer,
+                stopped: worker_stopped,
+            }
+            .run();
         });
 
         WatchTimer {
             counter: 0,
-            schedule_tx: schedule_tx,
-            trigger: trigger,
-            delay: delay,
+            new_event_trigger,
+            stop_trigger,
+            delay,
+            events,
+            stopped,
         }
     }
 
     pub fn schedule(&mut self, path: PathBuf) -> u64 {
         self.counter = self.counter.wrapping_add(1);
 
-        self.schedule_tx
-            .send(Action::Schedule(ScheduledEvent {
-                id: self.counter,
-                when: Instant::now() + self.delay,
-                path: path,
-            }))
-            .expect("Failed to send a request to the global scheduling worker");
+        self.events.lock().unwrap().push_back(ScheduledEvent {
+            id: self.counter,
+            when: Instant::now() + self.delay,
+            path: path,
+        });
 
-        self.trigger.notify_one();
+        self.new_event_trigger.notify_one();
 
         self.counter
     }
 
     pub fn ignore(&self, id: u64) {
-        self.schedule_tx
-            .send(Action::Ignore(id))
-            .expect("Failed to send a request to the global scheduling worker");
+        let mut events = self.events.lock().unwrap();
+        let index = events.iter().rposition(|e| e.id == id);
+        if let Some(index) = index {
+            events.remove(index);
+        }
     }
 }
 
 impl Drop for WatchTimer {
     fn drop(&mut self) {
-        self.schedule_tx
-            .send(Action::Stop)
-            .expect("Failed to send a request to the global scheduling worker");
-        self.trigger.notify_one();
+        self.stopped.store(true, atomic::Ordering::SeqCst);
+        self.stop_trigger.notify_one();
+        self.new_event_trigger.notify_one();
     }
 }
