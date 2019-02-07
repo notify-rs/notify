@@ -94,13 +94,14 @@ impl ScheduleWorker {
             // Unwrapping is safe because the mutex can't be poisoned,
             // since we haven't shared it with another thread.
             g = if let Some(next_when) = next_when {
-                // wait to send event
+                // wait for stop notification or timeout to send next event
                 self.stop_trigger
                     .wait_timeout(g, next_when - Instant::now())
                     .unwrap()
                     .0
             } else {
-                // wait for new event
+                // no pending events
+                // wait for new event, to check when it should be send and then wait to send it
                 self.new_event_trigger.wait(g).unwrap()
             };
         }
