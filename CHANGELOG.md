@@ -1,5 +1,8 @@
 # Changelog
 
+- META: Rename `v4-legacy` branch to `main`, to further clarify status and potentially prepare for a breaking release.
+- DOCS: Change `v5` to `vNext` to allow for a breaking release.
+
 ## 4.0.9 (2019-02-09)
 
 - FIX: High CPU usage in some conditions when using debouncing. [#177], [#178], coming from [rust-analyzer/#556]
@@ -112,7 +115,7 @@
 
 [#105]: https://github.com/passcod/notify/issues/105
 
-## (start work on v5) (2016-12-29)
+## (start work on vNext) (2016-12-29)
 
 ## 3.0.1 (2016-12-05)
 

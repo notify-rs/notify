@@ -19,7 +19,7 @@ keywords = ["events", "filesystem", "notify", "watch"]
 categories = ["filesystem"]
 
 [badges]
-travis-ci = { repository = "passcod/notify", branch = "v4-legacy" }
+travis-ci = { repository = "passcod/notify", branch = "main" }
 maintenance = { status = "passively-maintained" }
 
 [dependencies]

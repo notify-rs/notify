@@ -2,7 +2,7 @@
 
 [![» Crate](https://flat.badgen.net/crates/v/notify)][crate]
 [![» Docs](https://flat.badgen.net/badge/api/docs.rs/df3600)][docs]
-[![» CI](https://flat.badgen.net/travis/passcod/notify/v4-legacy)][build]
+[![» CI](https://flat.badgen.net/travis/passcod/notify/main)][build]
 [![» Downloads](https://flat.badgen.net/crates/d/notify)][crate]
 [![» Conduct](https://flat.badgen.net/badge/contributor/covenant/5e0d73)][coc]
 [![» Public Domain](https://flat.badgen.net/badge/license/CC0-1.0/purple)][cc0]
@@ -14,7 +14,7 @@ _Cross-platform filesystem notification library for Rust._
 
 - [API Documentation][docs]
 - [Crate page][crate]
-- [Version 5 progress](https://github.com/passcod/notify/tree/next#status)
+- [Version Next progress](https://github.com/passcod/notify/tree/next#status)
 - Earliest supported Rust version: **1.26.1**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
