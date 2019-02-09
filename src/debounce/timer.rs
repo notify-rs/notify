@@ -57,7 +57,7 @@ impl ScheduleWorker {
                 let message = match op {
                     Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
                     Some(op::Op::WRITE) => Some(DebouncedEvent::Write(path)),
-                    Some(op::Op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
+                    Some(op::Op::METADATA) => Some(DebouncedEvent::Metadata(path)),
                     Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
                     Some(op::Op::RENAME) if is_partial_rename => {
                         if path.exists() {

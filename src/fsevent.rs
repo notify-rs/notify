@@ -52,7 +52,7 @@ unsafe impl Sync for FsEventWatcher {}
 fn translate_flags(flags: fse::StreamFlags) -> op::Op {
     let mut ret = op::Op::empty();
     if flags.contains(fse::ITEM_XATTR_MOD) || flags.contains(fse::ITEM_CHANGE_OWNER) {
-        ret.insert(op::Op::CHMOD);
+        ret.insert(op::Op::METADATA);
     }
     if flags.contains(fse::ITEM_CREATED) {
         ret.insert(op::Op::CREATE);

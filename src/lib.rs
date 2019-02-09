@@ -141,11 +141,11 @@ mod debounce;
 /// `notify`-API users will have to take care of themselves, depending on their needs.
 ///
 ///
-/// # Chmod
+/// # Metadata
 ///
 /// __Linux, macOS__
 ///
-/// On Linux and macOS the `CHMOD` event is emitted whenever attributes or extended attributes
+/// On Linux and macOS the `METADATA` event is emitted whenever attributes or extended attributes
 /// change.
 ///
 /// __Windows__
@@ -310,7 +310,7 @@ pub mod op {
     /// Multiple actions may be delivered in a single event.
         pub struct Op: u32 {
     /// Attributes changed
-            const CHMOD       = 0b0000001;
+            const METADATA       = 0b0000001;
     /// Created
             const CREATE      = 0b0000010;
     /// Removed
@@ -326,7 +326,7 @@ pub mod op {
         }
     }
 
-    pub const CHMOD: Op = Op::CHMOD;
+    pub const METADATA: Op = Op::METADATA;
     pub const CREATE: Op = Op::CREATE;
     pub const REMOVE: Op = Op::REMOVE;
     pub const RENAME: Op = Op::RENAME;
@@ -339,20 +339,20 @@ pub mod op {
 mod op_test {
     #[test]
     fn mixed_bitflags_form() {
-        let op = super::op::Op::CHMOD | super::op::WRITE;
-        assert!(op.contains(super::op::CHMOD));
+        let op = super::op::Op::METADATA | super::op::WRITE;
+        assert!(op.contains(super::op::METADATA));
         assert!(op.contains(super::op::Op::WRITE));
     }
 
     #[test]
     fn new_bitflags_form() {
-        let op = super::op::Op::CHMOD | super::op::Op::WRITE;
+        let op = super::op::Op::METADATA | super::op::Op::WRITE;
         assert!(op.contains(super::op::Op::WRITE));
     }
 
     #[test]
     fn old_bitflags_form() {
-        let op = super::op::CHMOD | super::op::WRITE;
+        let op = super::op::METADATA | super::op::WRITE;
         assert!(op.contains(super::op::WRITE));
     }
 }
@@ -408,14 +408,14 @@ pub enum DebouncedEvent {
     /// `Create` is emitted when a file or directory has been created and no events were detected
     /// for the path within the specified time frame.
     ///
-    /// `Create` events have a higher priority than `Write` and `Chmod`. These events will not be
+    /// `Create` events have a higher priority than `Write` and `Metadata`. These events will not be
     /// emitted if they are detected before the `Create` event has been emitted.
     Create(PathBuf),
 
     /// `Write` is emitted when a file has been written to and no events were detected for the path
     /// within the specified time frame.
     ///
-    /// `Write` events have a higher priority than `Chmod`. `Chmod` will not be emitted if it's
+    /// `Write` events have a higher priority than `Metadata`. `Metadata` will not be emitted if it's
     /// detected before the `Write` event has been emitted.
     ///
     /// Upon receiving a `Create` event for a directory, it is necessary to scan the newly created
@@ -424,9 +424,9 @@ pub enum DebouncedEvent {
     /// watched directory.
     Write(PathBuf),
 
-    /// `Chmod` is emitted when attributes have been changed and no events were detected for the
+    /// `Metadata` is emitted when attributes have been changed and no events were detected for the
     /// path within the specified time frame.
-    Chmod(PathBuf),
+    Metadata(PathBuf),
 
     /// `Remove` is emitted when a file or directory has been removed and no events were detected
     /// for the path within the specified time frame.
@@ -455,7 +455,7 @@ impl PartialEq for DebouncedEvent {
             | (&DebouncedEvent::NoticeRemove(ref a), &DebouncedEvent::NoticeRemove(ref b))
             | (&DebouncedEvent::Create(ref a), &DebouncedEvent::Create(ref b))
             | (&DebouncedEvent::Write(ref a), &DebouncedEvent::Write(ref b))
-            | (&DebouncedEvent::Chmod(ref a), &DebouncedEvent::Chmod(ref b))
+            | (&DebouncedEvent::Metadata(ref a), &DebouncedEvent::Metadata(ref b))
             | (&DebouncedEvent::Remove(ref a), &DebouncedEvent::Remove(ref b)) => a == b,
             (&DebouncedEvent::Rename(ref a1, ref a2), &DebouncedEvent::Rename(ref b1, ref b2)) => {
                 (a1 == b1 && a2 == b2)

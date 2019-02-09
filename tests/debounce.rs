@@ -145,7 +145,7 @@ fn modify_file() {
     tdir.chmod("file1");
 
     if cfg!(target_os = "windows") {
-        // windows cannot distinguish between chmod and write
+        // windows cannot distinguish between metadata and data write
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
@@ -156,7 +156,7 @@ fn modify_file() {
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
-            vec![DebouncedEvent::Chmod(tdir.mkpath("file1")),]
+            vec![DebouncedEvent::Metadata(tdir.mkpath("file1")),]
         );
     }
 }
@@ -611,7 +611,7 @@ fn modify_rename_file() {
     tdir.rename("file1", "file2");
 
     if cfg!(target_os = "windows") {
-        // windows cannot distinguish between chmod and write
+        // windows cannot distinguish between metadata and data write
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
@@ -627,7 +627,7 @@ fn modify_rename_file() {
             vec![
                 DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
                 DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-                DebouncedEvent::Chmod(tdir.mkpath("file2")),
+                DebouncedEvent::Metadata(tdir.mkpath("file2")),
             ]
         );
     }
@@ -653,7 +653,7 @@ fn rename_modify_file() {
     tdir.chmod("file2");
 
     if cfg!(target_os = "windows") {
-        // windows cannot distinguish between chmod and write
+        // windows cannot distinguish between metadata and data write
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
@@ -669,7 +669,7 @@ fn rename_modify_file() {
             vec![
                 DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
                 DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-                DebouncedEvent::Chmod(tdir.mkpath("file2")),
+                DebouncedEvent::Metadata(tdir.mkpath("file2")),
             ]
         );
     }
@@ -812,7 +812,7 @@ fn modify_directory() {
     tdir.chmod("dir1");
 
     if cfg!(target_os = "windows") {
-        // windows cannot distinguish between chmod and write
+        // windows cannot distinguish between metadata and data write
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
@@ -823,7 +823,7 @@ fn modify_directory() {
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
-            vec![DebouncedEvent::Chmod(tdir.mkpath("dir1")),]
+            vec![DebouncedEvent::Metadata(tdir.mkpath("dir1")),]
         );
     }
 }
@@ -1056,7 +1056,7 @@ fn modify_rename_directory() {
     tdir.rename("dir1", "dir2");
 
     if cfg!(target_os = "windows") {
-        // windows cannot distinguish between chmod and write
+        // windows cannot distinguish between metadata and data write
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
@@ -1072,7 +1072,7 @@ fn modify_rename_directory() {
             vec![
                 DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
                 DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Chmod(tdir.mkpath("dir2")),
+                DebouncedEvent::Metadata(tdir.mkpath("dir2")),
             ]
         );
     }
@@ -1100,7 +1100,7 @@ fn rename_modify_directory() {
     let actual = recv_events_debounced(&rx);
 
     if cfg!(target_os = "windows") {
-        // windows cannot distinguish between chmod and write
+        // windows cannot distinguish between metadata and data write
         assert_eq!(
             actual,
             vec![
@@ -1116,13 +1116,13 @@ fn rename_modify_directory() {
             vec![
                 DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
                 DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Chmod(tdir.mkpath("dir2")),
+                DebouncedEvent::Metadata(tdir.mkpath("dir2")),
             ],
             vec![
                 DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
                 DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Chmod(tdir.mkpath("dir2")),
-                DebouncedEvent::Chmod(tdir.mkpath("dir1")), // excessive chmod event
+                DebouncedEvent::Metadata(tdir.mkpath("dir2")),
+                DebouncedEvent::Metadata(tdir.mkpath("dir1")), // excessive metadata event
             ]
         );
     } else {
@@ -1131,7 +1131,7 @@ fn rename_modify_directory() {
             vec![
                 DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
                 DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Chmod(tdir.mkpath("dir2")),
+                DebouncedEvent::Metadata(tdir.mkpath("dir2")),
             ]
         );
     }
@@ -1185,7 +1185,7 @@ fn modify_delete_directory() {
     tdir.remove("dir1");
 
     if cfg!(target_os = "windows") {
-        // windows cannot distinguish between chmod and write
+        // windows cannot distinguish between metadata and data write
         assert_eq!(
             recv_events_debounced(&rx),
             vec![

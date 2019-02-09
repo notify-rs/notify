@@ -53,7 +53,7 @@ impl PollWatcher {
 
         thread::spawn(move || {
             // In order of priority:
-            // TODO: handle chmod events
+            // TODO: handle metadata events
             // TODO: handle renames
             // TODO: DRY it up
 

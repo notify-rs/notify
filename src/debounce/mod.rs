@@ -147,7 +147,7 @@ impl Debounce {
                                 remove_path = Some(path);
                             }
                             Some(op::Op::WRITE) | // change to remove event
-                            Some(op::Op::CHMOD) => { // change to remove event
+                            Some(op::Op::METADATA) => { // change to remove event
                                 *operation = Some(op::Op::REMOVE);
                                 let _ = self.tx.send(DebouncedEvent::NoticeRemove(path.clone()));
                                 restart_timer(timer_id, path, &mut self.timer);
@@ -214,7 +214,7 @@ impl Debounce {
                     Some(op::Op::WRITE) |
 
                     // file can't be changed before being created
-                    Some(op::Op::CHMOD) |
+                    Some(op::Op::METADATA) |
 
                     // file can't be renamed to before being created
                     // (repetitions are removed anyway),
@@ -253,7 +253,7 @@ impl Debounce {
                     }
 
                     // upgrade to write event
-                    Some(op::Op::CHMOD) |
+                    Some(op::Op::METADATA) |
 
                     // file has been renamed before, upgrade to write event
                     Some(op::Op::RENAME) |
@@ -273,7 +273,7 @@ impl Debounce {
                 }
             }
 
-            if op.contains(op::Op::CHMOD) {
+            if op.contains(op::Op::METADATA) {
                 let &mut (ref mut operation, _, ref mut timer_id) =
                     op_buf.entry(path.clone()).or_insert((None, None, None));
                 match *operation {
@@ -283,15 +283,15 @@ impl Debounce {
                     // keep write event
                     Some(op::Op::WRITE) |
 
-                    // keep chmod event
-                    Some(op::Op::CHMOD) => { restart_timer(timer_id, path.clone(), &mut self.timer); }
+                    // keep metadata event
+                    Some(op::Op::METADATA) => { restart_timer(timer_id, path.clone(), &mut self.timer); }
 
-                    // file has been renamed before, upgrade to chmod event
+                    // file has been renamed before, upgrade to metadata event
                     Some(op::Op::RENAME) |
 
                     // operations_buffer entry didn't exist
                     None => {
-                        *operation = Some(op::Op::CHMOD);
+                        *operation = Some(op::Op::METADATA);
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
 
@@ -341,8 +341,8 @@ impl Debounce {
                         Some(op::Op::WRITE) |
 
                         // file has been changed, so move the event to the new path, but keep the
-                        // chmod event
-                        Some(op::Op::CHMOD) |
+                        // metadata event
+                        Some(op::Op::METADATA) |
 
                         // file has been renamed before, so move the event to the new path and
                         // update the from_path
@@ -384,8 +384,8 @@ impl Debounce {
                         // keep write event
                         Some(op::Op::WRITE) |
 
-                        // keep chmod event
-                        Some(op::Op::CHMOD) => {
+                        // keep metadata event
+                        Some(op::Op::METADATA) => {
                             let _ = self.tx.send(DebouncedEvent::NoticeRemove(path.clone()));
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
@@ -449,7 +449,7 @@ impl Debounce {
                             Some(op::Op::WRITE) |
 
                             // change to remove event
-                            Some(op::Op::CHMOD) |
+                            Some(op::Op::METADATA) |
 
                             // operations_buffer entry didn't exist
                             None => {
@@ -486,7 +486,7 @@ impl Debounce {
 
 fn remove_repeated_events(mut op: op::Op, prev_op: &Option<op::Op>) -> op::Op {
     if let Some(prev_op) = *prev_op {
-        if prev_op.intersects(op::Op::CREATE | op::Op::WRITE | op::Op::CHMOD | op::Op::RENAME) {
+        if prev_op.intersects(op::Op::CREATE | op::Op::WRITE | op::Op::METADATA | op::Op::RENAME) {
             op.remove(op::Op::CREATE);
         }
 

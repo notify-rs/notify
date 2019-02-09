@@ -140,17 +140,17 @@ fn modify_file() {
             recv_events(&rx),
             vec![(tdir.mkpath("file1"), op::Op::WRITE, None),]
         );
-        panic!("windows cannot distinguish between chmod and write");
+        panic!("windows cannot distinguish between metadata and data write");
     } else if cfg!(target_os = "macos") {
         assert_eq!(
             inflate_events(recv_events(&rx)),
-            vec![(tdir.mkpath("file1"), op::Op::CHMOD | op::Op::CREATE, None),]
+            vec![(tdir.mkpath("file1"), op::Op::METADATA | op::Op::CREATE, None),]
         );
-        panic!("macos cannot distinguish between chmod and create");
+        panic!("macos cannot distinguish between metadata change and create");
     } else {
         assert_eq!(
             recv_events(&rx),
-            vec![(tdir.mkpath("file1"), op::Op::CHMOD, None),]
+            vec![(tdir.mkpath("file1"), op::Op::METADATA, None),]
         );
     }
 }
@@ -319,17 +319,17 @@ fn create_write_modify_file() {
                 (tdir.mkpath("file1"), op::Op::WRITE, None),
             ]
         );
-        panic!("windows cannot distinguish between chmod and write");
+        panic!("windows cannot distinguish between metadata and data write");
     } else if cfg!(target_os = "macos") {
         assert_eq!(
             inflate_events(recv_events(&rx)),
             vec![(
                 tdir.mkpath("file1"),
-                op::Op::CHMOD | op::Op::CREATE | op::Op::WRITE,
+                op::Op::METADATA | op::Op::CREATE | op::Op::WRITE,
                 None
             ),]
         );
-        panic!("macos cannot distinguish between chmod and create");
+        panic!("macos cannot distinguish between metadata change and create");
     } else if cfg!(target_os = "linux") {
         assert_eq!(
             recv_events(&rx),
@@ -338,7 +338,7 @@ fn create_write_modify_file() {
                 (tdir.mkpath("file1"), op::Op::CLOSE_WRITE, None),
                 (tdir.mkpath("file1"), op::Op::WRITE, None),
                 (tdir.mkpath("file1"), op::Op::CLOSE_WRITE, None),
-                (tdir.mkpath("file1"), op::Op::CHMOD, None),
+                (tdir.mkpath("file1"), op::Op::METADATA, None),
             ]
         );
     }
@@ -557,20 +557,20 @@ fn modify_directory() {
             recv_events(&rx),
             vec![(tdir.mkpath("dir1"), op::Op::WRITE, None),]
         );
-        panic!("windows cannot distinguish between chmod and write");
+        panic!("windows cannot distinguish between metadata and data write");
     } else if cfg!(target_os = "macos") {
         assert_eq!(
             inflate_events(recv_events(&rx)),
-            vec![(tdir.mkpath("dir1"), op::Op::CHMOD | op::Op::CREATE, None),]
+            vec![(tdir.mkpath("dir1"), op::Op::METADATA | op::Op::CREATE, None),]
         );
-        panic!("macos cannot distinguish between chmod and create");
+        panic!("macos cannot distinguish between metadata change and create");
     } else {
-        // TODO: emit chmod event only once
+        // TODO: emit metadata event only once
         assert_eq!(
             recv_events(&rx),
             vec![
-                (tdir.mkpath("dir1"), op::Op::CHMOD, None),
-                (tdir.mkpath("dir1"), op::Op::CHMOD, None),
+                (tdir.mkpath("dir1"), op::Op::METADATA, None),
+                (tdir.mkpath("dir1"), op::Op::METADATA, None),
             ]
         );
     }
@@ -813,7 +813,7 @@ fn create_rename_overwrite_directory() {
                 (tdir.mkpath("dir1a"), op::Op::CREATE, None),
                 (tdir.mkpath("dir1a"), op::Op::RENAME, Some(cookies[0])),
                 (tdir.mkpath("dir1b"), op::Op::RENAME, Some(cookies[0])),
-                (tdir.mkpath("dir1b"), op::Op::CHMOD, None),
+                (tdir.mkpath("dir1b"), op::Op::METADATA, None),
             ]
         );
     } else {
