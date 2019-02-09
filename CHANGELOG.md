@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.0.9 (2019-02-09)
+
+- FIX: High CPU usage in some conditions when using debouncing. [#177], [#178], coming from [rust-analyzer/#556]
+
+[#177]: https://github.com/passcod/notify/issues/177
+[#178]: https://github.com/passcod/notify/issues/178
+[rust-analyzer/#556]: https://github.com/rust-analyzer/rust-analyzer/issues/556
+
 ## 4.0.8 (2019-02-06)
 
 - DOCS: Mention hotwatch as alternative API. [#175], [`34775f26`]
