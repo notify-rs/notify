@@ -29,10 +29,10 @@ struct ScheduleWorker {
 }
 
 impl ScheduleWorker {
-    fn fire_due_events(&self) -> Option<Instant> {
+    fn fire_due_events(&self, now: Instant) -> Option<Instant> {
         let mut events = self.events.lock().unwrap();
         while let Some(event) = events.pop_front() {
-            if event.when <= Instant::now() {
+            if event.when <= now {
                 self.fire_event(event)
             } else {
                 // not due yet, put it back
@@ -85,7 +85,8 @@ impl ScheduleWorker {
         let mut g = m.lock().unwrap();
 
         loop {
-            let next_when = self.fire_due_events();
+            let now = Instant::now();
+            let next_when = self.fire_due_events(now);
 
             if self.stopped.load(atomic::Ordering::SeqCst) {
                 break;
@@ -96,7 +97,7 @@ impl ScheduleWorker {
             g = if let Some(next_when) = next_when {
                 // wait for stop notification or timeout to send next event
                 self.stop_trigger
-                    .wait_timeout(g, next_when - Instant::now())
+                    .wait_timeout(g, next_when - now)
                     .unwrap()
                     .0
             } else {
