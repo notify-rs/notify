@@ -249,6 +249,7 @@ impl Debounce {
                     // keep write event / not need to emit NoticeWrite because
                     // it already was a write event
                     Some(op::Op::WRITE) => {
+                        println!("Delaying write...");
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
 
@@ -260,8 +261,11 @@ impl Debounce {
 
                     // operations_buffer entry didn't exist
                     None => {
+                        println!("Sending notice write...");
                         *operation = Some(op::Op::WRITE);
                         let _ = self.tx.send(DebouncedEvent::NoticeWrite(path.clone()));
+                        //sj_todo
+                        //schedule on_going_write
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
 

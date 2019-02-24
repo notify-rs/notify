@@ -26,11 +26,23 @@ struct ScheduleWorker {
     tx: mpsc::Sender<DebouncedEvent>,
     operations_buffer: OperationsBuffer,
     stopped: Arc<AtomicBool>,
+    worker_on_going_write_event: Arc<Mutex<Option<Instant>>>,
 }
 
 impl ScheduleWorker {
     fn fire_due_events(&self, now: Instant) -> Option<Instant> {
         let mut events = self.events.lock().unwrap();
+        let on_going_write_event = self.worker_on_going_write_event.lock().unwrap();
+        match on_going_write_event {
+            Some(i) => {
+                if i <= now {
+                    self.tx.send(op::Op::WRITE);
+                    //sj_todo
+                    //reschedule on_going_write
+                }
+            },
+            None => {}
+        }
         while let Some(event) = events.pop_front() {
             if event.when <= now {
                 self.fire_event(event)
@@ -56,7 +68,11 @@ impl ScheduleWorker {
                 }
                 let message = match op {
                     Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
-                    Some(op::Op::WRITE) => Some(DebouncedEvent::Write(path)),
+                    Some(op::Op::WRITE) => {
+                        Some(DebouncedEvent::Write(path))
+                        //sj_todo
+                        //reschedule on_going_write
+                    },
                     Some(op::Op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
                     Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
                     Some(op::Op::RENAME) if is_partial_rename => {
@@ -116,6 +132,7 @@ pub struct WatchTimer {
     delay: Duration,
     events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
     stopped: Arc<AtomicBool>,
+    on_going_write_event: Arc<Mutex<Option<Instant>>>,
 }
 
 impl WatchTimer {
@@ -133,6 +150,8 @@ impl WatchTimer {
         let worker_stop_trigger = stop_trigger.clone();
         let worker_events = events.clone();
         let worker_stopped = stopped.clone();
+        let on_going_write_event = Arc::new(Mutex::new(None));
+        let worker_on_going_write_event = on_going_write_event.clone();
         thread::spawn(move || {
             ScheduleWorker {
                 new_event_trigger: worker_new_event_trigger,
@@ -141,6 +160,7 @@ impl WatchTimer {
                 tx,
                 operations_buffer,
                 stopped: worker_stopped,
+                worker_on_going_write_event: worker_on_going_write_event,
             }
             .run();
         });
@@ -152,6 +172,7 @@ impl WatchTimer {
             delay,
             events,
             stopped,
+            on_going_write_event,
         }
     }
 
