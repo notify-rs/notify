@@ -26,22 +26,29 @@ struct ScheduleWorker {
     tx: mpsc::Sender<DebouncedEvent>,
     operations_buffer: OperationsBuffer,
     stopped: Arc<AtomicBool>,
-    worker_on_going_write_event: Arc<Mutex<Option<Instant>>>,
+    worker_on_going_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
 }
 
 impl ScheduleWorker {
     fn fire_due_events(&self, now: Instant) -> Option<Instant> {
         let mut events = self.events.lock().unwrap();
-        let on_going_write_event = self.worker_on_going_write_event.lock().unwrap();
-        match on_going_write_event {
-            Some(i) => {
-                if i <= now {
-                    self.tx.send(op::Op::WRITE);
-                    //sj_todo
-                    //reschedule on_going_write
-                }
-            },
-            None => {}
+        let mut write_options = self.worker_on_going_write_event.lock().unwrap();
+        let mut emitted = false;
+        if let Some(ref i) = *write_options {
+            if i.0 <= now {
+                println!("Sending on going write...");
+                //self.tx.send(DebouncedEvent::Write((i.1).clone()));
+                //sj_todo
+                //reschedule on_going_write
+                emitted = true;
+
+            }
+        }
+        if emitted {
+            if let Some(ref mut i) = *write_options {
+                let tt = Instant::now() + Duration::from_secs(1);
+                i.0 = tt;
+            }
         }
         while let Some(event) = events.pop_front() {
             if event.when <= now {
@@ -69,9 +76,10 @@ impl ScheduleWorker {
                 let message = match op {
                     Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
                     Some(op::Op::WRITE) => {
+                        //sj_todo stop on_going_write
+                        //let (mut on_going_write_event, _) = self.worker_on_going_write_event.lock().unwrap();
+                        //*on_going_write_event = None;
                         Some(DebouncedEvent::Write(path))
-                        //sj_todo
-                        //reschedule on_going_write
                     },
                     Some(op::Op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
                     Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
@@ -132,7 +140,7 @@ pub struct WatchTimer {
     delay: Duration,
     events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
     stopped: Arc<AtomicBool>,
-    on_going_write_event: Arc<Mutex<Option<Instant>>>,
+    pub on_going_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
 }
 
 impl WatchTimer {

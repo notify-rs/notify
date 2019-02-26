@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub type OperationsBuffer =
     Arc<Mutex<HashMap<PathBuf, (Option<op::Op>, Option<PathBuf>, Option<u64>)>>>;
@@ -264,9 +264,9 @@ impl Debounce {
                         println!("Sending notice write...");
                         *operation = Some(op::Op::WRITE);
                         let _ = self.tx.send(DebouncedEvent::NoticeWrite(path.clone()));
-                        //sj_todo
-                        //schedule on_going_write
                         restart_timer(timer_id, path.clone(), &mut self.timer);
+                        //sj_todo schedule on_going_write
+                        set_on_going_write_timer(path.clone(), &mut self.timer);
                     }
 
                     // writing to a deleted file is impossible,
@@ -510,4 +510,15 @@ fn restart_timer(timer_id: &mut Option<u64>, path: PathBuf, timer: &mut WatchTim
         timer.ignore(timer_id);
     }
     *timer_id = Some(timer.schedule(path));
+}
+
+fn set_on_going_write_timer(path: PathBuf, timer: &mut WatchTimer) {
+    let tt = Instant::now() + Duration::from_secs(1);
+    let mut sslkjsdf = timer.on_going_write_event.lock().unwrap();
+    if *sslkjsdf == None {
+        println!("Set on_going_write");
+        *sslkjsdf = Some((tt, path));
+    } else {
+        println!("Ignore if set..");
+    }
 }
