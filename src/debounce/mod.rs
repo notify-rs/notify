@@ -510,15 +510,17 @@ fn restart_timer(timer_id: &mut Option<u64>, path: PathBuf, timer: &mut WatchTim
         timer.ignore(timer_id);
     }
     *timer_id = Some(timer.schedule(path));
+    let ww = timer.on_going_write_event.lock().unwrap();
+    if *ww == None {
+
+    }
 }
 
 fn set_on_going_write_timer(path: PathBuf, timer: &mut WatchTimer) {
-    let tt = Instant::now() + Duration::from_secs(1);
+    let tt = Instant::now() + Duration::from_secs(3);
     let mut sslkjsdf = timer.on_going_write_event.lock().unwrap();
     if *sslkjsdf == None {
         println!("Set on_going_write");
         *sslkjsdf = Some((tt, path));
-    } else {
-        println!("Ignore if set..");
     }
 }

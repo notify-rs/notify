@@ -310,19 +310,20 @@ pub mod op {
     /// Multiple actions may be delivered in a single event.
         pub struct Op: u32 {
     /// Attributes changed
-            const CHMOD       = 0b0000001;
+            const CHMOD       = 0b00000001;
     /// Created
-            const CREATE      = 0b0000010;
+            const CREATE      = 0b00000010;
     /// Removed
-            const REMOVE      = 0b0000100;
+            const REMOVE      = 0b00000100;
     /// Renamed
-            const RENAME      = 0b0001000;
+            const RENAME      = 0b00001000;
     /// Written
-            const WRITE       = 0b0010000;
+            const WRITE       = 0b00010000;
     /// File opened for writing was closed
-            const CLOSE_WRITE = 0b0100000;
+            const CLOSE_WRITE = 0b00100000;
     /// Directories need to be rescanned
-            const RESCAN      = 0b1000000;
+            const RESCAN      = 0b01000000;
+            const ON_GOING_WRITE = 0b10000000;
         }
     }
 
@@ -333,6 +334,7 @@ pub mod op {
     pub const WRITE: Op = Op::WRITE;
     pub const CLOSE_WRITE: Op = Op::CLOSE_WRITE;
     pub const RESCAN: Op = Op::RESCAN;
+    pub const ON_GOING_WRITE: Op = Op::ON_GOING_WRITE;
 }
 
 #[cfg(test)]
@@ -348,12 +350,14 @@ mod op_test {
     fn new_bitflags_form() {
         let op = super::op::Op::CHMOD | super::op::Op::WRITE;
         assert!(op.contains(super::op::Op::WRITE));
+        assert!(op.contains(super::op::Op::CHMOD));
     }
 
     #[test]
     fn old_bitflags_form() {
-        let op = super::op::CHMOD | super::op::WRITE;
+        let op = super::op::CHMOD | super::op::WRITE | super::op::ON_GOING_WRITE;
         assert!(op.contains(super::op::WRITE));
+        assert!(op.contains(super::op::ON_GOING_WRITE));
     }
 }
 
@@ -423,6 +427,9 @@ pub enum DebouncedEvent {
     /// were created before the directory could be watched, or if the directory was moved into the
     /// watched directory.
     Write(PathBuf),
+
+    /// some doc
+    OnGoingWrite(PathBuf),
 
     /// `Chmod` is emitted when attributes have been changed and no events were detected for the
     /// path within the specified time frame.

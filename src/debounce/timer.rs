@@ -34,21 +34,14 @@ impl ScheduleWorker {
         let mut events = self.events.lock().unwrap();
         let mut write_options = self.worker_on_going_write_event.lock().unwrap();
         let mut emitted = false;
-        if let Some(ref i) = *write_options {
+        if let Some(ref mut i) = *write_options {
             if i.0 <= now {
-                println!("Sending on going write...");
-                //self.tx.send(DebouncedEvent::Write((i.1).clone()));
-                //sj_todo
-                //reschedule on_going_write
+                self.tx.send(DebouncedEvent::OnGoingWrite((i.1).clone()));
                 emitted = true;
-
             }
         }
         if emitted {
-            if let Some(ref mut i) = *write_options {
-                let tt = Instant::now() + Duration::from_secs(1);
-                i.0 = tt;
-            }
+            *write_options = None;
         }
         while let Some(event) = events.pop_front() {
             if event.when <= now {
@@ -76,9 +69,9 @@ impl ScheduleWorker {
                 let message = match op {
                     Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
                     Some(op::Op::WRITE) => {
-                        //sj_todo stop on_going_write
-                        //let (mut on_going_write_event, _) = self.worker_on_going_write_event.lock().unwrap();
-                        //*on_going_write_event = None;
+                        println!("Stopping on_going_write");
+                        let mut alkjsh = self.worker_on_going_write_event.lock().unwrap();
+                        *alkjsh = None;
                         Some(DebouncedEvent::Write(path))
                     },
                     Some(op::Op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
