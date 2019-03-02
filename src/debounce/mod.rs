@@ -250,7 +250,7 @@ impl Debounce {
                     // it already was a write event
                     Some(op::Op::WRITE) => {
                         restart_timer(timer_id, path.clone(), &mut self.timer);
-                        set_on_going_write_timer(path.clone(), &mut self.timer);
+                        self.timer.set_on_going_write_timer(path.clone());
                     }
 
                     // upgrade to write event
@@ -508,12 +508,4 @@ fn restart_timer(timer_id: &mut Option<u64>, path: PathBuf, timer: &mut WatchTim
         timer.ignore(timer_id);
     }
     *timer_id = Some(timer.schedule(path));
-}
-
-fn set_on_going_write_timer(path: PathBuf, timer: &mut WatchTimer) {
-    let tt = Instant::now() + Duration::from_secs(2);
-    let mut on_going_write_event = timer.on_going_write_event.lock().unwrap();
-    if *on_going_write_event == None {
-        *on_going_write_event = Some((tt, path));
-    }
 }

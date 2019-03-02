@@ -177,6 +177,14 @@ impl WatchTimer {
         }
     }
 
+    pub fn set_on_going_write_timer(&self, path: PathBuf) {
+        let tt = Instant::now() + Duration::from_secs(2);
+        let mut on_going_write_event = self.on_going_write_event.lock().unwrap();
+        if *on_going_write_event == None {
+            *on_going_write_event = Some((tt, path));
+        }
+    }
+
     pub fn schedule(&mut self, path: PathBuf) -> u64 {
         self.counter = self.counter.wrapping_add(1);
 
