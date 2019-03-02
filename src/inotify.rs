@@ -54,6 +54,7 @@ enum EventLoopMsg {
     RemoveWatch(PathBuf, Sender<Result<()>>),
     Shutdown,
     RenameTimeout(u32),
+    OnGoingWriteDelay(Duration),
 }
 
 #[inline]
@@ -199,6 +200,11 @@ impl EventLoop {
                     // send pending rename event only if the rename event for which the timer has been created hasn't been handled already; otherwise ignore this timeout
                     if current_cookie == Some(cookie) {
                         send_pending_rename_event(&mut self.rename_event, &mut self.event_tx);
+                    }
+                }
+                EventLoopMsg::OnGoingWriteDelay(duration) => {
+                    if let EventTx::Debounced {ref tx,ref mut debounce} = self.event_tx {
+                        debounce.set_on_going_write_duration(duration);
                     }
                 }
             }
@@ -455,6 +461,11 @@ impl Watcher for INotifyWatcher {
         let channel = event_loop.channel();
         event_loop.run();
         Ok(INotifyWatcher(Mutex::new(channel)))
+    }
+
+    fn set_on_going_write_duration(&self, duration: Duration) {
+        let msg = EventLoopMsg::OnGoingWriteDelay(duration);
+        self.0.lock().unwrap().send(msg).unwrap();
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {

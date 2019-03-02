@@ -300,6 +300,10 @@ impl Watcher for PollWatcher {
             Err(Error::WatchNotFound)
         }
     }
+
+    fn set_on_going_write_duration(&self, duration: Duration) {
+
+    }
 }
 
 impl Drop for PollWatcher {

@@ -31,18 +31,8 @@ struct ScheduleWorker {
 
 impl ScheduleWorker {
     fn fire_due_events(&self, now: Instant) -> Option<Instant> {
+        self.fire_on_going_write_event(now);
         let mut events = self.events.lock().unwrap();
-        let mut on_going_write_event = self.worker_on_going_write_event.lock().unwrap();
-        let mut emitted = false;
-        if let Some(ref i) = *on_going_write_event {
-            if i.0 <= now {
-                let _ = self.tx.send(DebouncedEvent::OnGoingWrite((i.1).clone()));
-                emitted = true;
-            }
-        }
-        if emitted {
-            *on_going_write_event = None;
-        }
         while let Some(event) = events.pop_front() {
             if event.when <= now {
                 self.fire_event(event)
@@ -54,6 +44,20 @@ impl ScheduleWorker {
             }
         }
         None
+    }
+
+    fn fire_on_going_write_event(&self, now: Instant) {
+        let mut on_going_write_event = self.worker_on_going_write_event.lock().unwrap();
+        let mut emitted = false;
+        if let Some(ref i) = *on_going_write_event {
+            if i.0 <= now {
+                let _ = self.tx.send(DebouncedEvent::OnGoingWrite((i.1).clone()));
+                emitted = true;
+            }
+        }
+        if emitted {
+            *on_going_write_event = None;
+        }
     }
 
     fn fire_event(&self, ev: ScheduledEvent) {
@@ -69,7 +73,7 @@ impl ScheduleWorker {
                 let message = match op {
                     Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
                     Some(op::Op::WRITE) => {
-                        println!("Stopping on_going_write");
+                        //disable on_going_write
                         let mut on_going_write_event = self.worker_on_going_write_event.lock().unwrap();
                         *on_going_write_event = None;
                         Some(DebouncedEvent::Write(path))
@@ -134,6 +138,7 @@ pub struct WatchTimer {
     events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
     stopped: Arc<AtomicBool>,
     pub on_going_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
+    pub on_going_write_duration: Option<Duration>,
 }
 
 impl WatchTimer {
@@ -174,14 +179,22 @@ impl WatchTimer {
             events,
             stopped,
             on_going_write_event,
+            on_going_write_duration: None,
         }
     }
 
-    pub fn set_on_going_write_timer(&self, path: PathBuf) {
-        let tt = Instant::now() + Duration::from_secs(2);
-        let mut on_going_write_event = self.on_going_write_event.lock().unwrap();
-        if *on_going_write_event == None {
-            *on_going_write_event = Some((tt, path));
+    pub fn set_on_going_write_duration(&mut self, duration: Duration) {
+        println!("set_on_going_write_duration in WatchTimer {:?}", duration);
+        self.on_going_write_duration = Some(duration);
+    }
+
+    pub fn schedule_on_going_write_event(&self, path: PathBuf) {
+        if let Some(duration) = self.on_going_write_duration {
+            let tt = Instant::now() + duration;
+            let mut on_going_write_event = self.on_going_write_event.lock().unwrap();
+            if *on_going_write_event == None {
+                *on_going_write_event = Some((tt, path));
+            }
         }
     }
 

@@ -97,6 +97,11 @@ impl Debounce {
         }
     }
 
+    pub fn set_on_going_write_duration(&mut self, duration: Duration) {
+        self.timer.set_on_going_write_duration(duration);
+    }
+
+
     fn check_partial_rename(&mut self, path: PathBuf, op: op::Op, cookie: Option<u32>) {
         if let Ok(mut op_buf) = self.operations_buffer.lock() {
             // the previous event was a rename event, but this one isn't; something went wrong
@@ -250,7 +255,7 @@ impl Debounce {
                     // it already was a write event
                     Some(op::Op::WRITE) => {
                         restart_timer(timer_id, path.clone(), &mut self.timer);
-                        self.timer.set_on_going_write_timer(path.clone());
+                        self.timer.schedule_on_going_write_event(path.clone());
                     }
 
                     // upgrade to write event

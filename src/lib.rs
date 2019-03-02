@@ -594,6 +594,9 @@ pub trait Watcher: Sized {
     /// still being written to.
     fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<Self>;
 
+    ///dummy doc
+    fn set_on_going_write_duration(&self, duration: Duration);
+
     /// Begin watching a new path.
     ///
     /// If the `path` is a directory, `recursive_mode` will be evaluated. If `recursive_mode` is
