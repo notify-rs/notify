@@ -249,8 +249,8 @@ impl Debounce {
                     // keep write event / not need to emit NoticeWrite because
                     // it already was a write event
                     Some(op::Op::WRITE) => {
-                        println!("Delaying write...");
                         restart_timer(timer_id, path.clone(), &mut self.timer);
+                        set_on_going_write_timer(path.clone(), &mut self.timer);
                     }
 
                     // upgrade to write event
@@ -261,12 +261,10 @@ impl Debounce {
 
                     // operations_buffer entry didn't exist
                     None => {
-                        println!("Sending notice write...");
                         *operation = Some(op::Op::WRITE);
                         let _ = self.tx.send(DebouncedEvent::NoticeWrite(path.clone()));
                         restart_timer(timer_id, path.clone(), &mut self.timer);
-                        //sj_todo schedule on_going_write
-                        set_on_going_write_timer(path.clone(), &mut self.timer);
+                        //set_on_going_write_timer(path.clone(), &mut self.timer, self.on_going_write_duration);
                     }
 
                     // writing to a deleted file is impossible,
@@ -510,17 +508,12 @@ fn restart_timer(timer_id: &mut Option<u64>, path: PathBuf, timer: &mut WatchTim
         timer.ignore(timer_id);
     }
     *timer_id = Some(timer.schedule(path));
-    let ww = timer.on_going_write_event.lock().unwrap();
-    if *ww == None {
-
-    }
 }
 
 fn set_on_going_write_timer(path: PathBuf, timer: &mut WatchTimer) {
-    let tt = Instant::now() + Duration::from_secs(3);
-    let mut sslkjsdf = timer.on_going_write_event.lock().unwrap();
-    if *sslkjsdf == None {
-        println!("Set on_going_write");
-        *sslkjsdf = Some((tt, path));
+    let tt = Instant::now() + Duration::from_secs(2);
+    let mut on_going_write_event = timer.on_going_write_event.lock().unwrap();
+    if *on_going_write_event == None {
+        *on_going_write_event = Some((tt, path));
     }
 }

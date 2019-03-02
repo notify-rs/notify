@@ -32,16 +32,16 @@ struct ScheduleWorker {
 impl ScheduleWorker {
     fn fire_due_events(&self, now: Instant) -> Option<Instant> {
         let mut events = self.events.lock().unwrap();
-        let mut write_options = self.worker_on_going_write_event.lock().unwrap();
+        let mut on_going_write_event = self.worker_on_going_write_event.lock().unwrap();
         let mut emitted = false;
-        if let Some(ref mut i) = *write_options {
+        if let Some(ref i) = *on_going_write_event {
             if i.0 <= now {
-                self.tx.send(DebouncedEvent::OnGoingWrite((i.1).clone()));
+                let _ = self.tx.send(DebouncedEvent::OnGoingWrite((i.1).clone()));
                 emitted = true;
             }
         }
         if emitted {
-            *write_options = None;
+            *on_going_write_event = None;
         }
         while let Some(event) = events.pop_front() {
             if event.when <= now {
@@ -70,8 +70,8 @@ impl ScheduleWorker {
                     Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
                     Some(op::Op::WRITE) => {
                         println!("Stopping on_going_write");
-                        let mut alkjsh = self.worker_on_going_write_event.lock().unwrap();
-                        *alkjsh = None;
+                        let mut on_going_write_event = self.worker_on_going_write_event.lock().unwrap();
+                        *on_going_write_event = None;
                         Some(DebouncedEvent::Write(path))
                     },
                     Some(op::Op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
