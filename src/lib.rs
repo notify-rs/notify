@@ -355,9 +355,8 @@ mod op_test {
 
     #[test]
     fn old_bitflags_form() {
-        let op = super::op::CHMOD | super::op::WRITE | super::op::ON_GOING_WRITE;
+        let op = super::op::CHMOD | super::op::WRITE;
         assert!(op.contains(super::op::WRITE));
-        assert!(op.contains(super::op::ON_GOING_WRITE));
     }
 }
 
@@ -428,9 +427,6 @@ pub enum DebouncedEvent {
     /// watched directory.
     Write(PathBuf),
 
-    /// some doc
-    OnGoingWrite(PathBuf),
-
     /// `Chmod` is emitted when attributes have been changed and no events were detected for the
     /// path within the specified time frame.
     Chmod(PathBuf),
@@ -453,6 +449,9 @@ pub enum DebouncedEvent {
     ///
     ///  This event may contain a path for which the error was detected.
     Error(Error, Option<PathBuf>),
+
+    /// Event emitted when a file being watched is to be tailed.
+    OnGoingWrite(PathBuf),
 }
 
 impl PartialEq for DebouncedEvent {
@@ -594,9 +593,6 @@ pub trait Watcher: Sized {
     /// still being written to.
     fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<Self>;
 
-    ///dummy doc
-    fn set_on_going_write_duration(&self, duration: Duration);
-
     /// Begin watching a new path.
     ///
     /// If the `path` is a directory, `recursive_mode` will be evaluated. If `recursive_mode` is
@@ -621,6 +617,10 @@ pub trait Watcher: Sized {
     /// Returns an error in the case that `path` has not been watched or if removing the watch
     /// fails.
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()>;
+
+    ///Sets the duration for DebouncedEvent::OnGoingWrite. When set, OnGoingWrite event will be
+    /// fired every "duration" units.
+    fn set_on_going_write_duration(&self, duration: Duration);
 }
 
 /// The recommended `Watcher` implementation for the current platform
