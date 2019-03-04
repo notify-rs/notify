@@ -463,11 +463,6 @@ impl Watcher for INotifyWatcher {
         Ok(INotifyWatcher(Mutex::new(channel)))
     }
 
-    fn set_on_going_write_duration(&self, duration: Duration) {
-        let msg = EventLoopMsg::OnGoingWriteDelay(duration);
-        self.0.lock().unwrap().send(msg).unwrap();
-    }
-
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         let pb = if path.as_ref().is_absolute() {
             path.as_ref().to_owned()
@@ -496,6 +491,11 @@ impl Watcher for INotifyWatcher {
         // we expect the event loop to live and reply => unwraps must not panic
         self.0.lock().unwrap().send(msg).unwrap();
         rx.recv().unwrap()
+    }
+
+    fn set_on_going_write_duration(&self, duration: Duration) {
+        let msg = EventLoopMsg::OnGoingWriteDelay(duration);
+        self.0.lock().unwrap().send(msg).unwrap();
     }
 }
 

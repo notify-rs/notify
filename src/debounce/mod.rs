@@ -530,7 +530,7 @@ fn handle_on_going_write_event(timer: &WatchTimer, path: PathBuf, tx: &mpsc::Sen
         }
     } else {
         //schedule event
-        if let Some(duration) = timer.on_going_write_duration {
+        if let Some(_) = timer.on_going_write_duration {
             to_be_scheduled = true;
         }
     }
