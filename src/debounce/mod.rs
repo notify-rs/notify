@@ -255,7 +255,9 @@ impl Debounce {
                     // it already was a write event
                     Some(op::Op::WRITE) => {
                         restart_timer(timer_id, path.clone(), &mut self.timer);
-                        self.timer.schedule_on_going_write_event(path.clone());
+                        //self.timer.schedule_on_going_write_event(path.clone());
+
+                        handle_on_going_write_event(&self.timer, path.clone(), &self.tx);
                     }
 
                     // upgrade to write event
@@ -513,4 +515,32 @@ fn restart_timer(timer_id: &mut Option<u64>, path: PathBuf, timer: &mut WatchTim
         timer.ignore(timer_id);
     }
     *timer_id = Some(timer.schedule(path));
+}
+
+fn handle_on_going_write_event(timer: &WatchTimer, path: PathBuf, tx: &mpsc::Sender<DebouncedEvent>) {
+    let mut on_going_write_event = timer.on_going_write_event.lock().unwrap();
+    let mut emitted = false;
+    let mut to_be_scheduled = false;
+    if let Some(ref i) = *on_going_write_event {
+        let now = Instant::now();
+        if i.0 <= now {
+            //fire event
+            let _ = tx.send(DebouncedEvent::OnGoingWrite((i.1).clone()));
+            emitted = true;
+        }
+    } else {
+        //schedule event
+        if let Some(duration) = timer.on_going_write_duration {
+            to_be_scheduled = true;
+        }
+    }
+
+    if to_be_scheduled {
+        let duration = timer.on_going_write_duration.unwrap();
+        let tt = Instant::now() + duration;
+        *on_going_write_event = Some((tt, path));
+    }
+    if emitted {
+        *on_going_write_event = None;
+    }
 }
