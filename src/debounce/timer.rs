@@ -198,7 +198,6 @@ impl WatchTimer {
     }*/
 
     pub fn set_on_going_write_duration(&mut self, duration: Duration) {
-        println!("set_on_going_write_duration in WatchTimer {:?}", duration);
         self.on_going_write_duration = Some(duration);
     }
 
