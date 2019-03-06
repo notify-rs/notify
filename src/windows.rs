@@ -54,6 +54,7 @@ enum Action {
     Watch(PathBuf, RecursiveMode),
     Unwatch(PathBuf),
     Stop,
+    SetOnGoingWriteEventDuration(Duration),
 }
 
 pub enum MetaEvent {
@@ -118,6 +119,12 @@ impl ReadDirectoryChangesServer {
                             stop_watch(ws, &self.meta_tx);
                         }
                         break;
+                    },
+                    Action::SetOnGoingWriteEventDuration(duration) => {
+                        let mut debounced_event = self.event_tx.lock().unwrap();
+                        if let EventTx::Debounced {ref tx,ref mut debounce} = *debounced_event {
+                            debounce.set_on_going_write_duration(duration);
+                        }
                     }
                 }
             }
@@ -561,6 +568,10 @@ impl Watcher for ReadDirectoryChangesWatcher {
             .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()));
         self.wakeup_server();
         res
+    }
+
+    fn set_on_going_write_duration(&self, duration: Duration) {
+        self.tx.send(Action::SetOnGoingWriteEventDuration(duration));
     }
 }
 
