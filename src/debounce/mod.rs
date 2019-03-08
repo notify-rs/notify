@@ -255,8 +255,6 @@ impl Debounce {
                     // it already was a write event
                     Some(op::Op::WRITE) => {
                         restart_timer(timer_id, path.clone(), &mut self.timer);
-                        //self.timer.schedule_on_going_write_event(path.clone());
-
                         handle_on_going_write_event(&self.timer, path.clone(), &self.tx);
                     }
 
@@ -271,7 +269,6 @@ impl Debounce {
                         *operation = Some(op::Op::WRITE);
                         let _ = self.tx.send(DebouncedEvent::NoticeWrite(path.clone()));
                         restart_timer(timer_id, path.clone(), &mut self.timer);
-                        //set_on_going_write_timer(path.clone(), &mut self.timer, self.on_going_write_duration);
                     }
 
                     // writing to a deleted file is impossible,

@@ -31,7 +31,6 @@ struct ScheduleWorker {
 
 impl ScheduleWorker {
     fn fire_due_events(&self, now: Instant) -> Option<Instant> {
-        //self.fire_on_going_write_event(now);
         let mut events = self.events.lock().unwrap();
         while let Some(event) = events.pop_front() {
             if event.when <= now {
@@ -45,20 +44,6 @@ impl ScheduleWorker {
         }
         None
     }
-
-    /*fn fire_on_going_write_event(&self, now: Instant) {
-        let mut on_going_write_event = self.worker_on_going_write_event.lock().unwrap();
-        let mut emitted = false;
-        if let Some(ref i) = *on_going_write_event {
-            if i.0 <= now {
-                let _ = self.tx.send(DebouncedEvent::OnGoingWrite((i.1).clone()));
-                emitted = true;
-            }
-        }
-        if emitted {
-            *on_going_write_event = None;
-        }
-    }*/
 
     fn fire_event(&self, ev: ScheduledEvent) {
         let ScheduledEvent { path, .. } = ev;
@@ -183,33 +168,9 @@ impl WatchTimer {
         }
     }
 
-    /*fn fire_on_going_write_event(&self, now: Instant) {
-        let mut on_going_write_event = self.worker_on_going_write_event.lock().unwrap();
-        let mut emitted = false;
-        if let Some(ref i) = *on_going_write_event {
-            if i.0 <= now {
-                let _ = self.tx.send(DebouncedEvent::OnGoingWrite((i.1).clone()));
-                emitted = true;
-            }
-        }
-        if emitted {
-            *on_going_write_event = None;
-        }
-    }*/
-
     pub fn set_on_going_write_duration(&mut self, duration: Duration) {
         self.on_going_write_duration = Some(duration);
     }
-
-    /*pub fn schedule_on_going_write_event(&self, path: PathBuf) {
-        if let Some(duration) = self.on_going_write_duration {
-            let tt = Instant::now() + duration;
-            let mut on_going_write_event = self.on_going_write_event.lock().unwrap();
-            if *on_going_write_event == None {
-                *on_going_write_event = Some((tt, path));
-            }
-        }
-    }*/
 
     pub fn schedule(&mut self, path: PathBuf) -> u64 {
         self.counter = self.counter.wrapping_add(1);
