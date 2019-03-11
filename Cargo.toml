@@ -17,6 +17,7 @@ readme = "README.md"
 license = "CC0-1.0"
 keywords = ["events", "filesystem", "notify", "watch"]
 categories = ["filesystem"]
+exclude = ["/.travis.yml", "/clippy.toml"]
 
 [badges]
 travis-ci = { repository = "passcod/notify", branch = "main" }
