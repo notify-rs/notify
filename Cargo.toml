@@ -1,31 +1,27 @@
 [package]
 authors = ["Félix Saparelli <felix@passcod.name>"]
 name = "notify"
-version = "5.0.0-alpha.1"
+version = "6.0.0-alpha.1"
 
 [workspace]
 members = [
   "backend",
-  "backend-poll",
-  "backend-inotify",
+  # "backend-poll",
+  # "backend-inotify",
   # "backend-kqueue",
 ]
 
 [dependencies]
-multiqueue = "0.3.2"
-tokio = "0.1.5"
-
-[replace]
-"multiqueue:0.3.2" = { git = 'https://github.com/passcod/multiqueue', branch = 'upgrade-smallvec' }
+futures-preview = "0.3.0-alpha.13"
 
 [dependencies.notify-backend]
 path = "./backend"
 
-[target.'cfg(target_os="linux")'.dependencies.notify-backend-inotify]
-path = "./backend-inotify"
-
-[target.'cfg(target_os="android")'.dependencies.notify-backend-inotify]
-path = "./backend-inotify"
+# [target.'cfg(target_os="linux")'.dependencies.notify-backend-inotify]
+# path = "./backend-inotify"
+#
+# [target.'cfg(target_os="android")'.dependencies.notify-backend-inotify]
+# path = "./backend-inotify"
 
 # [target.'cfg(target_os="dragonfly")'.dependencies.notify-backend-kqueue]
 # path = "./backend-kqueue"
@@ -39,5 +35,5 @@ path = "./backend-inotify"
 # [target.'cfg(target_os="openbsd")'.dependencies.notify-backend-kqueue]
 # path = "./backend-kqueue"
 
-[dependencies.notify-backend-poll]
-path = "./backend-poll"
+# [dependencies.notify-backend-poll]
+# path = "./backend-poll"

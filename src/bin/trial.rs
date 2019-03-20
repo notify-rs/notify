@@ -1,3 +1,6 @@
+fn main() {}
+
+/*
 extern crate notify;
 extern crate tokio;
 
@@ -74,3 +77,4 @@ fn main() {
     println!("Start notify!\n");
     runtime.shutdown_on_idle().wait().unwrap();
 }
+*/

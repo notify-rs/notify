@@ -2,8 +2,9 @@
 authors = ["Félix Saparelli <felix@passcod.name>"]
 name = "notify-backend"
 version = "1.0.0"
+edition = "2018"
 
 [dependencies]
 anymap = "0.12.1"
-futures = "0.1.21"
-mio = "0.6.15"
+futures-preview = "0.3.0-alpha.13"
+mio = "0.6.16"

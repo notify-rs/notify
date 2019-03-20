@@ -8,15 +8,7 @@
 //! Implementors should start by including the prelude:
 //!
 //! ```rust,ignore
-//! extern crate notify_backend as backend;
-//!
-//! use backend::prelude::*;
-//! ```
-//!
-//! And optionally the Buffer:
-//!
-//! ```rust,ignore
-//! use backend::Buffer;
+//! use notify_backend::prelude::*;
 //! ```
 //!
 //! The prelude imports all types needed to implement a Backend, and re-exports dependent libraries
@@ -25,18 +17,14 @@
 //!
 //! [implementor's guide]: https://github.com/passcod/notify/wiki/Writing-a-Backend
 
+#![feature(async_await, await_macro, futures_api)]
+
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
 #![deny(clippy::pedantic)]
 #![allow(clippy::stutter)]
 
-extern crate anymap;
-pub extern crate futures;
-pub extern crate mio;
-
-pub use self::buffer::Buffer;
-
-pub mod backend;
+// pub mod backend;
 pub mod buffer;
 pub mod capability;
 pub mod event;
@@ -44,13 +32,15 @@ pub mod stream;
 
 #[cfg(unix)]
 pub mod unix;
-#[macro_use]
-pub mod compliance;
+// #[macro_use]
+// pub mod compliance;
 
 /// The Notify prelude.
 ///
 /// All that is needed to implement a `Backend`, except for the optional `Buffer`.
 pub mod prelude {
+    pub use crate::buffer::Buffer;
+
     pub use futures::{self, Future, Poll, Stream};
 
     pub use mio::{
@@ -63,22 +53,23 @@ pub mod prelude {
     /// An empty `io::Result` used for mio's Evented trait signatures
     pub type MioResult = ::std::io::Result<()>;
 
-    pub use super::backend::{
-        Backend as NotifyBackend, BoxedBackend, Error as BackendError,
-        ErrorWrap as BackendErrorWrap, NewResult as NewBackendResult,
-    };
+    // pub use super::backend::{
+    //     Backend as NotifyBackend, BoxedBackend, Error as BackendError,
+    //     ErrorWrap as BackendErrorWrap, NewResult as NewBackendResult,
+    // };
 
     #[cfg(unix)]
-    pub use super::unix::OwnedEventedFd;
+    pub use crate::unix::OwnedEventedFd;
 
-    pub use super::capability::Capability;
+    pub use crate::capability::Capability;
 
-    pub use super::event::{
-        self, AccessKind, AccessMode, AnyMap, CreateKind, DataChange, Event, EventKind,
+    pub use crate::event::{
+        self, AccessKind, AccessMode, CreateKind, DataChange, Event, EventKind,
         MetadataKind, ModifyKind, RemoveKind, RenameMode,
+        // AnyMap,
     };
 
-    pub use super::stream::{
+    pub use crate::stream::{
         EmptyResult as EmptyStreamResult, Error as StreamError, Item as StreamItem,
     };
 }

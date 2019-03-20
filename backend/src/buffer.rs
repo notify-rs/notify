@@ -1,46 +1,48 @@
 //! The `Buffer` utility.
+//!
+//! Some native platforms don't support returning a single event and keeping the rest, they just
+//! give you everything they've got… but `Stream` only supports a single `Item` per `::poll_next()`
+//! call, so the remaining has to be buffered somewhere. This is where.
+//!
+//! Furthermore, some platforms that do have a queue may behave badly when the queue overflows, for
+//! example dropping all events, corrupting the queue, or aborting entirely. Instead of letting
+//! that happen, `Backend` implementations for those platforms should attempt to take many events
+//! from the platform queue by default, and stick them in this buffer, which has more predictable
+//! behaviour. In this case, a higher than default limit should be used.
+//!
+//! Platforms which native queue have reasonable behaviour should not make use of this technique
+//! (but using this to buffer multiple events returned from one call during poll is alright).
 
-use super::event::{AnyMap, Event, EventKind};
-use super::stream::{Error, Item};
-use futures::{Async, Poll};
-use std::{collections::VecDeque, mem::size_of, num::NonZeroU16, u16};
+use crate::stream::{Error, Item};
+use futures::{Poll, Stream, task::Waker};
+use std::{collections::VecDeque, mem::size_of, num::NonZeroU16, pin::Pin, u16};
 
 const U16MAX: usize = u16::max_value() as usize;
 
 /// An internal buffer to store events obtained from native platforms.
 ///
-/// Some native platforms don't support returning a single event and keeping the rest, they just
-/// give you everything they've got… but `Stream` only supports a single `Item` per `::poll()`
-/// call, so the remaining has to be buffered somewhere. This is where.
-///
-/// Furthermore, some platforms that do have a queue may behave badly when the queue overflows, for
-/// example dropping all events, corrupting the queue, or aborting entirely. Instead of letting
-/// that happen, `Backend` implementations for those platforms should attempt to take many events
-/// from the platform queue by default, and stick them in this buffer, which has more predictable
-/// behaviour. In this case, a higher than default limit should be used.
-///
-/// Platforms which native queue have reasonable behaviour should not make use of this technique
-/// (but using this to buffer multiple events returned from one call during poll is alright).
+/// This buffer deals in `Item`s, which are `Result<Event, Error>`. That is, both events and stream
+/// errors are queued up and stored, which aligns with how the rest of Notify works.
 ///
 /// This buffer is implemented over a `VecDeque` aka a "FIFO" queue. Items are inserted at the
 /// "back" of the queue and extracted from the "front". At a set limit, further items are dropped
-/// while the queue remains full, and a `Missing` event is generated. Note that this means the
+/// while the queue remains full, and a `Missed` error is generated. Note that this means the
 /// effective limit is one less than the configured limit.
 ///
-/// If the last item in the buffer is a `Missing` event and more items are dropped, that event's
-/// drop hint count will be incremented. If a `Missing` event is received while the queue is full,
-/// the received event's drop hint count will be added to the buffer's `Missing` event.
+/// If the last item in the buffer is a `Missed` error and more items are dropped, that error's
+/// drop hint count will be incremented. If a `Missed` error is received while the queue is full,
+/// the received error's drop hint count will be added to the buffer's `Missed` error.
 ///
-/// This buffer has a `poll()` method which obeys `Stream` semantics, and can be used instead of
-/// additional boilerplate over the `pull()` method. The buffer also has a `close()` method which
-/// will irrevocably close the buffer. A closed buffer will not accept any new items, but continue
-/// to serve items through the `poll()` method until it empties, at which point it will indicate
-/// that the `Stream` is ended.
+/// This buffer implements `Stream`, but can be used manually with additional boilerplate with the
+/// `pull()` method and the rest of its API. There is a `close()` method which will irrevocably
+/// close the buffer. A closed buffer will not accept any new items, but continue to serve items
+/// through the `Stream` impl until it empties, at which point it will indicate that the `Stream`
+/// is ended forevermore (it always behaves and there's no need to `fuse` it).
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Buffer {
     closed: bool,
-    internal: VecDeque<Event>,
+    internal: VecDeque<Item>,
     limit: usize,
 }
 
@@ -54,17 +56,17 @@ impl Buffer {
         }
     }
 
-    /// Pushes an `Event` at the "back" of the buffer.
+    /// Pushes an `Item` at the "back" of the buffer.
     ///
-    /// Drops the `Event`, generating or incrementing a `Missed` event, if:
+    /// Drops the `Item`, generating or incrementing a `Missed` event, if:
     ///
     ///  - the buffer is full, or
     ///  - the buffer is closed.
     ///
     /// If the buffer is closed _and_ has drained completely, further events are **silently**
-    /// dropped, and no `Missed` event is generated.
+    /// dropped, and no `Missed` error is generated.
     ///
-    /// If a `Missed` event is pushed when the buffer is full, behaviour depends on the state of
+    /// If a `Missed` error is pushed when the buffer is full, behaviour depends on the state of
     /// the buffer and the content of the missed hint, in order to retain as much information as
     /// possible while still keeping behaviour consistent.
     ///
@@ -73,9 +75,9 @@ impl Buffer {
     /// | Incoming hint is None | Increment by one  | Add Missed(1)    |
     /// | Incomint hint is Some | Sum hints         | Add Missed(hint) |
     ///
-    /// When full, the incoming event is always discarded, even in the case of a `Missed`: all path
+    /// When full, the incoming item is always discarded, even in the case of a `Missed`: all path
     /// and attrs information is lost.
-    pub fn push(&mut self, event: Event) {
+    pub fn push(&mut self, item: Item) {
         if self.closed || self.free_space().is_none() {
             // Length will only be 0 if the buffer is closed and it has drained completely.
             // At that point, no new data should be added, including Missed events.
@@ -83,50 +85,30 @@ impl Buffer {
                 return;
             }
 
-            let mut hint = match event.kind {
-                EventKind::Missed(Some(h)) => h.get(),
+            let mut hint = match item {
+                Err(Error::Missed(Some(h))) => h.get(),
                 _ => 1,
             };
 
             if self.has_missed() {
                 let prior_missed = self.internal.pop_back().unwrap(); // Safe because of has_missed()
-                let prior_hint = match prior_missed.kind {
-                    EventKind::Missed(Some(h)) => h.get(),
+                let prior_hint = match prior_missed {
+                    Err(Error::Missed(Some(h))) => h.get(),
                     _ => 0, // just in case a non-buffer-added Missed is there and None
                 };
 
                 hint += prior_hint;
             }
 
-            self.internal.push_back(Event {
-                kind: EventKind::Missed(NonZeroU16::new(hint)),
-                path: None,
-                attrs: AnyMap::new(),
-            });
+            self.internal.push_back(Err(Error::Missed(NonZeroU16::new(hint))));
         } else {
-            self.internal.push_back(event);
+            self.internal.push_back(item);
         }
     }
 
     /// Pulls an `Event` from the "front" of the buffer, if any is available.
-    pub fn pull(&mut self) -> Option<Event> {
+    pub fn pull(&mut self) -> Option<Item> {
         self.internal.pop_front()
-    }
-
-    /// Polls the buffer for an `Event`, compatible with `Stream` semantics.
-    ///
-    ///  - If an Event is available, return `Ready(Some(event))`;
-    ///  - if no Event is available and the buffer is closed, return `Ready(None)`;
-    ///  - otherwise, return `NotReady`.
-    pub fn poll(&mut self) -> Poll<Option<Item>, Error> {
-        Ok(match self.pull() {
-            Some(item) => Async::Ready(Some(item)),
-            None => if self.closed {
-                Async::Ready(None)
-            } else {
-                Async::NotReady
-            },
-        })
     }
 
     /// Irrevocably closes the buffer.
@@ -144,24 +126,21 @@ impl Buffer {
     }
 
     /// Returns the Event at the "front" of the buffer, if any, without consuming it.
-    pub fn peek(&self) -> Option<&Event> {
+    pub fn peek(&self) -> Option<&Item> {
         self.internal.front()
     }
 
     /// Indicates whether the last event is a `Missed` event.
     fn has_missed(&self) -> bool {
         match self.internal.back() {
-            None => false,
-            Some(e) => match e.kind {
-                EventKind::Missed(_) => true,
-                _ => false,
-            },
+            Some(Err(Error::Missed(_))) => true,
+            _ => false,
         }
     }
 
     /// Indicates if and how much free space remains in the buffer.
     ///
-    /// One free space is reserved for the `Missed` event at the back of the buffer. That is, the
+    /// One free space is reserved for the `Missed` error at the back of the buffer. That is, the
     /// last space is always either free or filled with a `Missed` event, and in both cases this
     /// method returns `None`.
     pub fn free_space(&self) -> Option<NonZeroU16> {
@@ -187,11 +166,26 @@ impl Buffer {
     }
 }
 
+impl Stream for Buffer {
+    type Item = Item;
+
+    fn poll_next(mut self: Pin<&mut Self>, _: &Waker) -> Poll<Option<Item>> {
+        match self.pull() {
+            Some(item) => Poll::Ready(Some(item)),
+            None => if self.closed {
+                Poll::Ready(None)
+            } else {
+                Poll::Pending
+            },
+        }
+    }
+}
+
 impl Default for Buffer {
     /// Creates an empty Buffer with the default limit.
     ///
-    /// The default limit is computed as 16 KiB divided by the size of `Event`.
+    /// The default limit is computed as 16 KiB divided by the size of `Item`.
     fn default() -> Self {
-        Self::new(16 * 1024 / size_of::<Event>())
+        Self::new(16 * 1024 / size_of::<Item>())
     }
 }
