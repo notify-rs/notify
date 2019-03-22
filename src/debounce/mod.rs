@@ -516,28 +516,19 @@ fn restart_timer(timer_id: &mut Option<u64>, path: PathBuf, timer: &mut WatchTim
 
 fn handle_on_going_write_event(timer: &WatchTimer, path: PathBuf, tx: &mpsc::Sender<DebouncedEvent>) {
     let mut on_going_write_event = timer.on_going_write_event.lock().unwrap();
-    let mut emitted = false;
-    let mut to_be_scheduled = false;
+    let mut event_details = Option::None;
     if let Some(ref i) = *on_going_write_event {
         let now = Instant::now();
         if i.0 <= now {
             //fire event
             let _ = tx.send(DebouncedEvent::OnGoingWrite((i.1).clone()));
-            emitted = true;
         }
     } else {
         //schedule event
-        if let Some(_) = timer.on_going_write_duration {
-            to_be_scheduled = true;
+        if let Some(d) = timer.on_going_write_duration {
+            let fire_at = Instant::now() + d;
+            event_details = Some((fire_at, path));
         }
     }
-
-    if to_be_scheduled {
-        let duration = timer.on_going_write_duration.unwrap();
-        let tt = Instant::now() + duration;
-        *on_going_write_event = Some((tt, path));
-    }
-    if emitted {
-        *on_going_write_event = None;
-    }
+    *on_going_write_event = event_details;
 }
