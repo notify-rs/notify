@@ -618,9 +618,11 @@ pub trait Watcher: Sized {
     /// fails.
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()>;
 
-    ///Sets the duration for DebouncedEvent::OnGoingWrite. When set, OnGoingWrite event will be
+    /// Sets the duration for DebouncedEvent::OnGoingWrite. When set, OnGoingWrite event will be
     /// fired every "duration" units.
-    fn set_on_going_write_duration(&self, duration: Duration);
+    fn set_on_going_write_duration(&self, duration: Duration) {
+        // null and poll watchers are not required to implement this.
+    }
 }
 
 /// The recommended `Watcher` implementation for the current platform

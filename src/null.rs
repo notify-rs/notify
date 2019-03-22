@@ -28,8 +28,4 @@ impl Watcher for NullWatcher {
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         Ok(())
     }
-
-    fn set_on_going_write_duration(&self, duration: Duration) {
-
-    }
 }
