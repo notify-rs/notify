@@ -31,7 +31,6 @@ fn events_are_debuggable() {
     );
 }
 
-
 #[cfg(feature = "serde")]
 #[test]
 fn events_are_serializable() {
@@ -65,6 +64,39 @@ fn events_are_serializable() {
         "path": "/example",
         "attrs": { "info": "unmount" }
     }));
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn events_are_deserializable() {
+    assert_eq!(serde_json::from_str::<EventKind>(r#""any""#).unwrap(),
+        EventKind::Any);
+
+    assert_eq!(serde_json::from_str::<EventKind>(r#""other""#).unwrap(),
+        EventKind::Other);
+
+    assert_eq!(serde_json::from_str::<Event>(r#"{
+        "type": { "access": { "kind": "open", "mode": "execute" } },
+        "path": null,
+        "attrs": {}
+    }"#).unwrap(), Event {
+        kind: EventKind::Access(AccessKind::Open(AccessMode::Execute)),
+        path: None,
+        attrs: AnyMap::new(),
+    });
+
+    let mut attrs = AnyMap::new();
+    attrs.insert(event::Info("unmount".into()));
+
+    assert_eq!(serde_json::from_str::<Event>(r#"{
+        "type": { "remove": { "kind": "other" } },
+        "path": "/example",
+        "attrs": { "info": "unmount" }
+    }"#).unwrap(), Event {
+        kind: EventKind::Remove(RemoveKind::Other),
+        path: Some("/example".into()),
+        attrs
+    });
 }
 
 #[cfg(feature = "serde")]

@@ -6,7 +6,7 @@ use std::{
 };
 
 #[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize, de::Deserializer, ser::{Serializer, SerializeMap}};
+use serde::{Deserialize, Serialize};
 
 /// An `AnyMap` convenience type with the needed bounds for events.
 pub type AnyMap = Map<CloneAny + Send + Sync>;
@@ -346,8 +346,8 @@ pub struct Event {
     /// There is currently no way to serialise or deserialise arbitrary attributes, only well-known
     /// ones handled explicitly here are supported. This might change in the future.
     #[cfg_attr(feature = "serde", serde(default = "AnyMap::new"))]
-    #[cfg_attr(feature = "serde", serde(skip_deserializing))]
-    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_attrs"))]
+    #[cfg_attr(feature = "serde", serde(deserialize_with = "attr_serde::deserialize"))]
+    #[cfg_attr(feature = "serde", serde(serialize_with = "attr_serde::serialize"))]
     pub attrs: AnyMap,
 }
 
@@ -357,6 +357,7 @@ pub struct Event {
 /// events that are related to each other, and tag those with an identical "tracking id" or
 /// "cookie". The value is normalised to `usize`.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Tracker(pub usize);
 
 /// Additional information on the event.
@@ -371,6 +372,7 @@ pub struct Tracker(pub usize);
 ///
 /// This should be a short string, and changes may be considered breaking.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Info(pub String);
 
 /// The source of the event.
@@ -379,6 +381,7 @@ pub struct Info(pub String);
 /// cases this may be dynamically generated, but should contain a prefix to make it unambiguous
 /// between backends.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Source(pub String);
 
 // + typeid attr?
@@ -443,19 +446,49 @@ impl Hash for Event {
 }
 
 #[cfg(feature = "serde")]
-fn serialize_attrs<S>(attrs: &AnyMap, s: S) -> Result<S::Ok, S::Error> where S: Serializer {
-    let tracker = attrs.get::<Tracker>().map(|v| v.0.clone());
-    let info = attrs.get::<Info>().map(|v| v.0.clone());
-    let source = attrs.get::<Source>().map(|v| v.0.clone());
+mod attr_serde {
+    use serde::{de::Deserializer, ser::{Serializer, SerializeMap}};
+    use std::collections::HashMap;
+    use super::*;
 
-    let mut length = 0;
-    if tracker.is_some() { length += 1; }
-    if info.is_some() { length += 1; }
-    if source.is_some() { length += 1; }
+    pub(crate) fn serialize<S>(attrs: &AnyMap, s: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let tracker = attrs.get::<Tracker>().map(|v| v.0.clone());
+        let info = attrs.get::<Info>().map(|v| v.0.clone());
+        let source = attrs.get::<Source>().map(|v| v.0.clone());
 
-    let mut map = s.serialize_map(Some(length))?;
-    if let Some(val) = tracker { map.serialize_entry("tracker", &val); }
-    if let Some(val) = info { map.serialize_entry("info", &val); }
-    if let Some(val) = source { map.serialize_entry("source", &val); }
-    map.end()
+        let mut length = 0;
+        if tracker.is_some() { length += 1; }
+        if info.is_some() { length += 1; }
+        if source.is_some() { length += 1; }
+
+        let mut map = s.serialize_map(Some(length))?;
+        if let Some(val) = tracker { map.serialize_entry("tracker", &val); }
+        if let Some(val) = info { map.serialize_entry("info", &val); }
+        if let Some(val) = source { map.serialize_entry("source", &val); }
+        map.end()
+    }
+
+    pub(crate) fn deserialize<'de, D>(d: D) -> Result<AnyMap, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Clone, Deserialize)]
+        #[serde(rename_all = "kebab-case")]
+        #[serde(untagged)]
+        enum Attr {
+            Tracker(Option<Tracker>),
+            Info(Option<Info>),
+            Source(Option<Source>),
+        }
+
+        #[derive(Deserialize)]
+        struct Attrs(pub HashMap<String, Attr>);
+
+        let attrs = Attrs::deserialize(d)?;
+        let mut map = AnyMap::with_capacity(attrs.0.len());
+        if let Some(Attr::Tracker(Some(val))) = attrs.0.get("tracker").cloned() { map.insert(val); }
+        if let Some(Attr::Info(Some(val))) = attrs.0.get("info").cloned() { map.insert(val); }
+        if let Some(Attr::Source(Some(val))) = attrs.0.get("source").cloned() { map.insert(val); }
+        Ok(map)
+    }
 }
