@@ -2,7 +2,7 @@
 
 mod timer;
 
-use super::{op, DebouncedEvent, RawEvent};
+use super::{op, DebouncedEvent, RawEvent, Config};
 
 use self::timer::WatchTimer;
 
@@ -97,8 +97,12 @@ impl Debounce {
         }
     }
 
-    pub fn set_ongoing_write_duration(&mut self, duration: Duration) {
-        self.timer.set_ongoing_write_duration(duration);
+    pub fn configure_debounced_mode(&mut self, config: Config) {
+        match config {
+            Config::OngoingWrites(c) => {
+                self.timer.set_ongoing_write_duration(c);
+            }
+        }
     }
 
 
@@ -522,6 +526,8 @@ fn handle_ongoing_write_event(timer: &WatchTimer, path: PathBuf, tx: &mpsc::Send
         if i.0 <= now {
             //fire event
             let _ = tx.send(DebouncedEvent::OnGoingWrite((i.1).clone()));
+        } else {
+            event_details = Some((i.0, i.1.clone()));
         }
     } else {
         //schedule event

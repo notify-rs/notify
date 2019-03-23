@@ -310,20 +310,19 @@ pub mod op {
     /// Multiple actions may be delivered in a single event.
         pub struct Op: u32 {
     /// Attributes changed
-            const CHMOD       = 0b00000001;
+            const CHMOD       = 0b0000001;
     /// Created
-            const CREATE      = 0b00000010;
+            const CREATE      = 0b0000010;
     /// Removed
-            const REMOVE      = 0b00000100;
+            const REMOVE      = 0b0000100;
     /// Renamed
-            const RENAME      = 0b00001000;
+            const RENAME      = 0b0001000;
     /// Written
-            const WRITE       = 0b00010000;
+            const WRITE       = 0b0010000;
     /// File opened for writing was closed
-            const CLOSE_WRITE = 0b00100000;
+            const CLOSE_WRITE = 0b0100000;
     /// Directories need to be rescanned
-            const RESCAN      = 0b01000000;
-            const ONGOING_WRITE = 0b10000000;
+            const RESCAN      = 0b1000000;
         }
     }
 
@@ -334,7 +333,6 @@ pub mod op {
     pub const WRITE: Op = Op::WRITE;
     pub const CLOSE_WRITE: Op = Op::CLOSE_WRITE;
     pub const RESCAN: Op = Op::RESCAN;
-    pub const ONGOING_WRITE: Op = Op::ONGOING_WRITE;
 }
 
 #[cfg(test)]
@@ -618,11 +616,24 @@ pub trait Watcher: Sized {
     /// fails.
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()>;
 
-    /// Sets the duration for DebouncedEvent::OnGoingWrite. When set, OnGoingWrite event will be
-    /// fired every "duration" units.
-    fn set_ongoing_write_duration(&self, duration: Duration) {
-        // null and poll watchers are not required to implement this.
+    /// Configure notify with Configs.
+    fn configure(&self, option: Config) -> Result<()> {
+        // Default implementation because null and poll watcher are not configurable (but can be in future)
+        Ok(())
     }
+}
+
+/// Configurations that can be used when watching a file/directory.
+pub enum Config {
+    /// In debounced mode a WRITE event is fired every X unit of time if no WRITE occurs before X.
+    /// But in some scenarios (like when tailing a file) we would never receive the WRITE event
+    /// because the watchee is being written to every Y unit of time where Y < X.
+    /// Use this config to let notify emit DebouncedEvent::OnGoingWrite event before emitting a
+    /// WRITE event. Once a WRITE event is emitted notify will cancel OnGoingWrite (but still emit
+    /// OnGoingWrite in the future)
+    /// Hence the Duration of this config should be less than watchers delay.
+    /// To stop emitting OnGoingWrite, pass this config with None.
+    OngoingWrites(Option<Duration>),
 }
 
 /// The recommended `Watcher` implementation for the current platform

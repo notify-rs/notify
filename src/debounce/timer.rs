@@ -168,8 +168,8 @@ impl WatchTimer {
         }
     }
 
-    pub fn set_ongoing_write_duration(&mut self, duration: Duration) {
-        self.ongoing_write_duration = Some(duration);
+    pub fn set_ongoing_write_duration(&mut self, duration: Option<Duration>) {
+        self.ongoing_write_duration = duration;
     }
 
     pub fn schedule(&mut self, path: PathBuf) -> u64 {

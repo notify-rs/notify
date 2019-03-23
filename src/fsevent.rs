@@ -14,7 +14,7 @@
 extern crate fsevent as fse;
 
 use super::debounce::{Debounce, EventTx};
-use super::{op, DebouncedEvent, Error, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, DebouncedEvent, Error, RawEvent, RecursiveMode, Result, Watcher, Config};
 use fsevent_sys::core_foundation as cf;
 use fsevent_sys::fsevent as fs;
 use libc;
@@ -395,11 +395,12 @@ impl Watcher for FsEventWatcher {
         result
     }
 
-    fn set_ongoing_write_duration(&self, duration: Duration) {
+    fn configure(&self, config: Config) -> Result<()> {
         let mut debounced_event = self.event_tx.lock().unwrap();
         if let EventTx::Debounced {ref tx,ref mut debounce} = *debounced_event {
-            debounce.set_ongoing_write_duration(duration);
+            debounce.configure_debounced_mode(config);
         }
+        Ok(())
     }
 }
 

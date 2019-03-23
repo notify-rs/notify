@@ -16,7 +16,7 @@ use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
 use super::debounce::{Debounce, EventTx};
-use super::{op, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher, Config};
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
@@ -54,7 +54,7 @@ enum Action {
     Watch(PathBuf, RecursiveMode),
     Unwatch(PathBuf),
     Stop,
-    SetOnGoingWriteEventDuration(Duration),
+    Configure(Config),
 }
 
 pub enum MetaEvent {
@@ -120,10 +120,10 @@ impl ReadDirectoryChangesServer {
                         }
                         break;
                     },
-                    Action::SetOnGoingWriteEventDuration(duration) => {
+                    Action::Configure(config) => {
                         let mut debounced_event = self.event_tx.lock().unwrap();
                         if let EventTx::Debounced {ref tx,ref mut debounce} = *debounced_event {
-                            debounce.set_ongoing_write_duration(duration);
+                            debounce.configure_debounced_mode(config);
                         }
                     }
                 }
@@ -570,8 +570,9 @@ impl Watcher for ReadDirectoryChangesWatcher {
         res
     }
 
-    fn set_ongoing_write_duration(&self, duration: Duration) {
-        self.tx.send(Action::SetOnGoingWriteEventDuration(duration));
+    fn configure(&self, config: Config) -> Result<()> {
+        self.tx.send(Action::Configure(config));
+        Ok(())
     }
 }
 
