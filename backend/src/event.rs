@@ -5,13 +5,13 @@
 //!
 //! This may be addressed at some future time.
 
-// use anymap::{any::CloneAny, Map};
+use anymap::{any::CloneAny, Map};
 use std::{
     fmt, hash::{Hash, Hasher}, path::PathBuf,
 };
 
-// /// An `AnyMap` convenience type with the needed bounds for events.
-// pub type AnyMap = Map<CloneAny + Send + Sync>;
+/// An `AnyMap` convenience type with the needed bounds for events.
+pub type AnyMap = Map<CloneAny + Send + Sync>;
 
 /// An event describing open or close operations on files.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -308,7 +308,6 @@ pub struct Event {
     // In the future, it might be possible to have more data and to benchmark things properly, so
     // the perfomance can be actually quantified. Also, it might turn out that I have no idea what
     // I was talking about, so the above may be discarded or reviewed. We'll see!
-    /*
     /// Additional attributes of the event.
     ///
     /// Arbitrary data may be added to this field, without restriction beyond the `Sync` and
@@ -319,8 +318,7 @@ pub struct Event {
     /// entries within the `AnyMap` container and avoid conflicts. For interoperability, one of the
     /// “well-known” types (or propose a new one) should be used instead. See the list on the wiki:
     /// https://github.com/passcod/notify/wiki/Well-Known-Event-Attrs
-    */
-    // pub attrs: AnyMap,
+    pub attrs: AnyMap,
 }
 
 /// Tracking ID for events that are related.
@@ -356,20 +354,20 @@ pub struct Source(pub String);
 // + typeid attr?
 
 impl Event {
-    // /// Retrieves the tracker ID for an event directly, if present.
-    // pub fn tracker(&self) -> Option<usize> {
-    //     self.attrs.get::<Tracker>().map(|v| v.0)
-    // }
-    //
-    // /// Retrieves the additional info for an event directly, if present.
-    // pub fn info(&self) -> Option<&String> {
-    //     self.attrs.get::<Info>().map(|v| &v.0)
-    // }
-    //
-    // /// Retrieves the source for an event directly, if present.
-    // pub fn source(&self) -> Option<&String> {
-    //     self.attrs.get::<Source>().map(|v| &v.0)
-    // }
+    /// Retrieves the tracker ID for an event directly, if present.
+    pub fn tracker(&self) -> Option<usize> {
+        self.attrs.get::<Tracker>().map(|v| v.0)
+    }
+
+    /// Retrieves the additional info for an event directly, if present.
+    pub fn info(&self) -> Option<&String> {
+        self.attrs.get::<Info>().map(|v| &v.0)
+    }
+
+    /// Retrieves the source for an event directly, if present.
+    pub fn source(&self) -> Option<&String> {
+        self.attrs.get::<Source>().map(|v| &v.0)
+    }
 }
 
 impl fmt::Debug for Event {
@@ -377,9 +375,9 @@ impl fmt::Debug for Event {
         f.debug_struct("Event")
             .field("kind", &self.kind)
             .field("path", &self.path)
-            // .field("attr:tracker", &self.tracker())
-            // .field("attr:info", &self.info())
-            // .field("attr:source", &self.source())
+            .field("attr:tracker", &self.tracker())
+            .field("attr:info", &self.info())
+            .field("attr:source", &self.source())
             .finish()
     }
 }
@@ -388,7 +386,7 @@ impl Default for Event {
         Self {
             kind: EventKind::default(),
             path: None,
-            // attrs: AnyMap::new(),
+            attrs: AnyMap::new(),
         }
     }
 }
@@ -398,9 +396,9 @@ impl PartialEq for Event {
     fn eq(&self, other: &Self) -> bool {
         self.kind.eq(&other.kind)
             && self.path.eq(&other.path)
-            // && self.tracker().eq(&other.tracker())
-            // && self.info().eq(&other.info())
-            // && self.source().eq(&other.source())
+            && self.tracker().eq(&other.tracker())
+            && self.info().eq(&other.info())
+            && self.source().eq(&other.source())
     }
 }
 
@@ -408,8 +406,8 @@ impl Hash for Event {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.kind.hash(state);
         self.path.hash(state);
-        // self.tracker().hash(state);
-        // self.info().hash(state);
-        // self.source().hash(state);
+        self.tracker().hash(state);
+        self.info().hash(state);
+        self.source().hash(state);
     }
 }

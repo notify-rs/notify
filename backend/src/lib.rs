@@ -24,7 +24,7 @@
 #![deny(clippy::pedantic)]
 #![allow(clippy::stutter)]
 
-// pub mod backend;
+pub mod backend;
 pub mod buffer;
 pub mod capability;
 pub mod event;
@@ -53,10 +53,10 @@ pub mod prelude {
     /// An empty `io::Result` used for mio's Evented trait signatures
     pub type MioResult = ::std::io::Result<()>;
 
-    // pub use super::backend::{
-    //     Backend as NotifyBackend, BoxedBackend, Error as BackendError,
-    //     ErrorWrap as BackendErrorWrap, NewResult as NewBackendResult,
-    // };
+    pub use super::backend::{
+        Backend as NotifyBackend, BoxedBackend, Error as BackendError,
+        ErrorWrap as BackendErrorWrap, NewResult as NewBackendResult,
+    };
 
     #[cfg(unix)]
     pub use crate::unix::OwnedEventedFd;

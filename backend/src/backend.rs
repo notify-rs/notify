@@ -1,12 +1,12 @@
 //! The `Backend` trait and related types.
 
-use super::{capability::Capability, stream};
+use crate::{capability::Capability, stream};
 use futures::Stream;
 use mio::event::Evented;
 use std::{ffi, fmt::Debug, io, path::PathBuf, sync::Arc};
 
 /// Convenient type alias for the Backend trait object.
-pub type BoxedBackend = Box<Backend<Item = stream::Item, Error = stream::Error>>;
+pub type BoxedBackend = Box<Backend>;
 
 /// Convenient type alias for the `::new()` function return signature.
 pub type NewResult = Result<BoxedBackend, ErrorWrap>;
@@ -25,7 +25,7 @@ pub type NewResult = Result<BoxedBackend, ErrorWrap>;
 /// [`Debug`]: https://doc.rust-lang.org/std/fmt/trait.Debug.html
 /// [`Evented`]: https://docs.rs/mio/0.6/mio/event/trait.Evented.html
 /// [`Stream`]: https://docs.rs/futures/0.1/futures/stream/trait.Stream.html
-pub trait Backend: Stream + Send + Drop + Debug {
+pub trait Backend: Stream<Item = stream::Item> + Send + Drop + Debug {
     /// Creates an instance of a `Backend` that watches over a set of paths.
     ///
     /// While the `paths` argument is a `Vec` for implementation simplicity, Notify guarantees that
@@ -62,12 +62,10 @@ pub trait Backend: Stream + Send + Drop + Debug {
     /// case of a polling `Backend`, this mechanism may be implemented in userspace and use
     /// whatever clues and cues the `Backend` has available to drive the readiness state.
     ///
-    /// There is currently no facility or support for a `Backend` to opt out of registering an
-    /// `Evented` driver. If this is needed, request it on the issue tracker. In the meantime, a
-    /// workaround is to implement a `Registration` that immediately sets itself as ready.
+    /// A `Backend` can opt out of registering an `Evented` driver by returning `None` here.
     ///
     /// [`Evented`]: https://docs.rs/mio/0.6/mio/event/trait.Evented.html
-    fn driver(&self) -> Box<Evented>;
+    fn driver(&self) -> Option<Box<Evented>>;
 
     /// Returns the name of this Backend.
     ///
