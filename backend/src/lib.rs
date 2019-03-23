@@ -64,9 +64,8 @@ pub mod prelude {
     pub use crate::capability::Capability;
 
     pub use crate::event::{
-        self, AccessKind, AccessMode, CreateKind, DataChange, Event, EventKind,
+        self, AccessKind, AccessMode, AnyMap, CreateKind, DataChange, Event, EventKind,
         MetadataKind, ModifyKind, RemoveKind, RenameMode,
-        // AnyMap,
     };
 
     pub use crate::stream::{

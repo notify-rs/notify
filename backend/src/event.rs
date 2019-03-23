@@ -1,20 +1,20 @@
 //! The `Event` type and the hierarchical `EventKind` descriptor.
-//!
-//! Note that neither of those types have been designed for FFI use. Notably, `Event` has both a
-//! `Vec` (which is not FFI-compatible per se) and an `AnyMap` (which is even worse).
-//!
-//! This may be addressed at some future time.
 
 use anymap::{any::CloneAny, Map};
 use std::{
     fmt, hash::{Hash, Hasher}, path::PathBuf,
 };
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize, de::Deserializer, ser::{Serializer, SerializeMap}};
+
 /// An `AnyMap` convenience type with the needed bounds for events.
 pub type AnyMap = Map<CloneAny + Send + Sync>;
 
 /// An event describing open or close operations on files.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum AccessMode {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -34,6 +34,9 @@ pub enum AccessMode {
 
 /// An event describing non-mutating access operations on files.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(tag = "kind", content = "mode"))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum AccessKind {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -53,6 +56,9 @@ pub enum AccessKind {
 
 /// An event describing creation operations on files.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(tag = "kind"))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum CreateKind {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -69,6 +75,8 @@ pub enum CreateKind {
 
 /// An event emitted when the data content of a file is changed.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum DataChange {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -85,6 +93,8 @@ pub enum DataChange {
 
 /// An event emitted when the metadata of a file or folder is changed.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum MetadataKind {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -113,6 +123,8 @@ pub enum MetadataKind {
 
 /// An event emitted when the name of a file or folder is changed.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum RenameMode {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -129,6 +141,9 @@ pub enum RenameMode {
 
 /// An event describing mutation of content, name, or metadata.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(tag = "kind", content = "mode"))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum ModifyKind {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -140,6 +155,7 @@ pub enum ModifyKind {
     Metadata(MetadataKind),
 
     /// An event emitted when the name of a file or folder is changed.
+    #[cfg_attr(feature = "serde", serde(rename = "rename"))]
     Name(RenameMode),
 
     /// An event which specific kind is known but cannot be represented otherwise.
@@ -148,6 +164,9 @@ pub enum ModifyKind {
 
 /// An event describing removal operations on files.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(tag = "kind"))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum RemoveKind {
     /// The catch-all case, to be used when the specific kind of event is unknown.
     Any,
@@ -168,6 +187,8 @@ pub enum RemoveKind {
 /// represent details that may or may not be available for any particular backend, but most tools
 /// and Notify systems will only care about which of these four general kinds an event is about.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum EventKind {
     /// The catch-all event kind, for unsupported/unknown events.
     ///
@@ -255,8 +276,9 @@ impl Default for EventKind {
 
 /// Notify event.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Event {
-    /// Kind of the event.
+    /// Kind or type of the event.
     ///
     /// This is a hierarchy of enums describing the event as precisely as possible. All enums in
     /// the hierarchy have two variants always present, `Any` and `Other`, accompanied by one or
@@ -278,6 +300,7 @@ pub struct Event {
     /// The `EventKind::Any` variant should be used as the "else" case when mapping native kernel
     /// bitmasks or bitmaps, such that if the mask is ever extended with new event types the
     /// backend will not gain bugs due to not matching new unknown event types.
+    #[cfg_attr(feature = "serde", serde(rename = "type"))]
     pub kind: EventKind,
 
     /// Path the event is about, if known.
@@ -308,6 +331,7 @@ pub struct Event {
     // In the future, it might be possible to have more data and to benchmark things properly, so
     // the perfomance can be actually quantified. Also, it might turn out that I have no idea what
     // I was talking about, so the above may be discarded or reviewed. We'll see!
+    //
     /// Additional attributes of the event.
     ///
     /// Arbitrary data may be added to this field, without restriction beyond the `Sync` and
@@ -318,6 +342,12 @@ pub struct Event {
     /// entries within the `AnyMap` container and avoid conflicts. For interoperability, one of the
     /// “well-known” types (or propose a new one) should be used instead. See the list on the wiki:
     /// https://github.com/passcod/notify/wiki/Well-Known-Event-Attrs
+    ///
+    /// There is currently no way to serialise or deserialise arbitrary attributes, only well-known
+    /// ones handled explicitly here are supported. This might change in the future.
+    #[cfg_attr(feature = "serde", serde(default = "AnyMap::new"))]
+    #[cfg_attr(feature = "serde", serde(skip_deserializing))]
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_attrs"))]
     pub attrs: AnyMap,
 }
 
@@ -410,4 +440,22 @@ impl Hash for Event {
         self.info().hash(state);
         self.source().hash(state);
     }
+}
+
+#[cfg(feature = "serde")]
+fn serialize_attrs<S>(attrs: &AnyMap, s: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    let tracker = attrs.get::<Tracker>().map(|v| v.0.clone());
+    let info = attrs.get::<Info>().map(|v| v.0.clone());
+    let source = attrs.get::<Source>().map(|v| v.0.clone());
+
+    let mut length = 0;
+    if tracker.is_some() { length += 1; }
+    if info.is_some() { length += 1; }
+    if source.is_some() { length += 1; }
+
+    let mut map = s.serialize_map(Some(length))?;
+    if let Some(val) = tracker { map.serialize_entry("tracker", &val); }
+    if let Some(val) = info { map.serialize_entry("info", &val); }
+    if let Some(val) = source { map.serialize_entry("source", &val); }
+    map.end()
 }
