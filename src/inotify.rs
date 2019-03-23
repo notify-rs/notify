@@ -204,7 +204,7 @@ impl EventLoop {
                 }
                 EventLoopMsg::OnGoingWriteDelay(duration) => {
                     if let EventTx::Debounced {ref tx,ref mut debounce} = self.event_tx {
-                        debounce.set_on_going_write_duration(duration);
+                        debounce.set_ongoing_write_duration(duration);
                     }
                 }
             }
@@ -493,7 +493,7 @@ impl Watcher for INotifyWatcher {
         rx.recv().unwrap()
     }
 
-    fn set_on_going_write_duration(&self, duration: Duration) {
+    fn set_ongoing_write_duration(&self, duration: Duration) {
         let msg = EventLoopMsg::OnGoingWriteDelay(duration);
         self.0.lock().unwrap().send(msg).unwrap();
     }

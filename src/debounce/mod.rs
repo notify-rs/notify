@@ -97,8 +97,8 @@ impl Debounce {
         }
     }
 
-    pub fn set_on_going_write_duration(&mut self, duration: Duration) {
-        self.timer.set_on_going_write_duration(duration);
+    pub fn set_ongoing_write_duration(&mut self, duration: Duration) {
+        self.timer.set_ongoing_write_duration(duration);
     }
 
 
@@ -255,7 +255,7 @@ impl Debounce {
                     // it already was a write event
                     Some(op::Op::WRITE) => {
                         restart_timer(timer_id, path.clone(), &mut self.timer);
-                        handle_on_going_write_event(&self.timer, path.clone(), &self.tx);
+                        handle_ongoing_write_event(&self.timer, path.clone(), &self.tx);
                     }
 
                     // upgrade to write event
@@ -514,10 +514,10 @@ fn restart_timer(timer_id: &mut Option<u64>, path: PathBuf, timer: &mut WatchTim
     *timer_id = Some(timer.schedule(path));
 }
 
-fn handle_on_going_write_event(timer: &WatchTimer, path: PathBuf, tx: &mpsc::Sender<DebouncedEvent>) {
-    let mut on_going_write_event = timer.on_going_write_event.lock().unwrap();
+fn handle_ongoing_write_event(timer: &WatchTimer, path: PathBuf, tx: &mpsc::Sender<DebouncedEvent>) {
+    let mut ongoing_write_event = timer.ongoing_write_event.lock().unwrap();
     let mut event_details = Option::None;
-    if let Some(ref i) = *on_going_write_event {
+    if let Some(ref i) = *ongoing_write_event {
         let now = Instant::now();
         if i.0 <= now {
             //fire event
@@ -525,10 +525,10 @@ fn handle_on_going_write_event(timer: &WatchTimer, path: PathBuf, tx: &mpsc::Sen
         }
     } else {
         //schedule event
-        if let Some(d) = timer.on_going_write_duration {
+        if let Some(d) = timer.ongoing_write_duration {
             let fire_at = Instant::now() + d;
             event_details = Some((fire_at, path));
         }
     }
-    *on_going_write_event = event_details;
+    *ongoing_write_event = event_details;
 }

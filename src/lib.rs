@@ -323,7 +323,7 @@ pub mod op {
             const CLOSE_WRITE = 0b00100000;
     /// Directories need to be rescanned
             const RESCAN      = 0b01000000;
-            const ON_GOING_WRITE = 0b10000000;
+            const ONGOING_WRITE = 0b10000000;
         }
     }
 
@@ -334,7 +334,7 @@ pub mod op {
     pub const WRITE: Op = Op::WRITE;
     pub const CLOSE_WRITE: Op = Op::CLOSE_WRITE;
     pub const RESCAN: Op = Op::RESCAN;
-    pub const ON_GOING_WRITE: Op = Op::ON_GOING_WRITE;
+    pub const ONGOING_WRITE: Op = Op::ONGOING_WRITE;
 }
 
 #[cfg(test)]
@@ -620,7 +620,7 @@ pub trait Watcher: Sized {
 
     /// Sets the duration for DebouncedEvent::OnGoingWrite. When set, OnGoingWrite event will be
     /// fired every "duration" units.
-    fn set_on_going_write_duration(&self, duration: Duration) {
+    fn set_ongoing_write_duration(&self, duration: Duration) {
         // null and poll watchers are not required to implement this.
     }
 }

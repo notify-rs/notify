@@ -26,7 +26,7 @@ struct ScheduleWorker {
     tx: mpsc::Sender<DebouncedEvent>,
     operations_buffer: OperationsBuffer,
     stopped: Arc<AtomicBool>,
-    worker_on_going_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
+    worker_ongoing_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
 }
 
 impl ScheduleWorker {
@@ -58,9 +58,9 @@ impl ScheduleWorker {
                 let message = match op {
                     Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
                     Some(op::Op::WRITE) => {
-                        //disable on_going_write
-                        let mut on_going_write_event = self.worker_on_going_write_event.lock().unwrap();
-                        *on_going_write_event = None;
+                        //disable ongoing_write
+                        let mut ongoing_write_event = self.worker_ongoing_write_event.lock().unwrap();
+                        *ongoing_write_event = None;
                         Some(DebouncedEvent::Write(path))
                     },
                     Some(op::Op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
@@ -122,8 +122,8 @@ pub struct WatchTimer {
     delay: Duration,
     events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
     stopped: Arc<AtomicBool>,
-    pub on_going_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
-    pub on_going_write_duration: Option<Duration>,
+    pub ongoing_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
+    pub ongoing_write_duration: Option<Duration>,
 }
 
 impl WatchTimer {
@@ -141,8 +141,8 @@ impl WatchTimer {
         let worker_stop_trigger = stop_trigger.clone();
         let worker_events = events.clone();
         let worker_stopped = stopped.clone();
-        let on_going_write_event = Arc::new(Mutex::new(None));
-        let worker_on_going_write_event = on_going_write_event.clone();
+        let ongoing_write_event = Arc::new(Mutex::new(None));
+        let worker_ongoing_write_event = ongoing_write_event.clone();
         thread::spawn(move || {
             ScheduleWorker {
                 new_event_trigger: worker_new_event_trigger,
@@ -151,7 +151,7 @@ impl WatchTimer {
                 tx,
                 operations_buffer,
                 stopped: worker_stopped,
-                worker_on_going_write_event: worker_on_going_write_event,
+                worker_ongoing_write_event,
             }
             .run();
         });
@@ -163,13 +163,13 @@ impl WatchTimer {
             delay,
             events,
             stopped,
-            on_going_write_event,
-            on_going_write_duration: None,
+            ongoing_write_event,
+            ongoing_write_duration: None,
         }
     }
 
-    pub fn set_on_going_write_duration(&mut self, duration: Duration) {
-        self.on_going_write_duration = Some(duration);
+    pub fn set_ongoing_write_duration(&mut self, duration: Duration) {
+        self.ongoing_write_duration = Some(duration);
     }
 
     pub fn schedule(&mut self, path: PathBuf) -> u64 {

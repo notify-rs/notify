@@ -123,7 +123,7 @@ impl ReadDirectoryChangesServer {
                     Action::SetOnGoingWriteEventDuration(duration) => {
                         let mut debounced_event = self.event_tx.lock().unwrap();
                         if let EventTx::Debounced {ref tx,ref mut debounce} = *debounced_event {
-                            debounce.set_on_going_write_duration(duration);
+                            debounce.set_ongoing_write_duration(duration);
                         }
                     }
                 }
@@ -570,7 +570,7 @@ impl Watcher for ReadDirectoryChangesWatcher {
         res
     }
 
-    fn set_on_going_write_duration(&self, duration: Duration) {
+    fn set_ongoing_write_duration(&self, duration: Duration) {
         self.tx.send(Action::SetOnGoingWriteEventDuration(duration));
     }
 }

@@ -395,10 +395,10 @@ impl Watcher for FsEventWatcher {
         result
     }
 
-    fn set_on_going_write_duration(&self, duration: Duration) {
+    fn set_ongoing_write_duration(&self, duration: Duration) {
         let mut debounced_event = self.event_tx.lock().unwrap();
         if let EventTx::Debounced {ref tx,ref mut debounce} = *debounced_event {
-            debounce.set_on_going_write_duration(duration);
+            debounce.set_ongoing_write_duration(duration);
         }
     }
 }
