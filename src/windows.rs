@@ -16,7 +16,7 @@ use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
 use super::debounce::{Debounce, EventTx};
-use super::{op, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher, Config};
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
@@ -54,6 +54,7 @@ enum Action {
     Watch(PathBuf, RecursiveMode),
     Unwatch(PathBuf),
     Stop,
+    Configure(Config),
 }
 
 pub enum MetaEvent {
@@ -118,6 +119,12 @@ impl ReadDirectoryChangesServer {
                             stop_watch(ws, &self.meta_tx);
                         }
                         break;
+                    },
+                    Action::Configure(config) => {
+                        let mut debounced_event = self.event_tx.lock().unwrap();
+                        if let EventTx::Debounced {ref tx,ref mut debounce} = *debounced_event {
+                            debounce.configure_debounced_mode(config);
+                        }
                     }
                 }
             }
@@ -561,6 +568,11 @@ impl Watcher for ReadDirectoryChangesWatcher {
             .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()));
         self.wakeup_server();
         res
+    }
+
+    fn configure(&self, config: Config) -> Result<()> {
+        self.tx.send(Action::Configure(config));
+        Ok(())
     }
 }
 

@@ -11,7 +11,7 @@ extern crate walkdir;
 use self::inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use self::walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
-use super::{op, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher, Config};
 use mio;
 use mio_extras;
 use std::collections::HashMap;
@@ -54,6 +54,7 @@ enum EventLoopMsg {
     RemoveWatch(PathBuf, Sender<Result<()>>),
     Shutdown,
     RenameTimeout(u32),
+    Configure(Config),
 }
 
 #[inline]
@@ -199,6 +200,11 @@ impl EventLoop {
                     // send pending rename event only if the rename event for which the timer has been created hasn't been handled already; otherwise ignore this timeout
                     if current_cookie == Some(cookie) {
                         send_pending_rename_event(&mut self.rename_event, &mut self.event_tx);
+                    }
+                }
+                EventLoopMsg::Configure(config) => {
+                    if let EventTx::Debounced {ref tx,ref mut debounce} = self.event_tx {
+                        debounce.configure_debounced_mode(config);
                     }
                 }
             }
@@ -485,6 +491,12 @@ impl Watcher for INotifyWatcher {
         // we expect the event loop to live and reply => unwraps must not panic
         self.0.lock().unwrap().send(msg).unwrap();
         rx.recv().unwrap()
+    }
+
+    fn configure(&self, config: Config) -> Result<()> {
+        let msg = EventLoopMsg::Configure(config);
+        self.0.lock().unwrap().send(msg).unwrap();
+        Ok(())
     }
 }
 

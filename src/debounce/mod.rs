@@ -2,7 +2,7 @@
 
 mod timer;
 
-use super::{op, DebouncedEvent, RawEvent};
+use super::{op, DebouncedEvent, RawEvent, Config};
 
 use self::timer::WatchTimer;
 
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub type OperationsBuffer =
     Arc<Mutex<HashMap<PathBuf, (Option<op::Op>, Option<PathBuf>, Option<u64>)>>>;
@@ -96,6 +96,15 @@ impl Debounce {
             timer: timer,
         }
     }
+
+    pub fn configure_debounced_mode(&mut self, config: Config) {
+        match config {
+            Config::OngoingWrites(c) => {
+                self.timer.set_ongoing_write_duration(c);
+            }
+        }
+    }
+
 
     fn check_partial_rename(&mut self, path: PathBuf, op: op::Op, cookie: Option<u32>) {
         if let Ok(mut op_buf) = self.operations_buffer.lock() {
@@ -250,6 +259,7 @@ impl Debounce {
                     // it already was a write event
                     Some(op::Op::WRITE) => {
                         restart_timer(timer_id, path.clone(), &mut self.timer);
+                        handle_ongoing_write_event(&self.timer, path.clone(), &self.tx);
                     }
 
                     // upgrade to write event
@@ -506,4 +516,25 @@ fn restart_timer(timer_id: &mut Option<u64>, path: PathBuf, timer: &mut WatchTim
         timer.ignore(timer_id);
     }
     *timer_id = Some(timer.schedule(path));
+}
+
+fn handle_ongoing_write_event(timer: &WatchTimer, path: PathBuf, tx: &mpsc::Sender<DebouncedEvent>) {
+    let mut ongoing_write_event = timer.ongoing_write_event.lock().unwrap();
+    let mut event_details = Option::None;
+    if let Some(ref i) = *ongoing_write_event {
+        let now = Instant::now();
+        if i.0 <= now {
+            //fire event
+            let _ = tx.send(DebouncedEvent::OnGoingWrite((i.1).clone()));
+        } else {
+            event_details = Some((i.0, i.1.clone()));
+        }
+    } else {
+        //schedule event
+        if let Some(d) = timer.ongoing_write_duration {
+            let fire_at = Instant::now() + d;
+            event_details = Some((fire_at, path));
+        }
+    }
+    *ongoing_write_event = event_details;
 }

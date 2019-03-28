@@ -26,6 +26,7 @@ struct ScheduleWorker {
     tx: mpsc::Sender<DebouncedEvent>,
     operations_buffer: OperationsBuffer,
     stopped: Arc<AtomicBool>,
+    worker_ongoing_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
 }
 
 impl ScheduleWorker {
@@ -56,7 +57,12 @@ impl ScheduleWorker {
                 }
                 let message = match op {
                     Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
-                    Some(op::Op::WRITE) => Some(DebouncedEvent::Write(path)),
+                    Some(op::Op::WRITE) => {
+                        //disable ongoing_write
+                        let mut ongoing_write_event = self.worker_ongoing_write_event.lock().unwrap();
+                        *ongoing_write_event = None;
+                        Some(DebouncedEvent::Write(path))
+                    },
                     Some(op::Op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
                     Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
                     Some(op::Op::RENAME) if is_partial_rename => {
@@ -116,6 +122,8 @@ pub struct WatchTimer {
     delay: Duration,
     events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
     stopped: Arc<AtomicBool>,
+    pub ongoing_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
+    pub ongoing_write_duration: Option<Duration>,
 }
 
 impl WatchTimer {
@@ -133,6 +141,8 @@ impl WatchTimer {
         let worker_stop_trigger = stop_trigger.clone();
         let worker_events = events.clone();
         let worker_stopped = stopped.clone();
+        let ongoing_write_event = Arc::new(Mutex::new(None));
+        let worker_ongoing_write_event = ongoing_write_event.clone();
         thread::spawn(move || {
             ScheduleWorker {
                 new_event_trigger: worker_new_event_trigger,
@@ -141,6 +151,7 @@ impl WatchTimer {
                 tx,
                 operations_buffer,
                 stopped: worker_stopped,
+                worker_ongoing_write_event,
             }
             .run();
         });
@@ -152,7 +163,13 @@ impl WatchTimer {
             delay,
             events,
             stopped,
+            ongoing_write_event,
+            ongoing_write_duration: None,
         }
+    }
+
+    pub fn set_ongoing_write_duration(&mut self, duration: Option<Duration>) {
+        self.ongoing_write_duration = duration;
     }
 
     pub fn schedule(&mut self, path: PathBuf) -> u64 {
