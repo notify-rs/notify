@@ -18,7 +18,7 @@ _Cross-platform filesystem notification library for Rust._
 - Earliest supported Rust version: **1.26.1**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
-[mdBook], [pax], [rdiff], [timetrack], [watchexec], and others.
+[mdBook], [pax], [rdiff], [timetrack], [watchexec], [xi-editor], and others.
 (Want to be added to this list? Open a pull request!)
 
 ## Installation
@@ -141,5 +141,6 @@ Note that licensing will change from version 5 to **[Artistic 2.0][artistic]**.
 [notify-rust]: https://github.com/hoodie/notify-rust
 [pax]: https://pax.js.org/
 [rdiff]: https://github.com/dyule/rdiff
-[watchexec]: https://github.com/mattgreen/watchexec
 [timetrack]: https://github.com/joshmcguigan/timetrack
+[watchexec]: https://github.com/mattgreen/watchexec
+[xi-editor]: https://xi-editor.io/

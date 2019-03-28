@@ -4,6 +4,14 @@
 - META: Rename `v4-legacy` branch to `main`, to further clarify status and potentially prepare for a breaking release.
 - DOCS: Change `v5` to `vNext` to allow for a breaking release.
 
+## 4.0.10 (2019-03-07)
+
+- FIX: Panic caused by a clock race. [#182]
+- DOCS: Add xi to Readme showcase. [`e6f09441`]
+
+[#182]: https://github.com/passcod/notify/issues/182
+[`e6f09441`]: https://github.com/passcod/notify/commit/e6f0944165551fa2ed9ad70e3e11d8b14186fc0a
+
 ## 4.0.9 (2019-02-09)
 
 - FIX: High CPU usage in some conditions when using debouncing. [#177], [#178], coming from [rust-analyzer/#556]

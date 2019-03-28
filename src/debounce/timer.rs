@@ -26,13 +26,14 @@ struct ScheduleWorker {
     tx: mpsc::Sender<DebouncedEvent>,
     operations_buffer: OperationsBuffer,
     stopped: Arc<AtomicBool>,
+    worker_ongoing_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
 }
 
 impl ScheduleWorker {
-    fn fire_due_events(&self) -> Option<Instant> {
+    fn fire_due_events(&self, now: Instant) -> Option<Instant> {
         let mut events = self.events.lock().unwrap();
         while let Some(event) = events.pop_front() {
-            if event.when <= Instant::now() {
+            if event.when <= now {
                 self.fire_event(event)
             } else {
                 // not due yet, put it back
@@ -56,8 +57,13 @@ impl ScheduleWorker {
                 }
                 let message = match op {
                     Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
-                    Some(op::Op::WRITE) => Some(DebouncedEvent::Write(path)),
-                    Some(op::Op::METADATA) => Some(DebouncedEvent::Metadata(path)),
+                    Some(op::Op::WRITE) => {
+                        //disable ongoing_write
+                        let mut ongoing_write_event = self.worker_ongoing_write_event.lock().unwrap();
+                        *ongoing_write_event = None;
+                        Some(DebouncedEvent::Write(path))
+                    },
+                    Some(op::Op::METADATA) => Some(DebouncedEvent::Chmod(path)),
                     Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
                     Some(op::Op::RENAME) if is_partial_rename => {
                         if path.exists() {
@@ -85,7 +91,8 @@ impl ScheduleWorker {
         let mut g = m.lock().unwrap();
 
         loop {
-            let next_when = self.fire_due_events();
+            let now = Instant::now();
+            let next_when = self.fire_due_events(now);
 
             if self.stopped.load(atomic::Ordering::SeqCst) {
                 break;
@@ -96,7 +103,7 @@ impl ScheduleWorker {
             g = if let Some(next_when) = next_when {
                 // wait for stop notification or timeout to send next event
                 self.stop_trigger
-                    .wait_timeout(g, next_when - Instant::now())
+                    .wait_timeout(g, next_when - now)
                     .unwrap()
                     .0
             } else {
@@ -115,6 +122,8 @@ pub struct WatchTimer {
     delay: Duration,
     events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
     stopped: Arc<AtomicBool>,
+    pub ongoing_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
+    pub ongoing_write_duration: Option<Duration>,
 }
 
 impl WatchTimer {
@@ -132,6 +141,8 @@ impl WatchTimer {
         let worker_stop_trigger = stop_trigger.clone();
         let worker_events = events.clone();
         let worker_stopped = stopped.clone();
+        let ongoing_write_event = Arc::new(Mutex::new(None));
+        let worker_ongoing_write_event = ongoing_write_event.clone();
         thread::spawn(move || {
             ScheduleWorker {
                 new_event_trigger: worker_new_event_trigger,
@@ -140,6 +151,7 @@ impl WatchTimer {
                 tx,
                 operations_buffer,
                 stopped: worker_stopped,
+                worker_ongoing_write_event,
             }
             .run();
         });
@@ -151,7 +163,13 @@ impl WatchTimer {
             delay,
             events,
             stopped,
+            ongoing_write_event,
+            ongoing_write_duration: None,
         }
+    }
+
+    pub fn set_ongoing_write_duration(&mut self, duration: Option<Duration>) {
+        self.ongoing_write_duration = duration;
     }
 
     pub fn schedule(&mut self, path: PathBuf) -> u64 {

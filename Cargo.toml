@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "4.0.9"
+version = "4.0.10"
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
@@ -17,6 +17,7 @@ readme = "README.md"
 license = "CC0-1.0"
 keywords = ["events", "filesystem", "notify", "watch"]
 categories = ["filesystem"]
+exclude = ["/.travis.yml", "/clippy.toml"]
 
 [badges]
 travis-ci = { repository = "passcod/notify", branch = "main" }
@@ -29,7 +30,7 @@ filetime = "^0.2.1"
 walkdir = "^2.0.1"
 
 [target.'cfg(target_os="linux")'.dependencies]
-inotify = { version = "^0.6.1", default-features = false }
+inotify = { version = "^0.7", default-features = false }
 mio = "^0.6.15"
 mio-extras = "^2.0.5"
 
