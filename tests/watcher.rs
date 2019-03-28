@@ -1092,7 +1092,7 @@ fn self_delete_file() {
         assert_eq!(
             actual,
             vec![
-                (tdir.mkpath("file1"), op::Op::CHMOD, None),
+                (tdir.mkpath("file1"), op::Op::METADATA, None),
                 (tdir.mkpath("file1"), op::Op::REMOVE, None),
             ]
         );

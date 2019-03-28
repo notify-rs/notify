@@ -63,7 +63,7 @@ impl ScheduleWorker {
                         *ongoing_write_event = None;
                         Some(DebouncedEvent::Write(path))
                     },
-                    Some(op::Op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
+                    Some(op::Op::METADATA) => Some(DebouncedEvent::Chmod(path)),
                     Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
                     Some(op::Op::RENAME) if is_partial_rename => {
                         if path.exists() {

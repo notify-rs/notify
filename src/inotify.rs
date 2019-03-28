@@ -278,7 +278,7 @@ impl EventLoop {
                                 o.insert(op::Op::CLOSE_WRITE);
                             }
                             if event.mask.contains(EventMask::ATTRIB) {
-                                o.insert(op::Op::CHMOD);
+                                o.insert(op::Op::METADATA);
                             }
 
                             if !o.is_empty() {
