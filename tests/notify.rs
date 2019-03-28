@@ -144,7 +144,11 @@ fn modify_file() {
     } else if cfg!(target_os = "macos") {
         assert_eq!(
             inflate_events(recv_events(&rx)),
-            vec![(tdir.mkpath("file1"), op::Op::METADATA | op::Op::CREATE, None),]
+            vec![(
+                tdir.mkpath("file1"),
+                op::Op::METADATA | op::Op::CREATE,
+                None
+            ),]
         );
         panic!("macos cannot distinguish between metadata change and create");
     } else {

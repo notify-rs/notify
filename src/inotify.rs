@@ -11,7 +11,7 @@ extern crate walkdir;
 use self::inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use self::walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
-use super::{op, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher, Config};
+use super::{op, Config, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
 use mio;
 use mio_extras;
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ use std::fs::metadata;
 use std::mem;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{self, channel, Sender};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -54,7 +54,7 @@ enum EventLoopMsg {
     RemoveWatch(PathBuf, Sender<Result<()>>),
     Shutdown,
     RenameTimeout(u32),
-    Configure(Config),
+    Configure(Config, Sender<Result<bool>>),
 }
 
 #[inline]
@@ -202,14 +202,25 @@ impl EventLoop {
                         send_pending_rename_event(&mut self.rename_event, &mut self.event_tx);
                     }
                 }
-                EventLoopMsg::Configure(config) => {
-                    if let EventTx::Debounced {ref tx,ref mut debounce} = self.event_tx {
-                        debounce.configure_debounced_mode(config);
+                EventLoopMsg::Configure(config, tx) => {
+                    if let EventTx::Debounced {
+                        ref mut debounce,
+                        tx: _
+                    } = self.event_tx
+                    {
+                        debounce.configure_debounced_mode(config, tx);
+                    } else {
+                        self.configure_raw_mode(config, tx);
                     }
                 }
             }
         }
     }
+
+    fn configure_raw_mode(&mut self, _config: Config, tx: Sender<Result<bool>>) {
+        tx.send(Ok(false)).expect("configuration channel disconnected");
+    }
+
     fn handle_inotify(&mut self) {
         let mut add_watches = Vec::new();
         let mut remove_watches = Vec::new();
@@ -493,10 +504,10 @@ impl Watcher for INotifyWatcher {
         rx.recv().unwrap()
     }
 
-    fn configure(&self, config: Config) -> Result<()> {
-        let msg = EventLoopMsg::Configure(config);
-        self.0.lock().unwrap().send(msg).unwrap();
-        Ok(())
+    fn configure(&mut self, config: Config) -> Result<bool> {
+        let (tx, rx) = channel();
+        self.0.lock()?.send(EventLoopMsg::Configure(config, tx))?;
+        rx.recv()?
     }
 }
 

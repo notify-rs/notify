@@ -348,7 +348,7 @@ mod op_test {
     fn new_bitflags_form() {
         let op = super::op::Op::METADATA | super::op::Op::WRITE;
         assert!(op.contains(super::op::Op::WRITE));
-        assert!(op.contains(super::op::Op::CHMOD));
+        assert!(op.contains(super::op::Op::METADATA));
     }
 
     #[test]
@@ -401,6 +401,15 @@ pub enum DebouncedEvent {
     /// data you read from it.
     NoticeWrite(PathBuf),
 
+    /// Event emitted when a file being watched is to be tailed.
+    /// `OngoingWrite` is emitted for subsequent write events to the path.
+    ///
+    /// This event is only emitted when the [`OngoingWrites`] configuration option is enabled for
+    /// the watcher. See that variant for more details.
+    ///
+    /// [`OngoingWrites`]: ./enum.Config.html#variant.OngoingWrites
+    OngoingWrite(PathBuf),
+
     /// `NoticeRemove` is emitted immediately after a remove or rename event for the path.
     ///
     /// The file will continue to exist until its last file handle is closed.
@@ -447,9 +456,6 @@ pub enum DebouncedEvent {
     ///
     ///  This event may contain a path for which the error was detected.
     Error(Error, Option<PathBuf>),
-
-    /// Event emitted when a file being watched is to be tailed.
-    OnGoingWrite(PathBuf),
 }
 
 impl PartialEq for DebouncedEvent {
@@ -475,7 +481,8 @@ impl PartialEq for DebouncedEvent {
 pub enum Error {
     /// Generic error
     ///
-    /// May be used in cases where a platform specific error is mapped to this type
+    /// May be used in cases where a platform specific error is mapped to this type, or for opaque
+    /// internal errors.
     Generic(String),
 
     /// I/O errors
@@ -486,6 +493,9 @@ pub enum Error {
 
     /// Attempted to remove a watch that does not exist
     WatchNotFound,
+
+    /// An invalid value was passed as runtime configuration
+    InvalidConfigValue,
 }
 
 impl fmt::Display for Error {
@@ -493,6 +503,7 @@ impl fmt::Display for Error {
         let error = String::from(match *self {
             Error::PathNotFound => "No path was found.",
             Error::WatchNotFound => "No watch was found.",
+            Error::InvalidConfigValue => "Invalid configuration value.",
             Error::Generic(ref err) => err.as_ref(),
             Error::Io(ref err) => err.description(),
         });
@@ -509,6 +520,7 @@ impl StdError for Error {
         match *self {
             Error::PathNotFound => "No path was found",
             Error::WatchNotFound => "No watch was found",
+            Error::InvalidConfigValue => "Invalid configuration value.",
             Error::Generic(_) => "Generic error",
             Error::Io(_) => "I/O Error",
         }
@@ -523,8 +535,33 @@ impl StdError for Error {
 }
 
 impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
+    fn from(err: io::Error) -> Self {
         Error::Io(err)
+    }
+}
+
+impl<T> From<std::sync::mpsc::SendError<T>> for Error {
+    fn from(err: std::sync::mpsc::SendError<T>) -> Self {
+        Error::Generic(format!("internal channel disconnect: {:?}", err))
+    }
+}
+
+impl<T> From<std::sync::PoisonError<T>> for Error {
+    fn from(err: std::sync::PoisonError<T>) -> Self {
+        Error::Generic(format!("internal mutex poisoned: {:?}", err))
+    }
+}
+
+impl From<std::sync::mpsc::RecvError> for Error {
+    fn from(err: std::sync::mpsc::RecvError) -> Self {
+        Error::Generic(format!("internal channel disconnect: {:?}", err))
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl<T> From<mio_extras::channel::SendError<T>> for Error {
+    fn from(err: mio_extras::channel::SendError<T>) -> Self {
+        Error::Generic(format!("internal channel error: {:?}", err))
     }
 }
 
@@ -616,23 +653,40 @@ pub trait Watcher: Sized {
     /// fails.
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()>;
 
-    /// Configure notify with Configs.
-    fn configure(&self, option: Config) -> Result<()> {
-        // Default implementation because null and poll watcher are not configurable (but can be in future)
-        Ok(())
+    /// Configure the watcher at runtime.
+    ///
+    /// See the [`Config`](./enum.Config.html) enum for all configuration options.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(true)` on success.
+    /// - `Ok(false)` if the watcher does not support or implement the option.
+    /// - `Err(notify::Error)` on failure.
+    fn configure(&mut self, _option: Config) -> Result<bool> {
+        Ok(false)
     }
 }
 
-/// Configurations that can be used when watching a file/directory.
+/// Runtime configuration items for watchers.
+///
+/// See the [`Watcher::configure`](./trait.Watcher.html#tymethod.configure) method for usage.
 pub enum Config {
-    /// In debounced mode a WRITE event is fired every X unit of time if no WRITE occurs before X.
-    /// But in some scenarios (like when tailing a file) we would never receive the WRITE event
-    /// because the watchee is being written to every Y unit of time where Y < X.
-    /// Use this config to let notify emit DebouncedEvent::OnGoingWrite event before emitting a
-    /// WRITE event. Once a WRITE event is emitted notify will cancel OnGoingWrite (but still emit
-    /// OnGoingWrite in the future)
-    /// Hence the Duration of this config should be less than watchers delay.
-    /// To stop emitting OnGoingWrite, pass this config with None.
+    /// Enable or disable emitting `OngoingWrite` events.
+    ///
+    /// Applicable to debounced watchers only.
+    ///
+    /// When enabled, raw partial write events that are received after a `NoticeWrite` but before
+    /// the end of a debouncing period (and the emission of a `Write` event) are passed through as
+    /// [`OngoingWrite`] events. These events are still debounced, but at a lower (configurable)
+    /// interval than the debouncing interval.
+    ///
+    /// To enable, provide `Some(Duration)`. To disable, provide `None`.
+    ///
+    /// # Errors
+    ///
+    /// - `InvalidConfigValue` if the interval provided is higher than the debounce interval.
+    ///
+    /// [`OngoingWrite`]: ./enum.DebouncedEvent.html#variant.OngoingWrite
     OngoingWrites(Option<Duration>),
 }
 

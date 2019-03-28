@@ -1,4 +1,4 @@
-use super::super::{op, DebouncedEvent};
+use super::super::{op, DebouncedEvent, Error, Result};
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -59,11 +59,12 @@ impl ScheduleWorker {
                     Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
                     Some(op::Op::WRITE) => {
                         //disable ongoing_write
-                        let mut ongoing_write_event = self.worker_ongoing_write_event.lock().unwrap();
+                        let mut ongoing_write_event =
+                            self.worker_ongoing_write_event.lock().unwrap();
                         *ongoing_write_event = None;
                         Some(DebouncedEvent::Write(path))
-                    },
-                    Some(op::Op::METADATA) => Some(DebouncedEvent::Chmod(path)),
+                    }
+                    Some(op::Op::METADATA) => Some(DebouncedEvent::Metadata(path)),
                     Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
                     Some(op::Op::RENAME) if is_partial_rename => {
                         if path.exists() {
@@ -168,8 +169,15 @@ impl WatchTimer {
         }
     }
 
-    pub fn set_ongoing_write_duration(&mut self, duration: Option<Duration>) {
+    pub fn set_ongoing_write_duration(&mut self, duration: Option<Duration>) -> Result<bool> {
+        if let Some(duration) = duration {
+            if duration > self.delay {
+                return Err(Error::InvalidConfigValue);
+            }
+        }
+
         self.ongoing_write_duration = duration;
+        Ok(true)
     }
 
     pub fn schedule(&mut self, path: PathBuf) -> u64 {

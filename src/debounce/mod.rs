@@ -2,14 +2,14 @@
 
 mod timer;
 
-use super::{op, DebouncedEvent, RawEvent, Config};
+use super::{op, Config, DebouncedEvent, RawEvent, Result};
 
 use self::timer::WatchTimer;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc::Sender};
 use std::time::{Duration, Instant};
 
 pub type OperationsBuffer =
@@ -97,14 +97,11 @@ impl Debounce {
         }
     }
 
-    pub fn configure_debounced_mode(&mut self, config: Config) {
-        match config {
-            Config::OngoingWrites(c) => {
-                self.timer.set_ongoing_write_duration(c);
-            }
-        }
+    pub fn configure_debounced_mode(&mut self, config: Config, tx: Sender<Result<bool>>) {
+        tx.send(match config {
+            Config::OngoingWrites(c) => self.timer.set_ongoing_write_duration(c),
+        }).expect("configuration channel disconnected");
     }
-
 
     fn check_partial_rename(&mut self, path: PathBuf, op: op::Op, cookie: Option<u32>) {
         if let Ok(mut op_buf) = self.operations_buffer.lock() {
@@ -518,14 +515,18 @@ fn restart_timer(timer_id: &mut Option<u64>, path: PathBuf, timer: &mut WatchTim
     *timer_id = Some(timer.schedule(path));
 }
 
-fn handle_ongoing_write_event(timer: &WatchTimer, path: PathBuf, tx: &mpsc::Sender<DebouncedEvent>) {
+fn handle_ongoing_write_event(
+    timer: &WatchTimer,
+    path: PathBuf,
+    tx: &mpsc::Sender<DebouncedEvent>,
+) {
     let mut ongoing_write_event = timer.ongoing_write_event.lock().unwrap();
     let mut event_details = Option::None;
     if let Some(ref i) = *ongoing_write_event {
         let now = Instant::now();
         if i.0 <= now {
             //fire event
-            let _ = tx.send(DebouncedEvent::OnGoingWrite((i.1).clone()));
+            let _ = tx.send(DebouncedEvent::OngoingWrite((i.1).clone()));
         } else {
             event_details = Some((i.0, i.1.clone()));
         }

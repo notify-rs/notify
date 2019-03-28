@@ -16,7 +16,7 @@ use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
 use super::debounce::{Debounce, EventTx};
-use super::{op, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher, Config};
+use super::{op, Config, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
@@ -54,7 +54,7 @@ enum Action {
     Watch(PathBuf, RecursiveMode),
     Unwatch(PathBuf),
     Stop,
-    Configure(Config),
+    Configure(Config, Sender<Result<bool>>),
 }
 
 pub enum MetaEvent {
@@ -119,12 +119,26 @@ impl ReadDirectoryChangesServer {
                             stop_watch(ws, &self.meta_tx);
                         }
                         break;
-                    },
-                    Action::Configure(config) => {
-                        let mut debounced_event = self.event_tx.lock().unwrap();
-                        if let EventTx::Debounced {ref tx,ref mut debounce} = *debounced_event {
-                            debounce.configure_debounced_mode(config);
+                    }
+                    Action::Configure(config, tx) => {
+                        // TODO: We shouldn't need to obtain a lock on the tx just to figure out
+                        // whether the watcher is in debounced mode or not. Let's store a boolean
+                        // somewhere and be done with it. Irrespective of that, putting Senders in
+                        // mutexes is useless and we really should use crossbeam-channel anyway.
+                        {
+                            let mut debounced_event = self.event_tx.lock().unwrap();
+                            if let EventTx::Debounced {
+                                ref mut debounce,
+                                tx: _,
+                            } = *debounced_event
+                            {
+                                debounce.configure_debounced_mode(config, tx);
+                                break;
+                            }
                         }
+
+                        self.configure_raw_mode(config, tx);
+
                     }
                 }
             }
@@ -231,6 +245,10 @@ impl ReadDirectoryChangesServer {
         if let Some(ws) = self.watches.remove(&path) {
             stop_watch(&ws, &self.meta_tx);
         }
+    }
+
+    fn configure_raw_mode(&mut self, _config: Config, tx: Sender<Result<bool>>) {
+        tx.send(Ok(false)).expect("configuration channel disconnect");
     }
 }
 
@@ -570,9 +588,10 @@ impl Watcher for ReadDirectoryChangesWatcher {
         res
     }
 
-    fn configure(&self, config: Config) -> Result<()> {
-        self.tx.send(Action::Configure(config));
-        Ok(())
+    fn configure(&mut self, config: Config) -> Result<bool> {
+        let (tx, rx) = channel();
+        self.tx.send(Action::Configure(config, tx))?;
+        rx.recv()?
     }
 }
 
