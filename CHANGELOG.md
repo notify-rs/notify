@@ -1,8 +1,17 @@
 # Changelog
 
+## 5.0.0 (future)
+
+- FEATURE: Add new runtime configuration system.
+- FEATURE: Add `OngoingWrite` event (optional, configured at runtime). [#146], [#183]
 - CHANGE: Rename `Chmod` to `Metadata`. [#179], [#180], previously [#112], [#161]
+- DEPS: \[Linux\] Upgrade inotify to 0.7. [#184]
 - META: Rename `v4-legacy` branch to `main`, to further clarify status and potentially prepare for a breaking release.
 - DOCS: Change `v5` to `vNext` to allow for a breaking release.
+
+[#146]: https://github.com/passcod/notify/issues/146
+[#183]: https://github.com/passcod/notify/issues/183
+[#184]: https://github.com/passcod/notify/issues/184
 
 ## 4.0.10 (2019-03-07)
 
