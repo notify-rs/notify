@@ -18,8 +18,8 @@ _Cross-platform filesystem notification library for Rust._
 - Earliest supported Rust version: **1.26.1**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
-[mdBook], [pax], [rdiff], [timetrack], [watchexec], [xi-editor], and others.
-(Want to be added to this list? Open a pull request!)
+[mdBook], [pax], [rdiff], [rust-analyzer], [timetrack], [watchexec],
+[xi-editor], and others. (Want to be added to this list? Open a pull request!)
 
 ## Installation
 
@@ -112,7 +112,7 @@ As usual, pull requests for fixes and features are welcome!
 
 Do be aware of the licensing difference. Notify is so far under [CC0][cc0]. The
 `next` branch is instead under the [Artistic License 2.0][artistic]. Pieces of
-the `next` branch brought to `main` are re-licensed under CC0, but the eventual
+the `next` branch brought to `main` are dual-licensed under CC0, but the eventual
 plan is to be entirely Artistic License 2.0 code. The formal license change
 _will_ incur a major version bump.
 
@@ -151,6 +151,7 @@ Public Domain using the [Creative Commons Zero Declaration][cc0].
 [notify-rust]: https://github.com/hoodie/notify-rust
 [pax]: https://pax.js.org/
 [rdiff]: https://github.com/dyule/rdiff
+[rust-analyzer]: https://github.com/rust-analyzer/rust-analyzer
 [timetrack]: https://github.com/joshmcguigan/timetrack
 [watchexec]: https://github.com/mattgreen/watchexec
 [xi-editor]: https://xi-editor.io/

@@ -4,10 +4,14 @@
 
 - FEATURE: Add new runtime configuration system.
 - FEATURE: Add `OngoingWrite` event (optional, configured at runtime). [#146], [#183]
-- CHANGE: Rename `Chmod` to `Metadata`. [#179], [#180], previously [#112], [#161]
+- FEATURE: Bring in new event system from `next` branch. [#187]
+- ~~CHANGE: Rename `Chmod` to `Metadata`. [#179], [#180], previously [#112], [#161]~~
+- CHANGE: Remove `Op` event classification. [#187]
+- CHANGE: Make it opt-in to receive information about event kind. [#187]
 - DEPS: \[Linux\] Upgrade inotify to 0.7. [#184]
 - META: Rename `v4-legacy` branch to `main`, to further clarify status and prepare for a breaking release.
-- DOCS: Change `v5` to `vNext` to allow for a breaking release.
+- DOCS: Change `v5` to `Next Generation Notify` to allow for a breaking release.
+- DOCS: Add rust-analyzer to Readme showcase.
 
 [#112]: https://github.com/passcod/notify/issues/112
 [#146]: https://github.com/passcod/notify/issues/146
@@ -16,6 +20,7 @@
 [#180]: https://github.com/passcod/notify/issues/180
 [#183]: https://github.com/passcod/notify/issues/183
 [#184]: https://github.com/passcod/notify/issues/184
+[#187]: https://github.com/passcod/notify/issues/187
 
 ## 4.0.10 (2019-03-07)
 
