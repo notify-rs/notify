@@ -114,6 +114,7 @@ extern crate mio;
 #[cfg(target_os = "linux")]
 extern crate mio_extras;
 #[cfg(feature = "serde")]
+#[macro_use]
 extern crate serde;
 #[cfg(target_os = "windows")]
 extern crate winapi;
