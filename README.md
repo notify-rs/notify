@@ -14,7 +14,7 @@ _Cross-platform filesystem notification library for Rust._
 
 - [API Documentation][docs]
 - [Crate page][crate]
-- [Version Next progress](https://github.com/passcod/notify/tree/next#status)
+- [Changelog][changelog]
 - Earliest supported Rust version: **1.26.1**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
@@ -94,16 +94,27 @@ some event cannot be observed easily when trying to follow files that do not
 belong to you. In this case, reverting to the pollwatcher can fix the issue,
 with a slight performance cost.
 
-## Todo
+## Next generation
 
-**Version 4 is not frozen!** I'm just not actively spending time on it.
+While this current version continues to be developed and maintained, a next
+generation design of the library lives in the
+[`next`](https://github.com/passcod/notify/tree/next) branch. There is no solid
+ETA, beyond that most of it will not be released before `async`/`await` is
+stabilised in Rust. For an overview and background, see [this draft
+announce](https://github.com/passcod/notify/wiki/Presentation).
 
-I do accept pull requests for fixes _and features_, and would even consider
-breaking changes with enough justification. Do contribute, please!
+Instead of one large release, though, it is much more likely that smaller
+components of the design, once they have gone through revising and maturing in
+the `next` branch, will be incorporated in the `main` branch. The first large
+piece, a new event classification system, landed in 5.0.
 
-(Originally I thought that Version 5 would take less time to get out, but it
-has now been clear for a while that the finish line is quite far away still.
-I'm still at it, but expect nothing soon.)
+As usual, pull requests for fixes and features are welcome!
+
+Do be aware of the licensing difference. Notify is so far under [CC0][cc0]. The
+`next` branch is instead under the [Artistic License 2.0][artistic]. Pieces of
+the `next` branch brought to `main` are re-licensed under CC0, but the eventual
+plan is to be entirely Artistic License 2.0 code. The formal license change
+_will_ incur a major version bump.
 
 ## Origins
 
@@ -114,8 +125,6 @@ cross-platform notify libraries.
 Written by [Félix Saparelli] and awesome [contributors], and released in the
 Public Domain using the [Creative Commons Zero Declaration][cc0].
 
-Note that licensing will change from version 5 to **[Artistic 2.0][artistic]**.
-
 [Chokidar]: https://github.com/paulmillr/chokidar
 [FileSystemEventSecurity]: https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html
 [Félix Saparelli]: https://passcod.name
@@ -125,6 +134,7 @@ Note that licensing will change from version 5 to **[Artistic 2.0][artistic]**.
 [build]: https://travis-ci.org/passcod/notify
 [cargo watch]: https://github.com/passcod/cargo-watch
 [cc0]: https://creativecommons.org/publicdomain/zero/1.0/
+[changelog]: ./CHANGELOG.md
 [cobalt]: https://github.com/cobalt-org/cobalt.rs
 [coc]: http://contributor-covenant.org/version/1/4/
 [contributors]: https://github.com/passcod/notify/graphs/contributors
