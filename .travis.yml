@@ -10,41 +10,39 @@ before_cache:
   # Travis can't cache files that are not readable by "others"
   - chmod -R a+r $HOME/.cargo
 
-matrix:
-  fast_finish: true
+stages:
+  - smoke (check, audit, test)
+  - test stables
+  - check minimum version
+  - check nightlies
+
+jobs:
   include:
+    - stage: smoke (check, audit, test)
+      env: CARGO_SMOKE=1
+      os: linux
 
-    # Audit only
-    - env: CARGO_AUDIT=1
+    - stage: test stables
+      env: CARGO_TEST=1
+      os: windows
+    - env: CARGO_TEST=1
+      os: osx
 
-    # Stable on windows first to get it going (very slow)
-    - os: windows
-
-    # Linux
-    - os: linux
-      rust: nightly
-    - os: linux
+    - stage: check minimum version
       rust: 1.26.1
-    - os: linux
+      os: linux
+    - rust: 1.26.1
+      os: windows
+    - rust: 1.26.1
+      os: osx
 
-    # macOS
-    - os: osx
+    - stage: check nightlies
       rust: nightly
-    - os: osx
-      rust: 1.26.1
-    - os: osx
-
-    # Other windowses later
-    - os: windows
-      rust: nightly
-    - os: windows
-      rust: 1.26.1
-
-    # Clippy only
-    - env: CARGO_CLIPPY=1
-
-  allow_failures:
-    - env: CARGO_CLIPPY=1
+      os: linux
+    - rust: nightly
+      os: windows
+    - rust: nightly
+      os: osx
 
 before_install:
   - set -e
@@ -52,22 +50,21 @@ before_install:
     if [ $TRAVIS_OS_NAME = windows ]; then
       choco install windows-sdk-10.0
     fi
-    if [[ ! -z "$CARGO_AUDIT" ]]; then
+    if [[ ! -z "$CARGO_SMOKE" ]]; then
       which cargo-audit || cargo install --debug cargo-audit
-    elif [[ ! -z "$CARGO_CLIPPY" ]]; then
-      rustup component add clippy
     fi
 # --debug for faster build at the minimal expense of runtime speed
 
 script:
   - |
-    if [[ ! -z "$CARGO_AUDIT" ]]; then
+    if [[ ! -z "$CARGO_SMOKE" ]]; then
       cargo check
       cargo audit
-    elif [[ ! -z "$CARGO_CLIPPY" ]]; then
-      cargo clippy
-    else
       cargo test
+    elif [[ ! -z "$CARGO_TEST" ]]; then
+      cargo test
+    else
+      cargo check
     fi
 
 after_script: set +e
