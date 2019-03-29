@@ -28,6 +28,7 @@ bitflags = "^1.0.4"
 libc = "^0.2.4"
 filetime = "^0.2.1"
 walkdir = "^2.0.1"
+anymap = "0.12.1"
 
 [target.'cfg(target_os="linux")'.dependencies]
 inotify = { version = "^0.7", default-features = false }

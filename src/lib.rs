@@ -6,7 +6,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify = "4.0.0"
+//! notify = "5.0.0"
 //! ```
 //!
 //! # Examples
@@ -17,7 +17,7 @@
 //! [`Watcher::new_raw`](trait.Watcher.html#tymethod.new_raw) and
 //! [`Watcher::new`](trait.Watcher.html#tymethod.new).
 //!
-//! ## Default (debounced) API
+//! ## Debounced API
 //!
 //! ```no_run
 //! extern crate notify;
@@ -47,10 +47,27 @@
 //! }
 //! ```
 //!
-//! Using the default API is easy, all possible events are described in the
-//! [`DebouncedEvent`](enum.DebouncedEvent.html) documentation. But in order to understand the
-//! subtleties of the event delivery, you should read the [`op`](op/index.html) documentation as
-//! well.
+//! By default, Notify emits non-descript events containing only the affected path and some
+//! metadata. To get richer details about _what_ the events are about, you need to enable
+//! [`Config::PreciseEvents`](enum.Config.html#variant.PreciseEvents):
+//!
+//! ```no_run
+//! # extern crate notify;
+//! # use notify::{Watcher, RecursiveMode, watcher};
+//! # use std::sync::mpsc::channel;
+//! # use std::time::Duration;
+//! #
+//! # fn main() {
+//! # let (tx, rx) = channel();
+//! # let mut watcher = watcher(tx, Duration::from_secs(10)).unwrap();
+//! #
+//! use notify::Config;
+//! watcher.configure(Config::PreciseEvents(true));
+//! # }
+//! ```
+//!
+//! The full event classification is described in the [`event`](event/index.html`) module
+//! documentation. In default (imprecise) mode, the event kind will always be `::Any`.
 //!
 //! ## Raw API
 //!
@@ -74,22 +91,18 @@
 //!
 //!     loop {
 //!         match rx.recv() {
-//!            Ok(RawEvent{path: Some(path), op: Ok(op), cookie}) => {
-//!                println!("{:?} {:?} ({:?})", op, path, cookie)
-//!            },
-//!            Ok(event) => println!("broken event: {:?}", event),
+//!            Ok(event) => println!("event: {:?}", event),
 //!            Err(e) => println!("watch error: {:?}", e),
 //!         }
 //!     }
 //! }
 //! ```
 //!
-//! The event structure is described in the [`RawEvent`](struct.RawEvent.html) documentation,
-//! all possible operations delivered in an event are described in the [`op`](op/index.html)
-//! documentation.
+//! Events are serialisable using serde when Notify is compiled with the `serde` feature.
 
 #![deny(missing_docs)]
 
+extern crate anymap;
 #[macro_use]
 extern crate bitflags;
 extern crate filetime;
@@ -129,6 +142,7 @@ pub mod inotify;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+pub mod event;
 pub mod null;
 pub mod poll;
 
@@ -671,6 +685,15 @@ pub trait Watcher: Sized {
 ///
 /// See the [`Watcher::configure`](./trait.Watcher.html#tymethod.configure) method for usage.
 pub enum Config {
+    /// Enable or disable emitting precise event classification.
+    ///
+    /// Applicable to all watchers.
+    ///
+    /// When enabled, events are emitted with a `kind` set to as much precision about what kind of
+    /// event they are as the backend is capable of providing. When disabled (default), events are
+    /// instead emitted as `EventKind::Any`.
+    PreciseEvents(bool),
+
     /// Enable or disable emitting `OngoingWrite` events.
     ///
     /// Applicable to debounced watchers only.

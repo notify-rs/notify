@@ -100,6 +100,7 @@ impl Debounce {
     pub fn configure_debounced_mode(&mut self, config: Config, tx: Sender<Result<bool>>) {
         tx.send(match config {
             Config::OngoingWrites(c) => self.timer.set_ongoing_write_duration(c),
+            _ => Ok(false),
         }).expect("configuration channel disconnected");
     }
 
