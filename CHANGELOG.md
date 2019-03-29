@@ -6,10 +6,14 @@
 - FEATURE: Add `OngoingWrite` event (optional, configured at runtime). [#146], [#183]
 - CHANGE: Rename `Chmod` to `Metadata`. [#179], [#180], previously [#112], [#161]
 - DEPS: \[Linux\] Upgrade inotify to 0.7. [#184]
-- META: Rename `v4-legacy` branch to `main`, to further clarify status and potentially prepare for a breaking release.
+- META: Rename `v4-legacy` branch to `main`, to further clarify status and prepare for a breaking release.
 - DOCS: Change `v5` to `vNext` to allow for a breaking release.
 
+[#112]: https://github.com/passcod/notify/issues/112
 [#146]: https://github.com/passcod/notify/issues/146
+[#161]: https://github.com/passcod/notify/issues/161
+[#179]: https://github.com/passcod/notify/issues/179
+[#180]: https://github.com/passcod/notify/issues/180
 [#183]: https://github.com/passcod/notify/issues/183
 [#184]: https://github.com/passcod/notify/issues/184
 
