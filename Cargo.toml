@@ -29,6 +29,7 @@ libc = "^0.2.4"
 filetime = "^0.2.1"
 walkdir = "^2.0.1"
 anymap = "0.12.1"
+serde = { version = "1.0.89", features = ["derive"], optional = true }
 
 [target.'cfg(target_os="linux")'.dependencies]
 inotify = { version = "^0.7", default-features = false }
@@ -47,5 +48,6 @@ kernel32-sys = "^0.2.1"
 tempdir = "^0.3.4"
 
 [features]
+default = ["serde"]
 timing_tests = []
 manual_tests = []

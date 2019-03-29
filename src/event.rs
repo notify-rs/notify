@@ -466,9 +466,9 @@ mod attr_serde {
         if source.is_some() { length += 1; }
 
         let mut map = s.serialize_map(Some(length))?;
-        if let Some(val) = tracker { map.serialize_entry("tracker", &val); }
-        if let Some(val) = info { map.serialize_entry("info", &val); }
-        if let Some(val) = source { map.serialize_entry("source", &val); }
+        if let Some(val) = tracker { map.serialize_entry("tracker", &val)?; }
+        if let Some(val) = info { map.serialize_entry("info", &val)?; }
+        if let Some(val) = source { map.serialize_entry("source", &val)?; }
         map.end()
     }
 

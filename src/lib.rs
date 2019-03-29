@@ -98,7 +98,7 @@
 //! }
 //! ```
 //!
-//! Events are serialisable using serde when Notify is compiled with the `serde` feature.
+//! Events are serialisable using serde when Notify is compiled with the `serde` feature (default).
 
 #![deny(missing_docs)]
 
@@ -113,6 +113,8 @@ extern crate libc;
 extern crate mio;
 #[cfg(target_os = "linux")]
 extern crate mio_extras;
+#[cfg(feature = "serde")]
+extern crate serde;
 #[cfg(target_os = "windows")]
 extern crate winapi;
 
