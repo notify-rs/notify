@@ -351,7 +351,7 @@ pub unsafe extern "C" fn callback(
 }
 
 impl Watcher for FsEventWatcher {
-    fn new_raw(tx: Sender<RawEvent>) -> Result<FsEventWatcher> {
+    fn new_immediate(tx: Sender<RawEvent>) -> Result<FsEventWatcher> {
         Ok(FsEventWatcher {
             paths: unsafe {
                 cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
@@ -437,7 +437,7 @@ fn test_fsevent_watcher_drop() {
     let (tx, rx) = unbounded();
 
     {
-        let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).unwrap();
+        let mut watcher: RecommendedWatcher = Watcher::new_immediate(tx).unwrap();
         watcher.watch("../../", RecursiveMode::Recursive).unwrap();
         thread::sleep(Duration::from_millis(2000));
         println!("is running -> {}", watcher.is_running());

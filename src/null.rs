@@ -13,7 +13,7 @@ use std::time::Duration;
 pub struct NullWatcher;
 
 impl Watcher for NullWatcher {
-    fn new_raw(tx: Sender<RawEvent>) -> Result<NullWatcher> {
+    fn new_immediate(tx: Sender<RawEvent>) -> Result<NullWatcher> {
         Ok(NullWatcher)
     }
 

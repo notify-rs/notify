@@ -189,7 +189,7 @@ impl PollWatcher {
 }
 
 impl Watcher for PollWatcher {
-    fn new_raw(tx: Sender<RawEvent>) -> Result<PollWatcher> {
+    fn new_immediate(tx: Sender<RawEvent>) -> Result<PollWatcher> {
         PollWatcher::with_delay_ms(tx, 30_000)
     }
 

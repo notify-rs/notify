@@ -42,7 +42,7 @@ fn create_file() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -82,7 +82,7 @@ fn write_file() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -125,7 +125,7 @@ fn modify_file() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -170,7 +170,7 @@ fn delete_file() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -204,7 +204,7 @@ fn rename_file() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -253,7 +253,7 @@ fn move_out_create_file() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -304,7 +304,7 @@ fn create_write_modify_file() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -359,7 +359,7 @@ fn create_rename_overwrite_file() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -414,7 +414,7 @@ fn rename_rename_file() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -460,7 +460,7 @@ fn create_directory() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -488,7 +488,7 @@ fn create_directory_watch_subdirectories() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -548,7 +548,7 @@ fn modify_directory() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -591,7 +591,7 @@ fn delete_directory() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -625,7 +625,7 @@ fn rename_directory() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -674,7 +674,7 @@ fn move_out_create_directory() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -720,7 +720,7 @@ fn move_in_directory_watch_subdirectories() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -790,7 +790,7 @@ fn create_rename_overwrite_directory() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -836,7 +836,7 @@ fn rename_rename_directory() {
 
     let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
-        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+        Watcher::new_immediate(tx).expect("failed to create recommended watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");

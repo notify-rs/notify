@@ -454,7 +454,7 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 }
 
 impl Watcher for INotifyWatcher {
-    fn new_raw(tx: Sender<RawEvent>) -> Result<INotifyWatcher> {
+    fn new_immediate(tx: Sender<RawEvent>) -> Result<INotifyWatcher> {
         let inotify = Inotify::init()?;
         let event_tx = EventTx::Raw { tx };
         let event_loop = EventLoop::new(inotify, event_tx)?;

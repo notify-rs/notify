@@ -579,15 +579,15 @@ impl<T> From<crossbeam_channel::SendError<T>> for Error {
     }
 }
 
-impl<T> From<std::sync::PoisonError<T>> for Error {
-    fn from(err: std::sync::PoisonError<T>) -> Self {
-        Error::Generic(format!("internal mutex poisoned: {:?}", err))
-    }
-}
-
 impl From<crossbeam_channel::RecvError> for Error {
     fn from(err: crossbeam_channel::RecvError) -> Self {
         Error::Generic(format!("internal channel disconnect: {:?}", err))
+    }
+}
+
+impl<T> From<std::sync::PoisonError<T>> for Error {
+    fn from(err: std::sync::PoisonError<T>) -> Self {
+        Error::Generic(format!("internal mutex poisoned: {:?}", err))
     }
 }
 
@@ -626,7 +626,7 @@ pub trait Watcher: Sized {
     /// Create a new watcher in _raw_ mode.
     ///
     /// Events will be sent using the provided `tx` immediately after they occurred.
-    fn new_raw(tx: Sender<RawEvent>) -> Result<Self>;
+    fn new_immediate(tx: Sender<RawEvent>) -> Result<Self>;
 
     /// Create a new _debounced_ watcher with a `delay`.
     ///
@@ -747,9 +747,9 @@ pub type RecommendedWatcher = PollWatcher;
 
 /// Convenience method for creating the `RecommendedWatcher` for the current platform in _raw_ mode.
 ///
-/// See [`Watcher::new_raw`](trait.Watcher.html#tymethod.new_raw).
+/// See [`Watcher::new_immediate`](trait.Watcher.html#tymethod.new_immediate).
 pub fn raw_watcher(tx: Sender<RawEvent>) -> Result<RecommendedWatcher> {
-    Watcher::new_raw(tx)
+    Watcher::new_immediate(tx)
 }
 
 /// Convenience method for creating the `RecommendedWatcher` for the current

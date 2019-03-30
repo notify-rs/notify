@@ -545,7 +545,7 @@ impl ReadDirectoryChangesWatcher {
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
-    fn new_raw(tx: Sender<RawEvent>) -> Result<ReadDirectoryChangesWatcher> {
+    fn new_immediate(tx: Sender<RawEvent>) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
         let (meta_tx, _) = unbounded();
         ReadDirectoryChangesWatcher::create(tx, meta_tx)
