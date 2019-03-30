@@ -1,7 +1,5 @@
 //! Cross-platform file system notification library
 //!
-//! Source is on GitHub: https://github.com/passcod/notify
-//!
 //! # Installation
 //!
 //! ```toml
@@ -9,32 +7,37 @@
 //! notify = "5.0.0"
 //! ```
 //!
+//! ## Upgrading from 4.0
+//!
+//! A guide is available on the wiki:
+//! https://github.com/passcod/notify/wiki/Upgrading-from-4.x-to-5.0
+//!
+//! ## Serde
+//!
+//! Events are serialisable via [serde]. To disable the feature if un-needed, use:
+//!
+//! ```toml
+//! notify = { version = "5.0.0", default-features = false }
+//! ```
+//!
+//! [serde]: https://serde.rs
+//!
 //! # Examples
-//!
-//! Notify provides two APIs. The default API _debounces_ events (if the backend reports two
-//! similar events in close succession, Notify will only report one). The raw API emits file
-//! changes as soon as they happen. For more details, see
-//! [`Watcher::new_raw`](trait.Watcher.html#tymethod.new_raw) and
-//! [`Watcher::new`](trait.Watcher.html#tymethod.new).
-//!
-//! ## Debounced API
 //!
 //! ```
 //! extern crate crossbeam_channel;
 //! extern crate notify;
 //!
 //! use crossbeam_channel::unbounded;
-//! use notify::{Watcher, Result, RecursiveMode, watcher};
-//! use std::sync::mpsc::channel;
+//! use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
 //! use std::time::Duration;
 //!
 //! fn main() -> Result<()> {
 //!     // Create a channel to receive the events.
 //!     let (tx, rx) = unbounded();
 //!
-//!     // Create a watcher object, delivering debounced events.
-//!     // The notification back-end is selected based on the platform.
-//!     let mut watcher = watcher(tx, Duration::from_secs(10))?;
+//!     // Automatically select the best implementation for your platform.
+//!     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_secs(2))?;
 //!
 //!     // Add a path to be watched. All files and directories at that path and
 //!     // below will be monitored for changes.
@@ -43,18 +46,21 @@
 //!     loop {
 //! #       break;
 //!         match rx.recv() {
-//!            Ok(event) => println!("{:?}", event),
-//!            Err(e) => println!("watch error: {:?}", e),
-//!         }
+//!            Ok(event) => println!("changed: {:?}", event.path),
+//!            Err(err) => println!("watch error: {:?}", err),
+//!         };
 //!     }
 //!
 //!     Ok(())
 //! }
 //! ```
 //!
+//! ### With precise events
+//!
 //! By default, Notify emits non-descript events containing only the affected path and some
 //! metadata. To get richer details about _what_ the events are about, you need to enable
-//! [`Config::PreciseEvents`](enum.Config.html#variant.PreciseEvents):
+//! [`Config::PreciseEvents`](enum.Config.html#variant.PreciseEvents). The full event
+//! classification is described in the [`event`](event/index.html`) module documentation.
 //!
 //! ```
 //! # extern crate crossbeam_channel;
@@ -73,43 +79,40 @@
 //! # }
 //! ```
 //!
-//! The full event classification is described in the [`event`](event/index.html`) module
-//! documentation. In default (imprecise) mode, the event kind will always be `::Any`.
+//! ## Without debouncing
 //!
-//! ## Raw API
+//! To receive events as they are emitted, without debouncing at all:
 //!
 //! ```
-//! extern crate crossbeam_channel;
-//! extern crate notify;
-//!
-//! use crossbeam_channel::unbounded;
-//! use notify::{Watcher, RecursiveMode, Result, RawEvent, raw_watcher};
-//!
-//! fn main() -> Result<()> {
-//!     // Create a channel to receive the events.
-//!     let (tx, rx) = unbounded();
-//!
-//!     // Create a watcher object, delivering raw events.
-//!     // The notification back-end is selected based on the platform.
-//!     let mut watcher = raw_watcher(tx)?;
-//!
-//!     // Add a path to be watched. All files and directories at that path and
-//!     // below will be monitored for changes.
-//!     watcher.watch(".", RecursiveMode::Recursive)?;
-//!
-//!     loop {
-//! #       break;
-//!         match rx.recv() {
-//!            Ok(event) => println!("event: {:?}", event),
-//!            Err(e) => println!("watch error: {:?}", e),
-//!         }
-//!     }
-//!
-//!     Ok(())
-//! }
+//! # extern crate crossbeam_channel;
+//! # extern crate notify;
+//! #
+//! # use crossbeam_channel::unbounded;
+//! # use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
+//! #
+//! # fn main() -> Result<()> {
+//! #     // Create a channel to receive the events.
+//! #     let (tx, rx) = unbounded();
+//! #
+//! #     // Create a watcher object, delivering raw events.
+//! #     // The notification back-end is selected based on the platform.
+//!       let mut watcher: RecommendedWatcher = Watcher::new_immediate(tx)?;
+//! #
+//! #     // Add a path to be watched. All files and directories at that path and
+//! #     // below will be monitored for changes.
+//! #     watcher.watch(".", RecursiveMode::Recursive)?;
+//! #
+//! #     loop {
+//! #         break;
+//! #         match rx.recv() {
+//! #            Ok(event) => println!("event: {:?}", event),
+//! #            Err(e) => println!("watch error: {:?}", e),
+//! #         }
+//! #     }
+//! #
+//! #     Ok(())
+//! # }
 //! ```
-//!
-//! Events are serialisable using serde when Notify is compiled with the `serde` feature (default).
 
 #![deny(missing_docs)]
 
