@@ -17,6 +17,7 @@ use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
 use super::debounce::{Debounce, EventTx};
 use super::{op, Config, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
+use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
@@ -26,7 +27,6 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -83,7 +83,7 @@ impl ReadDirectoryChangesServer {
         cmd_tx: Sender<Result<PathBuf>>,
         wakeup_sem: HANDLE,
     ) -> Sender<Action> {
-        let (action_tx, action_rx) = channel();
+        let (action_tx, action_rx) = unbounded();
         // it is, in fact, ok to send the semaphore across threads
         let sem_temp = wakeup_sem as u64;
         thread::spawn(move || {
@@ -138,7 +138,6 @@ impl ReadDirectoryChangesServer {
                         }
 
                         self.configure_raw_mode(config, tx);
-
                     }
                 }
             }
@@ -248,7 +247,8 @@ impl ReadDirectoryChangesServer {
     }
 
     fn configure_raw_mode(&mut self, _config: Config, tx: Sender<Result<bool>>) {
-        tx.send(Ok(false)).expect("configuration channel disconnect");
+        tx.send(Ok(false))
+            .expect("configuration channel disconnect");
     }
 }
 
@@ -452,7 +452,7 @@ impl ReadDirectoryChangesWatcher {
         tx: Sender<RawEvent>,
         meta_tx: Sender<MetaEvent>,
     ) -> Result<ReadDirectoryChangesWatcher> {
-        let (cmd_tx, cmd_rx) = channel();
+        let (cmd_tx, cmd_rx) = unbounded();
 
         let wakeup_sem =
             unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
@@ -478,7 +478,7 @@ impl ReadDirectoryChangesWatcher {
         meta_tx: Sender<MetaEvent>,
         delay: Duration,
     ) -> Result<ReadDirectoryChangesWatcher> {
-        let (cmd_tx, cmd_rx) = channel();
+        let (cmd_tx, cmd_rx) = unbounded();
 
         let wakeup_sem =
             unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
@@ -547,13 +547,13 @@ impl ReadDirectoryChangesWatcher {
 impl Watcher for ReadDirectoryChangesWatcher {
     fn new_raw(tx: Sender<RawEvent>) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
-        let (meta_tx, _) = channel();
+        let (meta_tx, _) = unbounded();
         ReadDirectoryChangesWatcher::create(tx, meta_tx)
     }
 
     fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
-        let (meta_tx, _) = channel();
+        let (meta_tx, _) = unbounded();
         ReadDirectoryChangesWatcher::create_debounced(tx, meta_tx, delay)
     }
 
@@ -589,7 +589,7 @@ impl Watcher for ReadDirectoryChangesWatcher {
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
-        let (tx, rx) = channel();
+        let (tx, rx) = bounded(1);
         self.tx.send(Action::Configure(config, tx))?;
         rx.recv()?
     }

@@ -19,31 +19,36 @@
 //!
 //! ## Debounced API
 //!
-//! ```no_run
+//! ```
+//! extern crate crossbeam_channel;
 //! extern crate notify;
 //!
-//! use notify::{Watcher, RecursiveMode, watcher};
+//! use crossbeam_channel::unbounded;
+//! use notify::{Watcher, Result, RecursiveMode, watcher};
 //! use std::sync::mpsc::channel;
 //! use std::time::Duration;
 //!
-//! fn main() {
+//! fn main() -> Result<()> {
 //!     // Create a channel to receive the events.
-//!     let (tx, rx) = channel();
+//!     let (tx, rx) = unbounded();
 //!
 //!     // Create a watcher object, delivering debounced events.
 //!     // The notification back-end is selected based on the platform.
-//!     let mut watcher = watcher(tx, Duration::from_secs(10)).unwrap();
+//!     let mut watcher = watcher(tx, Duration::from_secs(10))?;
 //!
 //!     // Add a path to be watched. All files and directories at that path and
 //!     // below will be monitored for changes.
-//!     watcher.watch("/home/test/notify", RecursiveMode::Recursive).unwrap();
+//!     watcher.watch(".", RecursiveMode::Recursive)?;
 //!
 //!     loop {
+//! #       break;
 //!         match rx.recv() {
 //!            Ok(event) => println!("{:?}", event),
 //!            Err(e) => println!("watch error: {:?}", e),
 //!         }
 //!     }
+//!
+//!     Ok(())
 //! }
 //! ```
 //!
@@ -51,18 +56,20 @@
 //! metadata. To get richer details about _what_ the events are about, you need to enable
 //! [`Config::PreciseEvents`](enum.Config.html#variant.PreciseEvents):
 //!
-//! ```no_run
+//! ```
+//! # extern crate crossbeam_channel;
 //! # extern crate notify;
-//! # use notify::{Watcher, RecursiveMode, watcher};
-//! # use std::sync::mpsc::channel;
+//! # use crossbeam_channel::unbounded;
+//! # use notify::{Watcher, RecursiveMode, RecommendedWatcher, Result, watcher};
 //! # use std::time::Duration;
 //! #
-//! # fn main() {
-//! # let (tx, rx) = channel();
-//! # let mut watcher = watcher(tx, Duration::from_secs(10)).unwrap();
+//! # fn main() -> Result<()> {
+//! # let (tx, rx) = unbounded();
+//! # let mut watcher: RecommendedWatcher = watcher(tx, Duration::from_secs(10))?;
 //! #
 //! use notify::Config;
-//! watcher.configure(Config::PreciseEvents(true));
+//! watcher.configure(Config::PreciseEvents(true))?;
+//! # Ok(())
 //! # }
 //! ```
 //!
@@ -71,30 +78,34 @@
 //!
 //! ## Raw API
 //!
-//! ```no_run
+//! ```
+//! extern crate crossbeam_channel;
 //! extern crate notify;
 //!
-//! use notify::{Watcher, RecursiveMode, RawEvent, raw_watcher};
-//! use std::sync::mpsc::channel;
+//! use crossbeam_channel::unbounded;
+//! use notify::{Watcher, RecursiveMode, Result, RawEvent, raw_watcher};
 //!
-//! fn main() {
+//! fn main() -> Result<()> {
 //!     // Create a channel to receive the events.
-//!     let (tx, rx) = channel();
+//!     let (tx, rx) = unbounded();
 //!
 //!     // Create a watcher object, delivering raw events.
 //!     // The notification back-end is selected based on the platform.
-//!     let mut watcher = raw_watcher(tx).unwrap();
+//!     let mut watcher = raw_watcher(tx)?;
 //!
 //!     // Add a path to be watched. All files and directories at that path and
 //!     // below will be monitored for changes.
-//!     watcher.watch("/home/test/notify", RecursiveMode::Recursive).unwrap();
+//!     watcher.watch(".", RecursiveMode::Recursive)?;
 //!
 //!     loop {
+//! #       break;
 //!         match rx.recv() {
 //!            Ok(event) => println!("event: {:?}", event),
 //!            Err(e) => println!("watch error: {:?}", e),
 //!         }
 //!     }
+//!
+//!     Ok(())
 //! }
 //! ```
 //!
@@ -105,6 +116,7 @@
 extern crate anymap;
 #[macro_use]
 extern crate bitflags;
+extern crate crossbeam_channel;
 extern crate filetime;
 #[cfg(target_os = "macos")]
 extern crate fsevent_sys;
@@ -114,19 +126,20 @@ extern crate mio;
 #[cfg(target_os = "linux")]
 extern crate mio_extras;
 #[cfg(feature = "serde")]
+#[allow(unused_imports)] // for 2015-edition macro_use
 #[macro_use]
 extern crate serde;
 #[cfg(target_os = "windows")]
 extern crate winapi;
 
 pub use self::op::Op;
+use crossbeam_channel::Sender;
 use std::convert::AsRef;
 use std::error::Error as StdError;
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::result::Result as StdResult;
-use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 #[cfg(target_os = "macos")]
@@ -557,8 +570,8 @@ impl From<io::Error> for Error {
     }
 }
 
-impl<T> From<std::sync::mpsc::SendError<T>> for Error {
-    fn from(err: std::sync::mpsc::SendError<T>) -> Self {
+impl<T> From<crossbeam_channel::SendError<T>> for Error {
+    fn from(err: crossbeam_channel::SendError<T>) -> Self {
         Error::Generic(format!("internal channel disconnect: {:?}", err))
     }
 }
@@ -569,8 +582,8 @@ impl<T> From<std::sync::PoisonError<T>> for Error {
     }
 }
 
-impl From<std::sync::mpsc::RecvError> for Error {
-    fn from(err: std::sync::mpsc::RecvError) -> Self {
+impl From<crossbeam_channel::RecvError> for Error {
+    fn from(err: crossbeam_channel::RecvError) -> Self {
         Error::Generic(format!("internal channel disconnect: {:?}", err))
     }
 }

@@ -1,10 +1,10 @@
+use crossbeam_channel::{Receiver, TryRecvError};
 use notify::*;
 use tempdir::TempDir;
 
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::mpsc::{Receiver, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 

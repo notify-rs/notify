@@ -3,8 +3,8 @@
 #![allow(unused_variables)]
 
 use super::{DebouncedEvent, RawEvent, RecursiveMode, Result, Watcher};
+use crossbeam_channel::Sender;
 use std::path::Path;
-use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 /// Stub `Watcher` implementation

@@ -1,20 +1,21 @@
+extern crate crossbeam_channel;
 extern crate notify;
 
+use crossbeam_channel::unbounded;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
-use std::sync::mpsc::channel;
 
 fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
     // Create a channel to receive the events.
-    let (tx, rx) = channel();
+    let (tx, rx) = unbounded();
 
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
-    let mut watcher: RecommendedWatcher = try!(Watcher::new_raw(tx));
+    let mut watcher: RecommendedWatcher = Watcher::new_raw(tx)?;
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
-    try!(watcher.watch(path, RecursiveMode::Recursive));
+    watcher.watch(path, RecursiveMode::Recursive)?;
 
     // This is a simple loop, but you may want to use more complex logic here,
     // for example to handle I/O.

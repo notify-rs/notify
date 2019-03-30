@@ -12,6 +12,7 @@ use self::inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use self::walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
 use super::{op, Config, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
+use crossbeam_channel::{bounded, unbounded, Sender};
 use mio;
 use mio_extras;
 use std::collections::HashMap;
@@ -21,7 +22,6 @@ use std::fs::metadata;
 use std::mem;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, channel, Sender};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -205,7 +205,7 @@ impl EventLoop {
                 EventLoopMsg::Configure(config, tx) => {
                     if let EventTx::Debounced {
                         ref mut debounce,
-                        tx: _
+                        tx: _,
                     } = self.event_tx
                     {
                         debounce.configure_debounced_mode(config, tx);
@@ -218,7 +218,8 @@ impl EventLoop {
     }
 
     fn configure_raw_mode(&mut self, _config: Config, tx: Sender<Result<bool>>) {
-        tx.send(Ok(false)).expect("configuration channel disconnected");
+        tx.send(Ok(false))
+            .expect("configuration channel disconnected");
     }
 
     fn handle_inotify(&mut self) {
@@ -481,7 +482,7 @@ impl Watcher for INotifyWatcher {
             let p = try!(env::current_dir().map_err(Error::Io));
             p.join(path)
         };
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         let msg = EventLoopMsg::AddWatch(pb, recursive_mode, tx);
 
         // we expect the event loop to live and reply => unwraps must not panic
@@ -496,7 +497,7 @@ impl Watcher for INotifyWatcher {
             let p = try!(env::current_dir().map_err(Error::Io));
             p.join(path)
         };
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         let msg = EventLoopMsg::RemoveWatch(pb, tx);
 
         // we expect the event loop to live and reply => unwraps must not panic
@@ -505,7 +506,7 @@ impl Watcher for INotifyWatcher {
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
-        let (tx, rx) = channel();
+        let (tx, rx) = bounded(1);
         self.0.lock()?.send(EventLoopMsg::Configure(config, tx))?;
         rx.recv()?
     }

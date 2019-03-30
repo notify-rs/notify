@@ -6,11 +6,11 @@
 use self::walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
 use super::{op, DebouncedEvent, Error, RawEvent, RecursiveMode, Result, Watcher};
+use crossbeam_channel::Sender;
 use filetime::FileTime;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -42,7 +42,7 @@ impl PollWatcher {
             watches: Arc::new(Mutex::new(HashMap::new())),
             open: Arc::new(RwLock::new(true)),
         };
-        let event_tx = EventTx::Raw { tx: tx };
+        let event_tx = EventTx::Raw { tx };
         p.run(Duration::from_millis(delay as u64), event_tx);
         Ok(p)
     }

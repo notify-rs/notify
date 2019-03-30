@@ -5,11 +5,10 @@ mod timer;
 use super::{op, Config, DebouncedEvent, RawEvent, Result};
 
 use self::timer::WatchTimer;
-
+use crossbeam_channel::Sender;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex, mpsc::Sender};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub type OperationsBuffer =
@@ -17,14 +16,14 @@ pub type OperationsBuffer =
 
 pub enum EventTx {
     Raw {
-        tx: mpsc::Sender<RawEvent>,
+        tx: Sender<RawEvent>,
     },
     Debounced {
-        tx: mpsc::Sender<DebouncedEvent>,
+        tx: Sender<DebouncedEvent>,
         debounce: Debounce,
     },
     DebouncedTx {
-        tx: mpsc::Sender<DebouncedEvent>,
+        tx: Sender<DebouncedEvent>,
     },
 }
 
@@ -74,7 +73,7 @@ impl EventTx {
 }
 
 pub struct Debounce {
-    tx: mpsc::Sender<DebouncedEvent>,
+    tx: Sender<DebouncedEvent>,
     operations_buffer: OperationsBuffer,
     rename_path: Option<PathBuf>,
     rename_cookie: Option<u32>,
@@ -82,7 +81,7 @@ pub struct Debounce {
 }
 
 impl Debounce {
-    pub fn new(delay: Duration, tx: mpsc::Sender<DebouncedEvent>) -> Debounce {
+    pub fn new(delay: Duration, tx: Sender<DebouncedEvent>) -> Debounce {
         let operations_buffer: OperationsBuffer = Arc::new(Mutex::new(HashMap::new()));
 
         // spawns new thread
@@ -101,7 +100,8 @@ impl Debounce {
         tx.send(match config {
             Config::OngoingWrites(c) => self.timer.set_ongoing_write_duration(c),
             _ => Ok(false),
-        }).expect("configuration channel disconnected");
+        })
+        .expect("configuration channel disconnected");
     }
 
     fn check_partial_rename(&mut self, path: PathBuf, op: op::Op, cookie: Option<u32>) {
@@ -516,11 +516,7 @@ fn restart_timer(timer_id: &mut Option<u64>, path: PathBuf, timer: &mut WatchTim
     *timer_id = Some(timer.schedule(path));
 }
 
-fn handle_ongoing_write_event(
-    timer: &WatchTimer,
-    path: PathBuf,
-    tx: &mpsc::Sender<DebouncedEvent>,
-) {
+fn handle_ongoing_write_event(timer: &WatchTimer, path: PathBuf, tx: &Sender<DebouncedEvent>) {
     let mut ongoing_write_event = timer.ongoing_write_event.lock().unwrap();
     let mut event_details = Option::None;
     if let Some(ref i) = *ongoing_write_event {

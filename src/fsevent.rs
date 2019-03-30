@@ -15,6 +15,7 @@ extern crate fsevent as fse;
 
 use super::debounce::{Debounce, EventTx};
 use super::{op, Config, DebouncedEvent, Error, RawEvent, RecursiveMode, Result, Watcher};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use fsevent_sys::core_foundation as cf;
 use fsevent_sys::fsevent as fs;
 use libc;
@@ -25,7 +26,6 @@ use std::mem::transmute;
 use std::path::{Path, PathBuf};
 use std::slice;
 use std::str::from_utf8;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -182,7 +182,7 @@ impl FsEventWatcher {
         }
 
         // done channel is used to sync quit status of runloop thread
-        let (done_tx, done_rx) = channel();
+        let (done_tx, done_rx) = unbounded();
 
         let info = StreamContextInfo {
             event_tx: self.event_tx.clone(),
@@ -215,7 +215,7 @@ impl FsEventWatcher {
         // move into thread
         let dummy = stream as usize;
         // channel to pass runloop around
-        let (rl_tx, rl_rx) = channel();
+        let (rl_tx, rl_rx) = unbounded();
 
         thread::spawn(move || {
             let stream = dummy as *mut libc::c_void;
@@ -249,7 +249,8 @@ impl FsEventWatcher {
     }
 
     fn configure_raw_mode(&mut self, _config: Config, tx: Sender<Result<bool>>) {
-        tx.send(Ok(false)).expect("configuration channel disconnect");
+        tx.send(Ok(false))
+            .expect("configuration channel disconnect");
     }
 }
 
@@ -400,7 +401,7 @@ impl Watcher for FsEventWatcher {
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
-        let (tx, rx) = channel();
+        let (tx, rx) = unbounded();
 
         {
             let mut debounced_event = self.event_tx.lock()?;
@@ -433,7 +434,7 @@ fn test_fsevent_watcher_drop() {
     use super::*;
     use std::time::Duration;
 
-    let (tx, rx) = channel();
+    let (tx, rx) = unbounded();
 
     {
         let mut watcher: RecommendedWatcher = Watcher::new_raw(tx).unwrap();

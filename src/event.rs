@@ -6,7 +6,9 @@
 
 use anymap::{any::CloneAny, Map};
 use std::{
-    fmt, hash::{Hash, Hasher}, path::PathBuf,
+    fmt,
+    hash::{Hash, Hasher},
+    path::PathBuf,
 };
 
 #[cfg(feature = "serde")]
@@ -451,24 +453,42 @@ impl Hash for Event {
 
 #[cfg(feature = "serde")]
 mod attr_serde {
-    use serde::{de::Deserializer, ser::{Serializer, SerializeMap}};
-    use std::collections::HashMap;
     use super::*;
+    use serde::{
+        de::Deserializer,
+        ser::{SerializeMap, Serializer},
+    };
+    use std::collections::HashMap;
 
-    pub(crate) fn serialize<S>(attrs: &AnyMap, s: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    pub(crate) fn serialize<S>(attrs: &AnyMap, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         let tracker = attrs.get::<Tracker>().map(|v| v.0.clone());
         let info = attrs.get::<Info>().map(|v| v.0.clone());
         let source = attrs.get::<Source>().map(|v| v.0.clone());
 
         let mut length = 0;
-        if tracker.is_some() { length += 1; }
-        if info.is_some() { length += 1; }
-        if source.is_some() { length += 1; }
+        if tracker.is_some() {
+            length += 1;
+        }
+        if info.is_some() {
+            length += 1;
+        }
+        if source.is_some() {
+            length += 1;
+        }
 
         let mut map = s.serialize_map(Some(length))?;
-        if let Some(val) = tracker { map.serialize_entry("tracker", &val)?; }
-        if let Some(val) = info { map.serialize_entry("info", &val)?; }
-        if let Some(val) = source { map.serialize_entry("source", &val)?; }
+        if let Some(val) = tracker {
+            map.serialize_entry("tracker", &val)?;
+        }
+        if let Some(val) = info {
+            map.serialize_entry("info", &val)?;
+        }
+        if let Some(val) = source {
+            map.serialize_entry("source", &val)?;
+        }
         map.end()
     }
 
@@ -490,9 +510,15 @@ mod attr_serde {
 
         let attrs = Attrs::deserialize(d)?;
         let mut map = AnyMap::with_capacity(attrs.0.len());
-        if let Some(Attr::Tracker(Some(val))) = attrs.0.get("tracker").cloned() { map.insert(val); }
-        if let Some(Attr::Info(Some(val))) = attrs.0.get("info").cloned() { map.insert(val); }
-        if let Some(Attr::Source(Some(val))) = attrs.0.get("source").cloned() { map.insert(val); }
+        if let Some(Attr::Tracker(Some(val))) = attrs.0.get("tracker").cloned() {
+            map.insert(val);
+        }
+        if let Some(Attr::Info(Some(val))) = attrs.0.get("info").cloned() {
+            map.insert(val);
+        }
+        if let Some(Attr::Source(Some(val))) = attrs.0.get("source").cloned() {
+            map.insert(val);
+        }
         Ok(map)
     }
 }

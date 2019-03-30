@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+extern crate crossbeam_channel;
 extern crate notify;
 extern crate tempdir;
 
@@ -7,15 +8,16 @@ extern crate tempdir;
 mod windows_tests {
     use super::notify::*;
     use super::tempdir::TempDir;
+    use crossbeam_channel::{unbounded, Receiver, TryRecvError};
     use std::sync::mpsc;
     use std::thread;
     use std::time::{Duration, Instant};
 
-    fn wait_for_disconnect(rx: &mpsc::Receiver<RawEvent>) {
+    fn wait_for_disconnect(rx: &Receiver<RawEvent>) {
         loop {
             match rx.try_recv() {
-                Err(mpsc::TryRecvError::Disconnected) => break,
-                Err(mpsc::TryRecvError::Empty) => (),
+                Err(TryRecvError::Disconnected) => break,
+                Err(TryRecvError::Empty) => (),
                 Ok(res) => match res.op {
                     Err(e) => panic!("unexpected err: {:?}: {:?}", e, res.path),
                     _ => (),
@@ -32,8 +34,8 @@ mod windows_tests {
         let dir_count = 100;
 
         // to get meta events, we have to pass in the meta channel
-        let (meta_tx, meta_rx) = mpsc::channel();
-        let (tx, rx) = mpsc::channel();
+        let (meta_tx, meta_rx) = unbounded();
+        let (tx, rx) = unbounded();
         {
             let mut dirs: Vec<TempDir> = Vec::new();
             let mut w = ReadDirectoryChangesWatcher::create(tx, meta_tx).unwrap();
@@ -78,8 +80,8 @@ mod windows_tests {
 
     #[test]
     fn watch_server_can_be_awakened() {
-        let (tx, _) = mpsc::channel();
-        let (meta_tx, meta_rx) = mpsc::channel();
+        let (tx, _) = unbounded();
+        let (meta_tx, meta_rx) = unbounded();
         let mut w = ReadDirectoryChangesWatcher::create(tx, meta_tx).unwrap();
 
         let d = TempDir::new("rsnotifytest").unwrap();
@@ -111,10 +113,10 @@ mod windows_tests {
     fn memtest_manual() {
         let mut i = 0;
         loop {
-            let (tx, rx) = mpsc::channel();
+            let (tx, rx) = unbounded();
             let d = TempDir::new("rsnotifytest").unwrap();
             {
-                let (meta_tx, _) = mpsc::channel();
+                let (meta_tx, _) = unbounded();
                 let mut w = ReadDirectoryChangesWatcher::create(tx, meta_tx).unwrap();
                 w.watch(d.path(), RecursiveMode::Recursive).unwrap();
                 thread::sleep(Duration::from_millis(1)); // this should make us run pretty hot but not insane
