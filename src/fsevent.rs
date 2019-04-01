@@ -273,6 +273,7 @@ pub unsafe extern "C" fn callback(
     let flags = slice::from_raw_parts_mut(e_ptr, num);
     let ids = slice::from_raw_parts_mut(i_ptr, num);
 
+    let event_tx = &(*info).event_tx;
     let mut rename_event: Option<RawEvent> = None;
 
     for p in 0..num {
@@ -357,7 +358,7 @@ impl Watcher for FsEventWatcher {
             since_when: fs::kFSEventStreamEventIdSinceNow,
             latency: 0.0,
             flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
-            event_tx: Arc::new(EventTx::Raw { tx }),
+            event_tx: Arc::new(EventTx::new_immediate(tx)),
             runloop: None,
             context: None,
             recursive_info: HashMap::new(),
@@ -372,10 +373,10 @@ impl Watcher for FsEventWatcher {
             since_when: fs::kFSEventStreamEventIdSinceNow,
             latency: 0.0,
             flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
-            event_tx: Arc::new(EventTx::Debounced {
-                tx: tx.clone(),
-                debounce: Debounce::new(delay, tx),
-            }),
+            event_tx: Arc::new(EventTx::new_debounced(
+                tx.clone(),
+                Debounce::new(delay, tx),
+            )),
             runloop: None,
             context: None,
             recursive_info: HashMap::new(),
@@ -401,19 +402,12 @@ impl Watcher for FsEventWatcher {
     fn configure(&mut self, config: Config) -> Result<bool> {
         let (tx, rx) = unbounded();
 
-        {
-            let mut debounced_event = self.event_tx.lock()?;
-            if let EventTx::Debounced {
-                ref mut debounce,
-                tx: _,
-            } = *debounced_event
-            {
-                debounce.configure_debounced_mode(config, tx);
-                return rx.recv()?;
-            }
+        if self.event_tx.is_immediate() {
+            self.configure_raw_mode(config, tx);
+        } else {
+            self.event_tx.configure_if_debounced(config, tx);
         }
 
-        self.configure_raw_mode(config, tx);
         rx.recv()?
     }
 }

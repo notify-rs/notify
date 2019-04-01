@@ -58,9 +58,8 @@ enum EventLoopMsg {
 }
 
 #[inline]
-fn send_pending_rename_event(rename_event: &mut Option<RawEvent>, event_tx: &mut EventTx) {
-    let event = mem::replace(rename_event, None);
-    if let Some(e) = event {
+fn send_pending_rename_event(rename_event: &mut Option<RawEvent>, event_tx: &EventTx) {
+    if let Some(e) = mem::replace(rename_event, None) {
         event_tx.send(RawEvent {
             path: e.path,
             op: Ok(op::Op::REMOVE),
@@ -199,18 +198,14 @@ impl EventLoop {
                     let current_cookie = self.rename_event.as_ref().and_then(|e| e.cookie);
                     // send pending rename event only if the rename event for which the timer has been created hasn't been handled already; otherwise ignore this timeout
                     if current_cookie == Some(cookie) {
-                        send_pending_rename_event(&mut self.rename_event, &mut self.event_tx);
+                        send_pending_rename_event(&mut self.rename_event, &self.event_tx);
                     }
                 }
                 EventLoopMsg::Configure(config, tx) => {
-                    if let EventTx::Debounced {
-                        ref mut debounce,
-                        tx: _,
-                    } = self.event_tx
-                    {
-                        debounce.configure_debounced_mode(config, tx);
-                    } else {
+                    if self.event_tx.is_immediate() {
                         self.configure_raw_mode(config, tx);
+                    } else {
+                        self.event_tx.configure_if_debounced(config, tx);
                     }
                 }
             }
@@ -245,7 +240,7 @@ impl EventLoop {
                         };
 
                         if event.mask.contains(EventMask::MOVED_FROM) {
-                            send_pending_rename_event(&mut self.rename_event, &mut self.event_tx);
+                            send_pending_rename_event(&mut self.rename_event, &self.event_tx);
                             remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                             self.rename_event = Some(RawEvent {
                                 path: path,
@@ -296,7 +291,7 @@ impl EventLoop {
                             if !o.is_empty() {
                                 send_pending_rename_event(
                                     &mut self.rename_event,
-                                    &mut self.event_tx,
+                                    &self.event_tx,
                                 );
 
                                 self.event_tx.send(RawEvent {
@@ -456,7 +451,7 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 impl Watcher for INotifyWatcher {
     fn new_immediate(tx: Sender<RawEvent>) -> Result<INotifyWatcher> {
         let inotify = Inotify::init()?;
-        let event_tx = EventTx::Raw { tx };
+        let event_tx = EventTx::new_immediate(tx);
         let event_loop = EventLoop::new(inotify, event_tx)?;
         let channel = event_loop.channel();
         event_loop.run();
@@ -465,10 +460,10 @@ impl Watcher for INotifyWatcher {
 
     fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<INotifyWatcher> {
         let inotify = Inotify::init()?;
-        let event_tx = EventTx::Debounced {
-            tx: tx.clone(),
-            debounce: Debounce::new(delay, tx),
-        };
+        let event_tx = EventTx::new_debounced(
+            tx.clone(),
+            Debounce::new(delay, tx),
+        );
         let event_loop = EventLoop::new(inotify, event_tx)?;
         let channel = event_loop.channel();
         event_loop.run();

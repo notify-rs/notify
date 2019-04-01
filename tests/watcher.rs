@@ -8,6 +8,7 @@ use crossbeam_channel::{unbounded, TryRecvError};
 use notify::*;
 use std::env;
 use std::thread;
+use std::time::Duration;
 use tempdir::TempDir;
 
 #[cfg(all(feature = "manual_tests", target_os = "linux"))]
@@ -15,7 +16,7 @@ use std::fs::File;
 #[cfg(all(feature = "manual_tests", target_os = "linux"))]
 use std::io::prelude::*;
 #[cfg(all(feature = "manual_tests", target_os = "linux"))]
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use utils::*;
 
@@ -699,7 +700,7 @@ fn poll_watch_recursive_create_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
     let (tx, rx) = unbounded();
-    let mut watcher = PollWatcher::with_delay_ms(tx, 50).expect("failed to create poll watcher");
+    let mut watcher = PollWatcher::with_delay(tx, Duration::from_millis(50)).expect("failed to create poll watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -737,7 +738,7 @@ fn poll_watch_recursive_move() {
     tdir.create_all(vec!["dir1a"]);
 
     let (tx, rx) = unbounded();
-    let mut watcher = PollWatcher::with_delay_ms(tx, 50).expect("failed to create poll watcher");
+    let mut watcher = PollWatcher::with_delay(tx, Duration::from_millis(50)).expect("failed to create poll watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -801,7 +802,7 @@ fn poll_watch_recursive_move_in() {
     tdir.create_all(vec!["watch_dir", "dir1a/dir1"]);
 
     let (tx, rx) = unbounded();
-    let mut watcher = PollWatcher::with_delay_ms(tx, 50).expect("failed to create poll watcher");
+    let mut watcher = PollWatcher::with_delay(tx, Duration::from_millis(50)).expect("failed to create poll watcher");
     watcher
         .watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -854,7 +855,7 @@ fn poll_watch_recursive_move_out() {
     tdir.create_all(vec!["watch_dir/dir1a/dir1"]);
 
     let (tx, rx) = unbounded();
-    let mut watcher = PollWatcher::with_delay_ms(tx, 50).expect("failed to create poll watcher");
+    let mut watcher = PollWatcher::with_delay(tx, Duration::from_millis(50)).expect("failed to create poll watcher");
     watcher
         .watch(tdir.mkpath("watch_dir"), RecursiveMode::Recursive)
         .expect("failed to watch directory");
@@ -908,7 +909,7 @@ fn poll_watch_nonrecursive() {
     tdir.create_all(vec!["dir1"]);
 
     let (tx, rx) = unbounded();
-    let mut watcher = PollWatcher::with_delay_ms(tx, 50).expect("failed to create poll watcher");
+    let mut watcher = PollWatcher::with_delay(tx, Duration::from_millis(50)).expect("failed to create poll watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::NonRecursive)
         .expect("failed to watch directory");
@@ -938,7 +939,7 @@ fn poll_watch_file() {
     tdir.create_all(vec!["file1"]);
 
     let (tx, rx) = unbounded();
-    let mut watcher = PollWatcher::with_delay_ms(tx, 50).expect("failed to create poll watcher");
+    let mut watcher = PollWatcher::with_delay(tx, Duration::from_millis(50)).expect("failed to create poll watcher");
     watcher
         .watch(tdir.mkpath("file1"), RecursiveMode::Recursive)
         .expect("failed to watch directory");

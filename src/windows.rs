@@ -121,22 +121,11 @@ impl ReadDirectoryChangesServer {
                         break;
                     }
                     Action::Configure(config, tx) => {
-                        // TODO: We shouldn't need to obtain a lock on the tx just to figure out
-                        // whether the watcher is in debounced mode or not. Let's store a boolean
-                        // somewhere and be done with it. Irrespective of that, putting Senders in
-                        // mutexes is useless and we really should use crossbeam-channel anyway.
-                        {
-                            if let EventTx::Debounced {
-                                ref mut debounce,
-                                tx: _,
-                            } = &self.event_tx
-                            {
-                                debounce.configure_debounced_mode(config, tx);
-                                break;
-                            }
+                        if self.event_tx.is_immediate() {
+                            self.configure_raw_mode(config, tx);
+                        } else {
+                            self.event_tx.configure_if_debounced(config, tx);
                         }
-
-                        self.configure_raw_mode(config, tx);
                     }
                 }
             }
@@ -458,8 +447,7 @@ impl ReadDirectoryChangesWatcher {
             ));
         }
 
-        let event_tx = EventTx::Raw { tx: tx };
-
+        let event_tx = EventTx::new_immediate(tx);
         let action_tx = ReadDirectoryChangesServer::start(event_tx, meta_tx, cmd_tx, wakeup_sem);
 
         Ok(ReadDirectoryChangesWatcher {
@@ -484,11 +472,7 @@ impl ReadDirectoryChangesWatcher {
             ));
         }
 
-        let event_tx = EventTx::Debounced {
-            tx: tx.clone(),
-            debounce: Debounce::new(delay, tx),
-        };
-
+        let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
         let action_tx = ReadDirectoryChangesServer::start(event_tx, meta_tx, cmd_tx, wakeup_sem);
 
         Ok(ReadDirectoryChangesWatcher {

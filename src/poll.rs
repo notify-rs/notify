@@ -32,24 +32,27 @@ pub struct PollWatcher {
     event_tx: EventTx,
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
     open: Arc<AtomicBool>,
+    delay: Duration,
 }
 
 impl PollWatcher {
     /// Create a PollWatcher which polls every `delay` milliseconds
-    pub fn with_delay_ms(tx: Sender<RawEvent>, delay: u32) -> Result<PollWatcher> {
+    pub fn with_delay(tx: Sender<RawEvent>, delay: Duration) -> Result<PollWatcher> {
+        let event_tx = EventTx::new_immediate(tx);
         let mut p = PollWatcher {
-            event_tx: EventTx::Raw { tx: tx.clone() },
+            event_tx: event_tx.clone(),
             watches: Arc::new(Mutex::new(HashMap::new())),
             open: Arc::new(AtomicBool::new(true)),
+            delay,
         };
-        let event_tx = EventTx::Raw { tx };
-        p.run(Duration::from_millis(delay as u64), event_tx);
+        p.run(event_tx);
         Ok(p)
     }
 
-    fn run(&mut self, delay: Duration, mut event_tx: EventTx) {
+    fn run(&mut self, event_tx: EventTx) {
         let watches = self.watches.clone();
         let open = self.open.clone();
+        let delay = self.delay.clone();
 
         thread::spawn(move || {
             // In order of priority:
@@ -190,20 +193,21 @@ impl PollWatcher {
 
 impl Watcher for PollWatcher {
     fn new_immediate(tx: Sender<RawEvent>) -> Result<PollWatcher> {
-        PollWatcher::with_delay_ms(tx, 30_000)
+        PollWatcher::with_delay(tx, Duration::from_secs(30))
     }
 
     fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<PollWatcher> {
+        let event_tx = EventTx::new_debounced(
+            tx.clone(),
+            Debounce::new(delay, tx),
+        );
         let mut p = PollWatcher {
-            event_tx: EventTx::DebouncedTx { tx: tx.clone() },
+            event_tx: event_tx.debounced_tx(),
             watches: Arc::new(Mutex::new(HashMap::new())),
             open: Arc::new(AtomicBool::new(true)),
+            delay,
         };
-        let event_tx = EventTx::Debounced {
-            tx: tx.clone(),
-            debounce: Debounce::new(delay, tx),
-        };
-        p.run(delay, event_tx);
+        p.run(event_tx);
         Ok(p)
     }
 

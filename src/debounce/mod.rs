@@ -16,34 +16,69 @@ pub type OperationsBuffer =
 
 #[derive(Clone)]
 pub enum EventTx {
-    Raw {
+    Immediate {
         tx: Sender<RawEvent>,
-    },
-    Debounced {
-        tx: Sender<DebouncedEvent>,
-        debounce: Debounce,
     },
     DebouncedTx {
         tx: Sender<DebouncedEvent>,
     },
+    Debounced {
+        tx: Sender<DebouncedEvent>,
+        debounce: Arc<Mutex<Debounce>>,
+    },
 }
 
 impl EventTx {
-    pub fn send(&mut self, event: RawEvent) {
-        match *self {
-            EventTx::Raw { ref tx } => {
+    pub fn is_immediate(&self) -> bool {
+        match self {
+            EventTx::Immediate { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn new_immediate(tx: Sender<RawEvent>) -> Self {
+        EventTx::Immediate { tx }
+    }
+
+    pub fn new_debounced_tx(tx: Sender<DebouncedEvent>) -> Self {
+        EventTx::DebouncedTx { tx }
+    }
+
+    pub fn new_debounced(tx: Sender<DebouncedEvent>, debounce: Debounce) -> Self {
+        EventTx::Debounced { tx, debounce: Arc::new(Mutex::new(debounce)) }
+    }
+
+    pub fn debounced_tx(&self) -> Self {
+        match self {
+            EventTx::Debounced { ref tx, .. } => Self::new_debounced_tx(tx.clone()),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn configure_if_debounced(&self, config: Config, tx: Sender<Result<bool>>) {
+        match self {
+            EventTx::Debounced { ref debounce, .. } => {
+                debounce.lock().unwrap().configure(config, tx);
+            },
+            _ => {}
+        }
+    }
+
+    pub fn send(&self, event: RawEvent) {
+        match self {
+            EventTx::Immediate { ref tx } => {
                 let _ = tx.send(event);
             }
             EventTx::Debounced {
                 ref tx,
-                ref mut debounce,
+                ref debounce,
             } => {
                 match (event.path, event.op, event.cookie) {
                     (None, Ok(op::Op::RESCAN), None) => {
                         let _ = tx.send(DebouncedEvent::Rescan);
                     }
                     (Some(path), Ok(op), cookie) => {
-                        debounce.event(path, op, cookie);
+                        debounce.lock().unwrap().event(path, op, cookie);
                     }
                     (None, Ok(_op), _cookie) => {
                         // TODO panic!("path is None: {:?} ({:?})", _op, _cookie);
@@ -84,21 +119,21 @@ pub struct Debounce {
 
 impl Debounce {
     pub fn new(delay: Duration, tx: Sender<DebouncedEvent>) -> Debounce {
-        let operations_buffer: OperationsBuffer = Arc::new(Mutex::new(HashMap::new()));
+        let operations_buffer: OperationsBuffer = Arc::default();
 
         // spawns new thread
         let timer = WatchTimer::new(tx.clone(), operations_buffer.clone(), delay);
 
         Debounce {
-            tx: tx,
-            operations_buffer: operations_buffer,
+            tx,
+            operations_buffer,
             rename_path: None,
             rename_cookie: None,
-            timer: timer,
+            timer,
         }
     }
 
-    pub fn configure_debounced_mode(&mut self, config: Config, tx: Sender<Result<bool>>) {
+    pub fn configure(&mut self, config: Config, tx: Sender<Result<bool>>) {
         tx.send(match config {
             Config::OngoingWrites(c) => self.timer.set_ongoing_write_duration(c),
             _ => Ok(false),

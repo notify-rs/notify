@@ -9,7 +9,6 @@ mod windows_tests {
     use super::notify::*;
     use super::tempdir::TempDir;
     use crossbeam_channel::{unbounded, Receiver, TryRecvError};
-    use std::sync::mpsc;
     use std::thread;
     use std::time::{Duration, Instant};
 
