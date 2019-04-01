@@ -46,7 +46,7 @@
 //!     loop {
 //! #       break;
 //!         match rx.recv() {
-//!            Ok(event) => println!("changed: {:?}", event.path),
+//!            Ok(event) => println!("changed: {:?}", event),
 //!            Err(err) => println!("watch error: {:?}", err),
 //!         };
 //!     }
