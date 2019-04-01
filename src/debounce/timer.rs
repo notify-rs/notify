@@ -11,13 +11,14 @@ use std::time::{Duration, Instant};
 
 use debounce::OperationsBuffer;
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct ScheduledEvent {
     id: u64,
     when: Instant,
     path: PathBuf,
 }
 
+#[derive(Clone)]
 struct ScheduleWorker {
     new_event_trigger: Arc<Condvar>,
     stop_trigger: Arc<Condvar>,
@@ -115,6 +116,7 @@ impl ScheduleWorker {
     }
 }
 
+#[derive(Clone)]
 pub struct WatchTimer {
     counter: u64,
     new_event_trigger: Arc<Condvar>,

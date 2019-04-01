@@ -11,7 +11,7 @@ use filetime::FileTime;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -31,7 +31,7 @@ struct WatchData {
 pub struct PollWatcher {
     event_tx: EventTx,
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
-    open: Arc<RwLock<bool>>,
+    open: Arc<AtomicBool>,
 }
 
 impl PollWatcher {
@@ -40,7 +40,7 @@ impl PollWatcher {
         let mut p = PollWatcher {
             event_tx: EventTx::Raw { tx: tx.clone() },
             watches: Arc::new(Mutex::new(HashMap::new())),
-            open: Arc::new(RwLock::new(true)),
+            open: Arc::new(AtomicBool::new(true)),
         };
         let event_tx = EventTx::Raw { tx };
         p.run(Duration::from_millis(delay as u64), event_tx);
@@ -58,7 +58,7 @@ impl PollWatcher {
             // TODO: DRY it up
 
             loop {
-                if !(*open.read().unwrap()) {
+                if !open.load(Ordering::SeqCst) {
                     break;
                 }
 
@@ -197,7 +197,7 @@ impl Watcher for PollWatcher {
         let mut p = PollWatcher {
             event_tx: EventTx::DebouncedTx { tx: tx.clone() },
             watches: Arc::new(Mutex::new(HashMap::new())),
-            open: Arc::new(RwLock::new(true)),
+            open: Arc::new(AtomicBool::new(true)),
         };
         let event_tx = EventTx::Debounced {
             tx: tx.clone(),
@@ -304,9 +304,6 @@ impl Watcher for PollWatcher {
 
 impl Drop for PollWatcher {
     fn drop(&mut self) {
-        {
-            let mut open = (*self.open).write().unwrap();
-            (*open) = false;
-        }
+        self.open.store(false, Ordering::Relaxed);
     }
 }

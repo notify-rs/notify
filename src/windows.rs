@@ -44,7 +44,7 @@ struct ReadData {
 }
 
 struct ReadDirectoryRequest {
-    event_tx: Arc<Mutex<EventTx>>,
+    event_tx: Arc<EventTx>,
     buffer: [u8; BUF_SIZE as usize],
     handle: HANDLE,
     data: ReadData,
@@ -69,7 +69,7 @@ struct WatchState {
 
 struct ReadDirectoryChangesServer {
     rx: Receiver<Action>,
-    event_tx: Arc<Mutex<EventTx>>,
+    event_tx: Arc<EventTx>,
     meta_tx: Sender<MetaEvent>,
     cmd_tx: Sender<Result<PathBuf>>,
     watches: HashMap<PathBuf, WatchState>,
@@ -90,7 +90,7 @@ impl ReadDirectoryChangesServer {
             let wakeup_sem = sem_temp as HANDLE;
             let server = ReadDirectoryChangesServer {
                 rx: action_rx,
-                event_tx: Arc::new(Mutex::new(event_tx)),
+                event_tx: Arc::new(event_tx),
                 meta_tx: meta_tx,
                 cmd_tx: cmd_tx,
                 watches: HashMap::new(),
@@ -126,11 +126,10 @@ impl ReadDirectoryChangesServer {
                         // somewhere and be done with it. Irrespective of that, putting Senders in
                         // mutexes is useless and we really should use crossbeam-channel anyway.
                         {
-                            let mut debounced_event = self.event_tx.lock().unwrap();
                             if let EventTx::Debounced {
                                 ref mut debounce,
                                 tx: _,
-                            } = *debounced_event
+                            } = &self.event_tx
                             {
                                 debounce.configure_debounced_mode(config, tx);
                                 break;
@@ -265,10 +264,10 @@ fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
     let _ = meta_tx.send(MetaEvent::SingleWatchComplete);
 }
 
-fn start_read(rd: &ReadData, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
+fn start_read(rd: &ReadData, event_tx: Arc<EventTx>, handle: HANDLE) {
     let mut request = Box::new(ReadDirectoryRequest {
-        event_tx: event_tx,
-        handle: handle,
+        event_tx,
+        handle,
         buffer: [0u8; BUF_SIZE as usize],
         data: rd.clone(),
     });
@@ -322,7 +321,7 @@ fn start_read(rd: &ReadData, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
     }
 }
 
-fn send_pending_rename_event(event: Option<RawEvent>, event_tx: &mut EventTx) {
+fn send_pending_rename_event(event: Option<RawEvent>, event_tx: &EventTx) {
     if let Some(e) = event {
         event_tx.send(RawEvent {
             path: e.path,
@@ -350,95 +349,92 @@ unsafe extern "system" fn handle_event(
     // Get the next request queued up as soon as possible
     start_read(&request.data, request.event_tx.clone(), request.handle);
 
-    let event_tx_lock = request.event_tx.lock();
-    if let Ok(mut event_tx) = event_tx_lock {
-        let mut rename_event = None;
+    let mut rename_event = None;
 
-        // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length
-        // string as its last member.  Each struct contains an offset for getting the next entry in
-        // the buffer.
-        let mut cur_offset: *const u8 = request.buffer.as_ptr();
-        let mut cur_entry: *const FILE_NOTIFY_INFORMATION = mem::transmute(cur_offset);
-        loop {
-            // filename length is size in bytes, so / 2
-            let len = (*cur_entry).FileNameLength as usize / 2;
-            let encoded_path: &[u16] = slice::from_raw_parts((*cur_entry).FileName.as_ptr(), len);
-            // prepend root to get a full path
-            let path = request
-                .data
-                .dir
-                .join(PathBuf::from(OsString::from_wide(encoded_path)));
+    // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length
+    // string as its last member.  Each struct contains an offset for getting the next entry in
+    // the buffer.
+    let mut cur_offset: *const u8 = request.buffer.as_ptr();
+    let mut cur_entry: *const FILE_NOTIFY_INFORMATION = mem::transmute(cur_offset);
+    loop {
+        // filename length is size in bytes, so / 2
+        let len = (*cur_entry).FileNameLength as usize / 2;
+        let encoded_path: &[u16] = slice::from_raw_parts((*cur_entry).FileName.as_ptr(), len);
+        // prepend root to get a full path
+        let path = request
+            .data
+            .dir
+            .join(PathBuf::from(OsString::from_wide(encoded_path)));
 
-            // if we are watching a single file, ignore the event unless the path is exactly
-            // the watched file
-            let skip = match request.data.file {
-                None => false,
-                Some(ref watch_path) => *watch_path != path,
-            };
+        // if we are watching a single file, ignore the event unless the path is exactly
+        // the watched file
+        let skip = match request.data.file {
+            None => false,
+            Some(ref watch_path) => *watch_path != path,
+        };
 
-            if !skip {
-                if (*cur_entry).Action == winnt::FILE_ACTION_RENAMED_OLD_NAME {
-                    send_pending_rename_event(rename_event, &mut event_tx);
-                    if request.data.file.is_some() {
-                        event_tx.send(RawEvent {
-                            path: Some(path),
-                            op: Ok(op::Op::RENAME),
-                            cookie: None,
-                        });
-                        rename_event = None;
-                    } else {
-                        COOKIE_COUNTER = COOKIE_COUNTER.wrapping_add(1);
-                        rename_event = Some(RawEvent {
-                            path: Some(path),
-                            op: Ok(op::Op::RENAME),
-                            cookie: Some(COOKIE_COUNTER),
-                        });
-                    }
+        if !skip {
+            if (*cur_entry).Action == winnt::FILE_ACTION_RENAMED_OLD_NAME {
+                send_pending_rename_event(rename_event, &request.event_tx);
+                if request.data.file.is_some() {
+                    request.event_tx.send(RawEvent {
+                        path: Some(path),
+                        op: Ok(op::Op::RENAME),
+                        cookie: None,
+                    });
+                    rename_event = None;
                 } else {
-                    let mut o = Op::empty();
-                    let mut c = None;
+                    COOKIE_COUNTER = COOKIE_COUNTER.wrapping_add(1);
+                    rename_event = Some(RawEvent {
+                        path: Some(path),
+                        op: Ok(op::Op::RENAME),
+                        cookie: Some(COOKIE_COUNTER),
+                    });
+                }
+            } else {
+                let mut o = Op::empty();
+                let mut c = None;
 
-                    match (*cur_entry).Action {
-                        winnt::FILE_ACTION_RENAMED_NEW_NAME => {
-                            if let Some(e) = rename_event {
-                                if let Some(cookie) = e.cookie {
-                                    event_tx.send(e);
-                                    o.insert(op::Op::RENAME);
-                                    c = Some(cookie);
-                                } else {
-                                    o.insert(op::Op::CREATE);
-                                }
+                match (*cur_entry).Action {
+                    winnt::FILE_ACTION_RENAMED_NEW_NAME => {
+                        if let Some(e) = rename_event {
+                            if let Some(cookie) = e.cookie {
+                                request.event_tx.send(e);
+                                o.insert(op::Op::RENAME);
+                                c = Some(cookie);
                             } else {
                                 o.insert(op::Op::CREATE);
                             }
-                            rename_event = None;
+                        } else {
+                            o.insert(op::Op::CREATE);
                         }
-                        winnt::FILE_ACTION_ADDED => o.insert(op::Op::CREATE),
-                        winnt::FILE_ACTION_REMOVED => o.insert(op::Op::REMOVE),
-                        winnt::FILE_ACTION_MODIFIED => o.insert(op::Op::WRITE),
-                        _ => (),
-                    };
+                        rename_event = None;
+                    }
+                    winnt::FILE_ACTION_ADDED => o.insert(op::Op::CREATE),
+                    winnt::FILE_ACTION_REMOVED => o.insert(op::Op::REMOVE),
+                    winnt::FILE_ACTION_MODIFIED => o.insert(op::Op::WRITE),
+                    _ => (),
+                };
 
-                    send_pending_rename_event(rename_event, &mut event_tx);
-                    rename_event = None;
+                send_pending_rename_event(rename_event, &request.event_tx);
+                rename_event = None;
 
-                    event_tx.send(RawEvent {
-                        path: Some(path),
-                        op: Ok(o),
-                        cookie: c,
-                    });
-                }
+                request.event_tx.send(RawEvent {
+                    path: Some(path),
+                    op: Ok(o),
+                    cookie: c,
+                });
             }
-
-            if (*cur_entry).NextEntryOffset == 0 {
-                break;
-            }
-            cur_offset = cur_offset.offset((*cur_entry).NextEntryOffset as isize);
-            cur_entry = mem::transmute(cur_offset);
         }
 
-        send_pending_rename_event(rename_event, &mut event_tx);
+        if (*cur_entry).NextEntryOffset == 0 {
+            break;
+        }
+        cur_offset = cur_offset.offset((*cur_entry).NextEntryOffset as isize);
+        cur_entry = mem::transmute(cur_offset);
     }
+
+    send_pending_rename_event(rename_event, &request.event_tx);
 }
 
 pub struct ReadDirectoryChangesWatcher {

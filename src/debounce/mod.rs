@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 pub type OperationsBuffer =
     Arc<Mutex<HashMap<PathBuf, (Option<op::Op>, Option<PathBuf>, Option<u64>)>>>;
 
+#[derive(Clone)]
 pub enum EventTx {
     Raw {
         tx: Sender<RawEvent>,
@@ -72,6 +73,7 @@ impl EventTx {
     }
 }
 
+#[derive(Clone)]
 pub struct Debounce {
     tx: Sender<DebouncedEvent>,
     operations_buffer: OperationsBuffer,
