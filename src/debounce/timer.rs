@@ -1,4 +1,5 @@
 use super::super::{op, DebouncedEvent, Error, Result};
+use chashmap::CHashMap;
 use crossbeam_channel::Sender;
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -26,7 +27,7 @@ struct ScheduleWorker {
     tx: Sender<DebouncedEvent>,
     operations_buffer: OperationsBuffer,
     stopped: Arc<AtomicBool>,
-    worker_ongoing_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
+    ongoing_writes: Arc<CHashMap<PathBuf, Instant>>,
 }
 
 impl ScheduleWorker {
@@ -58,10 +59,7 @@ impl ScheduleWorker {
                 let message = match op {
                     Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
                     Some(op::Op::WRITE) => {
-                        //disable ongoing_write
-                        let mut ongoing_write_event =
-                            self.worker_ongoing_write_event.lock().unwrap();
-                        *ongoing_write_event = None;
+                        self.ongoing_writes.remove(&path);
                         Some(DebouncedEvent::Write(path))
                     }
                     Some(op::Op::METADATA) => Some(DebouncedEvent::Metadata(path)),
@@ -124,8 +122,8 @@ pub struct WatchTimer {
     delay: Duration,
     events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
     stopped: Arc<AtomicBool>,
-    pub ongoing_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
-    pub ongoing_write_duration: Option<Duration>,
+    ongoing_writes: Arc<CHashMap<PathBuf, Instant>>,
+    ongoing_delay: Option<Duration>,
 }
 
 impl WatchTimer {
@@ -138,13 +136,13 @@ impl WatchTimer {
         let new_event_trigger = Arc::new(Condvar::new());
         let stop_trigger = Arc::new(Condvar::new());
         let stopped = Arc::new(AtomicBool::new(false));
+        let ongoing_writes = Arc::new(CHashMap::new());
 
         let worker_new_event_trigger = new_event_trigger.clone();
         let worker_stop_trigger = stop_trigger.clone();
         let worker_events = events.clone();
         let worker_stopped = stopped.clone();
-        let ongoing_write_event = Arc::new(Mutex::new(None));
-        let worker_ongoing_write_event = ongoing_write_event.clone();
+        let worker_ongoing_writes = ongoing_writes.clone();
         thread::spawn(move || {
             ScheduleWorker {
                 new_event_trigger: worker_new_event_trigger,
@@ -153,7 +151,7 @@ impl WatchTimer {
                 tx,
                 operations_buffer,
                 stopped: worker_stopped,
-                worker_ongoing_write_event,
+                ongoing_writes: worker_ongoing_writes,
             }
             .run();
         });
@@ -165,20 +163,37 @@ impl WatchTimer {
             delay,
             events,
             stopped,
-            ongoing_write_event,
-            ongoing_write_duration: None,
+            ongoing_writes,
+            ongoing_delay: None,
         }
     }
 
-    pub fn set_ongoing_write_duration(&mut self, duration: Option<Duration>) -> Result<bool> {
-        if let Some(duration) = duration {
-            if duration > self.delay {
+    pub fn set_ongoing_writes(&mut self, delay: Option<Duration>) -> Result<bool> {
+        if let Some(delay) = delay {
+            if delay > self.delay {
                 return Err(Error::InvalidConfigValue);
             }
+        } else if self.ongoing_delay.is_some() {
+            // Reset the current ongoing state when disabling
+            self.ongoing_writes.clear();
         }
 
-        self.ongoing_write_duration = duration;
+        self.ongoing_delay = delay;
         Ok(true)
+    }
+
+    pub fn handle_ongoing_write(&self, path: &PathBuf, tx: &Sender<DebouncedEvent>) {
+        if let Some(delay) = self.ongoing_delay {
+            self.ongoing_writes.upsert(
+                path.clone(),
+                || Instant::now() + delay,
+                |fire_at| {
+                    if fire_at <= &mut Instant::now() {
+                        tx.send(DebouncedEvent::OngoingWrite(path.clone())).ok();
+                    }
+                },
+            );
+        }
     }
 
     pub fn schedule(&mut self, path: PathBuf) -> u64 {

@@ -289,10 +289,7 @@ impl EventLoop {
                             }
 
                             if !o.is_empty() {
-                                send_pending_rename_event(
-                                    &mut self.rename_event,
-                                    &self.event_tx,
-                                );
+                                send_pending_rename_event(&mut self.rename_event, &self.event_tx);
 
                                 self.event_tx.send(RawEvent {
                                     path: path,
@@ -460,10 +457,7 @@ impl Watcher for INotifyWatcher {
 
     fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<INotifyWatcher> {
         let inotify = Inotify::init()?;
-        let event_tx = EventTx::new_debounced(
-            tx.clone(),
-            Debounce::new(delay, tx),
-        );
+        let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
         let event_loop = EventLoop::new(inotify, event_tx)?;
         let channel = event_loop.channel();
         event_loop.run();

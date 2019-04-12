@@ -11,7 +11,10 @@ use filetime::FileTime;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -197,10 +200,7 @@ impl Watcher for PollWatcher {
     }
 
     fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<PollWatcher> {
-        let event_tx = EventTx::new_debounced(
-            tx.clone(),
-            Debounce::new(delay, tx),
-        );
+        let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
         let mut p = PollWatcher {
             event_tx: event_tx.debounced_tx(),
             watches: Arc::new(Mutex::new(HashMap::new())),

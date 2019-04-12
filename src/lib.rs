@@ -119,6 +119,7 @@
 extern crate anymap;
 #[macro_use]
 extern crate bitflags;
+extern crate chashmap;
 extern crate crossbeam_channel;
 extern crate filetime;
 #[cfg(target_os = "macos")]

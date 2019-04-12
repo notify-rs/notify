@@ -373,10 +373,7 @@ impl Watcher for FsEventWatcher {
             since_when: fs::kFSEventStreamEventIdSinceNow,
             latency: 0.0,
             flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
-            event_tx: Arc::new(EventTx::new_debounced(
-                tx.clone(),
-                Debounce::new(delay, tx),
-            )),
+            event_tx: Arc::new(EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx))),
             runloop: None,
             context: None,
             recursive_info: HashMap::new(),
