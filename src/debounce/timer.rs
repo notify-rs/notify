@@ -63,7 +63,10 @@ impl ScheduleWorker {
                         Some(DebouncedEvent::Write(path))
                     }
                     Some(op::Op::METADATA) => Some(DebouncedEvent::Metadata(path)),
-                    Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
+                    Some(op::Op::REMOVE) => {
+                        self.ongoing_writes.remove(&path);
+                        Some(DebouncedEvent::Remove(path))
+                    }
                     Some(op::Op::RENAME) if is_partial_rename => {
                         if path.exists() {
                             Some(DebouncedEvent::Create(path))
