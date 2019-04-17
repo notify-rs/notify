@@ -58,13 +58,13 @@ before_install:
 script:
   - |
     if [[ ! -z "$CARGO_SMOKE" ]]; then
-      cargo check
+      cargo check --features serde
       cargo audit
-      cargo test
+      cargo test --features serde
     elif [[ ! -z "$CARGO_TEST" ]]; then
-      cargo test
+      cargo test --features serde
     else
-      cargo check
+      cargo check --features serde
     fi
 
 after_script: set +e

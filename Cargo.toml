@@ -46,6 +46,5 @@ winapi = "^0.3.5"
 tempdir = "^0.3.4"
 
 [features]
-default = ["serde"]
 timing_tests = []
 manual_tests = []

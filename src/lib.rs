@@ -14,10 +14,10 @@
 //!
 //! ## Serde
 //!
-//! Events are serialisable via [serde]. To disable the feature if un-needed, use:
+//! Events are serialisable via [serde] if the `serde` feature is enabled:
 //!
 //! ```toml
-//! notify = { version = "5.0.0", default-features = false }
+//! notify = { version = "5.0.0", features = ["serde"] }
 //! ```
 //!
 //! [serde]: https://serde.rs
