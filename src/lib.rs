@@ -136,6 +136,7 @@ extern crate serde;
 #[cfg(target_os = "windows")]
 extern crate winapi;
 
+pub use self::event::{Event, EventKind};
 pub use self::op::Op;
 use crossbeam_channel::Sender;
 use std::convert::AsRef;
@@ -660,7 +661,7 @@ pub trait Watcher: Sized {
     ///
     /// If a file is saved very slowly, you might receive a `Write` event even though the file is
     /// still being written to.
-    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<Self>;
+    fn new(tx: Sender<Event>, delay: Duration) -> Result<Self>;
 
     /// Begin watching a new path.
     ///
@@ -746,10 +747,11 @@ pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub type RecommendedWatcher = PollWatcher;
 
-/// Convenience method for creating the `RecommendedWatcher` for the current platform in _raw_ mode.
+/// Convenience method for creating the `RecommendedWatcher` for the current platform in
+/// _immediate_ mode.
 ///
 /// See [`Watcher::new_immediate`](trait.Watcher.html#tymethod.new_immediate).
-pub fn raw_watcher(tx: Sender<RawEvent>) -> Result<RecommendedWatcher> {
+pub fn immediate_watcher(tx: Sender<RawEvent>) -> Result<RecommendedWatcher> {
     Watcher::new_immediate(tx)
 }
 
@@ -757,7 +759,7 @@ pub fn raw_watcher(tx: Sender<RawEvent>) -> Result<RecommendedWatcher> {
 /// platform in default (debounced) mode.
 ///
 /// See [`Watcher::new`](trait.Watcher.html#tymethod.new).
-pub fn watcher(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<RecommendedWatcher> {
+pub fn watcher(tx: Sender<Event>, delay: Duration) -> Result<RecommendedWatcher> {
     Watcher::new(tx, delay)
 }
 

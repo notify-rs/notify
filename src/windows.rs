@@ -16,7 +16,7 @@ use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
 use super::debounce::{Debounce, EventTx};
-use super::{op, Config, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, Config, Event, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::env;
@@ -458,7 +458,7 @@ impl ReadDirectoryChangesWatcher {
     }
 
     pub fn create_debounced(
-        tx: Sender<DebouncedEvent>,
+        tx: Sender<Event>,
         meta_tx: Sender<MetaEvent>,
         delay: Duration,
     ) -> Result<ReadDirectoryChangesWatcher> {
@@ -531,7 +531,7 @@ impl Watcher for ReadDirectoryChangesWatcher {
         ReadDirectoryChangesWatcher::create(tx, meta_tx)
     }
 
-    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
+    fn new(tx: Sender<Event>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
         let (meta_tx, _) = unbounded();
         ReadDirectoryChangesWatcher::create_debounced(tx, meta_tx, delay)

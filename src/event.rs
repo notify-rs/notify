@@ -141,6 +141,15 @@ pub enum RenameMode {
     /// An event emitted on the file or folder that was renamed.
     From,
 
+    /// A single event emitted with both the `From` and `To` paths.
+    ///
+    /// This event should be emitted when both source and target are known. It should be
+    /// accompanied by individual `From` and `To` events when possible.
+    ///
+    /// The path the file is renamed _to_ should be provided on the event. The path the file was
+    /// renamed _from_ should be provided in the `OtherPaths` attribute.
+    Both,
+
     /// An event which specific kind is known but cannot be represented otherwise.
     Other,
 }
@@ -390,6 +399,11 @@ pub struct Info(pub String);
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Source(pub String);
 
+/// Additional relevant paths to the event.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
+pub struct OtherPaths(pub Vec<PathBuf>);
+
 // + typeid attr?
 
 impl Event {
@@ -407,6 +421,34 @@ impl Event {
     pub fn source(&self) -> Option<&String> {
         self.attrs.get::<Source>().map(|v| &v.0)
     }
+
+    /// Retrieves additional relevant paths for an event directly.
+    pub fn other_paths(&self) -> &[PathBuf] {
+        self.attrs.get::<OtherPaths>().map(|v| v.0.as_ref()).unwrap_or(&[])
+    }
+
+    /// Creates a new `Event` given a kind.
+    pub fn new(kind: EventKind) -> Self {
+        Self { kind, path: None, attrs: AnyMap::new() }
+    }
+
+    /// Sets the event's path.
+    pub fn set_path(mut self, path: PathBuf) -> Self {
+        self.path = Some(path);
+        self
+    }
+
+    /// Sets additional relevant paths.
+    pub fn set_other_paths(mut self, paths: Vec<PathBuf>) -> Self {
+        self.attrs.insert(OtherPaths(paths));
+        self
+    }
+
+    /// Sets additional info onto the event.
+    pub fn set_info(mut self, info: &str) -> Self {
+        self.attrs.insert(Info(info.into()));
+        self
+    }
 }
 
 impl fmt::Debug for Event {
@@ -417,6 +459,7 @@ impl fmt::Debug for Event {
             .field("attr:tracker", &self.tracker())
             .field("attr:info", &self.info())
             .field("attr:source", &self.source())
+            .field("attr:other_paths", &self.other_paths())
             .finish()
     }
 }
@@ -438,6 +481,7 @@ impl PartialEq for Event {
             && self.tracker().eq(&other.tracker())
             && self.info().eq(&other.info())
             && self.source().eq(&other.source())
+            && self.other_paths().eq(other.other_paths())
     }
 }
 
@@ -448,6 +492,7 @@ impl Hash for Event {
         self.tracker().hash(state);
         self.info().hash(state);
         self.source().hash(state);
+        self.other_paths().hash(state);
     }
 }
 
@@ -467,6 +512,7 @@ mod attr_serde {
         let tracker = attrs.get::<Tracker>().map(|v| v.0.clone());
         let info = attrs.get::<Info>().map(|v| v.0.clone());
         let source = attrs.get::<Source>().map(|v| v.0.clone());
+        let other_paths = attrs.get::<OtherPaths>().map(|v| v.0.clone());
 
         let mut length = 0;
         if tracker.is_some() {
@@ -476,6 +522,9 @@ mod attr_serde {
             length += 1;
         }
         if source.is_some() {
+            length += 1;
+        }
+        if !other_paths.is_empty() {
             length += 1;
         }
 
@@ -488,6 +537,9 @@ mod attr_serde {
         }
         if let Some(val) = source {
             map.serialize_entry("source", &val)?;
+        }
+        if !other_paths.is_empty() {
+            map.serialize_entry("other-paths", &other_paths)?;
         }
         map.end()
     }
@@ -503,6 +555,7 @@ mod attr_serde {
             Tracker(Option<Tracker>),
             Info(Option<Info>),
             Source(Option<Source>),
+            OtherPaths(OtherPaths),
         }
 
         #[derive(Deserialize)]
@@ -517,6 +570,9 @@ mod attr_serde {
             map.insert(val);
         }
         if let Some(Attr::Source(Some(val))) = attrs.0.get("source").cloned() {
+            map.insert(val);
+        }
+        if let Some(Attr::OtherPaths(val)) = attrs.0.get("other-paths").cloned() {
             map.insert(val);
         }
         Ok(map)

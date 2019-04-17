@@ -5,7 +5,7 @@
 
 use self::walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
-use super::{op, DebouncedEvent, Error, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, Event, Error, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::Sender;
 use filetime::FileTime;
 use std::collections::HashMap;
@@ -199,7 +199,7 @@ impl Watcher for PollWatcher {
         PollWatcher::with_delay(tx, Duration::from_secs(30))
     }
 
-    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<PollWatcher> {
+    fn new(tx: Sender<Event>, delay: Duration) -> Result<PollWatcher> {
         let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
         let mut p = PollWatcher {
             event_tx: event_tx.debounced_tx(),

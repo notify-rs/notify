@@ -11,7 +11,7 @@ extern crate walkdir;
 use self::inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use self::walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
-use super::{op, Config, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, Config, Event, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{bounded, unbounded, Sender};
 use mio;
 use mio_extras;
@@ -455,7 +455,7 @@ impl Watcher for INotifyWatcher {
         Ok(INotifyWatcher(Mutex::new(channel)))
     }
 
-    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<INotifyWatcher> {
+    fn new(tx: Sender<Event>, delay: Duration) -> Result<INotifyWatcher> {
         let inotify = Inotify::init()?;
         let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
         let event_loop = EventLoop::new(inotify, event_tx)?;

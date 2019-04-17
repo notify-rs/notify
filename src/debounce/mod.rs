@@ -2,7 +2,7 @@
 
 mod timer;
 
-use super::{op, Config, DebouncedEvent, RawEvent, Result};
+use super::{op, Config, event, Event, EventKind, RawEvent, Result};
 
 use self::timer::WatchTimer;
 use crossbeam_channel::Sender;
@@ -20,10 +20,10 @@ pub enum EventTx {
         tx: Sender<RawEvent>,
     },
     DebouncedTx {
-        tx: Sender<DebouncedEvent>,
+        tx: Sender<Event>,
     },
     Debounced {
-        tx: Sender<DebouncedEvent>,
+        tx: Sender<Event>,
         debounce: Arc<Mutex<Debounce>>,
     },
 }
@@ -40,11 +40,11 @@ impl EventTx {
         EventTx::Immediate { tx }
     }
 
-    pub fn new_debounced_tx(tx: Sender<DebouncedEvent>) -> Self {
+    pub fn new_debounced_tx(tx: Sender<Event>) -> Self {
         EventTx::DebouncedTx { tx }
     }
 
-    pub fn new_debounced(tx: Sender<DebouncedEvent>, debounce: Debounce) -> Self {
+    pub fn new_debounced(tx: Sender<Event>, debounce: Debounce) -> Self {
         EventTx::Debounced {
             tx,
             debounce: Arc::new(Mutex::new(debounce)),
@@ -78,7 +78,7 @@ impl EventTx {
             } => {
                 match (event.path, event.op, event.cookie) {
                     (None, Ok(op::Op::RESCAN), None) => {
-                        let _ = tx.send(DebouncedEvent::Rescan);
+                        tx.send(Event::new(EventKind::Other).set_info("rescan")).ok();
                     }
                     (Some(path), Ok(op), cookie) => {
                         debounce.lock().unwrap().event(path, op, cookie);
@@ -86,15 +86,18 @@ impl EventTx {
                     (None, Ok(_op), _cookie) => {
                         // TODO panic!("path is None: {:?} ({:?})", _op, _cookie);
                     }
-                    (path, Err(e), _) => {
-                        let _ = tx.send(DebouncedEvent::Error(e, path));
+                    (Some(path), Err(e), _) => {
+                        tx.send(Event::new(EventKind::Other).set_path(path).set_info("error")).ok(); // TODO
+                    }
+                    (None, Err(e), _) => {
+                        tx.send(Event::new(EventKind::Other).set_info("error")).ok(); // TODO
                     }
                 }
             }
             EventTx::DebouncedTx { ref tx } => {
                 match (event.path, event.op, event.cookie) {
                     (None, Ok(op::Op::RESCAN), None) => {
-                        let _ = tx.send(DebouncedEvent::Rescan);
+                        tx.send(Event::new(EventKind::Other).set_info("rescan")).ok();
                     }
                     (Some(_path), Ok(_op), _cookie) => {
                         // TODO debounce.event(_path, _op, _cookie);
@@ -102,8 +105,11 @@ impl EventTx {
                     (None, Ok(_op), _cookie) => {
                         // TODO panic!("path is None: {:?} ({:?})", _op, _cookie);
                     }
-                    (path, Err(e), _) => {
-                        let _ = tx.send(DebouncedEvent::Error(e, path));
+                    (Some(path), Err(e), _) => {
+                        tx.send(Event::new(EventKind::Other).set_path(path).set_info("error")).ok(); // TODO
+                    }
+                    (None, Err(e), _) => {
+                        tx.send(Event::new(EventKind::Other).set_info("error")).ok(); // TODO
                     }
                 }
             }
@@ -113,7 +119,7 @@ impl EventTx {
 
 #[derive(Clone)]
 pub struct Debounce {
-    tx: Sender<DebouncedEvent>,
+    tx: Sender<Event>,
     operations_buffer: OperationsBuffer,
     rename_path: Option<PathBuf>,
     rename_cookie: Option<u32>,
@@ -121,7 +127,7 @@ pub struct Debounce {
 }
 
 impl Debounce {
-    pub fn new(delay: Duration, tx: Sender<DebouncedEvent>) -> Debounce {
+    pub fn new(delay: Duration, tx: Sender<Event>) -> Debounce {
         let operations_buffer: OperationsBuffer = Arc::default();
 
         // spawns new thread
@@ -196,7 +202,9 @@ impl Debounce {
                             Some(op::Op::WRITE) | // change to remove event
                             Some(op::Op::METADATA) => { // change to remove event
                                 *operation = Some(op::Op::REMOVE);
-                                let _ = self.tx.send(DebouncedEvent::NoticeRemove(path.clone()));
+                                self.tx.send(Event::new(EventKind::Remove(event::RemoveKind::Any))
+                                             .set_path(path.clone())
+                                             .set_info("notice")).ok();
                                 restart_timer(timer_id, path, &mut self.timer);
                             }
                             Some(op::Op::RENAME) => {
@@ -232,7 +240,7 @@ impl Debounce {
 
     pub fn event(&mut self, path: PathBuf, mut op: op::Op, cookie: Option<u32>) {
         if op.contains(op::Op::RESCAN) {
-            let _ = self.tx.send(DebouncedEvent::Rescan);
+            self.tx.send(Event::new(EventKind::Other).set_info("rescan")).ok();
         }
 
         if self.rename_path.is_some() {
@@ -309,7 +317,9 @@ impl Debounce {
                     // operations_buffer entry didn't exist
                     None => {
                         *operation = Some(op::Op::WRITE);
-                        let _ = self.tx.send(DebouncedEvent::NoticeWrite(path.clone()));
+                        self.tx.send(Event::new(EventKind::Modify(event::ModifyKind::Any))
+                                     .set_path(path.clone())
+                                     .set_info("notice")).ok();
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
 
@@ -434,14 +444,18 @@ impl Debounce {
 
                         // keep metadata event
                         Some(op::Op::METADATA) => {
-                            let _ = self.tx.send(DebouncedEvent::NoticeRemove(path.clone()));
+                            self.tx.send(Event::new(EventKind::Remove(event::RemoveKind::Any))
+                                         .set_path(path.clone())
+                                         .set_info("notice")).ok();
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
 
                         // operations_buffer entry didn't exist
                         None => {
                             *operation = Some(op::Op::RENAME);
-                            let _ = self.tx.send(DebouncedEvent::NoticeRemove(path.clone()));
+                            self.tx.send(Event::new(EventKind::Remove(event::RemoveKind::Any))
+                                         .set_path(path.clone())
+                                         .set_info("notice")).ok();
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
 
@@ -502,7 +516,9 @@ impl Debounce {
                             // operations_buffer entry didn't exist
                             None => {
                                 *operation = Some(op::Op::REMOVE);
-                                let _ = self.tx.send(DebouncedEvent::NoticeRemove(path.clone()));
+                                self.tx.send(Event::new(EventKind::Remove(event::RemoveKind::Any))
+                                             .set_path(path.clone())
+                                             .set_info("notice")).ok();
                                 restart_timer(timer_id, path.clone(), &mut self.timer);
                             }
 

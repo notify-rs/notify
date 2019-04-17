@@ -1,4 +1,4 @@
-use super::super::{op, DebouncedEvent, Error, Result};
+use crate::{op, event, Event, EventKind, Error, Result};
 use chashmap::CHashMap;
 use crossbeam_channel::Sender;
 use std::collections::VecDeque;
@@ -24,7 +24,7 @@ struct ScheduleWorker {
     new_event_trigger: Arc<Condvar>,
     stop_trigger: Arc<Condvar>,
     events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
-    tx: Sender<DebouncedEvent>,
+    tx: Sender<Event>,
     operations_buffer: OperationsBuffer,
     stopped: Arc<AtomicBool>,
     ongoing_writes: Arc<CHashMap<PathBuf, Instant>>,
@@ -52,26 +52,27 @@ impl ScheduleWorker {
             if let Some((op, from_path, _)) = op_buf.remove(&path) {
                 let is_partial_rename = from_path.is_none();
                 if let Some(from_path) = from_path {
-                    self.tx
-                        .send(DebouncedEvent::Rename(from_path, path.clone()))
-                        .unwrap();
+                    self.tx.send(Event::new(EventKind::Modify(event::ModifyKind::Name(event::RenameMode::Both)))
+                                 .set_path(path.clone())
+                                 .set_other_paths(vec![from_path])).ok();
                 }
                 let message = match op {
-                    Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
+                    Some(op::Op::CREATE) => Some(Event::new(EventKind::Create(event::CreateKind::Any))
+                                                 .set_path(path)),
                     Some(op::Op::WRITE) => {
                         self.ongoing_writes.remove(&path);
-                        Some(DebouncedEvent::Write(path))
+                        Some(Event::new(EventKind::Modify(event::ModifyKind::Any)).set_path(path))
                     }
-                    Some(op::Op::METADATA) => Some(DebouncedEvent::Metadata(path)),
+                    Some(op::Op::METADATA) => Some(Event::new(EventKind::Modify(event::ModifyKind::Metadata(event::MetadataKind::Any))).set_path(path)),
                     Some(op::Op::REMOVE) => {
                         self.ongoing_writes.remove(&path);
-                        Some(DebouncedEvent::Remove(path))
+                        Some(Event::new(EventKind::Remove(event::RemoveKind::Any)).set_path(path))
                     }
                     Some(op::Op::RENAME) if is_partial_rename => {
                         if path.exists() {
-                            Some(DebouncedEvent::Create(path))
+                            Some(Event::new(EventKind::Create(event::CreateKind::Any)).set_path(path))
                         } else {
-                            Some(DebouncedEvent::Remove(path))
+                            Some(Event::new(EventKind::Remove(event::RemoveKind::Any)).set_path(path))
                         }
                     }
                     _ => None,
@@ -131,7 +132,7 @@ pub struct WatchTimer {
 
 impl WatchTimer {
     pub fn new(
-        tx: Sender<DebouncedEvent>,
+        tx: Sender<Event>,
         operations_buffer: OperationsBuffer,
         delay: Duration,
     ) -> WatchTimer {
@@ -185,14 +186,16 @@ impl WatchTimer {
         Ok(true)
     }
 
-    pub fn handle_ongoing_write(&self, path: &PathBuf, tx: &Sender<DebouncedEvent>) {
+    pub fn handle_ongoing_write(&self, path: &PathBuf, tx: &Sender<Event>) {
         if let Some(delay) = self.ongoing_delay {
             self.ongoing_writes.upsert(
                 path.clone(),
                 || Instant::now() + delay,
                 |fire_at| {
                     if fire_at <= &mut Instant::now() {
-                        tx.send(DebouncedEvent::OngoingWrite(path.clone())).ok();
+                        tx.send(Event::new(EventKind::Modify(event::ModifyKind::Any))
+                                .set_path(path.clone())
+                                .set_info("ongoing")).ok();
                         *fire_at = Instant::now() + delay;
                     }
                 },

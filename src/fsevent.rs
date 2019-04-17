@@ -14,7 +14,7 @@
 extern crate fsevent as fse;
 
 use super::debounce::{Debounce, EventTx};
-use super::{op, Config, DebouncedEvent, Error, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, Config, Event, Error, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use fsevent_sys::core_foundation as cf;
 use fsevent_sys::fsevent as fs;
@@ -365,7 +365,7 @@ impl Watcher for FsEventWatcher {
         })
     }
 
-    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<FsEventWatcher> {
+    fn new(tx: Sender<Event>, delay: Duration) -> Result<FsEventWatcher> {
         Ok(FsEventWatcher {
             paths: unsafe {
                 cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
