@@ -193,9 +193,8 @@ impl WatchTimer {
                 |fire_at| {
                     if fire_at <= &mut Instant::now() {
                         tx.send(DebouncedEvent::OngoingWrite(path.clone())).ok();
+                        *fire_at = Instant::now() + delay;
                     }
-
-                    *fire_at = Instant::now() + delay;
                 },
             );
         }
