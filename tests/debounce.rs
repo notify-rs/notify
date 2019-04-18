@@ -8,7 +8,9 @@ extern crate tempdir;
 mod utils;
 
 use crossbeam_channel::{unbounded, Receiver, TryRecvError};
+use notify::event::*;
 use notify::*;
+use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 use tempdir::TempDir;
@@ -17,7 +19,18 @@ use utils::*;
 const DELAY_MS: u64 = 1000;
 const TIMEOUT_MS: u64 = 1000;
 
-fn recv_events_debounced(rx: &Receiver<DebouncedEvent>) -> Vec<DebouncedEvent> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Kind {
+    Any,
+    Create,
+    Remove,
+    Modify,
+    RenameBoth,
+    Access,
+    Other(Option<String>),
+}
+
+fn recv_events_debounced(rx: &Receiver<Event>) -> Vec<(Kind, Vec<PathBuf>, bool)> {
     let start = Instant::now();
 
     let mut events = Vec::new();
@@ -30,7 +43,29 @@ fn recv_events_debounced(rx: &Receiver<DebouncedEvent>) -> Vec<DebouncedEvent> {
         }
         thread::sleep(Duration::from_millis(50));
     }
+
     events
+        .into_iter()
+        .map(|event| {
+            let mut paths = event.other_paths().to_owned();
+            if let Some(ref path) = event.path {
+                // paths.insert(0, path.clone()); // TODO <-- correct
+                paths.push(path.clone());
+            }
+
+            let kind = match event.kind {
+                EventKind::Any => Kind::Any,
+                EventKind::Create(_) => Kind::Create,
+                EventKind::Remove(_) => Kind::Remove,
+                EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => Kind::RenameBoth,
+                EventKind::Modify(_) => Kind::Modify,
+                EventKind::Access(_) => Kind::Access,
+                EventKind::Other => Kind::Other(event.info().cloned()),
+            };
+
+            (kind, paths, event.info() == Some(&("notice".to_string())))
+        })
+        .collect()
 }
 
 #[test]
@@ -50,7 +85,7 @@ fn create_file() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("file1")),]
+        vec![(Kind::Create, vec![tdir.mkpath("file1")], false)]
     );
 }
 
@@ -74,8 +109,8 @@ fn write_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-            DebouncedEvent::Write(tdir.mkpath("file1")),
+            (Kind::Modify, vec![tdir.mkpath("file1")], true),
+            (Kind::Modify, vec![tdir.mkpath("file1")], false),
         ]
     );
 }
@@ -107,8 +142,8 @@ fn write_long_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-            DebouncedEvent::Write(tdir.mkpath("file1")),
+            (Kind::Modify, vec![tdir.mkpath("file1")], true),
+            (Kind::Modify, vec![tdir.mkpath("file1")], false),
         ]
     );
 }
@@ -150,14 +185,14 @@ fn modify_file() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-                DebouncedEvent::Write(tdir.mkpath("file1")),
+                (Kind::Modify, vec![tdir.mkpath("file1")], true),
+                (Kind::Modify, vec![tdir.mkpath("file1")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
-            vec![DebouncedEvent::Metadata(tdir.mkpath("file1")),]
+            vec![(Kind::Modify, vec![tdir.mkpath("file1")], false)]
         );
     }
 }
@@ -182,8 +217,8 @@ fn delete_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Remove(tdir.mkpath("file1")),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (Kind::Remove, vec![tdir.mkpath("file1")], false),
         ]
     );
 }
@@ -208,8 +243,12 @@ fn rename_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (
+                Kind::RenameBoth,
+                vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                false
+            ),
         ]
     );
 }
@@ -233,7 +272,7 @@ fn create_write_modify_file() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("file1")),]
+        vec![(Kind::Create, vec![tdir.mkpath("file1")], false)]
     );
 }
 
@@ -279,8 +318,8 @@ fn delete_create_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Write(tdir.mkpath("file1")),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (Kind::Modify, vec![tdir.mkpath("file1")], false),
         ]
     );
 }
@@ -303,7 +342,7 @@ fn create_rename_file() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("file2")),]
+        vec![(Kind::Create, vec![tdir.mkpath("file2")], false)]
     );
 }
 
@@ -363,15 +402,15 @@ fn create_rename_overwrite_file() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file2")),
-                DebouncedEvent::Create(tdir.mkpath("file2")), // even though the file is being overwritten, that can't be detected
+                (Kind::Remove, vec![tdir.mkpath("file2")], true),
+                (Kind::Create, vec![tdir.mkpath("file2")], false), // even though the file is being overwritten, that can't be detected
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::Create(tdir.mkpath("file2")), // even though the file is being overwritten, that can't be detected
+                (Kind::Create, vec![tdir.mkpath("file2")], false), // even though the file is being overwritten, that can't be detected
             ]
         );
     }
@@ -401,8 +440,8 @@ fn create_rename_write_create() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::Create(tdir.mkpath("file2")),
-            DebouncedEvent::Create(tdir.mkpath("file3")),
+            (Kind::Create, vec![tdir.mkpath("file2")], false),
+            (Kind::Create, vec![tdir.mkpath("file3")], false),
         ]
     );
 }
@@ -435,18 +474,18 @@ fn create_rename_remove_create() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::Create(tdir.mkpath("file1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file2")),
-                // DebouncedEvent::Remove(tdir.mkpath("file1")), BUG: There should be a remove event for file1
-                DebouncedEvent::Remove(tdir.mkpath("file2")),
-                DebouncedEvent::Create(tdir.mkpath("file3")),
+                (Kind::Create, vec![tdir.mkpath("file1")], false),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (Kind::Remove, vec![tdir.mkpath("file2")], true),
+                // (Kind::Remove, vec![tdir.mkpath("file1")], false), BUG: There should be a remove event for file1
+                (Kind::Remove, vec![tdir.mkpath("file2")], false),
+                (Kind::Create, vec![tdir.mkpath("file3")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
-            vec![DebouncedEvent::Create(tdir.mkpath("file3")),]
+            vec![(Kind::Create, vec![tdir.mkpath("file3")], false)]
         );
     }
 }
@@ -477,15 +516,15 @@ fn move_out_sleep_move_in() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::Create(tdir.mkpath("watch_dir/file1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("watch_dir/file2")),
-                DebouncedEvent::Create(tdir.mkpath("watch_dir/file2")),
+                (Kind::Create, vec![tdir.mkpath("watch_dir/file1")], false),
+                (Kind::Remove, vec![tdir.mkpath("watch_dir/file2")], true),
+                (Kind::Create, vec![tdir.mkpath("watch_dir/file2")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
-            vec![DebouncedEvent::Create(tdir.mkpath("watch_dir/file2")),]
+            vec![(Kind::Create, vec![tdir.mkpath("watch_dir/file2")], false)]
         );
     }
 }
@@ -513,7 +552,7 @@ fn move_repeatedly() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("watch_dir/file1")),]
+        vec![(Kind::Create, vec![tdir.mkpath("watch_dir/file1")], false)]
     );
 
     for i in 1..300 {
@@ -526,8 +565,12 @@ fn move_repeatedly() {
             assert_eq!(
                 recv_events_debounced(&rx),
                 vec![
-                    DebouncedEvent::NoticeRemove(tdir.mkpath(&from)),
-                    DebouncedEvent::Rename(tdir.mkpath(&from), tdir.mkpath(&to)),
+                    (Kind::Remove, vec![tdir.mkpath(&from)], true),
+                    (
+                        Kind::RenameBoth,
+                        vec![tdir.mkpath(&from), tdir.mkpath(&to)],
+                        false
+                    ),
                 ]
             );
         }
@@ -555,10 +598,14 @@ fn write_rename_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-            DebouncedEvent::Write(tdir.mkpath("file2")),
+            (Kind::Modify, vec![tdir.mkpath("file1")], true),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (
+                Kind::RenameBoth,
+                vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                false
+            ),
+            (Kind::Modify, vec![tdir.mkpath("file2")], false),
         ]
     );
 }
@@ -585,10 +632,14 @@ fn rename_write_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::NoticeWrite(tdir.mkpath("file2")), // TODO not necessary
-            DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-            DebouncedEvent::Write(tdir.mkpath("file2")),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (Kind::Modify, vec![tdir.mkpath("file2")], true), // TODO not necessary
+            (
+                Kind::RenameBoth,
+                vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                false
+            ),
+            (Kind::Modify, vec![tdir.mkpath("file2")], false),
         ]
     );
 }
@@ -616,19 +667,27 @@ fn modify_rename_file() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-                DebouncedEvent::Write(tdir.mkpath("file2")),
+                (Kind::Modify, vec![tdir.mkpath("file1")], true),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("file2")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-                DebouncedEvent::Metadata(tdir.mkpath("file2")),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("file2")], false),
             ]
         );
     }
@@ -658,19 +717,27 @@ fn rename_modify_file() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::NoticeWrite(tdir.mkpath("file2")), // TODO unnecessary
-                DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-                DebouncedEvent::Write(tdir.mkpath("file2")),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (Kind::Modify, vec![tdir.mkpath("file2")], true), // TODO unnecessary
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("file2")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-                DebouncedEvent::Metadata(tdir.mkpath("file2")),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("file2")], false),
             ]
         );
     }
@@ -698,8 +765,12 @@ fn rename_rename_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file3")),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (
+                Kind::RenameBoth,
+                vec![tdir.mkpath("file1"), tdir.mkpath("file3")],
+                false
+            ),
         ]
     );
 }
@@ -725,9 +796,9 @@ fn write_delete_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Remove(tdir.mkpath("file1")),
+            (Kind::Modify, vec![tdir.mkpath("file1")], true),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (Kind::Remove, vec![tdir.mkpath("file1")], false),
         ]
     );
 }
@@ -749,7 +820,7 @@ fn create_directory() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("dir1")),]
+        vec![(Kind::Create, vec![tdir.mkpath("dir1")], false)]
     );
 }
 
@@ -778,18 +849,17 @@ fn create_directory_watch_subdirectories() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::Create(tdir.mkpath("dir1")),
-                DebouncedEvent::Create(tdir.mkpath("dir1/dir2/file1")),
+                (Kind::Create, vec![tdir.mkpath("dir1")], false),
+                (Kind::Create, vec![tdir.mkpath("dir1/dir2/file1")], false),
             ]
         );
     } else {
-        /*  */
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::Create(tdir.mkpath("dir1")),
-                DebouncedEvent::Create(tdir.mkpath("dir1/dir2")),
-                DebouncedEvent::Create(tdir.mkpath("dir1/dir2/file1")),
+                (Kind::Create, vec![tdir.mkpath("dir1")], false),
+                (Kind::Create, vec![tdir.mkpath("dir1/dir2")], false),
+                (Kind::Create, vec![tdir.mkpath("dir1/dir2/file1")], false),
             ]
         );
     }
@@ -817,14 +887,14 @@ fn modify_directory() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeWrite(tdir.mkpath("dir1")),
-                DebouncedEvent::Write(tdir.mkpath("dir1")),
+                (Kind::Modify, vec![tdir.mkpath("dir1")], true),
+                (Kind::Modify, vec![tdir.mkpath("dir1")], false)
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
-            vec![DebouncedEvent::Metadata(tdir.mkpath("dir1")),]
+            vec![(Kind::Modify, vec![tdir.mkpath("dir1")], false)]
         );
     }
 }
@@ -849,8 +919,8 @@ fn delete_directory() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-            DebouncedEvent::Remove(tdir.mkpath("dir1")),
+            (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+            (Kind::Remove, vec![tdir.mkpath("dir1")], false),
         ]
     );
 }
@@ -875,8 +945,12 @@ fn rename_directory() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-            DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
+            (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+            (
+                Kind::RenameBoth,
+                vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                false
+            ),
         ]
     );
 }
@@ -899,7 +973,7 @@ fn create_modify_directory() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("dir1")),]
+        vec![(Kind::Create, vec![tdir.mkpath("dir1")], false)]
     );
 }
 
@@ -945,8 +1019,8 @@ fn delete_create_directory() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-            DebouncedEvent::Write(tdir.mkpath("dir1")),
+            (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+            (Kind::Modify, vec![tdir.mkpath("dir1")], false),
         ]
     );
 }
@@ -969,7 +1043,7 @@ fn create_rename_directory() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("dir2")),]
+        vec![(Kind::Create, vec![tdir.mkpath("dir2")], false)]
     );
 }
 
@@ -1023,15 +1097,15 @@ fn create_rename_overwrite_directory() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir2")), // even though the directory is being overwritten, that can't be detected
-                DebouncedEvent::Create(tdir.mkpath("dir2")), // even though the directory is being overwritten, that can't be detected
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true), // even though the directory is being overwritten, that can't be detected
+                (Kind::Create, vec![tdir.mkpath("dir2")], false), // even though the directory is being overwritten, that can't be detected
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::Create(tdir.mkpath("dir2")), // even though the directory is being overwritten, that can't be detected
+                (Kind::Create, vec![tdir.mkpath("dir2")], false), // even though the directory is being overwritten, that can't be detected
             ]
         );
     }
@@ -1061,19 +1135,27 @@ fn modify_rename_directory() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeWrite(tdir.mkpath("dir1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Write(tdir.mkpath("dir2")),
+                (Kind::Modify, vec![tdir.mkpath("dir1")], true),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Metadata(tdir.mkpath("dir2")),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], false),
             ]
         );
     }
@@ -1105,34 +1187,50 @@ fn rename_modify_directory() {
         assert_eq!(
             actual,
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::NoticeWrite(tdir.mkpath("dir2")), // TODO unnecessary
-                DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Write(tdir.mkpath("dir2")),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], true), // TODO unnecessary
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], false),
             ]
         );
     } else if cfg!(target_os = "linux") {
         assert_eq_any!(
             actual,
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Metadata(tdir.mkpath("dir2")),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], false),
             ],
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Metadata(tdir.mkpath("dir2")),
-                DebouncedEvent::Metadata(tdir.mkpath("dir1")), // excessive metadata event
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], false),
+                (Kind::Modify, vec![tdir.mkpath("dir1")], false),
             ]
         );
     } else {
         assert_eq!(
             actual,
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Metadata(tdir.mkpath("dir2")),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], false),
             ]
         );
     }
@@ -1160,8 +1258,12 @@ fn rename_rename_directory() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-            DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir3")),
+            (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+            (
+                Kind::RenameBoth,
+                vec![tdir.mkpath("dir1"), tdir.mkpath("dir3")],
+                false
+            ),
         ]
     );
 }
@@ -1190,17 +1292,17 @@ fn modify_delete_directory() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeWrite(tdir.mkpath("dir1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Remove(tdir.mkpath("dir1")),
+                (Kind::Modify, vec![tdir.mkpath("dir1")], true),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Remove(tdir.mkpath("dir1")),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], false),
             ]
         );
     }
@@ -1233,8 +1335,12 @@ fn move_in_directory_watch_subdirectories() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::Create(tdir.mkpath("watch_dir/dir1")),
-            DebouncedEvent::Create(tdir.mkpath("watch_dir/dir1/dir2/file1")),
+            (Kind::Create, vec![tdir.mkpath("watch_dir/dir1")], false),
+            (
+                Kind::Create,
+                vec![tdir.mkpath("watch_dir/dir1/dir2/file1")],
+                false
+            ),
         ]
     );
 }
@@ -1264,8 +1370,8 @@ fn rename_create_remove_temp_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Create(tdir.mkpath("file1")),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (Kind::Create, vec![tdir.mkpath("file1")], false),
         ]
     );
 }
@@ -1297,20 +1403,28 @@ fn rename_rename_remove_temp_file() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file3")),
-                DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-                DebouncedEvent::Rename(tdir.mkpath("file3"), tdir.mkpath("file1")),
-                DebouncedEvent::Write(tdir.mkpath("file1")),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (Kind::Remove, vec![tdir.mkpath("file3")], true),
+                (Kind::Modify, vec![tdir.mkpath("file1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("file3"), tdir.mkpath("file1")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("file1")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file3")),
-                DebouncedEvent::Rename(tdir.mkpath("file3"), tdir.mkpath("file1")),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (Kind::Remove, vec![tdir.mkpath("file3")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("file3"), tdir.mkpath("file1")],
+                    false
+                ),
             ]
         );
     }
