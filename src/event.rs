@@ -1,7 +1,5 @@
-// This file was originally from the `next` branch and is licensed under the
-// Artistic License 2.0 as from the LICENSE file in that branch. It is further
-// dual-licensed under the Creative Commons Zero 1.0 license while this notice
-// is displayed here. Copyright © Félix Saparelli, All Rights Reserved.
+// This file is dual-licensed under the Artistic License 2.0 as per the
+// LICENSE.ARTISTIC file, and the Creative Commons Zero 1.0 license.
 //! The `Event` type and the hierarchical `EventKind` descriptor.
 
 use anymap::{any::CloneAny, Map};
