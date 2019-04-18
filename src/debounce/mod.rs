@@ -216,7 +216,7 @@ impl Debounce {
                                 *operation = Some(op::Op::REMOVE);
                                 self.tx.send(Event::new(EventKind::Remove(event::RemoveKind::Any))
                                              .add_path(path.clone())
-                                             .set_info("notice")).ok();
+                                             .set_flag(event::Flag::Notice)).ok();
                                 restart_timer(timer_id, path, &mut self.timer);
                             }
                             Some(op::Op::RENAME) => {
@@ -333,7 +333,7 @@ impl Debounce {
                         *operation = Some(op::Op::WRITE);
                         self.tx.send(Event::new(EventKind::Modify(event::ModifyKind::Any))
                                      .add_path(path.clone())
-                                     .set_info("notice")).ok();
+                                     .set_flag(event::Flag::Notice)).ok();
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
 
@@ -460,7 +460,7 @@ impl Debounce {
                         Some(op::Op::METADATA) => {
                             self.tx.send(Event::new(EventKind::Remove(event::RemoveKind::Any))
                                          .add_path(path.clone())
-                                         .set_info("notice")).ok();
+                                         .set_flag(event::Flag::Notice)).ok();
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
 
@@ -469,7 +469,7 @@ impl Debounce {
                             *operation = Some(op::Op::RENAME);
                             self.tx.send(Event::new(EventKind::Remove(event::RemoveKind::Any))
                                          .add_path(path.clone())
-                                         .set_info("notice")).ok();
+                                         .set_flag(event::Flag::Notice)).ok();
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
 
@@ -532,7 +532,7 @@ impl Debounce {
                                 *operation = Some(op::Op::REMOVE);
                                 self.tx.send(Event::new(EventKind::Remove(event::RemoveKind::Any))
                                              .add_path(path.clone())
-                                             .set_info("notice")).ok();
+                                             .set_flag(event::Flag::Notice)).ok();
                                 restart_timer(timer_id, path.clone(), &mut self.timer);
                             }
 

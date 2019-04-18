@@ -348,7 +348,7 @@ pub struct Event {
     ///
     /// Arbitrary data may be added to this field, without restriction beyond the `Sync` and
     /// `Clone` properties. Some data added here is considered for comparing and hashing, but not
-    /// all: at this writing this is `Tracker`, `Info`, and `Source`.
+    /// all: at this writing this is `Tracker`, `Flag`, `Info`, and `Source`.
     ///
     /// For vendor or custom information, it is recommended to use type wrappers to differentiate
     /// entries within the `AnyMap` container and avoid conflicts. For interoperability, one of the
@@ -371,6 +371,26 @@ pub struct Event {
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Tracker(pub usize);
+
+/// Special Notify flag on the event.
+///
+/// This attribute is used to flag certain kinds of events that Notify either marks or generates in
+/// particular ways.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
+pub enum Flag {
+    /// Event notices are emitted by debounced watchers immediately after the _first_ event of that
+    /// kind is received on a path to indicate activity to a path within the interval of a debounce.
+    ///
+    /// Event notices are a runtime option and are enabled by default. (TODO)
+    Notice,
+
+    /// Ongoing event notices are emitted by debounced watchers on a higher frequency than the
+    /// debouncing delay to indicate ongoing activity to a path within the interval of a debounce.
+    ///
+    /// Ongoing event notices are a runtime option and are disabled by default.
+    Ongoing,
+}
 
 /// Additional information on the event.
 ///
@@ -404,6 +424,11 @@ impl Event {
         self.attrs.get::<Tracker>().map(|v| v.0)
     }
 
+    /// Retrieves the Notify flag for an event directly, if present.
+    pub fn flag(&self) -> Option<&Flag> {
+        self.attrs.get::<Flag>()
+    }
+
     /// Retrieves the additional info for an event directly, if present.
     pub fn info(&self) -> Option<&String> {
         self.attrs.get::<Info>().map(|v| &v.0)
@@ -434,6 +459,12 @@ impl Event {
         self.attrs.insert(Info(info.into()));
         self
     }
+
+    /// Sets the Notify flag onto the event.
+    pub fn set_flag(mut self, flag: Flag) -> Self {
+        self.attrs.insert(flag);
+        self
+    }
 }
 
 impl fmt::Debug for Event {
@@ -442,6 +473,7 @@ impl fmt::Debug for Event {
             .field("kind", &self.kind)
             .field("paths", &self.paths)
             .field("attr:tracker", &self.tracker())
+            .field("attr:flag", &self.flag())
             .field("attr:info", &self.info())
             .field("attr:source", &self.source())
             .finish()
@@ -463,6 +495,7 @@ impl PartialEq for Event {
         self.kind.eq(&other.kind)
             && self.paths.eq(&other.paths)
             && self.tracker().eq(&other.tracker())
+            && self.flag().eq(&other.flag())
             && self.info().eq(&other.info())
             && self.source().eq(&other.source())
     }
@@ -473,6 +506,7 @@ impl Hash for Event {
         self.kind.hash(state);
         self.paths.hash(state);
         self.tracker().hash(state);
+        self.flag().hash(state);
         self.info().hash(state);
         self.source().hash(state);
     }
@@ -492,11 +526,15 @@ mod attr_serde {
         S: Serializer,
     {
         let tracker = attrs.get::<Tracker>().map(|v| v.0.clone());
+        let flag = attrs.get::<Flag>().map(|v| v.0.clone());
         let info = attrs.get::<Info>().map(|v| v.0.clone());
         let source = attrs.get::<Source>().map(|v| v.0.clone());
 
         let mut length = 0;
         if tracker.is_some() {
+            length += 1;
+        }
+        if flag.is_some() {
             length += 1;
         }
         if info.is_some() {
@@ -509,6 +547,9 @@ mod attr_serde {
         let mut map = s.serialize_map(Some(length))?;
         if let Some(val) = tracker {
             map.serialize_entry("tracker", &val)?;
+        }
+        if let Some(val) = flag {
+            map.serialize_entry("flag", &val)?;
         }
         if let Some(val) = info {
             map.serialize_entry("info", &val)?;
@@ -528,6 +569,7 @@ mod attr_serde {
         #[serde(untagged)]
         enum Attr {
             Tracker(Option<Tracker>),
+            Flag(Option<Flag>),
             Info(Option<Info>),
             Source(Option<Source>),
         }
@@ -538,6 +580,9 @@ mod attr_serde {
         let attrs = Attrs::deserialize(d)?;
         let mut map = AnyMap::with_capacity(attrs.0.len());
         if let Some(Attr::Tracker(Some(val))) = attrs.0.get("tracker").cloned() {
+            map.insert(val);
+        }
+        if let Some(Attr::Flag(Some(val))) = attrs.0.get("flag").cloned() {
             map.insert(val);
         }
         if let Some(Attr::Info(Some(val))) = attrs.0.get("info").cloned() {

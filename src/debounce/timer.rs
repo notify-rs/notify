@@ -214,7 +214,7 @@ impl WatchTimer {
                         tx.send(
                             Event::new(EventKind::Modify(event::ModifyKind::Any))
                                 .add_path(path.clone())
-                                .set_info("ongoing"),
+                                .set_flag(event::Flag::Ongoing),
                         )
                         .ok();
                         *fire_at = Instant::now() + delay;

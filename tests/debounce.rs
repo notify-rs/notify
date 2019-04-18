@@ -47,7 +47,7 @@ fn recv_events_debounced(rx: &Receiver<Event>) -> Vec<(Kind, Vec<PathBuf>, bool)
     events
         .into_iter()
         .map(|event| {
-            let is_notice = event.info() == Some(&("notice".to_string()));
+            let is_notice = event.flag() == Some(&Flag::Notice);
             let kind = match event.kind {
                 EventKind::Any => Kind::Any,
                 EventKind::Create(_) => Kind::Create,
