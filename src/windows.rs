@@ -16,7 +16,7 @@ use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
 use super::debounce::{Debounce, EventTx};
-use super::{op, Config, Event, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, Config, Error, Event, Op, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::env;

@@ -14,7 +14,7 @@
 extern crate fsevent as fse;
 
 use super::debounce::{Debounce, EventTx};
-use super::{op, Config, Event, Error, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, Config, Error, Event, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use fsevent_sys::core_foundation as cf;
 use fsevent_sys::fsevent as fs;

@@ -1,4 +1,4 @@
-use crate::{op, event, Event, EventKind, Error, Result};
+use crate::{event, op, Error, Event, EventKind, Result};
 use chashmap::CHashMap;
 use crossbeam_channel::Sender;
 use std::collections::VecDeque;
@@ -52,27 +52,45 @@ impl ScheduleWorker {
             if let Some((op, from_path, _)) = op_buf.remove(&path) {
                 let is_partial_rename = from_path.is_none();
                 if let Some(from_path) = from_path {
-                    self.tx.send(Event::new(EventKind::Modify(event::ModifyKind::Name(event::RenameMode::Both)))
-                                 .set_path(path.clone())
-                                 .set_other_paths(vec![from_path])).ok();
+                    self.tx
+                        .send(
+                            Event::new(EventKind::Modify(event::ModifyKind::Name(
+                                event::RenameMode::Both,
+                            )))
+                            .add_path(from_path)
+                            .add_path(path.clone())
+                        )
+                        .ok();
                 }
                 let message = match op {
-                    Some(op::Op::CREATE) => Some(Event::new(EventKind::Create(event::CreateKind::Any))
-                                                 .set_path(path)),
+                    Some(op::Op::CREATE) => {
+                        Some(Event::new(EventKind::Create(event::CreateKind::Any)).add_path(path))
+                    }
                     Some(op::Op::WRITE) => {
                         self.ongoing_writes.remove(&path);
-                        Some(Event::new(EventKind::Modify(event::ModifyKind::Any)).set_path(path))
+                        Some(Event::new(EventKind::Modify(event::ModifyKind::Any)).add_path(path))
                     }
-                    Some(op::Op::METADATA) => Some(Event::new(EventKind::Modify(event::ModifyKind::Metadata(event::MetadataKind::Any))).set_path(path)),
+                    Some(op::Op::METADATA) => Some(
+                        Event::new(EventKind::Modify(event::ModifyKind::Metadata(
+                            event::MetadataKind::Any,
+                        )))
+                        .add_path(path),
+                    ),
                     Some(op::Op::REMOVE) => {
                         self.ongoing_writes.remove(&path);
-                        Some(Event::new(EventKind::Remove(event::RemoveKind::Any)).set_path(path))
+                        Some(Event::new(EventKind::Remove(event::RemoveKind::Any)).add_path(path))
                     }
                     Some(op::Op::RENAME) if is_partial_rename => {
                         if path.exists() {
-                            Some(Event::new(EventKind::Create(event::CreateKind::Any)).set_path(path))
+                            Some(
+                                Event::new(EventKind::Create(event::CreateKind::Any))
+                                    .add_path(path),
+                            )
                         } else {
-                            Some(Event::new(EventKind::Remove(event::RemoveKind::Any)).set_path(path))
+                            Some(
+                                Event::new(EventKind::Remove(event::RemoveKind::Any))
+                                    .add_path(path),
+                            )
                         }
                     }
                     _ => None,
@@ -193,9 +211,12 @@ impl WatchTimer {
                 || Instant::now() + delay,
                 |fire_at| {
                     if fire_at <= &mut Instant::now() {
-                        tx.send(Event::new(EventKind::Modify(event::ModifyKind::Any))
-                                .set_path(path.clone())
-                                .set_info("ongoing")).ok();
+                        tx.send(
+                            Event::new(EventKind::Modify(event::ModifyKind::Any))
+                                .add_path(path.clone())
+                                .set_info("ongoing"),
+                        )
+                        .ok();
                         *fire_at = Instant::now() + delay;
                     }
                 },

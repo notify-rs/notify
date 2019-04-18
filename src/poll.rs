@@ -5,7 +5,7 @@
 
 use self::walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
-use super::{op, Event, Error, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, Error, Event, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::Sender;
 use filetime::FileTime;
 use std::collections::HashMap;

@@ -47,12 +47,7 @@ fn recv_events_debounced(rx: &Receiver<Event>) -> Vec<(Kind, Vec<PathBuf>, bool)
     events
         .into_iter()
         .map(|event| {
-            let mut paths = event.other_paths().to_owned();
-            if let Some(ref path) = event.path {
-                // paths.insert(0, path.clone()); // TODO <-- correct
-                paths.push(path.clone());
-            }
-
+            let is_notice = event.info() == Some(&("notice".to_string()));
             let kind = match event.kind {
                 EventKind::Any => Kind::Any,
                 EventKind::Create(_) => Kind::Create,
@@ -63,7 +58,7 @@ fn recv_events_debounced(rx: &Receiver<Event>) -> Vec<(Kind, Vec<PathBuf>, bool)
                 EventKind::Other => Kind::Other(event.info().cloned()),
             };
 
-            (kind, paths, event.info() == Some(&("notice".to_string())))
+            (kind, event.paths, is_notice)
         })
         .collect()
 }

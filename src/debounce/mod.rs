@@ -2,7 +2,7 @@
 
 mod timer;
 
-use super::{op, Config, event, Event, EventKind, RawEvent, Result};
+use super::{event, op, Config, Event, EventKind, RawEvent, Result};
 
 use self::timer::WatchTimer;
 use crossbeam_channel::Sender;
@@ -78,7 +78,8 @@ impl EventTx {
             } => {
                 match (event.path, event.op, event.cookie) {
                     (None, Ok(op::Op::RESCAN), None) => {
-                        tx.send(Event::new(EventKind::Other).set_info("rescan")).ok();
+                        tx.send(Event::new(EventKind::Other).set_info("rescan"))
+                            .ok();
                     }
                     (Some(path), Ok(op), cookie) => {
                         debounce.lock().unwrap().event(path, op, cookie);
@@ -87,7 +88,12 @@ impl EventTx {
                         // TODO panic!("path is None: {:?} ({:?})", _op, _cookie);
                     }
                     (Some(path), Err(e), _) => {
-                        tx.send(Event::new(EventKind::Other).set_path(path).set_info("error")).ok(); // TODO
+                        tx.send(
+                            Event::new(EventKind::Other)
+                                .add_path(path)
+                                .set_info("error"),
+                        )
+                        .ok(); // TODO
                     }
                     (None, Err(e), _) => {
                         tx.send(Event::new(EventKind::Other).set_info("error")).ok(); // TODO
@@ -97,7 +103,8 @@ impl EventTx {
             EventTx::DebouncedTx { ref tx } => {
                 match (event.path, event.op, event.cookie) {
                     (None, Ok(op::Op::RESCAN), None) => {
-                        tx.send(Event::new(EventKind::Other).set_info("rescan")).ok();
+                        tx.send(Event::new(EventKind::Other).set_info("rescan"))
+                            .ok();
                     }
                     (Some(_path), Ok(_op), _cookie) => {
                         // TODO debounce.event(_path, _op, _cookie);
@@ -106,7 +113,12 @@ impl EventTx {
                         // TODO panic!("path is None: {:?} ({:?})", _op, _cookie);
                     }
                     (Some(path), Err(e), _) => {
-                        tx.send(Event::new(EventKind::Other).set_path(path).set_info("error")).ok(); // TODO
+                        tx.send(
+                            Event::new(EventKind::Other)
+                                .add_path(path)
+                                .set_info("error"),
+                        )
+                        .ok(); // TODO
                     }
                     (None, Err(e), _) => {
                         tx.send(Event::new(EventKind::Other).set_info("error")).ok(); // TODO
@@ -203,7 +215,7 @@ impl Debounce {
                             Some(op::Op::METADATA) => { // change to remove event
                                 *operation = Some(op::Op::REMOVE);
                                 self.tx.send(Event::new(EventKind::Remove(event::RemoveKind::Any))
-                                             .set_path(path.clone())
+                                             .add_path(path.clone())
                                              .set_info("notice")).ok();
                                 restart_timer(timer_id, path, &mut self.timer);
                             }
@@ -240,7 +252,9 @@ impl Debounce {
 
     pub fn event(&mut self, path: PathBuf, mut op: op::Op, cookie: Option<u32>) {
         if op.contains(op::Op::RESCAN) {
-            self.tx.send(Event::new(EventKind::Other).set_info("rescan")).ok();
+            self.tx
+                .send(Event::new(EventKind::Other).set_info("rescan"))
+                .ok();
         }
 
         if self.rename_path.is_some() {
@@ -318,7 +332,7 @@ impl Debounce {
                     None => {
                         *operation = Some(op::Op::WRITE);
                         self.tx.send(Event::new(EventKind::Modify(event::ModifyKind::Any))
-                                     .set_path(path.clone())
+                                     .add_path(path.clone())
                                      .set_info("notice")).ok();
                         restart_timer(timer_id, path.clone(), &mut self.timer);
                     }
@@ -445,7 +459,7 @@ impl Debounce {
                         // keep metadata event
                         Some(op::Op::METADATA) => {
                             self.tx.send(Event::new(EventKind::Remove(event::RemoveKind::Any))
-                                         .set_path(path.clone())
+                                         .add_path(path.clone())
                                          .set_info("notice")).ok();
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
@@ -454,7 +468,7 @@ impl Debounce {
                         None => {
                             *operation = Some(op::Op::RENAME);
                             self.tx.send(Event::new(EventKind::Remove(event::RemoveKind::Any))
-                                         .set_path(path.clone())
+                                         .add_path(path.clone())
                                          .set_info("notice")).ok();
                             restart_timer(timer_id, path.clone(), &mut self.timer);
                         }
@@ -517,7 +531,7 @@ impl Debounce {
                             None => {
                                 *operation = Some(op::Op::REMOVE);
                                 self.tx.send(Event::new(EventKind::Remove(event::RemoveKind::Any))
-                                             .set_path(path.clone())
+                                             .add_path(path.clone())
                                              .set_info("notice")).ok();
                                 restart_timer(timer_id, path.clone(), &mut self.timer);
                             }

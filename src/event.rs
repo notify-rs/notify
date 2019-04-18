@@ -141,11 +141,8 @@ pub enum RenameMode {
 
     /// A single event emitted with both the `From` and `To` paths.
     ///
-    /// This event should be emitted when both source and target are known. It should be
-    /// accompanied by individual `From` and `To` events when possible.
-    ///
-    /// The path the file is renamed _to_ should be provided on the event. The path the file was
-    /// renamed _from_ should be provided in the `OtherPaths` attribute.
+    /// This event should be emitted when both source and target are known. The paths should be
+    /// provided in this exact order (from, to).
     Both,
 
     /// An event which specific kind is known but cannot be represented otherwise.
@@ -316,30 +313,32 @@ pub struct Event {
     #[cfg_attr(feature = "serde", serde(rename = "type"))]
     pub kind: EventKind,
 
-    /// Path the event is about, if known.
+    /// Paths the event is about, if known.
     ///
-    /// If an event concerns two or more paths, two options are available: either create two or
-    /// more events with the same properties and vary this field (in which case adding a `Tracker`
-    /// value to the `attrs` would be beneficial), or stick the other paths as metadata in the
-    /// `attrs` structure. Which option is best depends on the exact situation.
-    pub path: Option<PathBuf>,
+    /// If an event concerns two or more paths, and the paths are known at the time of event
+    /// creation, they should all go in this `Vec`. Otherwise, using the `Tracker` attr may be more
+    /// appropriate.
+    ///
+    /// The order of the paths is likely to be significant! For example, renames where both ends of
+    /// the name change are known will have the "source" path first, and the "target" path last.
+    pub paths: Vec<PathBuf>,
 
     // "What should be in the struct" and "what can go in the attrs" is an interesting question.
     //
-    // Technically, the path could go in the attrs. That would reduce the type size to 4 pointer
+    // Technically, the paths could go in the attrs. That would reduce the type size to 4 pointer
     // widths, instead of 7 like it is now. Anything 8 and below is probably good — on x64 that's
     // the size of an L1 cache line. The entire kind classification fits in 3 bytes, and an AnyMap
-    // is 3 pointers. A PathBuf (and an Option<PathBuf>) is another 3 pointers.
+    // is 3 pointers. A Vec<PathBuf> is another 3 pointers.
     //
-    // Type size aside, what's behind these structures? A PathBuf is stored on the heap. An AnyMap
-    // is stored on the heap. But a PathBuf is directly there, requiring about one access to get,
-    // while retrieving anything in the AnyMap requires at least one or two accesses as overhead.
+    // Type size aside, what's behind these structures? A Vec and a PathBuf is stored on the heap.
+    // An AnyMap is stored on the heap. But a Vec is directly there, requiring about one access to
+    // get, while retrieving anything in the AnyMap requires some accesses as overhead.
     //
     // So things that are used often should be on the struct, and things that are used more rarely
     // should go in the attrs. Additionally, arbitrary data can _only_ go in the attrs.
     //
-    // The kind and the path vie for first place on this scale, depending on how downstream wishes
-    // to use the information. Everything else is secondary. So far, that's why path lives here.
+    // The kind and the paths vie for first place on this scale, depending on how downstream wishes
+    // to use the information. Everything else is secondary. So far, that's why paths live here.
     //
     // In the future, it might be possible to have more data and to benchmark things properly, so
     // the perfomance can be actually quantified. Also, it might turn out that I have no idea what
@@ -397,11 +396,6 @@ pub struct Info(pub String);
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Source(pub String);
 
-/// Additional relevant paths to the event.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
-pub struct OtherPaths(pub Vec<PathBuf>);
-
 // + typeid attr?
 
 impl Event {
@@ -420,25 +414,18 @@ impl Event {
         self.attrs.get::<Source>().map(|v| &v.0)
     }
 
-    /// Retrieves additional relevant paths for an event directly.
-    pub fn other_paths(&self) -> &[PathBuf] {
-        self.attrs.get::<OtherPaths>().map(|v| v.0.as_ref()).unwrap_or(&[])
-    }
-
     /// Creates a new `Event` given a kind.
     pub fn new(kind: EventKind) -> Self {
-        Self { kind, path: None, attrs: AnyMap::new() }
+        Self {
+            kind,
+            paths: Vec::new(),
+            attrs: AnyMap::new(),
+        }
     }
 
-    /// Sets the event's path.
-    pub fn set_path(mut self, path: PathBuf) -> Self {
-        self.path = Some(path);
-        self
-    }
-
-    /// Sets additional relevant paths.
-    pub fn set_other_paths(mut self, paths: Vec<PathBuf>) -> Self {
-        self.attrs.insert(OtherPaths(paths));
+    /// Adds a path to the event.
+    pub fn add_path(mut self, path: PathBuf) -> Self {
+        self.paths.push(path);
         self
     }
 
@@ -453,11 +440,10 @@ impl fmt::Debug for Event {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Event")
             .field("kind", &self.kind)
-            .field("path", &self.path)
+            .field("paths", &self.paths)
             .field("attr:tracker", &self.tracker())
             .field("attr:info", &self.info())
             .field("attr:source", &self.source())
-            .field("attr:other_paths", &self.other_paths())
             .finish()
     }
 }
@@ -465,7 +451,7 @@ impl Default for Event {
     fn default() -> Self {
         Self {
             kind: EventKind::default(),
-            path: None,
+            paths: Vec::new(),
             attrs: AnyMap::new(),
         }
     }
@@ -475,22 +461,20 @@ impl Eq for Event {}
 impl PartialEq for Event {
     fn eq(&self, other: &Self) -> bool {
         self.kind.eq(&other.kind)
-            && self.path.eq(&other.path)
+            && self.paths.eq(&other.paths)
             && self.tracker().eq(&other.tracker())
             && self.info().eq(&other.info())
             && self.source().eq(&other.source())
-            && self.other_paths().eq(other.other_paths())
     }
 }
 
 impl Hash for Event {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.kind.hash(state);
-        self.path.hash(state);
+        self.paths.hash(state);
         self.tracker().hash(state);
         self.info().hash(state);
         self.source().hash(state);
-        self.other_paths().hash(state);
     }
 }
 
@@ -510,7 +494,6 @@ mod attr_serde {
         let tracker = attrs.get::<Tracker>().map(|v| v.0.clone());
         let info = attrs.get::<Info>().map(|v| v.0.clone());
         let source = attrs.get::<Source>().map(|v| v.0.clone());
-        let other_paths = attrs.get::<OtherPaths>().map(|v| v.0.clone());
 
         let mut length = 0;
         if tracker.is_some() {
@@ -520,9 +503,6 @@ mod attr_serde {
             length += 1;
         }
         if source.is_some() {
-            length += 1;
-        }
-        if !other_paths.is_empty() {
             length += 1;
         }
 
@@ -535,9 +515,6 @@ mod attr_serde {
         }
         if let Some(val) = source {
             map.serialize_entry("source", &val)?;
-        }
-        if !other_paths.is_empty() {
-            map.serialize_entry("other-paths", &other_paths)?;
         }
         map.end()
     }
@@ -553,7 +530,6 @@ mod attr_serde {
             Tracker(Option<Tracker>),
             Info(Option<Info>),
             Source(Option<Source>),
-            OtherPaths(OtherPaths),
         }
 
         #[derive(Deserialize)]
@@ -568,9 +544,6 @@ mod attr_serde {
             map.insert(val);
         }
         if let Some(Attr::Source(Some(val))) = attrs.0.get("source").cloned() {
-            map.insert(val);
-        }
-        if let Some(Attr::OtherPaths(val)) = attrs.0.get("other-paths").cloned() {
             map.insert(val);
         }
         Ok(map)

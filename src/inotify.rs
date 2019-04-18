@@ -11,7 +11,7 @@ extern crate walkdir;
 use self::inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use self::walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
-use super::{op, Config, Event, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, Config, Error, Event, Op, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{bounded, unbounded, Sender};
 use mio;
 use mio_extras;
