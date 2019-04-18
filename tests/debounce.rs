@@ -1092,7 +1092,7 @@ fn create_rename_overwrite_directory() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                (Kind::Remove, vec![tdir.mkpath("dir1")], true), // even though the directory is being overwritten, that can't be detected
+                (Kind::Remove, vec![tdir.mkpath("dir2")], true), // even though the directory is being overwritten, that can't be detected
                 (Kind::Create, vec![tdir.mkpath("dir2")], false), // even though the directory is being overwritten, that can't be detected
             ]
         );
