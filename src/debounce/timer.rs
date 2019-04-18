@@ -58,7 +58,7 @@ impl ScheduleWorker {
                                 event::RenameMode::Both,
                             )))
                             .add_path(from_path)
-                            .add_path(path.clone())
+                            .add_path(path.clone()),
                         )
                         .ok();
                 }
