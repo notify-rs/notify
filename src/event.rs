@@ -377,7 +377,7 @@ pub struct Tracker(pub usize);
 /// This attribute is used to flag certain kinds of events that Notify either marks or generates in
 /// particular ways.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub enum Flag {
     /// Event notices are emitted by debounced watchers immediately after the _first_ event of that
     /// kind is received on a path to indicate activity to a path within the interval of a debounce.
@@ -526,7 +526,7 @@ mod attr_serde {
         S: Serializer,
     {
         let tracker = attrs.get::<Tracker>().map(|v| v.0.clone());
-        let flag = attrs.get::<Flag>().map(|v| v.0.clone());
+        let flag = attrs.get::<Flag>().map(|v| v.clone());
         let info = attrs.get::<Info>().map(|v| v.0.clone());
         let source = attrs.get::<Source>().map(|v| v.0.clone());
 
