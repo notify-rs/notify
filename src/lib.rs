@@ -338,25 +338,31 @@ mod debounce;
 #[allow(missing_docs)]
 pub mod op {
     bitflags! {
-    /// Holds a set of bit flags representing the actions for the event.
-    ///
-    /// For a list of possible values, have a look at the [notify::op](index.html) documentation.
-    ///
-    /// Multiple actions may be delivered in a single event.
+        /// Holds a set of bit flags representing the actions for the event.
+        ///
+        /// For a list of possible values, have a look at the [notify::op](index.html) documentation.
+        ///
+        /// Multiple actions may be delivered in a single event.
         pub struct Op: u32 {
-    /// Attributes changed
+            /// Attributes changed
             const METADATA       = 0b0000001;
-    /// Created
+
+            /// Created
             const CREATE      = 0b0000010;
-    /// Removed
+
+            /// Removed
             const REMOVE      = 0b0000100;
-    /// Renamed
+
+            /// Renamed
             const RENAME      = 0b0001000;
-    /// Written
+
+            /// Written
             const WRITE       = 0b0010000;
-    /// File opened for writing was closed
+
+            /// File opened for writing was closed
             const CLOSE_WRITE = 0b0100000;
-    /// Directories need to be rescanned
+
+            /// Directories need to be rescanned
             const RESCAN      = 0b1000000;
         }
     }
@@ -541,32 +547,33 @@ impl RecursiveMode {
 /// In addition to such event driven implementations, a polling implementation is also provided
 /// that should work on any platform.
 pub trait Watcher: Sized {
-    /// Create a new watcher in _raw_ mode.
+    /// Create a new watcher in _immediate_ mode.
     ///
-    /// Events will be sent using the provided `tx` immediately after they occurred.
+    /// Events will be sent using the provided `tx` immediately after they occur.
     fn new_immediate(tx: Sender<RawEvent>) -> Result<Self>;
 
     /// Create a new _debounced_ watcher with a `delay`.
     ///
-    /// Events won't be sent immediately but after the specified delay.
+    /// Events won't be sent immediately; every iteration they will be collected, deduplicated, and
+    /// emitted only after the specified delay.
     ///
     /// # Advantages
     ///
-    /// This has the advantage that a lot of logic can be offloaded to `notify`.
+    /// This has the advantage that a lot of logic can be offloaded to Notify.
     ///
-    /// For example you won't have to handle `RENAME` events yourself by piecing the two parts of
-    /// rename events together. Instead you will just receive a `Rename{from: PathBuf, to:
-    /// PathBuf}` event.
+    /// For example you won't have to handle `Modify(Name(From|To))` events yourself by piecing the
+    /// two rename events together. Instead you will just receive a `Modify(Name(Both))` with two
+    /// paths `from` and `to` in that order.
     ///
-    /// Also `notify` will detect the beginning and the end of write operations. As soon as
-    /// something is written to a file, a `NoticeWrite` event is emitted. If no new event arrived
-    /// until after the specified `delay`, a `Write` event is emitted.
+    /// Notify will also detect the beginning and the end of write operations. As soon as something
+    /// is written to a file, a `Modify` notice is emitted. If no new event arrived until after the
+    /// specified `delay`, a `Modify` event is emitted.
     ///
-    /// A practical example would be the safe-saving of a file, where a temporary file is created
-    /// and written to, then only when everything has been written to that file is it renamed to
-    /// overwrite the file that was meant to be saved. Instead of receiving a `CREATE` event for
-    /// the temporary file, `WRITE` events to that file and a `RENAME` event from the temporary
-    /// file to the file being saved, you will just receive a single `Write` event.
+    /// A practical example is "safe-saving", where a temporary file is created and written to, then
+    /// only when everything has been written is it renamed to overwrite the file that was meant to
+    /// be saved. Instead of receiving a `Create` event for the temporary file, `Modify(Data)`
+    /// events to that file, and a `Modify(Name)` event from the temporary file to the file being
+    /// saved, you will just receive a single `Modify(Data)` event.
     ///
     /// If you use a delay of more than 30 seconds, you can avoid receiving repetitions of previous
     /// events on macOS.
@@ -575,7 +582,7 @@ pub trait Watcher: Sized {
     ///
     /// Your application might not feel as responsive.
     ///
-    /// If a file is saved very slowly, you might receive a `Write` event even though the file is
+    /// If a file is saved very slowly, you might receive a `Modify` event even though the file is
     /// still being written to.
     fn new(tx: Sender<Event>, delay: Duration) -> Result<Self>;
 
@@ -635,18 +642,16 @@ pub enum Config {
     ///
     /// Applicable to debounced watchers only.
     ///
-    /// When enabled, raw partial write events that are received after a `NoticeWrite` but before
-    /// the end of a debouncing period (and the emission of a `Write` event) are passed through as
-    /// [`OngoingWrite`] events. These events are still debounced, but at a lower (configurable)
-    /// interval than the debouncing interval.
+    /// When enabled, partial write events that are received after a `Modify(Data)` notice but
+    /// before the end of a debouncing period (and the emission of a `Modify(Data)` event) are
+    /// passed through as `Modify(Data)` events with an `Ongoing` flag. These events are still
+    /// debounced, but at a lower (configurable) interval than the debouncing interval.
     ///
     /// To enable, provide `Some(Duration)`. To disable, provide `None`.
     ///
     /// # Errors
     ///
     /// - `InvalidConfigValue` if the interval provided is higher than the debounce interval.
-    ///
-    /// [`OngoingWrite`]: ./enum.DebouncedEvent.html#variant.OngoingWrite
     OngoingWrites(Option<Duration>),
 }
 
