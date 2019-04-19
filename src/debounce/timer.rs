@@ -1,4 +1,3 @@
-use crate::{event, op, Error, Event, EventKind, Result};
 use chashmap::CHashMap;
 use crossbeam_channel::Sender;
 use std::collections::VecDeque;
@@ -9,6 +8,7 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant};
+use {event, op, Error, Event, EventKind, Result};
 
 use debounce::OperationsBuffer;
 
