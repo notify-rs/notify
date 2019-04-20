@@ -1501,8 +1501,10 @@ fn dual_create_file() {
     tdir1.create("file1");
     tdir2.create("file2");
 
+    let mut events = recv_events_debounced(&rx);
+    events.sort_by(|(_, a, _), (_, b, _)| a.cmp(b));
     assert_eq!(
-        recv_events_debounced(&rx),
+        events,
         vec![
             (Kind::Create, vec![tdir1.mkpath("file1")], false),
             (Kind::Create, vec![tdir2.mkpath("file2")], false),
