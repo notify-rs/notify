@@ -78,7 +78,7 @@ impl EventTx {
             } => {
                 match (event.path, event.op, event.cookie) {
                     (None, Ok(op::Op::RESCAN), None) => {
-                        tx.send(Event::new(EventKind::Other).set_info("rescan"))
+                        tx.send(Event::new(EventKind::Other).set_flag(event::Flag::Rescan))
                             .ok();
                     }
                     (Some(path), Ok(op), cookie) => {
@@ -103,7 +103,7 @@ impl EventTx {
             EventTx::DebouncedTx { ref tx } => {
                 match (event.path, event.op, event.cookie) {
                     (None, Ok(op::Op::RESCAN), None) => {
-                        tx.send(Event::new(EventKind::Other).set_info("rescan"))
+                        tx.send(Event::new(EventKind::Other).set_flag(event::Flag::Rescan))
                             .ok();
                     }
                     (Some(_path), Ok(_op), _cookie) => {
@@ -253,7 +253,7 @@ impl Debounce {
     pub fn event(&mut self, path: PathBuf, mut op: op::Op, cookie: Option<u32>) {
         if op.contains(op::Op::RESCAN) {
             self.tx
-                .send(Event::new(EventKind::Other).set_info("rescan"))
+                .send(Event::new(EventKind::Other).set_flag(event::Flag::Rescan))
                 .ok();
         }
 

@@ -205,6 +205,8 @@ pub enum EventKind {
     /// This variant should be used as the "else" case when mapping native kernel bitmasks or
     /// bitmaps, such that if the mask is ever extended with new event types the backend will not
     /// gain bugs due to not matching new unknown event types.
+    ///
+    /// This variant is also the default variant used when Notify is in "imprecise" mode.
     Any,
 
     /// An event describing non-mutating access operations on files.
@@ -213,7 +215,7 @@ pub enum EventKind {
     /// other such event that is about accessing files, folders, or other structures rather than
     /// mutating them.
     ///
-    /// Only backends with the `EmitOnAccess` capability will generate these.
+    /// Only some platforms are capable of generating these.
     Access(AccessKind),
 
     /// An event describing creation operations on files.
@@ -240,7 +242,8 @@ pub enum EventKind {
 
     /// An event not fitting in any of the above four categories.
     ///
-    /// This may be used for meta-events about the watch itself, but generally should not be used.
+    /// This may be used for meta-events about the watch itself. In "imprecise" mode, it is, along
+    /// with `Any`, the only other event generated.
     Other,
 }
 
@@ -274,6 +277,14 @@ impl EventKind {
         match *self {
             EventKind::Remove(_) => true,
             _ => false,
+        }
+    }
+
+    /// Indicates whether an event is an Other variant.
+    pub fn is_other(&self) -> bool {
+        match *self {
+            EventKind::Other => true,
+            _ => false
         }
     }
 }
@@ -390,6 +401,15 @@ pub enum Flag {
     ///
     /// Ongoing event notices are a runtime option and are disabled by default.
     Ongoing,
+
+    /// Rescan notices are emitted by some platforms (and may also be emitted by Notify itself).
+    /// They indicate either a lapse in the events or a change in the filesystem such that events
+    /// received so far can no longer be relied on to represent the state of the filesystem now.
+    ///
+    /// An application that simply reacts to file changes may not care about this. An application
+    /// that keeps an in-memory representation of the filesystem will need to care, and will need
+    /// to refresh that representation directly from the filesystem.
+    Rescan,
 }
 
 /// Additional information on the event.
