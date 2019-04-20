@@ -59,6 +59,15 @@ fn new_recommended() {
     assert!(w.is_ok());
 }
 
+#[test]
+fn new_dual() {
+    let (tx, _) = unbounded();
+    let w1: Result<RecommendedWatcher> = Watcher::new_immediate(tx.clone());
+    let w2: Result<RecommendedWatcher> = Watcher::new_immediate(tx);
+    assert!(w1.is_ok());
+    assert!(w2.is_ok());
+}
+
 // if this test builds, it means RecommendedWatcher is Send.
 #[test]
 fn test_watcher_send() {
@@ -144,67 +153,68 @@ fn watch_relative() {
             }
         }
     }
-    if cfg!(target_os = "windows") && !NETWORK_PATH.is_empty() {
-        // watch_relative_network_directory
-        let tdir = TempDir::new_in(NETWORK_PATH, "temp_dir")
-            .expect("failed to create temporary directory");
-        tdir.create("dir1");
 
-        env::set_current_dir(tdir.path()).expect("failed to change working directory");
+    // To run: set a valid NETWORK_PATH.
+    if cfg!(target_os = "windows") && cfg!(feature = "manual_tests") {
+        {
+            // watch_relative_network_directory
+            let tdir = TempDir::new_in(NETWORK_PATH, "temp_dir")
+                .expect("failed to create temporary directory");
+            tdir.create("dir1");
 
-        let (tx, _) = unbounded();
-        let mut watcher: RecommendedWatcher =
-            Watcher::new_immediate(tx).expect("failed to create recommended watcher");
-        watcher
-            .watch("dir1", RecursiveMode::Recursive)
-            .expect("failed to watch directory");
+            env::set_current_dir(tdir.path()).expect("failed to change working directory");
 
-        watcher
-            .unwatch("dir1")
-            .expect("failed to unwatch directory");
+            let (tx, _) = unbounded();
+            let mut watcher: RecommendedWatcher =
+                Watcher::new_immediate(tx).expect("failed to create recommended watcher");
+            watcher
+                .watch("dir1", RecursiveMode::Recursive)
+                .expect("failed to watch directory");
 
-        if cfg!(not(target_os = "windows")) {
-            match watcher.unwatch("dir1") {
-                Err(Error::WatchNotFound) => (),
-                Err(e) => panic!("{:?}", e),
-                Ok(o) => panic!("{:?}", o),
+            watcher
+                .unwatch("dir1")
+                .expect("failed to unwatch directory");
+
+            if cfg!(not(target_os = "windows")) {
+                match watcher.unwatch("dir1") {
+                    Err(Error::WatchNotFound) => (),
+                    Err(e) => panic!("{:?}", e),
+                    Ok(o) => panic!("{:?}", o),
+                }
             }
         }
-    }
-    if cfg!(target_os = "windows") && !NETWORK_PATH.is_empty() {
-        // watch_relative_network_file
-        let tdir = TempDir::new_in(NETWORK_PATH, "temp_dir")
-            .expect("failed to create temporary directory");
-        tdir.create("file1");
+        {
+            // watch_relative_network_file
+            let tdir = TempDir::new_in(NETWORK_PATH, "temp_dir")
+                .expect("failed to create temporary directory");
+            tdir.create("file1");
 
-        env::set_current_dir(tdir.path()).expect("failed to change working directory");
+            env::set_current_dir(tdir.path()).expect("failed to change working directory");
 
-        let (tx, _) = unbounded();
-        let mut watcher: RecommendedWatcher =
-            Watcher::new_immediate(tx).expect("failed to create recommended watcher");
-        watcher
-            .watch("file1", RecursiveMode::Recursive)
-            .expect("failed to watch file");
+            let (tx, _) = unbounded();
+            let mut watcher: RecommendedWatcher =
+                Watcher::new_immediate(tx).expect("failed to create recommended watcher");
+            watcher
+                .watch("file1", RecursiveMode::Recursive)
+                .expect("failed to watch file");
 
-        watcher.unwatch("file1").expect("failed to unwatch file");
+            watcher.unwatch("file1").expect("failed to unwatch file");
 
-        if cfg!(not(target_os = "windows")) {
-            match watcher.unwatch("file1") {
-                Err(Error::WatchNotFound) => (),
-                Err(e) => panic!("{:?}", e),
-                Ok(o) => panic!("{:?}", o),
+            if cfg!(not(target_os = "windows")) {
+                match watcher.unwatch("file1") {
+                    Err(Error::WatchNotFound) => (),
+                    Err(e) => panic!("{:?}", e),
+                    Ok(o) => panic!("{:?}", o),
+                }
             }
         }
     }
 }
 
 #[test]
-#[cfg(target_os = "windows")]
+#[cfg(all(feature = "manual_tests", target_os = "windows"))]
+// To run: set a valid NETWORK_PATH.
 fn watch_absolute_network_directory() {
-    if NETWORK_PATH.is_empty() {
-        return;
-    }
-
     let tdir =
         TempDir::new_in(NETWORK_PATH, "temp_dir").expect("failed to create temporary directory");
     tdir.create("dir1");
@@ -230,7 +240,8 @@ fn watch_absolute_network_directory() {
 }
 
 #[test]
-#[cfg(target_os = "windows")]
+#[cfg(all(feature = "manual_tests", target_os = "windows"))]
+// To run: set a valid NETWORK_PATH.
 fn watch_absolute_network_file() {
     if NETWORK_PATH.is_empty() {
         return;

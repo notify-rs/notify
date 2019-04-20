@@ -91,15 +91,9 @@
 //! # use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
 //! #
 //! # fn main() -> Result<()> {
-//! #     // Create a channel to receive the events.
 //! #     let (tx, rx) = unbounded();
 //! #
-//! #     // Create a watcher object, delivering raw events.
-//! #     // The notification back-end is selected based on the platform.
 //!       let mut watcher: RecommendedWatcher = Watcher::new_immediate(tx)?;
-//! #
-//! #     // Add a path to be watched. All files and directories at that path and
-//! #     // below will be monitored for changes.
 //! #     watcher.watch(".", RecursiveMode::Recursive)?;
 //! #
 //! #     loop {
@@ -109,6 +103,39 @@
 //! #            Err(e) => println!("watch error: {:?}", e),
 //! #         }
 //! #     }
+//! #
+//! #     Ok(())
+//! # }
+//! ```
+//!
+//! ## With different configurations
+//!
+//! It is possible to create several watchers with different configurations or implementations that
+//! all send to the same channel. This can accomodate advanced behaviour or work around limits.
+//!
+//! ```
+//! # extern crate crossbeam_channel;
+//! # extern crate notify;
+//! #
+//! # use crossbeam_channel::unbounded;
+//! # use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
+//! #
+//! # fn main() -> Result<()> {
+//! #     let (tx, rx) = unbounded();
+//! #
+//!       let mut watcher1: RecommendedWatcher = Watcher::new_immediate(tx.clone())?;
+//!       let mut watcher2: RecommendedWatcher = Watcher::new_immediate(tx)?;
+//! #
+//! #     watcher1.watch(".", RecursiveMode::Recursive)?;
+//! #     watcher2.watch(".", RecursiveMode::Recursive)?;
+//! #
+//!       loop {
+//! #         break;
+//!           match rx.recv() {
+//!              Ok(event) => println!("event: {:?}", event),
+//!              Err(e) => println!("watch error: {:?}", e),
+//!           }
+//!       }
 //! #
 //! #     Ok(())
 //! # }

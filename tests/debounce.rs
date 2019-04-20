@@ -1476,3 +1476,36 @@ fn one_file_many_events() {
     );
     io_thread.join().unwrap();
 }
+
+#[test]
+fn dual_create_file() {
+    let tdir1 = TempDir::new("temp_dir1").expect("failed to create temporary directory");
+    let tdir2 = TempDir::new("temp_dir2").expect("failed to create temporary directory");
+
+    sleep_macos(10);
+
+    let (tx, rx) = unbounded();
+    let mut watcher1: RecommendedWatcher =
+        Watcher::new(tx.clone(), Duration::from_millis(DELAY_MS))
+            .expect("failed to create debounced watcher");
+    let mut watcher2: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
+        .expect("failed to create debounced watcher");
+
+    watcher1
+        .watch(tdir1.mkpath("."), RecursiveMode::Recursive)
+        .expect("failed to watch directory");
+    watcher2
+        .watch(tdir2.mkpath("."), RecursiveMode::Recursive)
+        .expect("failed to watch directory");
+
+    tdir1.create("file1");
+    tdir2.create("file2");
+
+    assert_eq!(
+        recv_events_debounced(&rx),
+        vec![
+            (Kind::Create, vec![tdir1.mkpath("file1")], false),
+            (Kind::Create, vec![tdir2.mkpath("file2")], false),
+        ]
+    );
+}

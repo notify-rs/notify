@@ -284,7 +284,7 @@ impl EventKind {
     pub fn is_other(&self) -> bool {
         match *self {
             EventKind::Other => true,
-            _ => false
+            _ => false,
         }
     }
 }
