@@ -14,6 +14,7 @@
 - META: Rename `v4-legacy` branch to `main`, to further clarify status and prepare for a breaking release.
 - DOCS: Change `v5` to `Next Generation Notify` to allow for a breaking release.
 - DOCS: Add rust-analyzer to Readme showcase.
+- DOCS: Add github issue / PR templates.
 
 [#112]: https://github.com/passcod/notify/issues/112
 [#146]: https://github.com/passcod/notify/issues/146
