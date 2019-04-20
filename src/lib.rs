@@ -111,7 +111,7 @@
 //! ## With different configurations
 //!
 //! It is possible to create several watchers with different configurations or implementations that
-//! all send to the same channel. This can accomodate advanced behaviour or work around limits.
+//! all send to the same channel. This can accommodate advanced behaviour or work around limits.
 //!
 //! ```
 //! # extern crate crossbeam_channel;
