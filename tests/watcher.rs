@@ -732,7 +732,6 @@ fn poll_watch_recursive_create_directory() {
 }
 
 #[test]
-#[ignore] // fails sometimes on AppVeyor
 fn poll_watch_recursive_move() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -797,7 +796,6 @@ fn poll_watch_recursive_move() {
 }
 
 #[test]
-#[ignore] // fails sometimes on AppVeyor
 fn poll_watch_recursive_move_in() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -851,7 +849,6 @@ fn poll_watch_recursive_move_in() {
 }
 
 #[test]
-#[ignore] // fails sometimes on AppVeyor
 fn poll_watch_recursive_move_out() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
