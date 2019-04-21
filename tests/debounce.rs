@@ -30,7 +30,7 @@ enum Kind {
     Other(Option<String>),
 }
 
-fn recv_events_debounced(rx: &Receiver<Event>) -> Vec<(Kind, Vec<PathBuf>, bool)> {
+fn recv_events_debounced(rx: &Receiver<Result<Event>>) -> Vec<(Kind, Vec<PathBuf>, bool)> {
     let start = Instant::now();
 
     let mut events = Vec::new();
@@ -46,6 +46,7 @@ fn recv_events_debounced(rx: &Receiver<Event>) -> Vec<(Kind, Vec<PathBuf>, bool)
 
     events
         .into_iter()
+        .map(|res| res.unwrap())
         .map(|event| {
             let is_notice = event.flag() == Some(&Flag::Notice);
             let kind = match event.kind {
@@ -527,8 +528,9 @@ fn move_out_sleep_move_in() {
 // A stress test that is moving files around trying to trigger possible bugs related to moving files.
 // For example, with inotify it's possible that two connected move events are split
 // between two mio polls. This doesn't happen often, though.
+#[cfg(feature = "manual_tests")]
 #[test]
-#[ignore]
+// Long test, as opt-in only.
 fn move_repeatedly() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 

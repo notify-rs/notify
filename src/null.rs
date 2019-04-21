@@ -17,7 +17,7 @@ impl Watcher for NullWatcher {
         Ok(NullWatcher)
     }
 
-    fn new(tx: Sender<Event>, delay: Duration) -> Result<NullWatcher> {
+    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<NullWatcher> {
         Ok(NullWatcher)
     }
 

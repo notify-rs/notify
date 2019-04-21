@@ -4,7 +4,7 @@ extern crate tempdir;
 
 mod utils;
 
-use crossbeam_channel::{unbounded, TryRecvError};
+use crossbeam_channel::unbounded;
 use notify::*;
 use std::env;
 use std::thread;
@@ -123,7 +123,10 @@ fn watch_relative() {
 
         if cfg!(not(target_os = "windows")) {
             match watcher.unwatch("dir1") {
-                Err(Error::WatchNotFound) => (),
+                Err(Error {
+                    kind: ErrorKind::WatchNotFound,
+                    ..
+                }) => (),
                 Err(e) => panic!("{:?}", e),
                 Ok(o) => panic!("{:?}", o),
             }
@@ -147,7 +150,10 @@ fn watch_relative() {
 
         if cfg!(not(target_os = "windows")) {
             match watcher.unwatch("file1") {
-                Err(Error::WatchNotFound) => (),
+                Err(Error {
+                    kind: ErrorKind::WatchNotFound,
+                    ..
+                }) => (),
                 Err(e) => panic!("{:?}", e),
                 Ok(o) => panic!("{:?}", o),
             }
@@ -177,7 +183,10 @@ fn watch_relative() {
 
             if cfg!(not(target_os = "windows")) {
                 match watcher.unwatch("dir1") {
-                    Err(Error::WatchNotFound) => (),
+                    Err(Error {
+                        kind: ErrorKind::WatchNotFound,
+                        ..
+                    }) => (),
                     Err(e) => panic!("{:?}", e),
                     Ok(o) => panic!("{:?}", o),
                 }
@@ -202,7 +211,10 @@ fn watch_relative() {
 
             if cfg!(not(target_os = "windows")) {
                 match watcher.unwatch("file1") {
-                    Err(Error::WatchNotFound) => (),
+                    Err(Error {
+                        kind: ErrorKind::WatchNotFound,
+                        ..
+                    }) => (),
                     Err(e) => panic!("{:?}", e),
                     Ok(o) => panic!("{:?}", o),
                 }
@@ -232,7 +244,10 @@ fn watch_absolute_network_directory() {
 
     if cfg!(not(target_os = "windows")) {
         match watcher.unwatch(tdir.mkpath("dir1")) {
-            Err(Error::WatchNotFound) => (),
+            Err(Error {
+                kind: ErrorKind::WatchNotFound,
+                ..
+            }) => (),
             Err(e) => panic!("{:?}", e),
             Ok(o) => panic!("{:?}", o),
         }
@@ -266,7 +281,10 @@ fn watch_absolute_network_file() {
 
     if cfg!(not(target_os = "windows")) {
         match watcher.unwatch(tdir.mkpath("file1")) {
-            Err(Error::WatchNotFound) => (),
+            Err(Error {
+                kind: ErrorKind::WatchNotFound,
+                ..
+            }) => (),
             Err(e) => panic!("{:?}", e),
             Ok(o) => panic!("{:?}", o),
         }
@@ -314,7 +332,7 @@ fn inotify_queue_overflow() {
             }) => rescan_found = true,
             Ok(RawEvent { op: Err(e), .. }) => panic!("unexpected event err: {:?}", e),
             Ok(e) => (),
-            Err(TryRecvError::Empty) => (),
+            Err(crossbeam_channel::TryRecvError::Empty) => (),
             Err(e) => panic!("unexpected channel err: {:?}", e),
         }
         thread::sleep(Duration::from_millis(10));
@@ -1066,7 +1084,10 @@ fn unwatch_nonexisting() {
         Watcher::new_immediate(tx).expect("failed to create recommended watcher");
 
     match watcher.unwatch(&tdir.mkpath("file1")) {
-        Err(Error::WatchNotFound) => (),
+        Err(Error {
+            kind: ErrorKind::WatchNotFound,
+            ..
+        }) => (),
         Err(e) => panic!("{:?}", e),
         Ok(o) => panic!("{:?}", o),
     }
@@ -1120,7 +1141,10 @@ fn self_delete_file() {
         assert_eq!(recv_events(&rx), vec![]);
 
         match watcher.unwatch(&tdir.mkpath("file1")) {
-            Err(Error::WatchNotFound) => (),
+            Err(Error {
+                kind: ErrorKind::WatchNotFound,
+                ..
+            }) => (),
             Err(e) => panic!("{:?}", e),
             Ok(o) => panic!("{:?}", o),
         }
@@ -1185,7 +1209,10 @@ fn self_delete_directory() {
 
     if cfg!(not(any(target_os = "windows", target_os = "macos"))) {
         match watcher.unwatch(&tdir.mkpath("dir1")) {
-            Err(Error::WatchNotFound) => (),
+            Err(Error {
+                kind: ErrorKind::WatchNotFound,
+                ..
+            }) => (),
             Err(e) => panic!("{:?}", e),
             Ok(o) => panic!("{:?}", o),
         }
@@ -1280,7 +1307,10 @@ fn self_rename_file() {
 
     let result = watcher.unwatch(&tdir.mkpath("file1"));
     match result {
-        Err(Error::WatchNotFound) => (),
+        Err(Error {
+            kind: ErrorKind::WatchNotFound,
+            ..
+        }) => (),
         Err(e) => panic!("{:?}", e),
         Ok(o) => panic!("{:?}", o),
     }
@@ -1384,7 +1414,10 @@ fn self_rename_directory() {
         }
     } else {
         match result {
-            Err(Error::WatchNotFound) => (),
+            Err(Error {
+                kind: ErrorKind::WatchNotFound,
+                ..
+            }) => (),
             Err(e) => panic!("{:?}", e),
             Ok(o) => panic!("{:?}", o),
         }
@@ -1464,7 +1497,10 @@ fn parent_rename_file() {
         }
     } else {
         match result {
-            Err(Error::WatchNotFound) => (),
+            Err(Error {
+                kind: ErrorKind::WatchNotFound,
+                ..
+            }) => (),
             Err(e) => panic!("{:?}", e),
             Ok(o) => panic!("{:?}", o),
         }
@@ -1552,7 +1588,10 @@ fn parent_rename_directory() {
 
     let result = watcher.unwatch(&tdir.mkpath("dir1/watch_dir"));
     match result {
-        Err(Error::WatchNotFound) => (),
+        Err(Error {
+            kind: ErrorKind::WatchNotFound,
+            ..
+        }) => (),
         Err(e) => panic!("{:?}", e),
         Ok(o) => panic!("{:?}", o),
     }

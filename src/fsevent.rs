@@ -150,7 +150,7 @@ impl FsEventWatcher {
         };
         match self.recursive_info.remove(&p) {
             Some(_) => Ok(()),
-            None => Err(Error::WatchNotFound),
+            None => Err(Error::watch_not_found()),
         }
     }
 
@@ -161,7 +161,7 @@ impl FsEventWatcher {
         recursive_mode: RecursiveMode,
     ) -> Result<()> {
         if !path.as_ref().exists() {
-            return Err(Error::PathNotFound);
+            return Err(Error::path_not_found().add_path(path.as_ref().into()));
         }
         let str_path = path.as_ref().to_str().unwrap();
         unsafe {
@@ -178,7 +178,8 @@ impl FsEventWatcher {
 
     fn run(&mut self) -> Result<()> {
         if unsafe { cf::CFArrayGetCount(self.paths) } == 0 {
-            return Err(Error::PathNotFound);
+            // TODO: Reconstruct and add paths to error
+            return Err(Error::path_not_found());
         }
 
         // done channel is used to sync quit status of runloop thread
@@ -365,7 +366,7 @@ impl Watcher for FsEventWatcher {
         })
     }
 
-    fn new(tx: Sender<Event>, delay: Duration) -> Result<FsEventWatcher> {
+    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<FsEventWatcher> {
         Ok(FsEventWatcher {
             paths: unsafe {
                 cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)

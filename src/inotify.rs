@@ -319,7 +319,7 @@ impl EventLoop {
                 Err(e) => {
                     self.event_tx.send(RawEvent {
                         path: None,
-                        op: Err(Error::Io(e)),
+                        op: Err(Error::io(e)),
                         cookie: None,
                     });
                 }
@@ -336,7 +336,7 @@ impl EventLoop {
     }
 
     fn add_watch(&mut self, path: PathBuf, is_recursive: bool, mut watch_self: bool) -> Result<()> {
-        let metadata = try!(metadata(&path).map_err(Error::Io));
+        let metadata = metadata(&path).map_err(Error::io)?;
 
         if !metadata.is_dir() || !is_recursive {
             return self.add_single_watch(path, false, true);
@@ -380,7 +380,7 @@ impl EventLoop {
 
         if let Some(ref mut inotify) = self.inotify {
             match inotify.add_watch(&path, watchmask) {
-                Err(e) => Err(Error::Io(e)),
+                Err(e) => Err(Error::io(e)),
                 Ok(w) => {
                     watchmask.remove(WatchMask::MASK_ADD);
                     self.watches
@@ -396,17 +396,17 @@ impl EventLoop {
 
     fn remove_watch(&mut self, path: PathBuf, remove_recursive: bool) -> Result<()> {
         match self.watches.remove(&path) {
-            None => return Err(Error::WatchNotFound),
+            None => return Err(Error::watch_not_found()),
             Some((w, _, is_recursive)) => {
                 if let Some(ref mut inotify) = self.inotify {
-                    try!(inotify.rm_watch(w.clone()).map_err(Error::Io));
+                    inotify.rm_watch(w.clone()).map_err(Error::io)?;
                     self.paths.remove(&w);
 
                     if is_recursive || remove_recursive {
                         let mut remove_list = Vec::new();
                         for (w, p) in &self.paths {
                             if p.starts_with(&path) {
-                                try!(inotify.rm_watch(w.clone()).map_err(Error::Io));
+                                inotify.rm_watch(w.clone()).map_err(Error::io)?;
                                 self.watches.remove(p);
                                 remove_list.push(w.clone());
                             }
@@ -424,7 +424,7 @@ impl EventLoop {
     fn remove_all_watches(&mut self) -> Result<()> {
         if let Some(ref mut inotify) = self.inotify {
             for w in self.paths.keys() {
-                try!(inotify.rm_watch(w.clone()).map_err(Error::Io));
+                inotify.rm_watch(w.clone()).map_err(Error::io)?;
             }
             self.watches.clear();
             self.paths.clear();
@@ -455,7 +455,7 @@ impl Watcher for INotifyWatcher {
         Ok(INotifyWatcher(Mutex::new(channel)))
     }
 
-    fn new(tx: Sender<Event>, delay: Duration) -> Result<INotifyWatcher> {
+    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<INotifyWatcher> {
         let inotify = Inotify::init()?;
         let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
         let event_loop = EventLoop::new(inotify, event_tx)?;
@@ -468,7 +468,7 @@ impl Watcher for INotifyWatcher {
         let pb = if path.as_ref().is_absolute() {
             path.as_ref().to_owned()
         } else {
-            let p = try!(env::current_dir().map_err(Error::Io));
+            let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
         };
         let (tx, rx) = unbounded();
@@ -483,7 +483,7 @@ impl Watcher for INotifyWatcher {
         let pb = if path.as_ref().is_absolute() {
             path.as_ref().to_owned()
         } else {
-            let p = try!(env::current_dir().map_err(Error::Io));
+            let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
         };
         let (tx, rx) = unbounded();

@@ -83,7 +83,7 @@ impl PollWatcher {
                             Err(e) => {
                                 event_tx.send(RawEvent {
                                     path: Some(watch.clone()),
-                                    op: Err(Error::Io(e)),
+                                    op: Err(Error::io(e)),
                                     cookie: None,
                                 });
                                 continue;
@@ -128,7 +128,7 @@ impl PollWatcher {
                                             Err(e) => {
                                                 event_tx.send(RawEvent {
                                                     path: Some(path.to_path_buf()),
-                                                    op: Err(Error::Io(e.into())),
+                                                    op: Err(Error::io(e.into())),
                                                     cookie: None,
                                                 });
                                             }
@@ -199,7 +199,7 @@ impl Watcher for PollWatcher {
         PollWatcher::with_delay(tx, Duration::from_secs(30))
     }
 
-    fn new(tx: Sender<Event>, delay: Duration) -> Result<PollWatcher> {
+    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<PollWatcher> {
         let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
         let mut p = PollWatcher {
             event_tx: event_tx.debounced_tx(),
@@ -221,7 +221,7 @@ impl Watcher for PollWatcher {
                 Err(e) => {
                     self.event_tx.send(RawEvent {
                         path: Some(watch.clone()),
-                        op: Err(Error::Io(e)),
+                        op: Err(Error::io(e)),
                         cookie: None,
                     });
                 }
@@ -262,7 +262,7 @@ impl Watcher for PollWatcher {
                                 Err(e) => {
                                     self.event_tx.send(RawEvent {
                                         path: Some(path.to_path_buf()),
-                                        op: Err(Error::Io(e.into())),
+                                        op: Err(Error::io(e.into())),
                                         cookie: None,
                                     });
                                 }
@@ -301,7 +301,7 @@ impl Watcher for PollWatcher {
         {
             Ok(())
         } else {
-            Err(Error::WatchNotFound)
+            Err(Error::watch_not_found())
         }
     }
 }

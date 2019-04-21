@@ -460,39 +460,106 @@ pub struct RawEvent {
 
 unsafe impl Send for RawEvent {}
 
-/// Errors generated from the `notify` crate
+/// Notify error kinds
 #[derive(Debug)]
-pub enum Error {
+pub enum ErrorKind {
     /// Generic error
     ///
     /// May be used in cases where a platform specific error is mapped to this type, or for opaque
     /// internal errors.
     Generic(String),
 
-    /// I/O errors
+    /// I/O errors.
     Io(io::Error),
 
-    /// The provided path does not exist
+    /// A path does not exist.
     PathNotFound,
 
-    /// Attempted to remove a watch that does not exist
+    /// Attempted to remove a watch that does not exist.
     WatchNotFound,
 
-    /// An invalid value was passed as runtime configuration
-    InvalidConfigValue,
+    /// An invalid value was passed as runtime configuration.
+    InvalidConfig(Config),
+}
+
+/// Notify error type.
+///
+/// Errors are emitted either at creation time of a `Watcher`, or during the event stream. They
+/// range from kernel errors to filesystem errors to argument errors.
+///
+/// Errors can be general, or they can be about specific paths or subtrees. In that later case, the
+/// error's `paths` field will be populated.
+#[derive(Debug)]
+pub struct Error {
+    /// Kind of the error.
+    pub kind: ErrorKind,
+
+    /// Relevant paths to the error, if any.
+    pub paths: Vec<PathBuf>,
+}
+
+impl Error {
+    /// Adds a path to the error.
+    pub fn add_path(mut self, path: PathBuf) -> Self {
+        self.paths.push(path);
+        self
+    }
+
+    /// Replaces the paths for the error.
+    pub fn set_paths(mut self, paths: Vec<PathBuf>) -> Self {
+        self.paths = paths;
+        self
+    }
+
+    /// Creates a new Error with empty paths given its kind.
+    pub fn new(kind: ErrorKind) -> Self {
+        Self {
+            kind,
+            paths: Vec::new(),
+        }
+    }
+
+    /// Creates a new generic Error from a message.
+    pub fn generic(msg: &str) -> Self {
+        Self::new(ErrorKind::Generic(msg.into()))
+    }
+
+    /// Creates a new i/o Error from a stdlib `io::Error`.
+    pub fn io(err: io::Error) -> Self {
+        Self::new(ErrorKind::Io(err))
+    }
+
+    /// Creates a new "path not found" error.
+    pub fn path_not_found() -> Self {
+        Self::new(ErrorKind::PathNotFound)
+    }
+
+    /// Creates a new "watch not found" error.
+    pub fn watch_not_found() -> Self {
+        Self::new(ErrorKind::WatchNotFound)
+    }
+
+    /// Creates a new "invalid config" error from the given `Config`.
+    pub fn invalid_config(config: &Config) -> Self {
+        Self::new(ErrorKind::InvalidConfig(config.clone()))
+    }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let error = String::from(match *self {
-            Error::PathNotFound => "No path was found.",
-            Error::WatchNotFound => "No watch was found.",
-            Error::InvalidConfigValue => "Invalid configuration value.",
-            Error::Generic(ref err) => err.as_ref(),
-            Error::Io(ref err) => err.description(),
-        });
+        let error = match self.kind {
+            ErrorKind::PathNotFound => "No path was found.".into(),
+            ErrorKind::WatchNotFound => "No watch was found.".into(),
+            ErrorKind::InvalidConfig(ref config) => format!("Invalid configuration: {:?}", config),
+            ErrorKind::Generic(ref err) => err.clone(),
+            ErrorKind::Io(ref err) => err.description().into(),
+        };
 
-        write!(f, "{}", error)
+        if self.paths.is_empty() {
+            write!(f, "{}", error)
+        } else {
+            write!(f, "{} about {:?}", error, self.paths)
+        }
     }
 }
 
@@ -501,18 +568,18 @@ pub type Result<T> = StdResult<T, Error>;
 
 impl StdError for Error {
     fn description(&self) -> &str {
-        match *self {
-            Error::PathNotFound => "No path was found",
-            Error::WatchNotFound => "No watch was found",
-            Error::InvalidConfigValue => "Invalid configuration value.",
-            Error::Generic(_) => "Generic error",
-            Error::Io(_) => "I/O Error",
+        match self.kind {
+            ErrorKind::PathNotFound => "Path(s) were not found",
+            ErrorKind::WatchNotFound => "No watch was found",
+            ErrorKind::InvalidConfig(_) => "Invalid configuration",
+            ErrorKind::Generic(_) => "Generic error",
+            ErrorKind::Io(_) => "I/O Error",
         }
     }
 
     fn cause(&self) -> Option<&StdError> {
-        match *self {
-            Error::Io(ref cause) => Some(cause),
+        match self.kind {
+            ErrorKind::Io(ref cause) => Some(cause),
             _ => None,
         }
     }
@@ -520,32 +587,32 @@ impl StdError for Error {
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Self {
-        Error::Io(err)
+        Error::io(err)
     }
 }
 
 impl<T> From<crossbeam_channel::SendError<T>> for Error {
     fn from(err: crossbeam_channel::SendError<T>) -> Self {
-        Error::Generic(format!("internal channel disconnect: {:?}", err))
+        Error::generic(&format!("internal channel disconnect: {:?}", err))
     }
 }
 
 impl From<crossbeam_channel::RecvError> for Error {
     fn from(err: crossbeam_channel::RecvError) -> Self {
-        Error::Generic(format!("internal channel disconnect: {:?}", err))
+        Error::generic(&format!("internal channel disconnect: {:?}", err))
     }
 }
 
 impl<T> From<std::sync::PoisonError<T>> for Error {
     fn from(err: std::sync::PoisonError<T>) -> Self {
-        Error::Generic(format!("internal mutex poisoned: {:?}", err))
+        Error::generic(&format!("internal mutex poisoned: {:?}", err))
     }
 }
 
 #[cfg(target_os = "linux")]
 impl<T> From<mio_extras::channel::SendError<T>> for Error {
     fn from(err: mio_extras::channel::SendError<T>) -> Self {
-        Error::Generic(format!("internal channel error: {:?}", err))
+        Error::generic(&format!("internal channel error: {:?}", err))
     }
 }
 
@@ -611,7 +678,7 @@ pub trait Watcher: Sized {
     ///
     /// If a file is saved very slowly, you might receive a `Modify` event even though the file is
     /// still being written to.
-    fn new(tx: Sender<Event>, delay: Duration) -> Result<Self>;
+    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<Self>;
 
     /// Begin watching a new path.
     ///
@@ -655,6 +722,7 @@ pub trait Watcher: Sized {
 /// Runtime configuration items for watchers.
 ///
 /// See the [`Watcher::configure`](./trait.Watcher.html#tymethod.configure) method for usage.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Config {
     /// Enable or disable emitting precise event classification.
     ///
@@ -707,7 +775,7 @@ pub fn immediate_watcher(tx: Sender<RawEvent>) -> Result<RecommendedWatcher> {
 /// platform in default (debounced) mode.
 ///
 /// See [`Watcher::new`](trait.Watcher.html#tymethod.new).
-pub fn watcher(tx: Sender<Event>, delay: Duration) -> Result<RecommendedWatcher> {
+pub fn watcher(tx: Sender<Result<Event>>, delay: Duration) -> Result<RecommendedWatcher> {
     Watcher::new(tx, delay)
 }
 
@@ -715,16 +783,13 @@ pub fn watcher(tx: Sender<Event>, delay: Duration) -> Result<RecommendedWatcher>
 fn display_formatted_errors() {
     let expected = "Some error";
 
-    assert_eq!(
-        expected,
-        format!("{}", Error::Generic(String::from(expected)))
-    );
+    assert_eq!(expected, format!("{}", Error::generic(expected)));
 
     assert_eq!(
         expected,
         format!(
             "{}",
-            Error::Io(io::Error::new(io::ErrorKind::Other, expected))
+            Error::io(io::Error::new(io::ErrorKind::Other, expected))
         )
     );
 }

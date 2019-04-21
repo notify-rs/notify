@@ -152,8 +152,8 @@ impl ReadDirectoryChangesServer {
     fn add_watch(&mut self, path: PathBuf, is_recursive: bool) -> Result<PathBuf> {
         // path must exist and be either a file or directory
         if !path.is_dir() && !path.is_file() {
-            return Err(Error::Generic(
-                "Input watch path is neither a file nor a directory.".to_owned(),
+            return Err(Error::generic(
+                "Input watch path is neither a file nor a directory.",
             ));
         }
 
@@ -184,17 +184,15 @@ impl ReadDirectoryChangesServer {
             );
 
             if handle == INVALID_HANDLE_VALUE {
-                let err = if watching_file {
-                    Err(Error::Generic(
+                return Err(if watching_file {
+                    Error::generic(
                         "You attempted to watch a single file, but parent \
-                         directory could not be opened."
-                            .to_owned(),
-                    ))
+                         directory could not be opened.",
+                    )
                 } else {
                     // TODO: Call GetLastError for better error info?
-                    Err(Error::PathNotFound)
-                };
-                return err;
+                    Error::path_not_found().add_path(path.clone())
+                });
             }
         }
         let wf = if watching_file {
@@ -209,9 +207,7 @@ impl ReadDirectoryChangesServer {
             unsafe {
                 kernel32::CloseHandle(handle);
             }
-            return Err(Error::Generic(
-                "Failed to create semaphore for watch.".to_owned(),
-            ));
+            return Err(Error::generic("Failed to create semaphore for watch."));
         }
         let rd = ReadData {
             dir: dir_target,
@@ -442,9 +438,7 @@ impl ReadDirectoryChangesWatcher {
         let wakeup_sem =
             unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
-            return Err(Error::Generic(
-                "Failed to create wakeup semaphore.".to_owned(),
-            ));
+            return Err(Error::generic("Failed to create wakeup semaphore."));
         }
 
         let event_tx = EventTx::new_immediate(tx);
@@ -458,7 +452,7 @@ impl ReadDirectoryChangesWatcher {
     }
 
     pub fn create_debounced(
-        tx: Sender<Event>,
+        tx: Sender<Result<Event>>,
         meta_tx: Sender<MetaEvent>,
         delay: Duration,
     ) -> Result<ReadDirectoryChangesWatcher> {
@@ -467,9 +461,7 @@ impl ReadDirectoryChangesWatcher {
         let wakeup_sem =
             unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
-            return Err(Error::Generic(
-                "Failed to create wakeup semaphore.".to_owned(),
-            ));
+            return Err(Error::generic("Failed to create wakeup semaphore."));
         }
 
         let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
@@ -492,34 +484,27 @@ impl ReadDirectoryChangesWatcher {
     }
 
     fn send_action_require_ack(&mut self, action: Action, pb: &PathBuf) -> Result<()> {
-        match self.tx.send(action) {
-            Err(_) => Err(Error::Generic(
-                "Error sending to internal channel".to_owned(),
-            )),
-            Ok(_) => {
-                // wake 'em up, we don't want to wait around for the ack
-                self.wakeup_server();
+        self.tx
+            .send(action)
+            .map_err(|_| Error::generic("Error sending to internal channel"))?;
 
-                match self.cmd_rx.recv() {
-                    Err(_) => Err(Error::Generic(
-                        "Error receiving from command channel".to_owned(),
-                    )),
-                    Ok(ack_res) => match ack_res {
-                        Err(e) => Err(Error::Generic(format!("Error in watcher: {:?}", e))),
-                        Ok(ack_pb) => {
-                            if pb.as_path() != ack_pb.as_path() {
-                                Err(Error::Generic(format!(
-                                    "Expected ack for {:?} but got \
-                                     ack for {:?}",
-                                    pb, ack_pb
-                                )))
-                            } else {
-                                Ok(())
-                            }
-                        }
-                    },
-                }
-            }
+        // wake 'em up, we don't want to wait around for the ack
+        self.wakeup_server();
+
+        let ack_pb = self
+            .cmd_rx
+            .recv()
+            .map_err(|_| Error::generic("Error receiving from command channel"))?
+            .map_err(|e| Error::generic(&format!("Error in watcher: {:?}", e)))?;
+
+        if pb.as_path() != ack_pb.as_path() {
+            Err(Error::generic(&format!(
+                "Expected ack for {:?} but got \
+                 ack for {:?}",
+                pb, ack_pb
+            )))
+        } else {
+            Ok(())
         }
     }
 }
@@ -531,7 +516,7 @@ impl Watcher for ReadDirectoryChangesWatcher {
         ReadDirectoryChangesWatcher::create(tx, meta_tx)
     }
 
-    fn new(tx: Sender<Event>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
+    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
         let (meta_tx, _) = unbounded();
         ReadDirectoryChangesWatcher::create_debounced(tx, meta_tx, delay)
@@ -541,13 +526,13 @@ impl Watcher for ReadDirectoryChangesWatcher {
         let pb = if path.as_ref().is_absolute() {
             path.as_ref().to_owned()
         } else {
-            let p = try!(env::current_dir().map_err(Error::Io));
+            let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
         };
         // path must exist and be either a file or directory
         if !pb.is_dir() && !pb.is_file() {
-            return Err(Error::Generic(
-                "Input watch path is neither a file nor a directory.".to_owned(),
+            return Err(Error::generic(
+                "Input watch path is neither a file nor a directory.",
             ));
         }
         self.send_action_require_ack(Action::Watch(pb.clone(), recursive_mode), &pb)
@@ -557,13 +542,13 @@ impl Watcher for ReadDirectoryChangesWatcher {
         let pb = if path.as_ref().is_absolute() {
             path.as_ref().to_owned()
         } else {
-            let p = try!(env::current_dir().map_err(Error::Io));
+            let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
         };
         let res = self
             .tx
             .send(Action::Unwatch(pb))
-            .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()));
+            .map_err(|_| Error::generic("Error sending to internal channel"));
         self.wakeup_server();
         res
     }

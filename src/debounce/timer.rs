@@ -8,7 +8,7 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant};
-use {event, op, Error, Event, EventKind, Result};
+use {event, op, Config, Error, Event, EventKind, Result};
 
 use debounce::OperationsBuffer;
 
@@ -24,7 +24,7 @@ struct ScheduleWorker {
     new_event_trigger: Arc<Condvar>,
     stop_trigger: Arc<Condvar>,
     events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
-    tx: Sender<Event>,
+    tx: Sender<Result<Event>>,
     operations_buffer: OperationsBuffer,
     stopped: Arc<AtomicBool>,
     ongoing_writes: Arc<CHashMap<PathBuf, Instant>>,
@@ -53,13 +53,11 @@ impl ScheduleWorker {
                 let is_partial_rename = from_path.is_none();
                 if let Some(from_path) = from_path {
                     self.tx
-                        .send(
-                            Event::new(EventKind::Modify(event::ModifyKind::Name(
-                                event::RenameMode::Both,
-                            )))
-                            .add_path(from_path)
-                            .add_path(path.clone()),
-                        )
+                        .send(Ok(Event::new(EventKind::Modify(event::ModifyKind::Name(
+                            event::RenameMode::Both,
+                        )))
+                        .add_path(from_path)
+                        .add_path(path.clone())))
                         .ok();
                 }
                 let message = match op {
@@ -96,9 +94,10 @@ impl ScheduleWorker {
                     _ => None,
                 };
                 if let Some(m) = message {
-                    let _ = self.tx.send(m);
+                    self.tx.send(Ok(m)).ok();
                 }
             } else {
+                // self.tx.send(Err()).ok();
                 // TODO error!("path not found in operations_buffer: {}", path.display())
             }
         }
@@ -150,7 +149,7 @@ pub struct WatchTimer {
 
 impl WatchTimer {
     pub fn new(
-        tx: Sender<Event>,
+        tx: Sender<Result<Event>>,
         operations_buffer: OperationsBuffer,
         delay: Duration,
     ) -> WatchTimer {
@@ -193,7 +192,7 @@ impl WatchTimer {
     pub fn set_ongoing_writes(&mut self, delay: Option<Duration>) -> Result<bool> {
         if let Some(delay) = delay {
             if delay > self.delay {
-                return Err(Error::InvalidConfigValue);
+                return Err(Error::invalid_config(&Config::OngoingWrites(Some(delay))));
             }
         } else if self.ongoing_delay.is_some() {
             // Reset the current ongoing state when disabling
@@ -204,19 +203,17 @@ impl WatchTimer {
         Ok(true)
     }
 
-    pub fn handle_ongoing_write(&self, path: &PathBuf, tx: &Sender<Event>) {
+    pub fn handle_ongoing_write(&self, path: &PathBuf, tx: &Sender<Result<Event>>) {
         if let Some(delay) = self.ongoing_delay {
             self.ongoing_writes.upsert(
                 path.clone(),
                 || Instant::now() + delay,
                 |fire_at| {
                     if fire_at <= &mut Instant::now() {
-                        tx.send(
-                            Event::new(EventKind::Modify(event::ModifyKind::Any))
-                                .add_path(path.clone())
-                                .set_flag(event::Flag::Ongoing),
-                        )
-                        .ok();
+                        tx.send(Ok(Event::new(EventKind::Modify(event::ModifyKind::Any))
+                            .add_path(path.clone())
+                            .set_flag(event::Flag::Ongoing)))
+                            .ok();
                         *fire_at = Instant::now() + delay;
                     }
                 },
