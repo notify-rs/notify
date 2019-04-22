@@ -4,9 +4,9 @@ use crossbeam_channel;
 #[cfg(target_os = "linux")]
 use mio_extras;
 use std::error::Error as StdError;
-use std::{self, fmt, io};
 use std::path::PathBuf;
 use std::result::Result as StdResult;
+use std::{self, fmt, io};
 use Config;
 
 /// Type alias to use this library's `Error` type in a Result

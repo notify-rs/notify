@@ -209,7 +209,7 @@ impl WatchTimer {
                 path.clone(),
                 || Instant::now() + delay,
                 |fire_at| {
-                    if fire_at <= &mut Instant::now() {
+                    if *fire_at <= Instant::now() {
                         tx.send(Ok(Event::new(EventKind::Modify(event::ModifyKind::Any))
                             .add_path(path.clone())
                             .set_flag(event::Flag::Ongoing)))
@@ -227,7 +227,7 @@ impl WatchTimer {
         self.events.lock().unwrap().push_back(ScheduledEvent {
             id: self.counter,
             when: Instant::now() + self.delay,
-            path: path,
+            path,
         });
 
         self.new_event_trigger.notify_one();

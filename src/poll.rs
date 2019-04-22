@@ -55,7 +55,7 @@ impl PollWatcher {
     fn run(&mut self, event_tx: EventTx) {
         let watches = self.watches.clone();
         let open = self.open.clone();
-        let delay = self.delay.clone();
+        let delay = self.delay;
 
         thread::spawn(move || {
             // In order of priority:
@@ -95,7 +95,7 @@ impl PollWatcher {
                                     match paths.insert(
                                         watch.clone(),
                                         PathData {
-                                            mtime: mtime,
+                                            mtime,
                                             last_check: current_time,
                                         },
                                     ) {
@@ -139,7 +139,7 @@ impl PollWatcher {
                                                 match paths.insert(
                                                     path.to_path_buf(),
                                                     PathData {
-                                                        mtime: mtime,
+                                                        mtime,
                                                         last_check: current_time,
                                                     },
                                                 ) {
@@ -232,7 +232,7 @@ impl Watcher for PollWatcher {
                         paths.insert(
                             watch.clone(),
                             PathData {
-                                mtime: mtime,
+                                mtime,
                                 last_check: current_time,
                             },
                         );
@@ -240,7 +240,7 @@ impl Watcher for PollWatcher {
                             watch,
                             WatchData {
                                 is_recursive: recursive_mode.is_recursive(),
-                                paths: paths,
+                                paths,
                             },
                         );
                     } else {
@@ -271,7 +271,7 @@ impl Watcher for PollWatcher {
                                     paths.insert(
                                         path.to_path_buf(),
                                         PathData {
-                                            mtime: mtime,
+                                            mtime,
                                             last_check: current_time,
                                         },
                                     );
@@ -282,7 +282,7 @@ impl Watcher for PollWatcher {
                             watch,
                             WatchData {
                                 is_recursive: recursive_mode.is_recursive(),
-                                paths: paths,
+                                paths,
                             },
                         );
                     }

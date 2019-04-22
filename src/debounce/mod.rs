@@ -59,11 +59,8 @@ impl EventTx {
     }
 
     pub fn configure_if_debounced(&self, config: Config, tx: Sender<Result<bool>>) {
-        match self {
-            EventTx::Debounced { ref debounce, .. } => {
-                debounce.lock().unwrap().configure(config, tx);
-            }
-            _ => {}
+        if let EventTx::Debounced { ref debounce, .. } = self {
+            debounce.lock().unwrap().configure(config, tx);
         }
     }
 
@@ -391,7 +388,7 @@ impl Debounce {
                     }
 
                     // if the file has been renamed before, use original name as from_path
-                    let use_from_path = from_from_path.or(self.rename_path.clone());
+                    let use_from_path = from_from_path.or_else(|| self.rename_path.clone());
 
                     let &mut (ref mut operation, ref mut from_path, ref mut timer_id) =
                         op_buf.entry(path.clone()).or_insert((None, None, None));

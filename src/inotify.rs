@@ -19,7 +19,6 @@ use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;
 use std::fs::metadata;
-use std::mem;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -59,7 +58,7 @@ enum EventLoopMsg {
 
 #[inline]
 fn send_pending_rename_event(rename_event: &mut Option<RawEvent>, event_tx: &EventTx) {
-    if let Some(e) = mem::replace(rename_event, None) {
+    if let Some(e) = rename_event.take() {
         event_tx.send(RawEvent {
             path: e.path,
             op: Ok(op::Op::REMOVE),
@@ -243,7 +242,7 @@ impl EventLoop {
                             send_pending_rename_event(&mut self.rename_event, &self.event_tx);
                             remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                             self.rename_event = Some(RawEvent {
-                                path: path,
+                                path,
                                 op: Ok(op::Op::RENAME),
                                 cookie: Some(event.cookie),
                             });
@@ -251,8 +250,7 @@ impl EventLoop {
                             let mut o = Op::empty();
                             let mut c = None;
                             if event.mask.contains(EventMask::MOVED_TO) {
-                                let rename_event = mem::replace(&mut self.rename_event, None);
-                                if let Some(e) = rename_event {
+                                if let Some(e) = self.rename_event.take() {
                                     if e.cookie == Some(event.cookie) {
                                         self.event_tx.send(e);
                                         o.insert(op::Op::RENAME);
@@ -292,7 +290,7 @@ impl EventLoop {
                                 send_pending_rename_event(&mut self.rename_event, &self.event_tx);
 
                                 self.event_tx.send(RawEvent {
-                                    path: path,
+                                    path,
                                     op: Ok(o),
                                     cookie: c,
                                 });
