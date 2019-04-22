@@ -118,7 +118,7 @@ write events can be enabled to emit more events even while debouncing:
 
 ```rust
 use notify::Config;
-watcher.configure(Config::OngoingEvents(Some(Duration::from_ms(500))));
+watcher.configure(Config::OngoingEvents(Some(Duration::from_millis(500))));
 ```
 
 ### Without debouncing
