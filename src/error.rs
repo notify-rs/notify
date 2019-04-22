@@ -1,0 +1,179 @@
+//! Error types
+
+use std::error::Error as StdError;
+use std::fmt;
+use std::io;
+use std::path::PathBuf;
+use std::result::Result as StdResult;
+use Config;
+
+/// Type alias to use this library's `Error` type in a Result
+pub type Result<T> = StdResult<T, Error>;
+
+/// Error kinds
+#[derive(Debug)]
+pub enum ErrorKind {
+    /// Generic error
+    ///
+    /// May be used in cases where a platform specific error is mapped to this type, or for opaque
+    /// internal errors.
+    Generic(String),
+
+    /// I/O errors.
+    Io(io::Error),
+
+    /// A path does not exist.
+    PathNotFound,
+
+    /// Attempted to remove a watch that does not exist.
+    WatchNotFound,
+
+    /// An invalid value was passed as runtime configuration.
+    InvalidConfig(Config),
+}
+
+/// Notify error type.
+///
+/// Errors are emitted either at creation time of a `Watcher`, or during the event stream. They
+/// range from kernel errors to filesystem errors to argument errors.
+///
+/// Errors can be general, or they can be about specific paths or subtrees. In that later case, the
+/// error's `paths` field will be populated.
+#[derive(Debug)]
+pub struct Error {
+    /// Kind of the error.
+    pub kind: ErrorKind,
+
+    /// Relevant paths to the error, if any.
+    pub paths: Vec<PathBuf>,
+}
+
+impl Error {
+    /// Adds a path to the error.
+    pub fn add_path(mut self, path: PathBuf) -> Self {
+        self.paths.push(path);
+        self
+    }
+
+    /// Replaces the paths for the error.
+    pub fn set_paths(mut self, paths: Vec<PathBuf>) -> Self {
+        self.paths = paths;
+        self
+    }
+
+    /// Creates a new Error with empty paths given its kind.
+    pub fn new(kind: ErrorKind) -> Self {
+        Self {
+            kind,
+            paths: Vec::new(),
+        }
+    }
+
+    /// Creates a new generic Error from a message.
+    pub fn generic(msg: &str) -> Self {
+        Self::new(ErrorKind::Generic(msg.into()))
+    }
+
+    /// Creates a new i/o Error from a stdlib `io::Error`.
+    pub fn io(err: io::Error) -> Self {
+        Self::new(ErrorKind::Io(err))
+    }
+
+    /// Creates a new "path not found" error.
+    pub fn path_not_found() -> Self {
+        Self::new(ErrorKind::PathNotFound)
+    }
+
+    /// Creates a new "watch not found" error.
+    pub fn watch_not_found() -> Self {
+        Self::new(ErrorKind::WatchNotFound)
+    }
+
+    /// Creates a new "invalid config" error from the given `Config`.
+    pub fn invalid_config(config: &Config) -> Self {
+        Self::new(ErrorKind::InvalidConfig(config.clone()))
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let error = match self.kind {
+            ErrorKind::PathNotFound => "No path was found.".into(),
+            ErrorKind::WatchNotFound => "No watch was found.".into(),
+            ErrorKind::InvalidConfig(ref config) => format!("Invalid configuration: {:?}", config),
+            ErrorKind::Generic(ref err) => err.clone(),
+            ErrorKind::Io(ref err) => err.description().into(),
+        };
+
+        if self.paths.is_empty() {
+            write!(f, "{}", error)
+        } else {
+            write!(f, "{} about {:?}", error, self.paths)
+        }
+    }
+}
+
+impl StdError for Error {
+    fn description(&self) -> &str {
+        match self.kind {
+            ErrorKind::PathNotFound => "Path(s) were not found",
+            ErrorKind::WatchNotFound => "No watch was found",
+            ErrorKind::InvalidConfig(_) => "Invalid configuration",
+            ErrorKind::Generic(_) => "Generic error",
+            ErrorKind::Io(_) => "I/O Error",
+        }
+    }
+
+    fn cause(&self) -> Option<&StdError> {
+        match self.kind {
+            ErrorKind::Io(ref cause) => Some(cause),
+            _ => None,
+        }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        Error::io(err)
+    }
+}
+
+impl<T> From<crossbeam_channel::SendError<T>> for Error {
+    fn from(err: crossbeam_channel::SendError<T>) -> Self {
+        Error::generic(&format!("internal channel disconnect: {:?}", err))
+    }
+}
+
+impl From<crossbeam_channel::RecvError> for Error {
+    fn from(err: crossbeam_channel::RecvError) -> Self {
+        Error::generic(&format!("internal channel disconnect: {:?}", err))
+    }
+}
+
+impl<T> From<std::sync::PoisonError<T>> for Error {
+    fn from(err: std::sync::PoisonError<T>) -> Self {
+        Error::generic(&format!("internal mutex poisoned: {:?}", err))
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl<T> From<mio_extras::channel::SendError<T>> for Error {
+    fn from(err: mio_extras::channel::SendError<T>) -> Self {
+        Error::generic(&format!("internal channel error: {:?}", err))
+    }
+}
+
+#[test]
+fn display_formatted_errors() {
+    let expected = "Some error";
+
+    assert_eq!(expected, format!("{}", Error::generic(expected)));
+
+    assert_eq!(
+        expected,
+        format!(
+            "{}",
+            Error::io(io::Error::new(io::ErrorKind::Other, expected))
+        )
+    );
+}
