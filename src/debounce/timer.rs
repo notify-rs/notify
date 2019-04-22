@@ -1,32 +1,33 @@
-use super::super::{op, DebouncedEvent, Error, Result};
-
+use chashmap::CHashMap;
+use crossbeam_channel::Sender;
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::mpsc;
 use std::sync::{
     atomic::{self, AtomicBool},
     Arc, Condvar, Mutex,
 };
 use std::thread;
 use std::time::{Duration, Instant};
+use {event, op, Config, Error, Event, EventKind, Result};
 
 use debounce::OperationsBuffer;
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct ScheduledEvent {
     id: u64,
     when: Instant,
     path: PathBuf,
 }
 
+#[derive(Clone)]
 struct ScheduleWorker {
     new_event_trigger: Arc<Condvar>,
     stop_trigger: Arc<Condvar>,
     events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
-    tx: mpsc::Sender<DebouncedEvent>,
+    tx: Sender<Result<Event>>,
     operations_buffer: OperationsBuffer,
     stopped: Arc<AtomicBool>,
-    worker_ongoing_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
+    ongoing_events: Arc<CHashMap<PathBuf, Instant>>,
 }
 
 impl ScheduleWorker {
@@ -52,33 +53,51 @@ impl ScheduleWorker {
                 let is_partial_rename = from_path.is_none();
                 if let Some(from_path) = from_path {
                     self.tx
-                        .send(DebouncedEvent::Rename(from_path, path.clone()))
-                        .unwrap();
+                        .send(Ok(Event::new(EventKind::Modify(event::ModifyKind::Name(
+                            event::RenameMode::Both,
+                        )))
+                        .add_path(from_path)
+                        .add_path(path.clone())))
+                        .ok();
                 }
                 let message = match op {
-                    Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
-                    Some(op::Op::WRITE) => {
-                        //disable ongoing_write
-                        let mut ongoing_write_event =
-                            self.worker_ongoing_write_event.lock().unwrap();
-                        *ongoing_write_event = None;
-                        Some(DebouncedEvent::Write(path))
+                    Some(op::Op::CREATE) => {
+                        Some(Event::new(EventKind::Create(event::CreateKind::Any)).add_path(path))
                     }
-                    Some(op::Op::METADATA) => Some(DebouncedEvent::Metadata(path)),
-                    Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
+                    Some(op::Op::WRITE) => {
+                        self.ongoing_events.remove(&path);
+                        Some(Event::new(EventKind::Modify(event::ModifyKind::Any)).add_path(path))
+                    }
+                    Some(op::Op::METADATA) => Some(
+                        Event::new(EventKind::Modify(event::ModifyKind::Metadata(
+                            event::MetadataKind::Any,
+                        )))
+                        .add_path(path),
+                    ),
+                    Some(op::Op::REMOVE) => {
+                        self.ongoing_events.remove(&path);
+                        Some(Event::new(EventKind::Remove(event::RemoveKind::Any)).add_path(path))
+                    }
                     Some(op::Op::RENAME) if is_partial_rename => {
                         if path.exists() {
-                            Some(DebouncedEvent::Create(path))
+                            Some(
+                                Event::new(EventKind::Create(event::CreateKind::Any))
+                                    .add_path(path),
+                            )
                         } else {
-                            Some(DebouncedEvent::Remove(path))
+                            Some(
+                                Event::new(EventKind::Remove(event::RemoveKind::Any))
+                                    .add_path(path),
+                            )
                         }
                     }
                     _ => None,
                 };
                 if let Some(m) = message {
-                    let _ = self.tx.send(m);
+                    self.tx.send(Ok(m)).ok();
                 }
             } else {
+                // self.tx.send(Err()).ok();
                 // TODO error!("path not found in operations_buffer: {}", path.display())
             }
         }
@@ -116,6 +135,7 @@ impl ScheduleWorker {
     }
 }
 
+#[derive(Clone)]
 pub struct WatchTimer {
     counter: u64,
     new_event_trigger: Arc<Condvar>,
@@ -123,13 +143,13 @@ pub struct WatchTimer {
     delay: Duration,
     events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
     stopped: Arc<AtomicBool>,
-    pub ongoing_write_event: Arc<Mutex<Option<(Instant, PathBuf)>>>,
-    pub ongoing_write_duration: Option<Duration>,
+    ongoing_events: Arc<CHashMap<PathBuf, Instant>>,
+    ongoing_delay: Option<Duration>,
 }
 
 impl WatchTimer {
     pub fn new(
-        tx: mpsc::Sender<DebouncedEvent>,
+        tx: Sender<Result<Event>>,
         operations_buffer: OperationsBuffer,
         delay: Duration,
     ) -> WatchTimer {
@@ -137,13 +157,13 @@ impl WatchTimer {
         let new_event_trigger = Arc::new(Condvar::new());
         let stop_trigger = Arc::new(Condvar::new());
         let stopped = Arc::new(AtomicBool::new(false));
+        let ongoing_events = Arc::new(CHashMap::new());
 
         let worker_new_event_trigger = new_event_trigger.clone();
         let worker_stop_trigger = stop_trigger.clone();
         let worker_events = events.clone();
         let worker_stopped = stopped.clone();
-        let ongoing_write_event = Arc::new(Mutex::new(None));
-        let worker_ongoing_write_event = ongoing_write_event.clone();
+        let worker_ongoing_events = ongoing_events.clone();
         thread::spawn(move || {
             ScheduleWorker {
                 new_event_trigger: worker_new_event_trigger,
@@ -152,7 +172,7 @@ impl WatchTimer {
                 tx,
                 operations_buffer,
                 stopped: worker_stopped,
-                worker_ongoing_write_event,
+                ongoing_events: worker_ongoing_events,
             }
             .run();
         });
@@ -164,20 +184,41 @@ impl WatchTimer {
             delay,
             events,
             stopped,
-            ongoing_write_event,
-            ongoing_write_duration: None,
+            ongoing_events,
+            ongoing_delay: None,
         }
     }
 
-    pub fn set_ongoing_write_duration(&mut self, duration: Option<Duration>) -> Result<bool> {
-        if let Some(duration) = duration {
-            if duration > self.delay {
-                return Err(Error::InvalidConfigValue);
+    pub fn set_ongoing(&mut self, delay: Option<Duration>) -> Result<bool> {
+        if let Some(delay) = delay {
+            if delay > self.delay {
+                return Err(Error::invalid_config(&Config::OngoingEvents(Some(delay))));
             }
+        } else if self.ongoing_delay.is_some() {
+            // Reset the current ongoing state when disabling
+            self.ongoing_events.clear();
         }
 
-        self.ongoing_write_duration = duration;
+        self.ongoing_delay = delay;
         Ok(true)
+    }
+
+    pub fn handle_ongoing_write(&self, path: &PathBuf, tx: &Sender<Result<Event>>) {
+        if let Some(delay) = self.ongoing_delay {
+            self.ongoing_events.upsert(
+                path.clone(),
+                || Instant::now() + delay,
+                |fire_at| {
+                    if fire_at <= &mut Instant::now() {
+                        tx.send(Ok(Event::new(EventKind::Modify(event::ModifyKind::Any))
+                            .add_path(path.clone())
+                            .set_flag(event::Flag::Ongoing)))
+                            .ok();
+                        *fire_at = Instant::now() + delay;
+                    }
+                },
+            );
+        }
     }
 
     pub fn schedule(&mut self, path: PathBuf) -> u64 {

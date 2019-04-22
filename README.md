@@ -13,6 +13,7 @@ _Cross-platform filesystem notification library for Rust._
 [alert-after]!)
 
 - [API Documentation][docs]
+- [Guides and in-depth docs][wiki]
 - [Crate page][crate]
 - [Changelog][changelog]
 - **[Upgrading from 4.0](https://github.com/passcod/notify/wiki/Upgrading-from-4.0-to-5.0)**
@@ -173,22 +174,19 @@ Public Domain using the [Creative Commons Zero Declaration][cc0].
 [Chokidar]: https://github.com/paulmillr/chokidar
 [FileSystemEventSecurity]: https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html
 [Félix Saparelli]: https://passcod.name
-[alert-after]: https://github.com/frewsxcv/alert-after
 [alacritty]: https://github.com/jwilm/alacritty
-[artistic]: https://github.com/passcod/notify/blob/next/LICENSE
+[alert-after]: https://github.com/frewsxcv/alert-after
+[artistic]: ./LICENSE.ARTISTIC
 [build]: https://travis-ci.org/passcod/notify
 [cargo watch]: https://github.com/passcod/cargo-watch
-[cc0]: https://creativecommons.org/publicdomain/zero/1.0/
+[cc0]: ./LICENSE
 [changelog]: ./CHANGELOG.md
 [cobalt]: https://github.com/cobalt-org/cobalt.rs
 [coc]: http://contributor-covenant.org/version/1/4/
 [contributors]: https://github.com/passcod/notify/graphs/contributors
 [crate]: https://crates.io/crates/notify
-[docs-debounce]: https://docs.rs/notify/#default-debounced-api
-[docs-raw]: https://docs.rs/notify/#raw-api
-[docs-recursivemode]: https://docs.rs/notify/*/notify/enum.RecursiveMode.html
-[docs]: https://docs.rs/notify
 [docket]: https://iwillspeak.github.io/docket/
+[docs]: https://docs.rs/notify
 [fsnotify]: https://github.com/go-fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
 [hotwatch]: https://github.com/francesca64/hotwatch
@@ -200,4 +198,5 @@ Public Domain using the [Creative Commons Zero Declaration][cc0].
 [serde]: https://serde.rs/
 [timetrack]: https://github.com/joshmcguigan/timetrack
 [watchexec]: https://github.com/mattgreen/watchexec
+[wiki]: https://github.com/passcod/notify/wiki
 [xi-editor]: https://xi-editor.io/

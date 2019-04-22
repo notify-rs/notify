@@ -3,24 +3,30 @@
 ## 5.0.0 (future)
 
 - FEATURE: Add new runtime configuration system.
-- FEATURE: Add `OngoingWrite` event (optional, configured at runtime). [#146], [#183]
+- FEATURE: Add `Ongoing` events (optional, configured at runtime). [#146], [#183]
 - FEATURE: Bring in new event system from `next` branch. [#187]
+- FEATURE: Allow multiple watchers to send to the same channel. [`2a035c86`]
+- CHANGE: Switch to crossbeam channel. [#160]
 - ~~CHANGE: Rename `Chmod` to `Metadata`. [#179], [#180], previously [#112], [#161]~~
-- CHANGE: Remove `Op` event classification. [#187]
+- CHANGE: Remove `Op` and `DebouncedEvent` event classification. [#187]
 - CHANGE: Make it opt-in to receive information about event kind. [#187]
+- CHANGE: Make `Notice` events opt-in.
 - DEPS: \[Linux\] Upgrade inotify to 0.7. [#184]
 - META: Rename `v4-legacy` branch to `main`, to further clarify status and prepare for a breaking release.
 - DOCS: Change `v5` to `Next Generation Notify` to allow for a breaking release.
 - DOCS: Add rust-analyzer to Readme showcase.
+- DOCS: Add github issue / PR templates.
 
 [#112]: https://github.com/passcod/notify/issues/112
 [#146]: https://github.com/passcod/notify/issues/146
+[#160]: https://github.com/passcod/notify/issues/160
 [#161]: https://github.com/passcod/notify/issues/161
 [#179]: https://github.com/passcod/notify/issues/179
 [#180]: https://github.com/passcod/notify/issues/180
 [#183]: https://github.com/passcod/notify/issues/183
 [#184]: https://github.com/passcod/notify/issues/184
 [#187]: https://github.com/passcod/notify/issues/187
+[`2a035c86`]: https://github.com/passcod/notify/commit/2a035c86c5f12aeee635a827c1f458211ca923ca
 
 ## 4.0.10 (2019-03-07)
 
@@ -64,7 +70,7 @@
 - META: Change commit message style: commits are now prefixed by a `[topic]`.
 - FIX: Make sure debounced watcher terminates. [#170]
 - FIX: \[Linux\] Remove thread wake-up on timeout (introduced in 4.0.5 by error). [#174]
-- FIX: Restore compatibility with Rust before 1.30.0. [`eab75118`] 
+- FIX: Restore compatibility with Rust before 1.30.0. [`eab75118`]
 - META: Enforce compatibility with Rust 1.26.1 via CI. [`50924cd6`]
 - META: Add maintenance status badge. [`ecd686ba`]
 - DOCS: Freeze v4 branch (2018-10-05) [`8310b2cc`] — and subsequently unfreeze it. (2019-01-19) [`20c40f99`], [`c00da47c`]

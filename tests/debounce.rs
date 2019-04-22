@@ -1,13 +1,16 @@
 #![allow(dead_code)]
 
+extern crate crossbeam_channel;
 extern crate notify;
 extern crate tempdir;
 
 #[macro_use]
 mod utils;
 
+use crossbeam_channel::{unbounded, Receiver, TryRecvError};
+use notify::event::*;
 use notify::*;
-use std::sync::mpsc;
+use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 use tempdir::TempDir;
@@ -16,7 +19,18 @@ use utils::*;
 const DELAY_MS: u64 = 1000;
 const TIMEOUT_MS: u64 = 1000;
 
-fn recv_events_debounced(rx: &mpsc::Receiver<DebouncedEvent>) -> Vec<DebouncedEvent> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Kind {
+    Any,
+    Create,
+    Remove,
+    Modify,
+    RenameBoth,
+    Access,
+    Other(Option<String>),
+}
+
+fn recv_events_debounced(rx: &Receiver<Result<Event>>) -> Vec<(Kind, Vec<PathBuf>, bool)> {
     let start = Instant::now();
 
     let mut events = Vec::new();
@@ -24,12 +38,30 @@ fn recv_events_debounced(rx: &mpsc::Receiver<DebouncedEvent>) -> Vec<DebouncedEv
     while start.elapsed() < Duration::from_millis(DELAY_MS + TIMEOUT_MS) {
         match rx.try_recv() {
             Ok(event) => events.push(event),
-            Err(mpsc::TryRecvError::Empty) => (),
+            Err(TryRecvError::Empty) => (),
             Err(e) => panic!("unexpected channel err: {:?}", e),
         }
         thread::sleep(Duration::from_millis(50));
     }
+
     events
+        .into_iter()
+        .map(|res| res.unwrap())
+        .map(|event| {
+            let is_notice = event.flag() == Some(&Flag::Notice);
+            let kind = match event.kind {
+                EventKind::Any => Kind::Any,
+                EventKind::Create(_) => Kind::Create,
+                EventKind::Remove(_) => Kind::Remove,
+                EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => Kind::RenameBoth,
+                EventKind::Modify(_) => Kind::Modify,
+                EventKind::Access(_) => Kind::Access,
+                EventKind::Other => Kind::Other(event.info().cloned()),
+            };
+
+            (kind, event.paths, is_notice)
+        })
+        .collect()
 }
 
 #[test]
@@ -38,7 +70,7 @@ fn create_file() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -49,7 +81,7 @@ fn create_file() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("file1")),]
+        vec![(Kind::Create, vec![tdir.mkpath("file1")], false)]
     );
 }
 
@@ -61,7 +93,7 @@ fn write_file() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -73,8 +105,8 @@ fn write_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-            DebouncedEvent::Write(tdir.mkpath("file1")),
+            (Kind::Modify, vec![tdir.mkpath("file1")], true),
+            (Kind::Modify, vec![tdir.mkpath("file1")], false),
         ]
     );
 }
@@ -87,7 +119,7 @@ fn write_long_file() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -106,8 +138,8 @@ fn write_long_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-            DebouncedEvent::Write(tdir.mkpath("file1")),
+            (Kind::Modify, vec![tdir.mkpath("file1")], true),
+            (Kind::Modify, vec![tdir.mkpath("file1")], false),
         ]
     );
 }
@@ -135,7 +167,7 @@ fn modify_file() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -149,14 +181,14 @@ fn modify_file() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-                DebouncedEvent::Write(tdir.mkpath("file1")),
+                (Kind::Modify, vec![tdir.mkpath("file1")], true),
+                (Kind::Modify, vec![tdir.mkpath("file1")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
-            vec![DebouncedEvent::Metadata(tdir.mkpath("file1")),]
+            vec![(Kind::Modify, vec![tdir.mkpath("file1")], false)]
         );
     }
 }
@@ -169,7 +201,7 @@ fn delete_file() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -181,8 +213,8 @@ fn delete_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Remove(tdir.mkpath("file1")),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (Kind::Remove, vec![tdir.mkpath("file1")], false),
         ]
     );
 }
@@ -195,7 +227,7 @@ fn rename_file() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -207,8 +239,12 @@ fn rename_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (
+                Kind::RenameBoth,
+                vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                false
+            ),
         ]
     );
 }
@@ -219,7 +255,7 @@ fn create_write_modify_file() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -232,7 +268,7 @@ fn create_write_modify_file() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("file1")),]
+        vec![(Kind::Create, vec![tdir.mkpath("file1")], false)]
     );
 }
 
@@ -242,7 +278,7 @@ fn create_delete_file() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -264,7 +300,7 @@ fn delete_create_file() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -278,8 +314,8 @@ fn delete_create_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Write(tdir.mkpath("file1")),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (Kind::Modify, vec![tdir.mkpath("file1")], false),
         ]
     );
 }
@@ -290,7 +326,7 @@ fn create_rename_file() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -302,7 +338,7 @@ fn create_rename_file() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("file2")),]
+        vec![(Kind::Create, vec![tdir.mkpath("file2")], false)]
     );
 }
 
@@ -312,7 +348,7 @@ fn create_rename_delete_file() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -348,7 +384,7 @@ fn create_rename_overwrite_file() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -362,15 +398,15 @@ fn create_rename_overwrite_file() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file2")),
-                DebouncedEvent::Create(tdir.mkpath("file2")), // even though the file is being overwritten, that can't be detected
+                (Kind::Remove, vec![tdir.mkpath("file2")], true),
+                (Kind::Create, vec![tdir.mkpath("file2")], false), // even though the file is being overwritten, that can't be detected
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::Create(tdir.mkpath("file2")), // even though the file is being overwritten, that can't be detected
+                (Kind::Create, vec![tdir.mkpath("file2")], false), // even though the file is being overwritten, that can't be detected
             ]
         );
     }
@@ -384,7 +420,7 @@ fn create_rename_write_create() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -400,8 +436,8 @@ fn create_rename_write_create() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::Create(tdir.mkpath("file2")),
-            DebouncedEvent::Create(tdir.mkpath("file3")),
+            (Kind::Create, vec![tdir.mkpath("file2")], false),
+            (Kind::Create, vec![tdir.mkpath("file3")], false),
         ]
     );
 }
@@ -414,7 +450,7 @@ fn create_rename_remove_create() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -434,18 +470,18 @@ fn create_rename_remove_create() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::Create(tdir.mkpath("file1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file2")),
-                // DebouncedEvent::Remove(tdir.mkpath("file1")), BUG: There should be a remove event for file1
-                DebouncedEvent::Remove(tdir.mkpath("file2")),
-                DebouncedEvent::Create(tdir.mkpath("file3")),
+                (Kind::Create, vec![tdir.mkpath("file1")], false),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (Kind::Remove, vec![tdir.mkpath("file2")], true),
+                // (Kind::Remove, vec![tdir.mkpath("file1")], false), BUG: There should be a remove event for file1
+                (Kind::Remove, vec![tdir.mkpath("file2")], false),
+                (Kind::Create, vec![tdir.mkpath("file3")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
-            vec![DebouncedEvent::Create(tdir.mkpath("file3")),]
+            vec![(Kind::Create, vec![tdir.mkpath("file3")], false)]
         );
     }
 }
@@ -460,7 +496,7 @@ fn move_out_sleep_move_in() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -476,15 +512,15 @@ fn move_out_sleep_move_in() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::Create(tdir.mkpath("watch_dir/file1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("watch_dir/file2")),
-                DebouncedEvent::Create(tdir.mkpath("watch_dir/file2")),
+                (Kind::Create, vec![tdir.mkpath("watch_dir/file1")], false),
+                (Kind::Remove, vec![tdir.mkpath("watch_dir/file2")], true),
+                (Kind::Create, vec![tdir.mkpath("watch_dir/file2")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
-            vec![DebouncedEvent::Create(tdir.mkpath("watch_dir/file2")),]
+            vec![(Kind::Create, vec![tdir.mkpath("watch_dir/file2")], false)]
         );
     }
 }
@@ -492,8 +528,9 @@ fn move_out_sleep_move_in() {
 // A stress test that is moving files around trying to trigger possible bugs related to moving files.
 // For example, with inotify it's possible that two connected move events are split
 // between two mio polls. This doesn't happen often, though.
+#[cfg(feature = "manual_tests")]
 #[test]
-#[ignore]
+// Long test, as opt-in only.
 fn move_repeatedly() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
@@ -501,7 +538,7 @@ fn move_repeatedly() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -512,7 +549,7 @@ fn move_repeatedly() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("watch_dir/file1")),]
+        vec![(Kind::Create, vec![tdir.mkpath("watch_dir/file1")], false)]
     );
 
     for i in 1..300 {
@@ -525,8 +562,12 @@ fn move_repeatedly() {
             assert_eq!(
                 recv_events_debounced(&rx),
                 vec![
-                    DebouncedEvent::NoticeRemove(tdir.mkpath(&from)),
-                    DebouncedEvent::Rename(tdir.mkpath(&from), tdir.mkpath(&to)),
+                    (Kind::Remove, vec![tdir.mkpath(&from)], true),
+                    (
+                        Kind::RenameBoth,
+                        vec![tdir.mkpath(&from), tdir.mkpath(&to)],
+                        false
+                    ),
                 ]
             );
         }
@@ -541,7 +582,7 @@ fn write_rename_file() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -554,10 +595,14 @@ fn write_rename_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-            DebouncedEvent::Write(tdir.mkpath("file2")),
+            (Kind::Modify, vec![tdir.mkpath("file1")], true),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (
+                Kind::RenameBoth,
+                vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                false
+            ),
+            (Kind::Modify, vec![tdir.mkpath("file2")], false),
         ]
     );
 }
@@ -570,7 +615,7 @@ fn rename_write_file() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -584,10 +629,14 @@ fn rename_write_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::NoticeWrite(tdir.mkpath("file2")), // TODO not necessary
-            DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-            DebouncedEvent::Write(tdir.mkpath("file2")),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (Kind::Modify, vec![tdir.mkpath("file2")], true), // TODO not necessary
+            (
+                Kind::RenameBoth,
+                vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                false
+            ),
+            (Kind::Modify, vec![tdir.mkpath("file2")], false),
         ]
     );
 }
@@ -600,7 +649,7 @@ fn modify_rename_file() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -615,19 +664,27 @@ fn modify_rename_file() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-                DebouncedEvent::Write(tdir.mkpath("file2")),
+                (Kind::Modify, vec![tdir.mkpath("file1")], true),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("file2")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-                DebouncedEvent::Metadata(tdir.mkpath("file2")),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("file2")], false),
             ]
         );
     }
@@ -641,7 +698,7 @@ fn rename_modify_file() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -657,19 +714,27 @@ fn rename_modify_file() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::NoticeWrite(tdir.mkpath("file2")), // TODO unnecessary
-                DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-                DebouncedEvent::Write(tdir.mkpath("file2")),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (Kind::Modify, vec![tdir.mkpath("file2")], true), // TODO unnecessary
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("file2")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file2")),
-                DebouncedEvent::Metadata(tdir.mkpath("file2")),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("file1"), tdir.mkpath("file2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("file2")], false),
             ]
         );
     }
@@ -683,7 +748,7 @@ fn rename_rename_file() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -697,8 +762,12 @@ fn rename_rename_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Rename(tdir.mkpath("file1"), tdir.mkpath("file3")),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (
+                Kind::RenameBoth,
+                vec![tdir.mkpath("file1"), tdir.mkpath("file3")],
+                false
+            ),
         ]
     );
 }
@@ -711,7 +780,7 @@ fn write_delete_file() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -724,9 +793,9 @@ fn write_delete_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Remove(tdir.mkpath("file1")),
+            (Kind::Modify, vec![tdir.mkpath("file1")], true),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (Kind::Remove, vec![tdir.mkpath("file1")], false),
         ]
     );
 }
@@ -737,7 +806,7 @@ fn create_directory() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -748,7 +817,7 @@ fn create_directory() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("dir1")),]
+        vec![(Kind::Create, vec![tdir.mkpath("dir1")], false)]
     );
 }
 
@@ -759,7 +828,7 @@ fn create_directory_watch_subdirectories() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -777,18 +846,17 @@ fn create_directory_watch_subdirectories() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::Create(tdir.mkpath("dir1")),
-                DebouncedEvent::Create(tdir.mkpath("dir1/dir2/file1")),
+                (Kind::Create, vec![tdir.mkpath("dir1")], false),
+                (Kind::Create, vec![tdir.mkpath("dir1/dir2/file1")], false),
             ]
         );
     } else {
-        /*  */
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::Create(tdir.mkpath("dir1")),
-                DebouncedEvent::Create(tdir.mkpath("dir1/dir2")),
-                DebouncedEvent::Create(tdir.mkpath("dir1/dir2/file1")),
+                (Kind::Create, vec![tdir.mkpath("dir1")], false),
+                (Kind::Create, vec![tdir.mkpath("dir1/dir2")], false),
+                (Kind::Create, vec![tdir.mkpath("dir1/dir2/file1")], false),
             ]
         );
     }
@@ -802,7 +870,7 @@ fn modify_directory() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -816,14 +884,14 @@ fn modify_directory() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeWrite(tdir.mkpath("dir1")),
-                DebouncedEvent::Write(tdir.mkpath("dir1")),
+                (Kind::Modify, vec![tdir.mkpath("dir1")], true),
+                (Kind::Modify, vec![tdir.mkpath("dir1")], false)
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
-            vec![DebouncedEvent::Metadata(tdir.mkpath("dir1")),]
+            vec![(Kind::Modify, vec![tdir.mkpath("dir1")], false)]
         );
     }
 }
@@ -836,7 +904,7 @@ fn delete_directory() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -848,8 +916,8 @@ fn delete_directory() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-            DebouncedEvent::Remove(tdir.mkpath("dir1")),
+            (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+            (Kind::Remove, vec![tdir.mkpath("dir1")], false),
         ]
     );
 }
@@ -862,7 +930,7 @@ fn rename_directory() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -874,8 +942,12 @@ fn rename_directory() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-            DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
+            (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+            (
+                Kind::RenameBoth,
+                vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                false
+            ),
         ]
     );
 }
@@ -886,7 +958,7 @@ fn create_modify_directory() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -898,7 +970,7 @@ fn create_modify_directory() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("dir1")),]
+        vec![(Kind::Create, vec![tdir.mkpath("dir1")], false)]
     );
 }
 
@@ -908,7 +980,7 @@ fn create_delete_directory() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -930,7 +1002,7 @@ fn delete_create_directory() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -944,8 +1016,8 @@ fn delete_create_directory() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-            DebouncedEvent::Write(tdir.mkpath("dir1")),
+            (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+            (Kind::Modify, vec![tdir.mkpath("dir1")], false),
         ]
     );
 }
@@ -956,7 +1028,7 @@ fn create_rename_directory() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -968,7 +1040,7 @@ fn create_rename_directory() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        vec![DebouncedEvent::Create(tdir.mkpath("dir2")),]
+        vec![(Kind::Create, vec![tdir.mkpath("dir2")], false)]
     );
 }
 
@@ -978,7 +1050,7 @@ fn create_rename_delete_directory() {
 
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -1008,7 +1080,7 @@ fn create_rename_overwrite_directory() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -1022,15 +1094,15 @@ fn create_rename_overwrite_directory() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir2")), // even though the directory is being overwritten, that can't be detected
-                DebouncedEvent::Create(tdir.mkpath("dir2")), // even though the directory is being overwritten, that can't be detected
+                (Kind::Remove, vec![tdir.mkpath("dir2")], true), // even though the directory is being overwritten, that can't be detected
+                (Kind::Create, vec![tdir.mkpath("dir2")], false), // even though the directory is being overwritten, that can't be detected
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::Create(tdir.mkpath("dir2")), // even though the directory is being overwritten, that can't be detected
+                (Kind::Create, vec![tdir.mkpath("dir2")], false), // even though the directory is being overwritten, that can't be detected
             ]
         );
     }
@@ -1044,7 +1116,7 @@ fn modify_rename_directory() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -1060,19 +1132,27 @@ fn modify_rename_directory() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeWrite(tdir.mkpath("dir1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Write(tdir.mkpath("dir2")),
+                (Kind::Modify, vec![tdir.mkpath("dir1")], true),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Metadata(tdir.mkpath("dir2")),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], false),
             ]
         );
     }
@@ -1086,7 +1166,7 @@ fn rename_modify_directory() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -1104,34 +1184,50 @@ fn rename_modify_directory() {
         assert_eq!(
             actual,
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::NoticeWrite(tdir.mkpath("dir2")), // TODO unnecessary
-                DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Write(tdir.mkpath("dir2")),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], true), // TODO unnecessary
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], false),
             ]
         );
     } else if cfg!(target_os = "linux") {
         assert_eq_any!(
             actual,
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Metadata(tdir.mkpath("dir2")),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], false),
             ],
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Metadata(tdir.mkpath("dir2")),
-                DebouncedEvent::Metadata(tdir.mkpath("dir1")), // excessive metadata event
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], false),
+                (Kind::Modify, vec![tdir.mkpath("dir1")], false),
             ]
         );
     } else {
         assert_eq!(
             actual,
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir2")),
-                DebouncedEvent::Metadata(tdir.mkpath("dir2")),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("dir1"), tdir.mkpath("dir2")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("dir2")], false),
             ]
         );
     }
@@ -1145,7 +1241,7 @@ fn rename_rename_directory() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -1159,8 +1255,12 @@ fn rename_rename_directory() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-            DebouncedEvent::Rename(tdir.mkpath("dir1"), tdir.mkpath("dir3")),
+            (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+            (
+                Kind::RenameBoth,
+                vec![tdir.mkpath("dir1"), tdir.mkpath("dir3")],
+                false
+            ),
         ]
     );
 }
@@ -1173,7 +1273,7 @@ fn modify_delete_directory() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -1189,17 +1289,17 @@ fn modify_delete_directory() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeWrite(tdir.mkpath("dir1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Remove(tdir.mkpath("dir1")),
+                (Kind::Modify, vec![tdir.mkpath("dir1")], true),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("dir1")),
-                DebouncedEvent::Remove(tdir.mkpath("dir1")),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], true),
+                (Kind::Remove, vec![tdir.mkpath("dir1")], false),
             ]
         );
     }
@@ -1216,7 +1316,7 @@ fn move_in_directory_watch_subdirectories() {
 
     sleep_macos(35_000);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -1232,8 +1332,12 @@ fn move_in_directory_watch_subdirectories() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::Create(tdir.mkpath("watch_dir/dir1")),
-            DebouncedEvent::Create(tdir.mkpath("watch_dir/dir1/dir2/file1")),
+            (Kind::Create, vec![tdir.mkpath("watch_dir/dir1")], false),
+            (
+                Kind::Create,
+                vec![tdir.mkpath("watch_dir/dir1/dir2/file1")],
+                false
+            ),
         ]
     );
 }
@@ -1247,7 +1351,7 @@ fn rename_create_remove_temp_file() {
     tdir.create("file1");
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -1263,8 +1367,8 @@ fn rename_create_remove_temp_file() {
     assert_eq!(
         recv_events_debounced(&rx),
         vec![
-            DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-            DebouncedEvent::Create(tdir.mkpath("file1")),
+            (Kind::Remove, vec![tdir.mkpath("file1")], true),
+            (Kind::Create, vec![tdir.mkpath("file1")], false),
         ]
     );
 }
@@ -1278,7 +1382,7 @@ fn rename_rename_remove_temp_file() {
     tdir.create("file3");
     sleep_macos(10);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     watcher
@@ -1296,20 +1400,28 @@ fn rename_rename_remove_temp_file() {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file3")),
-                DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-                DebouncedEvent::Rename(tdir.mkpath("file3"), tdir.mkpath("file1")),
-                DebouncedEvent::Write(tdir.mkpath("file1")),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (Kind::Remove, vec![tdir.mkpath("file3")], true),
+                (Kind::Modify, vec![tdir.mkpath("file1")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("file3"), tdir.mkpath("file1")],
+                    false
+                ),
+                (Kind::Modify, vec![tdir.mkpath("file1")], false),
             ]
         );
     } else {
         assert_eq!(
             recv_events_debounced(&rx),
             vec![
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file1")),
-                DebouncedEvent::NoticeRemove(tdir.mkpath("file3")),
-                DebouncedEvent::Rename(tdir.mkpath("file3"), tdir.mkpath("file1")),
+                (Kind::Remove, vec![tdir.mkpath("file1")], true),
+                (Kind::Remove, vec![tdir.mkpath("file3")], true),
+                (
+                    Kind::RenameBoth,
+                    vec![tdir.mkpath("file3"), tdir.mkpath("file1")],
+                    false
+                ),
             ]
         );
     }
@@ -1317,7 +1429,7 @@ fn rename_rename_remove_temp_file() {
 
 #[test]
 fn watcher_terminates() {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
         .expect("failed to create debounced watcher");
     let thread = thread::spawn(move || {
@@ -1335,7 +1447,7 @@ fn one_file_many_events() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
     let dir = tdir.path();
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let mut watcher: RecommendedWatcher =
         Watcher::new(tx, delay).expect("failed to create debounced watcher");
 
@@ -1365,4 +1477,39 @@ fn one_file_many_events() {
         cutoff
     );
     io_thread.join().unwrap();
+}
+
+#[test]
+fn dual_create_file() {
+    let tdir1 = TempDir::new("temp_dir1").expect("failed to create temporary directory");
+    let tdir2 = TempDir::new("temp_dir2").expect("failed to create temporary directory");
+
+    sleep_macos(10);
+
+    let (tx, rx) = unbounded();
+    let mut watcher1: RecommendedWatcher =
+        Watcher::new(tx.clone(), Duration::from_millis(DELAY_MS))
+            .expect("failed to create debounced watcher");
+    let mut watcher2: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
+        .expect("failed to create debounced watcher");
+
+    watcher1
+        .watch(tdir1.mkpath("."), RecursiveMode::Recursive)
+        .expect("failed to watch directory");
+    watcher2
+        .watch(tdir2.mkpath("."), RecursiveMode::Recursive)
+        .expect("failed to watch directory");
+
+    tdir1.create("file1");
+    tdir2.create("file2");
+
+    let mut events = recv_events_debounced(&rx);
+    events.sort_by(|(_, a, _), (_, b, _)| a.cmp(b));
+    assert_eq!(
+        events,
+        vec![
+            (Kind::Create, vec![tdir1.mkpath("file1")], false),
+            (Kind::Create, vec![tdir2.mkpath("file2")], false),
+        ]
+    );
 }

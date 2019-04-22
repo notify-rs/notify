@@ -16,7 +16,8 @@ use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
 use super::debounce::{Debounce, EventTx};
-use super::{op, Config, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, Config, Error, Event, Op, RawEvent, RecursiveMode, Result, Watcher};
+use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
@@ -26,7 +27,6 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -44,7 +44,7 @@ struct ReadData {
 }
 
 struct ReadDirectoryRequest {
-    event_tx: Arc<Mutex<EventTx>>,
+    event_tx: Arc<EventTx>,
     buffer: [u8; BUF_SIZE as usize],
     handle: HANDLE,
     data: ReadData,
@@ -69,7 +69,7 @@ struct WatchState {
 
 struct ReadDirectoryChangesServer {
     rx: Receiver<Action>,
-    event_tx: Arc<Mutex<EventTx>>,
+    event_tx: Arc<EventTx>,
     meta_tx: Sender<MetaEvent>,
     cmd_tx: Sender<Result<PathBuf>>,
     watches: HashMap<PathBuf, WatchState>,
@@ -83,14 +83,14 @@ impl ReadDirectoryChangesServer {
         cmd_tx: Sender<Result<PathBuf>>,
         wakeup_sem: HANDLE,
     ) -> Sender<Action> {
-        let (action_tx, action_rx) = channel();
+        let (action_tx, action_rx) = unbounded();
         // it is, in fact, ok to send the semaphore across threads
         let sem_temp = wakeup_sem as u64;
         thread::spawn(move || {
             let wakeup_sem = sem_temp as HANDLE;
             let server = ReadDirectoryChangesServer {
                 rx: action_rx,
-                event_tx: Arc::new(Mutex::new(event_tx)),
+                event_tx: Arc::new(event_tx),
                 meta_tx: meta_tx,
                 cmd_tx: cmd_tx,
                 watches: HashMap::new(),
@@ -121,24 +121,11 @@ impl ReadDirectoryChangesServer {
                         break;
                     }
                     Action::Configure(config, tx) => {
-                        // TODO: We shouldn't need to obtain a lock on the tx just to figure out
-                        // whether the watcher is in debounced mode or not. Let's store a boolean
-                        // somewhere and be done with it. Irrespective of that, putting Senders in
-                        // mutexes is useless and we really should use crossbeam-channel anyway.
-                        {
-                            let mut debounced_event = self.event_tx.lock().unwrap();
-                            if let EventTx::Debounced {
-                                ref mut debounce,
-                                tx: _,
-                            } = *debounced_event
-                            {
-                                debounce.configure_debounced_mode(config, tx);
-                                break;
-                            }
+                        if self.event_tx.is_immediate() {
+                            self.configure_raw_mode(config, tx);
+                        } else {
+                            self.event_tx.configure_if_debounced(config, tx);
                         }
-
-                        self.configure_raw_mode(config, tx);
-
                     }
                 }
             }
@@ -165,8 +152,8 @@ impl ReadDirectoryChangesServer {
     fn add_watch(&mut self, path: PathBuf, is_recursive: bool) -> Result<PathBuf> {
         // path must exist and be either a file or directory
         if !path.is_dir() && !path.is_file() {
-            return Err(Error::Generic(
-                "Input watch path is neither a file nor a directory.".to_owned(),
+            return Err(Error::generic(
+                "Input watch path is neither a file nor a directory.",
             ));
         }
 
@@ -197,17 +184,15 @@ impl ReadDirectoryChangesServer {
             );
 
             if handle == INVALID_HANDLE_VALUE {
-                let err = if watching_file {
-                    Err(Error::Generic(
+                return Err(if watching_file {
+                    Error::generic(
                         "You attempted to watch a single file, but parent \
-                         directory could not be opened."
-                            .to_owned(),
-                    ))
+                         directory could not be opened.",
+                    )
                 } else {
                     // TODO: Call GetLastError for better error info?
-                    Err(Error::PathNotFound)
-                };
-                return err;
+                    Error::path_not_found().add_path(path.clone())
+                });
             }
         }
         let wf = if watching_file {
@@ -222,9 +207,7 @@ impl ReadDirectoryChangesServer {
             unsafe {
                 kernel32::CloseHandle(handle);
             }
-            return Err(Error::Generic(
-                "Failed to create semaphore for watch.".to_owned(),
-            ));
+            return Err(Error::generic("Failed to create semaphore for watch."));
         }
         let rd = ReadData {
             dir: dir_target,
@@ -248,7 +231,8 @@ impl ReadDirectoryChangesServer {
     }
 
     fn configure_raw_mode(&mut self, _config: Config, tx: Sender<Result<bool>>) {
-        tx.send(Ok(false)).expect("configuration channel disconnect");
+        tx.send(Ok(false))
+            .expect("configuration channel disconnect");
     }
 }
 
@@ -265,10 +249,10 @@ fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
     let _ = meta_tx.send(MetaEvent::SingleWatchComplete);
 }
 
-fn start_read(rd: &ReadData, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
+fn start_read(rd: &ReadData, event_tx: Arc<EventTx>, handle: HANDLE) {
     let mut request = Box::new(ReadDirectoryRequest {
-        event_tx: event_tx,
-        handle: handle,
+        event_tx,
+        handle,
         buffer: [0u8; BUF_SIZE as usize],
         data: rd.clone(),
     });
@@ -322,7 +306,7 @@ fn start_read(rd: &ReadData, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
     }
 }
 
-fn send_pending_rename_event(event: Option<RawEvent>, event_tx: &mut EventTx) {
+fn send_pending_rename_event(event: Option<RawEvent>, event_tx: &EventTx) {
     if let Some(e) = event {
         event_tx.send(RawEvent {
             path: e.path,
@@ -350,95 +334,92 @@ unsafe extern "system" fn handle_event(
     // Get the next request queued up as soon as possible
     start_read(&request.data, request.event_tx.clone(), request.handle);
 
-    let event_tx_lock = request.event_tx.lock();
-    if let Ok(mut event_tx) = event_tx_lock {
-        let mut rename_event = None;
+    let mut rename_event = None;
 
-        // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length
-        // string as its last member.  Each struct contains an offset for getting the next entry in
-        // the buffer.
-        let mut cur_offset: *const u8 = request.buffer.as_ptr();
-        let mut cur_entry: *const FILE_NOTIFY_INFORMATION = mem::transmute(cur_offset);
-        loop {
-            // filename length is size in bytes, so / 2
-            let len = (*cur_entry).FileNameLength as usize / 2;
-            let encoded_path: &[u16] = slice::from_raw_parts((*cur_entry).FileName.as_ptr(), len);
-            // prepend root to get a full path
-            let path = request
-                .data
-                .dir
-                .join(PathBuf::from(OsString::from_wide(encoded_path)));
+    // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length
+    // string as its last member.  Each struct contains an offset for getting the next entry in
+    // the buffer.
+    let mut cur_offset: *const u8 = request.buffer.as_ptr();
+    let mut cur_entry: *const FILE_NOTIFY_INFORMATION = mem::transmute(cur_offset);
+    loop {
+        // filename length is size in bytes, so / 2
+        let len = (*cur_entry).FileNameLength as usize / 2;
+        let encoded_path: &[u16] = slice::from_raw_parts((*cur_entry).FileName.as_ptr(), len);
+        // prepend root to get a full path
+        let path = request
+            .data
+            .dir
+            .join(PathBuf::from(OsString::from_wide(encoded_path)));
 
-            // if we are watching a single file, ignore the event unless the path is exactly
-            // the watched file
-            let skip = match request.data.file {
-                None => false,
-                Some(ref watch_path) => *watch_path != path,
-            };
+        // if we are watching a single file, ignore the event unless the path is exactly
+        // the watched file
+        let skip = match request.data.file {
+            None => false,
+            Some(ref watch_path) => *watch_path != path,
+        };
 
-            if !skip {
-                if (*cur_entry).Action == winnt::FILE_ACTION_RENAMED_OLD_NAME {
-                    send_pending_rename_event(rename_event, &mut event_tx);
-                    if request.data.file.is_some() {
-                        event_tx.send(RawEvent {
-                            path: Some(path),
-                            op: Ok(op::Op::RENAME),
-                            cookie: None,
-                        });
-                        rename_event = None;
-                    } else {
-                        COOKIE_COUNTER = COOKIE_COUNTER.wrapping_add(1);
-                        rename_event = Some(RawEvent {
-                            path: Some(path),
-                            op: Ok(op::Op::RENAME),
-                            cookie: Some(COOKIE_COUNTER),
-                        });
-                    }
+        if !skip {
+            if (*cur_entry).Action == winnt::FILE_ACTION_RENAMED_OLD_NAME {
+                send_pending_rename_event(rename_event, &request.event_tx);
+                if request.data.file.is_some() {
+                    request.event_tx.send(RawEvent {
+                        path: Some(path),
+                        op: Ok(op::Op::RENAME),
+                        cookie: None,
+                    });
+                    rename_event = None;
                 } else {
-                    let mut o = Op::empty();
-                    let mut c = None;
+                    COOKIE_COUNTER = COOKIE_COUNTER.wrapping_add(1);
+                    rename_event = Some(RawEvent {
+                        path: Some(path),
+                        op: Ok(op::Op::RENAME),
+                        cookie: Some(COOKIE_COUNTER),
+                    });
+                }
+            } else {
+                let mut o = Op::empty();
+                let mut c = None;
 
-                    match (*cur_entry).Action {
-                        winnt::FILE_ACTION_RENAMED_NEW_NAME => {
-                            if let Some(e) = rename_event {
-                                if let Some(cookie) = e.cookie {
-                                    event_tx.send(e);
-                                    o.insert(op::Op::RENAME);
-                                    c = Some(cookie);
-                                } else {
-                                    o.insert(op::Op::CREATE);
-                                }
+                match (*cur_entry).Action {
+                    winnt::FILE_ACTION_RENAMED_NEW_NAME => {
+                        if let Some(e) = rename_event {
+                            if let Some(cookie) = e.cookie {
+                                request.event_tx.send(e);
+                                o.insert(op::Op::RENAME);
+                                c = Some(cookie);
                             } else {
                                 o.insert(op::Op::CREATE);
                             }
-                            rename_event = None;
+                        } else {
+                            o.insert(op::Op::CREATE);
                         }
-                        winnt::FILE_ACTION_ADDED => o.insert(op::Op::CREATE),
-                        winnt::FILE_ACTION_REMOVED => o.insert(op::Op::REMOVE),
-                        winnt::FILE_ACTION_MODIFIED => o.insert(op::Op::WRITE),
-                        _ => (),
-                    };
+                        rename_event = None;
+                    }
+                    winnt::FILE_ACTION_ADDED => o.insert(op::Op::CREATE),
+                    winnt::FILE_ACTION_REMOVED => o.insert(op::Op::REMOVE),
+                    winnt::FILE_ACTION_MODIFIED => o.insert(op::Op::WRITE),
+                    _ => (),
+                };
 
-                    send_pending_rename_event(rename_event, &mut event_tx);
-                    rename_event = None;
+                send_pending_rename_event(rename_event, &request.event_tx);
+                rename_event = None;
 
-                    event_tx.send(RawEvent {
-                        path: Some(path),
-                        op: Ok(o),
-                        cookie: c,
-                    });
-                }
+                request.event_tx.send(RawEvent {
+                    path: Some(path),
+                    op: Ok(o),
+                    cookie: c,
+                });
             }
-
-            if (*cur_entry).NextEntryOffset == 0 {
-                break;
-            }
-            cur_offset = cur_offset.offset((*cur_entry).NextEntryOffset as isize);
-            cur_entry = mem::transmute(cur_offset);
         }
 
-        send_pending_rename_event(rename_event, &mut event_tx);
+        if (*cur_entry).NextEntryOffset == 0 {
+            break;
+        }
+        cur_offset = cur_offset.offset((*cur_entry).NextEntryOffset as isize);
+        cur_entry = mem::transmute(cur_offset);
     }
+
+    send_pending_rename_event(rename_event, &request.event_tx);
 }
 
 pub struct ReadDirectoryChangesWatcher {
@@ -452,18 +433,15 @@ impl ReadDirectoryChangesWatcher {
         tx: Sender<RawEvent>,
         meta_tx: Sender<MetaEvent>,
     ) -> Result<ReadDirectoryChangesWatcher> {
-        let (cmd_tx, cmd_rx) = channel();
+        let (cmd_tx, cmd_rx) = unbounded();
 
         let wakeup_sem =
             unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
-            return Err(Error::Generic(
-                "Failed to create wakeup semaphore.".to_owned(),
-            ));
+            return Err(Error::generic("Failed to create wakeup semaphore."));
         }
 
-        let event_tx = EventTx::Raw { tx: tx };
-
+        let event_tx = EventTx::new_immediate(tx);
         let action_tx = ReadDirectoryChangesServer::start(event_tx, meta_tx, cmd_tx, wakeup_sem);
 
         Ok(ReadDirectoryChangesWatcher {
@@ -474,25 +452,19 @@ impl ReadDirectoryChangesWatcher {
     }
 
     pub fn create_debounced(
-        tx: Sender<DebouncedEvent>,
+        tx: Sender<Result<Event>>,
         meta_tx: Sender<MetaEvent>,
         delay: Duration,
     ) -> Result<ReadDirectoryChangesWatcher> {
-        let (cmd_tx, cmd_rx) = channel();
+        let (cmd_tx, cmd_rx) = unbounded();
 
         let wakeup_sem =
             unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
-            return Err(Error::Generic(
-                "Failed to create wakeup semaphore.".to_owned(),
-            ));
+            return Err(Error::generic("Failed to create wakeup semaphore."));
         }
 
-        let event_tx = EventTx::Debounced {
-            tx: tx.clone(),
-            debounce: Debounce::new(delay, tx),
-        };
-
+        let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
         let action_tx = ReadDirectoryChangesServer::start(event_tx, meta_tx, cmd_tx, wakeup_sem);
 
         Ok(ReadDirectoryChangesWatcher {
@@ -512,48 +484,41 @@ impl ReadDirectoryChangesWatcher {
     }
 
     fn send_action_require_ack(&mut self, action: Action, pb: &PathBuf) -> Result<()> {
-        match self.tx.send(action) {
-            Err(_) => Err(Error::Generic(
-                "Error sending to internal channel".to_owned(),
-            )),
-            Ok(_) => {
-                // wake 'em up, we don't want to wait around for the ack
-                self.wakeup_server();
+        self.tx
+            .send(action)
+            .map_err(|_| Error::generic("Error sending to internal channel"))?;
 
-                match self.cmd_rx.recv() {
-                    Err(_) => Err(Error::Generic(
-                        "Error receiving from command channel".to_owned(),
-                    )),
-                    Ok(ack_res) => match ack_res {
-                        Err(e) => Err(Error::Generic(format!("Error in watcher: {:?}", e))),
-                        Ok(ack_pb) => {
-                            if pb.as_path() != ack_pb.as_path() {
-                                Err(Error::Generic(format!(
-                                    "Expected ack for {:?} but got \
-                                     ack for {:?}",
-                                    pb, ack_pb
-                                )))
-                            } else {
-                                Ok(())
-                            }
-                        }
-                    },
-                }
-            }
+        // wake 'em up, we don't want to wait around for the ack
+        self.wakeup_server();
+
+        let ack_pb = self
+            .cmd_rx
+            .recv()
+            .map_err(|_| Error::generic("Error receiving from command channel"))?
+            .map_err(|e| Error::generic(&format!("Error in watcher: {:?}", e)))?;
+
+        if pb.as_path() != ack_pb.as_path() {
+            Err(Error::generic(&format!(
+                "Expected ack for {:?} but got \
+                 ack for {:?}",
+                pb, ack_pb
+            )))
+        } else {
+            Ok(())
         }
     }
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
-    fn new_raw(tx: Sender<RawEvent>) -> Result<ReadDirectoryChangesWatcher> {
+    fn new_immediate(tx: Sender<RawEvent>) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
-        let (meta_tx, _) = channel();
+        let (meta_tx, _) = unbounded();
         ReadDirectoryChangesWatcher::create(tx, meta_tx)
     }
 
-    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
+    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
-        let (meta_tx, _) = channel();
+        let (meta_tx, _) = unbounded();
         ReadDirectoryChangesWatcher::create_debounced(tx, meta_tx, delay)
     }
 
@@ -561,13 +526,13 @@ impl Watcher for ReadDirectoryChangesWatcher {
         let pb = if path.as_ref().is_absolute() {
             path.as_ref().to_owned()
         } else {
-            let p = try!(env::current_dir().map_err(Error::Io));
+            let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
         };
         // path must exist and be either a file or directory
         if !pb.is_dir() && !pb.is_file() {
-            return Err(Error::Generic(
-                "Input watch path is neither a file nor a directory.".to_owned(),
+            return Err(Error::generic(
+                "Input watch path is neither a file nor a directory.",
             ));
         }
         self.send_action_require_ack(Action::Watch(pb.clone(), recursive_mode), &pb)
@@ -577,19 +542,19 @@ impl Watcher for ReadDirectoryChangesWatcher {
         let pb = if path.as_ref().is_absolute() {
             path.as_ref().to_owned()
         } else {
-            let p = try!(env::current_dir().map_err(Error::Io));
+            let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
         };
         let res = self
             .tx
             .send(Action::Unwatch(pb))
-            .map_err(|_| Error::Generic("Error sending to internal channel".to_owned()));
+            .map_err(|_| Error::generic("Error sending to internal channel"));
         self.wakeup_server();
         res
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
-        let (tx, rx) = channel();
+        let (tx, rx) = bounded(1);
         self.tx.send(Action::Configure(config, tx))?;
         rx.recv()?
     }

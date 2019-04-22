@@ -5,13 +5,16 @@
 
 use self::walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
-use super::{op, DebouncedEvent, Error, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, Error, Event, RawEvent, RecursiveMode, Result, Watcher};
+use crossbeam_channel::Sender;
 use filetime::FileTime;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -31,25 +34,28 @@ struct WatchData {
 pub struct PollWatcher {
     event_tx: EventTx,
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
-    open: Arc<RwLock<bool>>,
+    open: Arc<AtomicBool>,
+    delay: Duration,
 }
 
 impl PollWatcher {
     /// Create a PollWatcher which polls every `delay` milliseconds
-    pub fn with_delay_ms(tx: Sender<RawEvent>, delay: u32) -> Result<PollWatcher> {
+    pub fn with_delay(tx: Sender<RawEvent>, delay: Duration) -> Result<PollWatcher> {
+        let event_tx = EventTx::new_immediate(tx);
         let mut p = PollWatcher {
-            event_tx: EventTx::Raw { tx: tx.clone() },
+            event_tx: event_tx.clone(),
             watches: Arc::new(Mutex::new(HashMap::new())),
-            open: Arc::new(RwLock::new(true)),
+            open: Arc::new(AtomicBool::new(true)),
+            delay,
         };
-        let event_tx = EventTx::Raw { tx: tx };
-        p.run(Duration::from_millis(delay as u64), event_tx);
+        p.run(event_tx);
         Ok(p)
     }
 
-    fn run(&mut self, delay: Duration, mut event_tx: EventTx) {
+    fn run(&mut self, event_tx: EventTx) {
         let watches = self.watches.clone();
         let open = self.open.clone();
+        let delay = self.delay.clone();
 
         thread::spawn(move || {
             // In order of priority:
@@ -58,7 +64,7 @@ impl PollWatcher {
             // TODO: DRY it up
 
             loop {
-                if !(*open.read().unwrap()) {
+                if !open.load(Ordering::SeqCst) {
                     break;
                 }
 
@@ -77,7 +83,7 @@ impl PollWatcher {
                             Err(e) => {
                                 event_tx.send(RawEvent {
                                     path: Some(watch.clone()),
-                                    op: Err(Error::Io(e)),
+                                    op: Err(Error::io(e)),
                                     cookie: None,
                                 });
                                 continue;
@@ -122,7 +128,7 @@ impl PollWatcher {
                                             Err(e) => {
                                                 event_tx.send(RawEvent {
                                                     path: Some(path.to_path_buf()),
-                                                    op: Err(Error::Io(e.into())),
+                                                    op: Err(Error::io(e.into())),
                                                     cookie: None,
                                                 });
                                             }
@@ -189,21 +195,19 @@ impl PollWatcher {
 }
 
 impl Watcher for PollWatcher {
-    fn new_raw(tx: Sender<RawEvent>) -> Result<PollWatcher> {
-        PollWatcher::with_delay_ms(tx, 30_000)
+    fn new_immediate(tx: Sender<RawEvent>) -> Result<PollWatcher> {
+        PollWatcher::with_delay(tx, Duration::from_secs(30))
     }
 
-    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<PollWatcher> {
+    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<PollWatcher> {
+        let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
         let mut p = PollWatcher {
-            event_tx: EventTx::DebouncedTx { tx: tx.clone() },
+            event_tx: event_tx.debounced_tx(),
             watches: Arc::new(Mutex::new(HashMap::new())),
-            open: Arc::new(RwLock::new(true)),
+            open: Arc::new(AtomicBool::new(true)),
+            delay,
         };
-        let event_tx = EventTx::Debounced {
-            tx: tx.clone(),
-            debounce: Debounce::new(delay, tx),
-        };
-        p.run(delay, event_tx);
+        p.run(event_tx);
         Ok(p)
     }
 
@@ -217,7 +221,7 @@ impl Watcher for PollWatcher {
                 Err(e) => {
                     self.event_tx.send(RawEvent {
                         path: Some(watch.clone()),
-                        op: Err(Error::Io(e)),
+                        op: Err(Error::io(e)),
                         cookie: None,
                     });
                 }
@@ -258,7 +262,7 @@ impl Watcher for PollWatcher {
                                 Err(e) => {
                                     self.event_tx.send(RawEvent {
                                         path: Some(path.to_path_buf()),
-                                        op: Err(Error::Io(e.into())),
+                                        op: Err(Error::io(e.into())),
                                         cookie: None,
                                     });
                                 }
@@ -297,16 +301,13 @@ impl Watcher for PollWatcher {
         {
             Ok(())
         } else {
-            Err(Error::WatchNotFound)
+            Err(Error::watch_not_found())
         }
     }
 }
 
 impl Drop for PollWatcher {
     fn drop(&mut self) {
-        {
-            let mut open = (*self.open).write().unwrap();
-            (*open) = false;
-        }
+        self.open.store(false, Ordering::Relaxed);
     }
 }

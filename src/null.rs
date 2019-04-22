@@ -2,9 +2,9 @@
 
 #![allow(unused_variables)]
 
-use super::{DebouncedEvent, RawEvent, RecursiveMode, Result, Watcher};
+use super::{Event, RawEvent, RecursiveMode, Result, Watcher};
+use crossbeam_channel::Sender;
 use std::path::Path;
-use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 /// Stub `Watcher` implementation
@@ -13,11 +13,11 @@ use std::time::Duration;
 pub struct NullWatcher;
 
 impl Watcher for NullWatcher {
-    fn new_raw(tx: Sender<RawEvent>) -> Result<NullWatcher> {
+    fn new_immediate(tx: Sender<RawEvent>) -> Result<NullWatcher> {
         Ok(NullWatcher)
     }
 
-    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<NullWatcher> {
+    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<NullWatcher> {
         Ok(NullWatcher)
     }
 

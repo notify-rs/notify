@@ -11,7 +11,8 @@ extern crate walkdir;
 use self::inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use self::walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
-use super::{op, Config, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
+use super::{op, Config, Error, Event, Op, RawEvent, RecursiveMode, Result, Watcher};
+use crossbeam_channel::{bounded, unbounded, Sender};
 use mio;
 use mio_extras;
 use std::collections::HashMap;
@@ -21,7 +22,6 @@ use std::fs::metadata;
 use std::mem;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, channel, Sender};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -58,9 +58,8 @@ enum EventLoopMsg {
 }
 
 #[inline]
-fn send_pending_rename_event(rename_event: &mut Option<RawEvent>, event_tx: &mut EventTx) {
-    let event = mem::replace(rename_event, None);
-    if let Some(e) = event {
+fn send_pending_rename_event(rename_event: &mut Option<RawEvent>, event_tx: &EventTx) {
+    if let Some(e) = mem::replace(rename_event, None) {
         event_tx.send(RawEvent {
             path: e.path,
             op: Ok(op::Op::REMOVE),
@@ -199,18 +198,14 @@ impl EventLoop {
                     let current_cookie = self.rename_event.as_ref().and_then(|e| e.cookie);
                     // send pending rename event only if the rename event for which the timer has been created hasn't been handled already; otherwise ignore this timeout
                     if current_cookie == Some(cookie) {
-                        send_pending_rename_event(&mut self.rename_event, &mut self.event_tx);
+                        send_pending_rename_event(&mut self.rename_event, &self.event_tx);
                     }
                 }
                 EventLoopMsg::Configure(config, tx) => {
-                    if let EventTx::Debounced {
-                        ref mut debounce,
-                        tx: _
-                    } = self.event_tx
-                    {
-                        debounce.configure_debounced_mode(config, tx);
-                    } else {
+                    if self.event_tx.is_immediate() {
                         self.configure_raw_mode(config, tx);
+                    } else {
+                        self.event_tx.configure_if_debounced(config, tx);
                     }
                 }
             }
@@ -218,7 +213,8 @@ impl EventLoop {
     }
 
     fn configure_raw_mode(&mut self, _config: Config, tx: Sender<Result<bool>>) {
-        tx.send(Ok(false)).expect("configuration channel disconnected");
+        tx.send(Ok(false))
+            .expect("configuration channel disconnected");
     }
 
     fn handle_inotify(&mut self) {
@@ -244,7 +240,7 @@ impl EventLoop {
                         };
 
                         if event.mask.contains(EventMask::MOVED_FROM) {
-                            send_pending_rename_event(&mut self.rename_event, &mut self.event_tx);
+                            send_pending_rename_event(&mut self.rename_event, &self.event_tx);
                             remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                             self.rename_event = Some(RawEvent {
                                 path: path,
@@ -293,10 +289,7 @@ impl EventLoop {
                             }
 
                             if !o.is_empty() {
-                                send_pending_rename_event(
-                                    &mut self.rename_event,
-                                    &mut self.event_tx,
-                                );
+                                send_pending_rename_event(&mut self.rename_event, &self.event_tx);
 
                                 self.event_tx.send(RawEvent {
                                     path: path,
@@ -326,7 +319,7 @@ impl EventLoop {
                 Err(e) => {
                     self.event_tx.send(RawEvent {
                         path: None,
-                        op: Err(Error::Io(e)),
+                        op: Err(Error::io(e)),
                         cookie: None,
                     });
                 }
@@ -343,7 +336,7 @@ impl EventLoop {
     }
 
     fn add_watch(&mut self, path: PathBuf, is_recursive: bool, mut watch_self: bool) -> Result<()> {
-        let metadata = try!(metadata(&path).map_err(Error::Io));
+        let metadata = metadata(&path).map_err(Error::io)?;
 
         if !metadata.is_dir() || !is_recursive {
             return self.add_single_watch(path, false, true);
@@ -387,7 +380,7 @@ impl EventLoop {
 
         if let Some(ref mut inotify) = self.inotify {
             match inotify.add_watch(&path, watchmask) {
-                Err(e) => Err(Error::Io(e)),
+                Err(e) => Err(Error::io(e)),
                 Ok(w) => {
                     watchmask.remove(WatchMask::MASK_ADD);
                     self.watches
@@ -403,17 +396,17 @@ impl EventLoop {
 
     fn remove_watch(&mut self, path: PathBuf, remove_recursive: bool) -> Result<()> {
         match self.watches.remove(&path) {
-            None => return Err(Error::WatchNotFound),
+            None => return Err(Error::watch_not_found()),
             Some((w, _, is_recursive)) => {
                 if let Some(ref mut inotify) = self.inotify {
-                    try!(inotify.rm_watch(w.clone()).map_err(Error::Io));
+                    inotify.rm_watch(w.clone()).map_err(Error::io)?;
                     self.paths.remove(&w);
 
                     if is_recursive || remove_recursive {
                         let mut remove_list = Vec::new();
                         for (w, p) in &self.paths {
                             if p.starts_with(&path) {
-                                try!(inotify.rm_watch(w.clone()).map_err(Error::Io));
+                                inotify.rm_watch(w.clone()).map_err(Error::io)?;
                                 self.watches.remove(p);
                                 remove_list.push(w.clone());
                             }
@@ -431,7 +424,7 @@ impl EventLoop {
     fn remove_all_watches(&mut self) -> Result<()> {
         if let Some(ref mut inotify) = self.inotify {
             for w in self.paths.keys() {
-                try!(inotify.rm_watch(w.clone()).map_err(Error::Io));
+                inotify.rm_watch(w.clone()).map_err(Error::io)?;
             }
             self.watches.clear();
             self.paths.clear();
@@ -453,21 +446,18 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 }
 
 impl Watcher for INotifyWatcher {
-    fn new_raw(tx: Sender<RawEvent>) -> Result<INotifyWatcher> {
+    fn new_immediate(tx: Sender<RawEvent>) -> Result<INotifyWatcher> {
         let inotify = Inotify::init()?;
-        let event_tx = EventTx::Raw { tx };
+        let event_tx = EventTx::new_immediate(tx);
         let event_loop = EventLoop::new(inotify, event_tx)?;
         let channel = event_loop.channel();
         event_loop.run();
         Ok(INotifyWatcher(Mutex::new(channel)))
     }
 
-    fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<INotifyWatcher> {
+    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<INotifyWatcher> {
         let inotify = Inotify::init()?;
-        let event_tx = EventTx::Debounced {
-            tx: tx.clone(),
-            debounce: Debounce::new(delay, tx),
-        };
+        let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
         let event_loop = EventLoop::new(inotify, event_tx)?;
         let channel = event_loop.channel();
         event_loop.run();
@@ -478,10 +468,10 @@ impl Watcher for INotifyWatcher {
         let pb = if path.as_ref().is_absolute() {
             path.as_ref().to_owned()
         } else {
-            let p = try!(env::current_dir().map_err(Error::Io));
+            let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
         };
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         let msg = EventLoopMsg::AddWatch(pb, recursive_mode, tx);
 
         // we expect the event loop to live and reply => unwraps must not panic
@@ -493,10 +483,10 @@ impl Watcher for INotifyWatcher {
         let pb = if path.as_ref().is_absolute() {
             path.as_ref().to_owned()
         } else {
-            let p = try!(env::current_dir().map_err(Error::Io));
+            let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
         };
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         let msg = EventLoopMsg::RemoveWatch(pb, tx);
 
         // we expect the event loop to live and reply => unwraps must not panic
@@ -505,7 +495,7 @@ impl Watcher for INotifyWatcher {
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
-        let (tx, rx) = channel();
+        let (tx, rx) = bounded(1);
         self.0.lock()?.send(EventLoopMsg::Configure(config, tx))?;
         rx.recv()?
     }
