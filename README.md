@@ -16,6 +16,7 @@ _Cross-platform filesystem notification library for Rust._
 - [Guides and in-depth docs][wiki]
 - [Crate page][crate]
 - [Changelog][changelog]
+- **[Upgrading from 4.0](https://github.com/passcod/notify/wiki/Upgrading-from-4.0-to-5.0)**
 - Earliest supported Rust version: **1.26.1**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
@@ -26,59 +27,105 @@ As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
 
 ```toml
 [dependencies]
-notify = "4.0.0"
+notify = "5.0.0"
 ```
 
 ## Usage
 
 ```rust
-extern crate notify;
-
-use notify::{RecommendedWatcher, Watcher, RecursiveMode};
-use std::sync::mpsc::channel;
+use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
 use std::time::Duration;
 
-fn watch() -> notify::Result<()> {
-    // Create a channel to receive the events.
-    let (tx, rx) = channel();
-
+fn main() -> Result<()> {
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
-    let mut watcher: RecommendedWatcher = try!(Watcher::new(tx, Duration::from_secs(2)));
+    let mut watcher: RecommendedWatcher = Watcher::new(Duration::from_secs(2))?;
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
-    try!(watcher.watch("/home/test/notify", RecursiveMode::Recursive));
+    watcher.watch("/home/test/notify", RecursiveMode::Recursive)?;
 
     // This is a simple loop, but you may want to use more complex logic here,
     // for example to handle I/O.
-    loop {
-        match rx.recv() {
-            Ok(event) => println!("{:?}", event),
-            Err(e) => println!("watch error: {:?}", e),
-        }
+    for event in &watcher {
+        match event {
+            Ok(event) => println!("changed: {:?}", event.path),
+            Err(err) => println!("watch error: {:?}", err),
+        };
     }
-}
 
-fn main() {
-    if let Err(e) = watch() {
-        println!("error: {:?}", e)
+    Ok(())
+}
+```
+
+### With a channel
+
+To get a channel for advanced or flexible cases, use:
+
+```rust
+let rx = watcher.channel();
+
+loop {
+    match rx.recv() {
+        // ...
     }
 }
 ```
 
-Looking overly verbose? Too much boilerplate? Have a look at [hotwatch], a friendly wrapper:
+To pass in a channel manually:
 
 ```rust
-// Taken from the hotwatch readme
-use hotwatch::{Hotwatch, Event};
+let (tx, rx) = crossbeam_channel::unbounded();
+let mut watcher: RecommendedWatcher = Watcher::with_channel(tx, Duration::from_secs(2))?;
 
-let mut hotwatch = Hotwatch::new().expect("Hotwatch failed to initialize.");
-hotwatch.watch("war.png", |event: Event| {
-    if let Event::Write(path) = event {
-        println!("War has changed.");
-    }
-}).expect("Failed to watch file!");
+for event in rx.iter() {
+    // ...
+}
+```
+
+### With precise events
+
+By default, Notify issues generic events that carry little additional
+information beyond what path was affected. On some platforms, more is
+available; stay aware though that how exactly that manifests varies. To enable
+precise events, use:
+
+```rust
+use notify::Config;
+watcher.configure(Config::PreciseEvents(true));
+```
+
+### With ongoing write events
+
+Sometimes frequent writes may be missed or not noticed often enough. Ongoing
+write events can be enabled to emit more events even while debouncing:
+
+```rust
+use notify::Config;
+watcher.configure(Config::OngoingWrites(Some(Duration::from_ms(500))));
+```
+
+### Without debouncing
+
+To receive events as they are emitted, without debouncing at all:
+
+```rust
+let mut watcher: RecommendedWatcher = Watcher::new_immediate()?;
+```
+
+With a channel:
+
+```rust
+let (tx, rx) = unbounded();
+Watcher::immediate_with_channel(tx)?;
+```
+
+### Serde
+
+Events are serialisable via [serde]. To disable the feature if un-needed, use:
+
+```toml
+notify = { version = "5.0.0", default-features = false }
 ```
 
 ## Platforms
@@ -108,8 +155,6 @@ Instead of one large release, though, it is much more likely that smaller
 components of the design, once they have gone through revising and maturing in
 the `next` branch, will be incorporated in the `main` branch. The first large
 piece, a new event classification system, landed in 5.0.
-
-As usual, pull requests for fixes and features are welcome!
 
 Do be aware of the licensing difference. Notify is so far under [CC0][cc0]. The
 `next` branch is instead under the [Artistic License 2.0][artistic]. Pieces of
@@ -150,6 +195,7 @@ Public Domain using the [Creative Commons Zero Declaration][cc0].
 [pax]: https://pax.js.org/
 [rdiff]: https://github.com/dyule/rdiff
 [rust-analyzer]: https://github.com/rust-analyzer/rust-analyzer
+[serde]: https://serde.rs/
 [timetrack]: https://github.com/joshmcguigan/timetrack
 [watchexec]: https://github.com/mattgreen/watchexec
 [wiki]: https://github.com/passcod/notify/wiki
