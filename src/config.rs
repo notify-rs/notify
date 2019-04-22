@@ -23,7 +23,7 @@ impl RecursiveMode {
 
 /// Runtime configuration items for watchers.
 ///
-/// See the [`Watcher::configure`](./trait.Watcher.html#tymethod.configure) method for usage.
+/// See the [`Watcher::configure`](../trait.Watcher.html#tymethod.configure) method for usage.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Config {
     /// Enable or disable emitting precise event classification.
@@ -32,14 +32,14 @@ pub enum Config {
     ///
     /// When enabled, events are emitted with a `kind` set to as much precision about what kind of
     /// event they are as the backend is capable of providing. When disabled (default), events are
-    /// instead emitted as `EventKind::Any`.
+    /// instead emitted as `EventKind::Any`. `EventKind::Other` meta-events are left alone.
     PreciseEvents(bool),
 
-    /// Enable or disable emitting `OngoingWrite` events.
+    /// Enable or disable emitting `Notice` events.
     ///
     /// Applicable to debounced watchers only.
     ///
-    /// When enabled, partial write events that are received after a `Modify(Data)` notice but
+    /// When enabled, partial write events that are received after a `Modify(Data)` Notice but
     /// before the end of a debouncing period (and the emission of a `Modify(Data)` event) are
     /// passed through as `Modify(Data)` events with an `Ongoing` flag. These events are still
     /// debounced, but at a lower (configurable) interval than the debouncing interval.
@@ -49,5 +49,5 @@ pub enum Config {
     /// # Errors
     ///
     /// - `InvalidConfigValue` if the interval provided is higher than the debounce interval.
-    OngoingWrites(Option<Duration>),
+    OngoingEvents(Option<Duration>),
 }

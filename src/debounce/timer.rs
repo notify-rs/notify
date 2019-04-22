@@ -27,7 +27,7 @@ struct ScheduleWorker {
     tx: Sender<Result<Event>>,
     operations_buffer: OperationsBuffer,
     stopped: Arc<AtomicBool>,
-    ongoing_writes: Arc<CHashMap<PathBuf, Instant>>,
+    ongoing_events: Arc<CHashMap<PathBuf, Instant>>,
 }
 
 impl ScheduleWorker {
@@ -65,7 +65,7 @@ impl ScheduleWorker {
                         Some(Event::new(EventKind::Create(event::CreateKind::Any)).add_path(path))
                     }
                     Some(op::Op::WRITE) => {
-                        self.ongoing_writes.remove(&path);
+                        self.ongoing_events.remove(&path);
                         Some(Event::new(EventKind::Modify(event::ModifyKind::Any)).add_path(path))
                     }
                     Some(op::Op::METADATA) => Some(
@@ -75,7 +75,7 @@ impl ScheduleWorker {
                         .add_path(path),
                     ),
                     Some(op::Op::REMOVE) => {
-                        self.ongoing_writes.remove(&path);
+                        self.ongoing_events.remove(&path);
                         Some(Event::new(EventKind::Remove(event::RemoveKind::Any)).add_path(path))
                     }
                     Some(op::Op::RENAME) if is_partial_rename => {
@@ -143,7 +143,7 @@ pub struct WatchTimer {
     delay: Duration,
     events: Arc<Mutex<VecDeque<ScheduledEvent>>>,
     stopped: Arc<AtomicBool>,
-    ongoing_writes: Arc<CHashMap<PathBuf, Instant>>,
+    ongoing_events: Arc<CHashMap<PathBuf, Instant>>,
     ongoing_delay: Option<Duration>,
 }
 
@@ -157,13 +157,13 @@ impl WatchTimer {
         let new_event_trigger = Arc::new(Condvar::new());
         let stop_trigger = Arc::new(Condvar::new());
         let stopped = Arc::new(AtomicBool::new(false));
-        let ongoing_writes = Arc::new(CHashMap::new());
+        let ongoing_events = Arc::new(CHashMap::new());
 
         let worker_new_event_trigger = new_event_trigger.clone();
         let worker_stop_trigger = stop_trigger.clone();
         let worker_events = events.clone();
         let worker_stopped = stopped.clone();
-        let worker_ongoing_writes = ongoing_writes.clone();
+        let worker_ongoing_events = ongoing_events.clone();
         thread::spawn(move || {
             ScheduleWorker {
                 new_event_trigger: worker_new_event_trigger,
@@ -172,7 +172,7 @@ impl WatchTimer {
                 tx,
                 operations_buffer,
                 stopped: worker_stopped,
-                ongoing_writes: worker_ongoing_writes,
+                ongoing_events: worker_ongoing_events,
             }
             .run();
         });
@@ -184,19 +184,19 @@ impl WatchTimer {
             delay,
             events,
             stopped,
-            ongoing_writes,
+            ongoing_events,
             ongoing_delay: None,
         }
     }
 
-    pub fn set_ongoing_writes(&mut self, delay: Option<Duration>) -> Result<bool> {
+    pub fn set_ongoing(&mut self, delay: Option<Duration>) -> Result<bool> {
         if let Some(delay) = delay {
             if delay > self.delay {
-                return Err(Error::invalid_config(&Config::OngoingWrites(Some(delay))));
+                return Err(Error::invalid_config(&Config::OngoingEvents(Some(delay))));
             }
         } else if self.ongoing_delay.is_some() {
             // Reset the current ongoing state when disabling
-            self.ongoing_writes.clear();
+            self.ongoing_events.clear();
         }
 
         self.ongoing_delay = delay;
@@ -205,7 +205,7 @@ impl WatchTimer {
 
     pub fn handle_ongoing_write(&self, path: &PathBuf, tx: &Sender<Result<Event>>) {
         if let Some(delay) = self.ongoing_delay {
-            self.ongoing_writes.upsert(
+            self.ongoing_events.upsert(
                 path.clone(),
                 || Instant::now() + delay,
                 |fire_at| {

@@ -55,7 +55,7 @@
 //! }
 //! ```
 //!
-//! ### With precise events
+//! ## With precise events
 //!
 //! By default, Notify emits non-descript events containing only the affected path and some
 //! metadata. To get richer details about _what_ the events are about, you need to enable

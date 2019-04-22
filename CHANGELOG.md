@@ -3,7 +3,7 @@
 ## 5.0.0 (future)
 
 - FEATURE: Add new runtime configuration system.
-- FEATURE: Add `OngoingWrite` event (optional, configured at runtime). [#146], [#183]
+- FEATURE: Add `Ongoing` events (optional, configured at runtime). [#146], [#183]
 - FEATURE: Bring in new event system from `next` branch. [#187]
 - FEATURE: Allow multiple watchers to send to the same channel. [`2a035c86`]
 - CHANGE: Switch to crossbeam channel. [#160]
