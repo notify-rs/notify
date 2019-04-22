@@ -10,6 +10,7 @@
 - ~~CHANGE: Rename `Chmod` to `Metadata`. [#179], [#180], previously [#112], [#161]~~
 - CHANGE: Remove `Op` and `DebouncedEvent` event classification. [#187]
 - CHANGE: Make it opt-in to receive information about event kind. [#187]
+- CHANGE: Make `Notice` events opt-in.
 - DEPS: \[Linux\] Upgrade inotify to 0.7. [#184]
 - META: Rename `v4-legacy` branch to `main`, to further clarify status and prepare for a breaking release.
 - DOCS: Change `v5` to `Next Generation Notify` to allow for a breaking release.

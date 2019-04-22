@@ -39,6 +39,15 @@ pub enum Config {
     ///
     /// Applicable to debounced watchers only.
     ///
+    /// When enabled, the first modify or remove event for a path is emitted immediately with a
+    /// [`Flag::Notice`](../event/enum.Flag.html) attribute within a debouncing period, enabling
+    /// applications to respond more quickly.
+    NoticeEvents(bool),
+
+    /// Enable or disable emitting `Ongoing` events.
+    ///
+    /// Applicable to debounced watchers only.
+    ///
     /// When enabled, partial write events that are received after a `Modify(Data)` Notice but
     /// before the end of a debouncing period (and the emission of a `Modify(Data)` event) are
     /// passed through as `Modify(Data)` events with an `Ongoing` flag. These events are still
