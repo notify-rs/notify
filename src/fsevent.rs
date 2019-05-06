@@ -17,7 +17,7 @@ use super::debounce::{Debounce, EventTx};
 use super::{op, Config, Error, Event, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use fsevent_sys::core_foundation as cf;
-use fsevent_sys::fsevent as fs;
+use fsevent_sys as fs;
 use libc;
 use std::collections::HashMap;
 use std::convert::AsRef;
@@ -51,19 +51,19 @@ unsafe impl Sync for FsEventWatcher {}
 
 fn translate_flags(flags: fse::StreamFlags) -> op::Op {
     let mut ret = op::Op::empty();
-    if flags.contains(fse::ITEM_XATTR_MOD) || flags.contains(fse::ITEM_CHANGE_OWNER) {
+    if flags.contains(fse::StreamFlags::ITEM_XATTR_MOD) || flags.contains(fse::StreamFlags::ITEM_CHANGE_OWNER) {
         ret.insert(op::Op::METADATA);
     }
-    if flags.contains(fse::ITEM_CREATED) {
+    if flags.contains(fse::StreamFlags::ITEM_CREATED) {
         ret.insert(op::Op::CREATE);
     }
-    if flags.contains(fse::ITEM_REMOVED) {
+    if flags.contains(fse::StreamFlags::ITEM_REMOVED) {
         ret.insert(op::Op::REMOVE);
     }
-    if flags.contains(fse::ITEM_RENAMED) {
+    if flags.contains(fse::StreamFlags::ITEM_RENAMED) {
         ret.insert(op::Op::RENAME);
     }
-    if flags.contains(fse::ITEM_MODIFIED) {
+    if flags.contains(fse::StreamFlags::ITEM_MODIFIED) {
         ret.insert(op::Op::WRITE);
     }
     ret
@@ -127,7 +127,8 @@ impl FsEventWatcher {
     fn remove_path<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         let str_path = path.as_ref().to_str().unwrap();
         unsafe {
-            let cf_path = cf::str_path_to_cfstring_ref(str_path);
+            let mut err: cf::CFErrorRef = std::ptr::null_mut();
+            let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
 
             let mut to_remove = Vec::new();
             for idx in 0..cf::CFArrayGetCount(self.paths) {
@@ -165,7 +166,8 @@ impl FsEventWatcher {
         }
         let str_path = path.as_ref().to_str().unwrap();
         unsafe {
-            let cf_path = cf::str_path_to_cfstring_ref(str_path);
+            let mut err: cf::CFErrorRef = std::ptr::null_mut();
+            let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
             cf::CFArrayAppendValue(self.paths, cf_path);
             cf::CFRelease(cf_path);
         }
@@ -300,7 +302,7 @@ pub unsafe extern "C" fn callback(
             }
         }
 
-        if flag.contains(fse::MUST_SCAN_SUBDIRS) {
+        if flag.contains(fse::StreamFlags::MUST_SCAN_SUBDIRS) {
             event_tx.send(RawEvent {
                 path: None,
                 op: Ok(op::Op::RESCAN),
@@ -309,7 +311,7 @@ pub unsafe extern "C" fn callback(
         }
 
         if handle_event {
-            if flag.contains(fse::ITEM_RENAMED) {
+            if flag.contains(fse::StreamFlags::ITEM_RENAMED) {
                 if let Some(e) = rename_event {
                     if e.cookie == Some((id - 1) as u32) {
                         event_tx.send(e);
