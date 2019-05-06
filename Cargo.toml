@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "4.0.10"
+version = "4.0.11"
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
@@ -34,8 +34,8 @@ mio = "^0.6.15"
 mio-extras = "^2.0.5"
 
 [target.'cfg(target_os="macos")'.dependencies]
-fsevent = "^0.2.17"
-fsevent-sys = "^0.1.3"
+fsevent = "0.4"
+fsevent-sys = "2"
 
 [target.'cfg(windows)'.dependencies]
 winapi = "^0.3.5"
