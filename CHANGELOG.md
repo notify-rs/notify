@@ -12,6 +12,7 @@
 - CHANGE: Make it opt-in to receive information about event kind. [#187]
 - CHANGE: Make `Notice` events opt-in.
 - DEPS: \[Linux\] Upgrade inotify to 0.7. [#184]
+- DEPS: \[macOS\] Upgrade fsevent to 0.4. [#195]
 - META: Rename `v4-legacy` branch to `main`, to further clarify status and prepare for a breaking release.
 - DOCS: Change `v5` to `Next Generation Notify` to allow for a breaking release.
 - DOCS: Add rust-analyzer to Readme showcase.
@@ -26,7 +27,14 @@
 [#183]: https://github.com/passcod/notify/issues/183
 [#184]: https://github.com/passcod/notify/issues/184
 [#187]: https://github.com/passcod/notify/issues/187
+[#195]: https://github.com/passcod/notify/issues/195
 [`2a035c86`]: https://github.com/passcod/notify/commit/2a035c86c5f12aeee635a827c1f458211ca923ca
+
+## 4.0.11 (2019-05-08)
+
+- DEPS: \[macOS\] Upgrade fsevent to 0.4. [#196]
+
+[#196]: https://github.com/passcod/notify/issues/196
 
 ## 4.0.10 (2019-03-07)
 
