@@ -16,14 +16,16 @@ extern crate fsevent as fse;
 use super::debounce::{Debounce, EventTx};
 use super::{op, Config, Error, Event, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use fsevent_sys::core_foundation as cf;
 use fsevent_sys as fs;
+use fsevent_sys::core_foundation as cf;
 use libc;
 use std::collections::HashMap;
 use std::convert::AsRef;
 use std::ffi::CStr;
 use std::mem::transmute;
+use std::os::raw;
 use std::path::{Path, PathBuf};
+use std::ptr;
 use std::slice;
 use std::str::from_utf8;
 use std::sync::{Arc, Mutex};
@@ -51,7 +53,9 @@ unsafe impl Sync for FsEventWatcher {}
 
 fn translate_flags(flags: fse::StreamFlags) -> op::Op {
     let mut ret = op::Op::empty();
-    if flags.contains(fse::StreamFlags::ITEM_XATTR_MOD) || flags.contains(fse::StreamFlags::ITEM_CHANGE_OWNER) {
+    if flags.contains(fse::StreamFlags::ITEM_XATTR_MOD)
+        || flags.contains(fse::StreamFlags::ITEM_CHANGE_OWNER)
+    {
         ret.insert(op::Op::METADATA);
     }
     if flags.contains(fse::StreamFlags::ITEM_CREATED) {
@@ -102,7 +106,7 @@ impl FsEventWatcher {
 
         if let Some(runloop) = self.runloop {
             unsafe {
-                let runloop = runloop as *mut libc::c_void;
+                let runloop = runloop as *mut raw::c_void;
 
                 while !CFRunLoopIsWaiting(runloop) {
                     thread::yield_now();
@@ -127,7 +131,7 @@ impl FsEventWatcher {
     fn remove_path<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         let str_path = path.as_ref().to_str().unwrap();
         unsafe {
-            let mut err: cf::CFErrorRef = std::ptr::null_mut();
+            let mut err: cf::CFErrorRef = ptr::null_mut();
             let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
 
             let mut to_remove = Vec::new();
@@ -166,7 +170,7 @@ impl FsEventWatcher {
         }
         let str_path = path.as_ref().to_str().unwrap();
         unsafe {
-            let mut err: cf::CFErrorRef = std::ptr::null_mut();
+            let mut err: cf::CFErrorRef = ptr::null_mut();
             let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
             cf::CFArrayAppendValue(self.paths, cf_path);
             cf::CFRelease(cf_path);
@@ -221,7 +225,7 @@ impl FsEventWatcher {
         let (rl_tx, rl_rx) = unbounded();
 
         thread::spawn(move || {
-            let stream = dummy as *mut libc::c_void;
+            let stream = dummy as *mut raw::c_void;
             unsafe {
                 let cur_runloop = cf::CFRunLoopGetCurrent();
 
