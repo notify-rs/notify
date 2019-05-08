@@ -60,9 +60,9 @@ script:
     if [[ ! -z "$CARGO_SMOKE" ]]; then
       cargo check --features serde
       cargo audit
-      cargo test --features serde
+      tests/and-retry --features serde
     elif [[ ! -z "$CARGO_TEST" ]]; then
-      cargo test --features serde
+      tests/and-retry --features serde
     else
       cargo check --features serde
     fi
