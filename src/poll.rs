@@ -310,3 +310,6 @@ impl Drop for PollWatcher {
         }
     }
 }
+
+// Because all public methods are `&mut self` it's also perfectly safe to share references.
+unsafe impl Sync for PollWatcher {}
