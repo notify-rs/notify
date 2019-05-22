@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.0.12 (2019-05-22)
+
+- FIX: Implement `Sync` for PollWatcher to support FreeBSD. [#198]
+- DEPS: Peg filetime to 1.2.5 to maintain rustc 1.26.1 compatibility. [#199]
+
+[#198]: https://github.com/passcod/notify/issues/198
+[#199]: https://github.com/passcod/notify/issues/199
+
 ## 4.0.11 (2019-05-08)
 
 - DEPS: \[macOS\] Upgrade fsevent to 0.4. [#196]
