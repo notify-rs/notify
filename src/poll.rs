@@ -311,3 +311,6 @@ impl Drop for PollWatcher {
         self.open.store(false, Ordering::Relaxed);
     }
 }
+
+// Because all public methods are `&mut self` it's also perfectly safe to share references.
+unsafe impl Sync for PollWatcher {}
