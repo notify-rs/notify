@@ -1,7 +1,10 @@
 # Changelog
 
-- META: Rename `v4-legacy` branch to `main`, to further clarify status and potentially prepare for a breaking release.
-- DOCS: Change `v5` to `vNext` to allow for a breaking release.
+## 4.0.11 (2019-05-08)
+
+- DEPS: \[macOS\] Upgrade fsevent to 0.4. [#196]
+
+[#196]: https://github.com/passcod/notify/issues/196
 
 ## 4.0.10 (2019-03-07)
 
