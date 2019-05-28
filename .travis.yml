@@ -29,11 +29,11 @@ jobs:
       os: osx
 
     - stage: check minimum version
-      rust: 1.26.1
+      rust: 1.32.0
       os: linux
-    - rust: 1.26.1
+    - rust: 1.32.0
       os: windows
-    - rust: 1.26.1
+    - rust: 1.32.0
       os: osx
 
     - stage: check nightlies

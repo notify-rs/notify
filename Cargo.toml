@@ -23,7 +23,7 @@ maintenance = { status = "passively-maintained" }
 anymap = "0.12.1"
 bitflags = "^1.0.4"
 crossbeam-channel = "0.3.8"
-filetime = "=0.2.5"
+filetime = "0.2.6"
 libc = "^0.2.4"
 serde = { version = "1.0.89", features = ["derive"], optional = true }
 walkdir = "^2.0.1"

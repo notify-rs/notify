@@ -21,7 +21,7 @@ _Cross-platform filesystem notification library for Rust._
 - [Crate page][crate]
 - [Changelog][changelog]
 - **[Upgrading from 4.0](https://github.com/passcod/notify/wiki/Upgrading-from-4.0-to-5.0)**
-- Earliest supported Rust version: **1.26.1**
+- Earliest supported Rust version: **1.32.0**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
 [mdBook], [pax], [rdiff], [rust-analyzer], [timetrack], [watchexec],

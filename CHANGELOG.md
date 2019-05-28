@@ -2,6 +2,7 @@
 
 ## 5.0.0 (future)
 
+- RUSTC: New minimum version is 1.32.0 [#201]
 - FIX: Implement `Sync` for PollWatcher to support FreeBSD. [#197]
 - FEATURE: Add new runtime configuration system.
 - FEATURE: Add `Ongoing` events (optional, configured at runtime). [#146], [#183]
@@ -14,7 +15,7 @@
 - CHANGE: Make `Notice` events opt-in.
 - DEPS: \[Linux\] Upgrade inotify to 0.7. [#184]
 - DEPS: \[macOS\] Upgrade fsevent to 0.4. [#195]
-- DEPS: Peg filetime to 1.2.5 to maintain rustc 1.26.1 compatibility. [#200]
+- DEPS: Upgrade filetime to 0.2.6.
 - META: Rename `v4-legacy` branch to `main`, to further clarify status and prepare for a breaking release.
 - DOCS: Change `v5` to `Next Generation Notify` to allow for a breaking release.
 - DOCS: Add rust-analyzer to Readme showcase.
@@ -31,7 +32,7 @@
 [#187]: https://github.com/passcod/notify/issues/187
 [#195]: https://github.com/passcod/notify/issues/195
 [#197]: https://github.com/passcod/notify/issues/197
-[#200]: https://github.com/passcod/notify/issues/200
+[#201]: https://github.com/passcod/notify/issues/201
 [`2a035c86`]: https://github.com/passcod/notify/commit/2a035c86c5f12aeee635a827c1f458211ca923ca
 
 ## 4.0.12 (2019-05-22)
