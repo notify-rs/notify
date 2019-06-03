@@ -2,22 +2,21 @@
 
 mod timer;
 
-use super::{event, op, Config, Event, EventKind, RawEvent, Result};
-
-use self::timer::WatchTimer;
+use chashmap::CHashMap;
 use crossbeam_channel::Sender;
-use std::collections::HashMap;
+use super::{event, Config, EventKind, Result};
+use event::*;
+use self::timer::WatchTimer;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-pub type OperationsBuffer =
-    Arc<Mutex<HashMap<PathBuf, (Option<op::Op>, Option<PathBuf>, Option<u64>)>>>;
+pub type OperationsBuffer = Arc<CHashMap<PathBuf, (Event, Option<usize>)>>;
 
 #[derive(Clone)]
 pub enum EventTx {
     Immediate {
-        tx: Sender<RawEvent>,
+        tx: Sender<Result<Event>>,
     },
     DebouncedTx {
         tx: Sender<Result<Event>>,
@@ -36,7 +35,7 @@ impl EventTx {
         }
     }
 
-    pub fn new_immediate(tx: Sender<RawEvent>) -> Self {
+    pub fn new_immediate(tx: Sender<Result<Event>>) -> Self {
         EventTx::Immediate { tx }
     }
 
@@ -64,7 +63,7 @@ impl EventTx {
         }
     }
 
-    pub fn send(&self, event: RawEvent) {
+    pub fn send(&self, event: Result<Event>) {
         match self {
             EventTx::Immediate { ref tx } => {
                 let _ = tx.send(event);
@@ -73,46 +72,40 @@ impl EventTx {
                 ref tx,
                 ref debounce,
             } => {
-                match (event.path, event.op, event.cookie) {
-                    (None, Ok(op::Op::RESCAN), None) => {
-                        tx.send(Ok(
-                            Event::new(EventKind::Other).set_flag(event::Flag::Rescan)
-                        ))
-                        .ok();
+                match event {
+                    Ok(ref e) if e.flag() == Some(Flag::Rescan) => {
+                        // send rescans immediately
+                        tx.send(Ok(e.clone())).ok();
                     }
-                    (Some(path), Ok(op), cookie) => {
-                        debounce.lock().unwrap().event(path, op, cookie);
-                    }
-                    (None, Ok(_op), _cookie) => {
+                    Ok(ref e) if e.paths.is_empty() => {
                         // TODO debounce path-less events
                     }
-                    (Some(path), Err(e), _) => {
-                        tx.send(Err(e.set_paths(vec![path]))).ok();
+                    Ok(e) => {
+                        // debounce events per path and kind
+                        debounce.lock().unwrap().event(e);
                     }
-                    (None, Err(e), _) => {
-                        tx.send(Err(e)).ok();
+                    e @ Err(_) => {
+                        // send errors immediately
+                        tx.send(e).ok();
                     }
                 }
             }
             EventTx::DebouncedTx { ref tx } => {
-                match (event.path, event.op, event.cookie) {
-                    (None, Ok(op::Op::RESCAN), None) => {
-                        tx.send(Ok(
-                            Event::new(EventKind::Other).set_flag(event::Flag::Rescan)
-                        ))
-                        .ok();
+                match event {
+                    Ok(ref e) if e.flag() == Some(Flag::Rescan) => {
+                        // send rescans and errors immediately
+                        tx.send(Ok(e.clone())).ok();
                     }
-                    (Some(_path), Ok(_op), _cookie) => {
-                        // TODO debounce.event(_path, _op, _cookie);
-                    }
-                    (None, Ok(_op), _cookie) => {
+                    Ok(ref e) if e.paths.is_empty() => {
                         // TODO debounce path-less events
                     }
-                    (Some(path), Err(e), _) => {
-                        tx.send(Err(e.set_paths(vec![path]))).ok();
+                    Ok(_e) => {
+                        // debounce events per path and kind
+                        // TODO debounce.event(e)
                     }
-                    (None, Err(e), _) => {
-                        tx.send(Err(e)).ok();
+                    e @ Err(_) => {
+                        // send errors immediately
+                        tx.send(e).ok();
                     }
                 }
             }
@@ -120,12 +113,14 @@ impl EventTx {
     }
 }
 
+// TODO: use concurrent data structures within
+// this struct to avoid the global mutex over it
 #[derive(Clone)]
 pub struct Debounce {
     tx: Sender<Result<Event>>,
     operations_buffer: OperationsBuffer,
     rename_path: Option<PathBuf>,
-    rename_cookie: Option<u32>,
+    rename_cookie: Option<usize>,
     timer: WatchTimer,
 }
 
@@ -153,428 +148,340 @@ impl Debounce {
         .expect("configuration channel disconnected");
     }
 
-    fn check_partial_rename(&mut self, path: PathBuf, op: op::Op, cookie: Option<u32>) {
-        if let Ok(mut op_buf) = self.operations_buffer.lock() {
-            // the previous event was a rename event, but this one isn't; something went wrong
-            let mut remove_path: Option<PathBuf> = None;
+    fn check_partial_rename(&mut self, current_event: &Event) {
+        // op == current_event.kind
+        // cookie == current_event.tracker()
 
-            // get details for the last rename event from the operations_buffer.
-            // the last rename event might not be found in case the timer already fired
-            // (https://github.com/passcod/notify/issues/101).
-            if let Some(&mut (ref mut operation, ref mut from_path, ref mut timer_id)) =
-                op_buf.get_mut(self.rename_path.as_ref().unwrap())
-            {
-                if op != op::Op::RENAME
-                    || self.rename_cookie.is_none()
-                    || self.rename_cookie != cookie
-                {
-                    if self.rename_path.as_ref().unwrap().exists() {
-                        match *operation {
-                            Some(op::Op::RENAME) if from_path.is_none() => {
-                                // file has been moved into the watched directory
-                                *operation = Some(op::Op::CREATE);
-                                restart_timer(timer_id, path, &mut self.timer);
-                            }
-                            Some(op::Op::REMOVE) => {
-                                // file has been moved removed before and has now been moved into
-                                // the watched directory
-                                *operation = Some(op::Op::WRITE);
-                                restart_timer(timer_id, path, &mut self.timer);
-                            }
-                            _ => {
-                                // this code can only be reached with fsevents because it may
-                                // repeat a rename event for a file that has been renamed before
-                                // (https://github.com/passcod/notify/issues/99)
-                            }
-                        }
-                    } else {
-                        match *operation {
-                            Some(op::Op::CREATE) => {
-                                // file was just created, so just remove the operations_buffer
-                                // entry / no need to emit NoticeRemove because the file has just
-                                // been created.
+        let path = match current_event.paths.first() {
+            Some(p) => p,
+            None => return
+        }.clone();
 
-                                // ignore running timer
-                                if let Some(timer_id) = *timer_id {
-                                    self.timer.ignore(timer_id);
-                                }
+        if self.rename_path.is_none() {
+            return;
+        }
 
-                                // remember for deletion
-                                remove_path = Some(path);
-                            }
-                            Some(op::Op::WRITE) | // change to remove event
-                            Some(op::Op::METADATA) => { // change to remove event
-                                *operation = Some(op::Op::REMOVE);
-                                self.tx.send(Ok(Event::new(EventKind::Remove(event::RemoveKind::Any))
-                                             .add_path(path.clone())
-                                             .set_flag(event::Flag::Notice))).ok();
-                                restart_timer(timer_id, path, &mut self.timer);
-                            }
-                            Some(op::Op::RENAME) => {
+        // get details for the last rename event from the operations_buffer.
+        // the last rename event might not be found in case the timer already fired
+        // (https://github.com/passcod/notify/issues/101).
+        let mut prior_event = match self.operations_buffer.get_mut(self.rename_path.as_ref().unwrap()) {
+            None => return,
+            Some(e) => e,
+        };
+        // operation == prior_event.0.kind
+        // from_path == prior_event.0.paths
+        // timer_id == prior_event.1
 
-                                // file has been renamed before, change to remove event / no need
-                                // to emit NoticeRemove because the file has been renamed before
-                                *operation = Some(op::Op::REMOVE);
-                                restart_timer(timer_id, path, &mut self.timer);
-                            }
-                            Some(op::Op::REMOVE) => {
+        let rename_path = self.rename_path.take().unwrap();
 
-                                // file has been renamed and then removed / keep write event
-                                // this code can only be reached with fsevents because it may
-                                // repeat a rename event for a file that has been renamed before
-                                // (https://github.com/passcod/notify/issues/100)
-                                restart_timer(timer_id, path, &mut self.timer);
-                            }
-                            // CLOSE_WRITE and RESCAN aren't tracked by operations_buffer
-                            _ => {
-                                unreachable!();
-                            }
-                        }
-                    }
-                    self.rename_path = None;
+        let mut remove_path: Option<PathBuf> = None;
+
+        let current_is_rename = if let EventKind::Modify(ModifyKind::Name(_)) = current_event.kind {
+            true
+        } else {
+            false
+        };
+
+        if !(!current_is_rename
+            || self.rename_cookie.is_none()
+            || self.rename_cookie != current_event.tracker())
+            || current_event.paths.len() > 1 // event is already a full rename
+        {
+            return;
+        }
+
+        if rename_path.exists() {
+            match prior_event.0.kind {
+                EventKind::Modify(ModifyKind::Name(_)) if prior_event.0.paths.is_empty() => {
+                    // file has been moved into the watched directory
+                    prior_event.0.kind = EventKind::Create(CreateKind::Any);
+                    restart_timer(&mut prior_event.1, path, &mut self.timer);
+                }
+                EventKind::Remove(_) => {
+                    // file has been moved / removed before and has now been moved into
+                    // the watched directory
+                    prior_event.0.kind = EventKind::Modify(ModifyKind::Any);
+                    restart_timer(&mut prior_event.1, path, &mut self.timer);
+                }
+                _ => {
+                    // this code can only be reached with fsevents because it may
+                    // repeat a rename event for a file that has been renamed before
+                    // (https://github.com/passcod/notify/issues/99)
                 }
             }
+        } else {
+            match prior_event.0.kind {
+                EventKind::Create(_) => {
+                    // file was just created, so just remove the operations_buffer
+                    // entry / no need to emit NoticeRemove because the file has just
+                    // been created.
 
-            if let Some(path) = remove_path {
-                op_buf.remove(&path);
+                    // ignore running timer
+                    if let Some(timer_id) = prior_event.1 {
+                        self.timer.ignore(timer_id);
+                    }
+
+                    // remember for deletion
+                    remove_path = Some(path.clone());
+                }
+                EventKind::Modify(ModifyKind::Name(_)) => {
+                    // file has been renamed before, change to remove event / no need
+                    // to emit NoticeRemove because the file has been renamed before
+                    prior_event.0.kind = EventKind::Remove(RemoveKind::Any);
+                    restart_timer(&mut prior_event.1, path, &mut self.timer);
+                }
+                EventKind::Modify(_) => {
+                    prior_event.0.kind = EventKind::Remove(RemoveKind::Any);
+                    self.tx.send(Ok(Event::new(EventKind::Remove(event::RemoveKind::Any))
+                                 .add_path(path.clone())
+                                 .set_flag(event::Flag::Notice))).ok();
+                    restart_timer(&mut prior_event.1, path, &mut self.timer);
+                }
+                EventKind::Remove(_) => {
+                    // file has been renamed and then removed / keep write event
+                    // this code can only be reached with fsevents because it may
+                    // repeat a rename event for a file that has been renamed before
+                    // (https://github.com/passcod/notify/issues/100)
+                    restart_timer(&mut prior_event.1, path, &mut self.timer);
+                }
+                _ => {}
             }
+        }
+
+        self.rename_path = None;
+
+        if let Some(path) = remove_path {
+            self.operations_buffer.remove(&path);
         }
     }
 
-    pub fn event(&mut self, path: PathBuf, mut op: op::Op, cookie: Option<u32>) {
-        if op.contains(op::Op::RESCAN) {
-            self.tx
-                .send(Ok(
-                    Event::new(EventKind::Other).set_flag(event::Flag::Rescan)
-                ))
-                .ok();
+    pub fn event(&mut self, current_event: Event) {
+        // should be caught earlier, but let's make sure anyway.
+        if current_event.flag() == Some(Flag::Rescan) {
+            self.tx.send(Ok(current_event)).ok();
+            return;
         }
 
+        // TODO: multiple concurrent renames
         if self.rename_path.is_some() {
-            self.check_partial_rename(path.clone(), op, cookie);
+            self.check_partial_rename(&current_event);
         }
 
-        if let Ok(mut op_buf) = self.operations_buffer.lock() {
-            if let Some(&(ref operation, _, _)) = op_buf.get(&path) {
-                op = remove_repeated_events(op, operation);
-            } else if op.contains(op::Op::CREATE | op::Op::REMOVE) {
-                if path.exists() {
-                    op.remove(op::Op::REMOVE);
-                } else {
-                    op.remove(op::Op::CREATE);
-                }
+        // TODO: the rest?
+        let path = match current_event.paths.first() {
+            Some(p) => p,
+            None => return
+        };
+        // op == current_event.kind
+        // cookie = current_event.tracker()
+
+        let prior_event = self.operations_buffer.get_mut(path);
+
+        if let Some(ref prior) = prior_event {
+            let (ref prev, _) = **prior;
+            if current_event.kind.is_create() && (prev.kind.is_create() || prev.kind.is_modify()) {
+                return;
             }
 
-            if op.contains(op::Op::CREATE) {
-                let &mut (ref mut operation, _, ref mut timer_id) =
-                    op_buf.entry(path.clone()).or_insert((None, None, None));
-                match *operation {
-                    // file can't be created twice
-                    Some(op::Op::CREATE) |
+            if current_event.kind.is_remove() && prev.kind.is_remove() {
+                return;
+            }
+        }
 
-                    // file can't be written to before being created
-                    Some(op::Op::WRITE) |
-
-                    // file can't be changed before being created
-                    Some(op::Op::METADATA) |
-
-                    // file can't be renamed to before being created
-                    // (repetitions are removed anyway),
-                    // but with fsevents everything is possible
-                    Some(op::Op::RENAME) => {}
-
+        if current_event.kind.is_create() {
+            if let Some(mut prior) = prior_event {
+                let (ref mut prev, mut timer_id) = *prior;
+                if prev.kind.is_remove() {
                     // file has been removed and is now being re-created;
-                    // convert this to a write event
-                    Some(op::Op::REMOVE) => {
-                        *operation = Some(op::Op::WRITE);
-                        restart_timer(timer_id, path.clone(), &mut self.timer);
-                    }
-
-                    // operations_buffer entry didn't exist
-                    None => {
-                        *operation = Some(op::Op::CREATE);
-                        restart_timer(timer_id, path.clone(), &mut self.timer);
-                    }
-
-                    _ => { unreachable!(); }
+                    // convert this to a modify event
+                    prev.kind = EventKind::Modify(ModifyKind::Any);
+                    restart_timer(&mut timer_id, path.clone(), &mut self.timer);
                 }
+            } else {
+                // set prev.kind to Create
+                restart_timer(&mut None, path.clone(), &mut self.timer);
             }
 
-            if op.contains(op::Op::WRITE) {
-                let &mut (ref mut operation, _, ref mut timer_id) =
-                    op_buf.entry(path.clone()).or_insert((None, None, None));
-                match *operation {
-                    // keep create event / no need to emit NoticeWrite because
-                    // the file has just been created
-                    Some(op::Op::CREATE) |
+            return;
+        }
 
-                    // keep write event / not need to emit NoticeWrite because
-                    // it already was a write event
-                    Some(op::Op::WRITE) => {
-                        restart_timer(timer_id, path.clone(), &mut self.timer);
-                        self.timer.handle_ongoing_write(&path, &self.tx);
-                    }
-
-                    // upgrade to write event
-                    Some(op::Op::METADATA) |
-
-                    // file has been renamed before, upgrade to write event
-                    Some(op::Op::RENAME) |
-
-                    // operations_buffer entry didn't exist
-                    None => {
-                        *operation = Some(op::Op::WRITE);
-                        self.tx.send(Ok(Event::new(EventKind::Modify(event::ModifyKind::Any))
-                                     .add_path(path.clone())
-                                     .set_flag(event::Flag::Notice))).ok();
-                        restart_timer(timer_id, path.clone(), &mut self.timer);
-                    }
-
-                    // writing to a deleted file is impossible,
-                    // but with fsevents everything is possible
-                    Some(op::Op::REMOVE) => {}
-
-                    _ => { unreachable!(); }
-                }
-            }
-
-            if op.contains(op::Op::METADATA) {
-                let &mut (ref mut operation, _, ref mut timer_id) =
-                    op_buf.entry(path.clone()).or_insert((None, None, None));
-                match *operation {
-                    // keep create event
-                    Some(op::Op::CREATE) |
-
-                    // keep write event
-                    Some(op::Op::WRITE) |
-
-                    // keep metadata event
-                    Some(op::Op::METADATA) => { restart_timer(timer_id, path.clone(), &mut self.timer); }
-
-                    // file has been renamed before, upgrade to metadata event
-                    Some(op::Op::RENAME) |
-
-                    // operations_buffer entry didn't exist
-                    None => {
-                        *operation = Some(op::Op::METADATA);
-                        restart_timer(timer_id, path.clone(), &mut self.timer);
-                    }
-
-                    // changing a deleted file is impossible,
-                    // but with fsevents everything is possible
-                    Some(op::Op::REMOVE) => {}
-
-                    _ => { unreachable!(); }
-                }
-            }
-
-            if op.contains(op::Op::RENAME) {
-                // unwrap is safe because rename_path is Some
-                if self.rename_path.is_some()
-                    && self.rename_cookie.is_some()
-                    && self.rename_cookie == cookie
-                    && op_buf.contains_key(self.rename_path.as_ref().unwrap())
-                {
-                    // This is the second part of a rename operation, the old path is stored in the
-                    // rename_path variable.
-
-                    // unwrap is safe because rename_path is Some and op_buf contains rename_path
-                    let (from_operation, from_from_path, from_timer_id) =
-                        op_buf.remove(self.rename_path.as_ref().unwrap()).unwrap();
-
-                    // ignore running timer of removed operations_buffer entry
-                    if let Some(from_timer_id) = from_timer_id {
-                        self.timer.ignore(from_timer_id);
-                    }
-
-                    // if the file has been renamed before, use original name as from_path
-                    let use_from_path = from_from_path.or_else(|| self.rename_path.clone());
-
-                    let &mut (ref mut operation, ref mut from_path, ref mut timer_id) =
-                        op_buf.entry(path.clone()).or_insert((None, None, None));
-
-                    match from_operation {
-                        // file has just been created, so move the create event to the new path
-                        Some(op::Op::CREATE) => {
-                            *operation = from_operation;
-                            *from_path = None;
-                            restart_timer(timer_id, path.clone(), &mut self.timer);
-                        }
-
-                        // file has been written to, so move the event to the new path, but keep
-                        // the write event
-                        Some(op::Op::WRITE) |
-
-                        // file has been changed, so move the event to the new path, but keep the
-                        // metadata event
-                        Some(op::Op::METADATA) |
-
-                        // file has been renamed before, so move the event to the new path and
-                        // update the from_path
-                        Some(op::Op::RENAME) => {
-                            *operation = from_operation;
-                            *from_path = use_from_path;
-                            restart_timer(timer_id, path.clone(), &mut self.timer);
-                        }
-
-                        // file can't be renamed after being removed,
-                        // but with fsevents everything is possible
-                        Some(op::Op::REMOVE) => {}
-
-                        _ => { unreachable!(); }
-                    }
-
-                    // reset the rename_path
-                    self.rename_path = None;
-                } else {
-                    // this is the first part of a rename operation,
-                    // store path for the subsequent rename event
-                    self.rename_path = Some(path.clone());
-                    self.rename_cookie = cookie;
-
-                    let &mut (ref mut operation, _, ref mut timer_id) =
-                        op_buf.entry(path.clone()).or_insert((None, None, None));
-                    match *operation {
-                        // keep create event / no need to emit NoticeRemove because
-                        // the file has just been created
-                        Some(op::Op::CREATE) |
-
-                        // file has been renamed before, so
-                        // keep rename event / no need to emit NoticeRemove because
-                        // the file has been renamed before
-                        Some(op::Op::RENAME) => {
-                            restart_timer(timer_id, path.clone(), &mut self.timer);
-                        }
-
-                        // keep write event
-                        Some(op::Op::WRITE) |
-
-                        // keep metadata event
-                        Some(op::Op::METADATA) => {
-                            self.tx.send(Ok(Event::new(EventKind::Remove(event::RemoveKind::Any))
-                                         .add_path(path.clone())
-                                         .set_flag(event::Flag::Notice))).ok();
-                            restart_timer(timer_id, path.clone(), &mut self.timer);
-                        }
-
-                        // operations_buffer entry didn't exist
-                        None => {
-                            *operation = Some(op::Op::RENAME);
-                            self.tx.send(Ok(Event::new(EventKind::Remove(event::RemoveKind::Any))
-                                         .add_path(path.clone())
-                                         .set_flag(event::Flag::Notice))).ok();
-                            restart_timer(timer_id, path.clone(), &mut self.timer);
-                        }
-
-                        // renaming a deleted file should be impossible,
-                        // but with fsevents everything is possible
-                        // (https://github.com/passcod/notify/issues/101)
-                        Some(op::Op::REMOVE) => {}
-
-                        _ => { unreachable!(); }
+        if current_event.kind.is_remove() {
+            if let Some(mut prior) = prior_event {
+                let (ref mut prev, mut timer_id) = *prior;
+                let mut any_prior = false; // TODO: convert to iterator style
+                for prev_path in &prev.paths {
+                    if self.operations_buffer.contains_key(prev_path) {
+                        any_prior = true;
+                        break;
                     }
                 }
-            }
 
-            if op.contains(op::Op::REMOVE) {
-                let mut remove_path: Option<PathBuf> = None;
-                {
-                    if let Some(&(_, ref from_path, ref timer_id)) = op_buf.get(&path) {
-                        if let Some(ref from_path) = *from_path {
-                            if op_buf.contains_key(from_path) {
-                                // a file has already been created at the same location this file
-                                // has been moved from before being deleted / all events
-                                // regarding this file can be ignored
+                if any_prior {
+                    // A file has already been created at the same location
+                    // this file has been moved from before being deleted.
+                    // All events regarding this file can be ignored.
 
-                                // ignore running timer
-                                if let Some(timer_id) = *timer_id {
-                                    self.timer.ignore(timer_id);
-                                }
-
-                                // remember for deletion
-                                remove_path = Some(path.clone());
-                            }
-                        }
+                    if let Some(timer_id) = timer_id {
+                        self.timer.ignore(timer_id);
                     }
 
-                    let &mut (ref mut operation, _, ref mut timer_id) =
-                        op_buf.entry(path.clone()).or_insert((None, None, None));
-
-                    if remove_path.is_none() {
-                        match *operation {
-                            // file was just created, so just remove the operations_buffer entry / no
-                            // need to emit NoticeRemove because the file has just been created
-                            Some(op::Op::CREATE) => {
-                                // ignore running timer
-                                if let Some(timer_id) = *timer_id {
-                                    self.timer.ignore(timer_id);
-                                }
-
-                                // remember for deletion
-                                remove_path = Some(path.clone());
-                            }
-
-                            // change to remove event
-                            Some(op::Op::WRITE) |
-
-                            // change to remove event
-                            Some(op::Op::METADATA) |
-
-                            // operations_buffer entry didn't exist
-                            None => {
-                                *operation = Some(op::Op::REMOVE);
-                                self.tx.send(Ok(Event::new(EventKind::Remove(event::RemoveKind::Any))
-                                             .add_path(path.clone())
-                                             .set_flag(event::Flag::Notice))).ok();
-                                restart_timer(timer_id, path.clone(), &mut self.timer);
-                            }
-
-                            // file has been renamed before, change to remove event /
-                            // no need to emit NoticeRemove because the file has been renamed before
-                            Some(op::Op::RENAME) => {
-                                *operation = Some(op::Op::REMOVE);
-                                restart_timer(timer_id, path.clone(), &mut self.timer);
-                            }
-
-                            // multiple remove events are possible if the file/directory
-                            // is itself watched and in a watched directory
-                            Some(op::Op::REMOVE) => {}
-
-                            _ => { unreachable!(); }
-                        }
-                    }
-                }
-                if let Some(path) = remove_path {
-                    op_buf.remove(&path);
-                    if self.rename_path == Some(path) {
+                    self.operations_buffer.remove(path);
+                    if self.rename_path == Some(path.into()) {
                         self.rename_path = None;
                     }
+
+                    return;
+                }
+
+                if prev.kind.is_create() {
+                    // File was just created, so just remove the operations_buffer
+                    // entry. No need to emit Remove notice because the file has
+                    // just been created.
+
+                    // ignore running timer
+                    if let Some(timer_id) = timer_id {
+                        self.timer.ignore(timer_id);
+                    }
+
+                    self.operations_buffer.remove(path);
+                    if self.rename_path == Some(path.clone()) {
+                        self.rename_path = None;
+                    }
+                } else if prev.kind.is_modify() {
+                    // File has been renamed before, change to remove event.
+                    // No need to emit Remove notice because the file has been
+                    // renamed before.
+                    prev.kind = EventKind::Remove(RemoveKind::Any);
+                    restart_timer(&mut timer_id, path.clone(), &mut self.timer);
+                }
+            } else {
+                self.tx.send(Ok(Event::new(EventKind::Remove(event::RemoveKind::Any))
+                             .add_path(path.clone())
+                             .set_flag(event::Flag::Notice))).ok();
+                restart_timer(&mut None, path.clone(), &mut self.timer);
+            }
+
+            return;
+        }
+
+        if let EventKind::Modify(ModifyKind::Name(ref mode)) = current_event.kind {
+            match mode {
+                RenameMode::Both => {
+                    // pass through this one
+                },
+                RenameMode::From => {
+                    // from half
+                },
+                RenameMode::To => {
+                    // to half
+                },
+                _ => {
+                    // assume prior is `from` if extant
+                    // or that current is otherwise
+
+                    if self.rename_path.is_some()
+                        && self.rename_cookie.is_some()
+                        && self.rename_cookie == current_event.tracker()
+                        && self.operations_buffer.contains_key(self.rename_path.as_ref().unwrap())
+                    {
+                        // This is the second part of a rename operation,
+                        // the old path is stored in the rename_path variable
+
+                        // unwrap is safe because rename_path is Some and op_buf contains rename_path
+                        let old_path = self.rename_path.take().unwrap();
+                        let (old_event, old_timer_id) = self.operations_buffer.remove(&old_path).unwrap();
+
+                        // ignore running timer of removed operations_buffer entry
+                        if let Some(old_timer_id) = old_timer_id {
+                            self.timer.ignore(old_timer_id);
+                        }
+
+                        if old_event.kind.is_create() {
+                            // file has just been created, so move the create event to the new path
+                            if let Some(mut prior) = prior_event {
+                                let (ref mut prev, mut timer_id) = *prior;
+                                prev.kind = old_event.kind;
+                                prev.paths = Vec::new();
+                                restart_timer(&mut timer_id, path.clone(), &mut self.timer);
+                            } else {
+                                // create
+                            }
+                        } else if old_event.kind.is_modify() {
+                            // file has been changed, so move the event to the new path,
+                            // but keep the old event
+                            if let Some(mut prior) = prior_event {
+                                let (ref mut prev, mut timer_id) = *prior;
+                                prev.kind = old_event.kind;
+                                prev.paths = vec![old_path.clone()];
+                                restart_timer(&mut timer_id, path.clone(), &mut self.timer);
+                            } else {
+                                // create
+                            }
+                        }
+
+                        // reset
+                        self.rename_path = None;
+                    } else {
+                        // this is the first part of a rename operation,
+                        // store path for the subsequent rename event
+                        self.rename_path = Some(path.clone());
+                        self.rename_cookie = current_event.tracker();
+
+                        if let Some(prior) = prior_event {
+                            match *prior {
+                                (Event { kind: EventKind::Create(_), .. }, mut timer_id) |
+                                (Event { kind: EventKind::Modify(ModifyKind::Name(_)), .. }, mut timer_id) => {
+                                    restart_timer(&mut timer_id, path.clone(), &mut self.timer);
+                                },
+                                _ => {}
+                            }
+                        } else {
+                            self.tx.send(Ok(Event::new(EventKind::Remove(event::RemoveKind::Any))
+                                         .add_path(path.clone())
+                                         .set_flag(event::Flag::Notice))).ok();
+                            restart_timer(&mut None, path.clone(), &mut self.timer);
+                        }
+                    }
                 }
             }
+
+            return;
+        }
+
+        if current_event.kind.is_modify() {
+            if let Some(prior) = prior_event {
+                let (ref prev, mut timer_id) = *prior;
+                if prev.kind.is_modify() {
+                    self.timer.handle_ongoing_write(&path, &self.tx);
+                }
+
+                // if file has been removed, don't send more events, else pass through
+                if !prev.kind.is_remove() {
+                    restart_timer(&mut timer_id, path.clone(), &mut self.timer);
+                }
+            } else {
+                // set prev.kind to Modify
+                self.tx.send(Ok(Event::new(EventKind::Modify(event::ModifyKind::Any))
+                             .add_path(path.clone())
+                             .set_flag(event::Flag::Notice))).ok();
+                restart_timer(&mut None, path.clone(), &mut self.timer);
+            }
+
+            return;
+        }
+
+        // for anything else, just keep the old event
+        if let Some(prior) = prior_event {
+            let (_, mut timer_id) = *prior;
+            restart_timer(&mut timer_id, path.clone(), &mut self.timer);
         }
     }
 }
 
-fn remove_repeated_events(mut op: op::Op, prev_op: &Option<op::Op>) -> op::Op {
-    if let Some(prev_op) = *prev_op {
-        if prev_op.intersects(op::Op::CREATE | op::Op::WRITE | op::Op::METADATA | op::Op::RENAME) {
-            op.remove(op::Op::CREATE);
-        }
-
-        if prev_op.contains(op::Op::REMOVE) {
-            op.remove(op::Op::REMOVE);
-        }
-
-        if prev_op.contains(op::Op::RENAME) && op & !op::Op::RENAME != op::Op::empty() {
-            op.remove(op::Op::RENAME);
-        }
-    }
-    op
-}
-
-fn restart_timer(timer_id: &mut Option<u64>, path: PathBuf, timer: &mut WatchTimer) {
+fn restart_timer(timer_id: &mut Option<usize>, path: PathBuf, timer: &mut WatchTimer) {
     if let Some(timer_id) = *timer_id {
         timer.ignore(timer_id);
     }
+
     *timer_id = Some(timer.schedule(path));
 }

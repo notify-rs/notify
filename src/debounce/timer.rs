@@ -8,13 +8,13 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant};
-use {event, op, Config, Error, Event, EventKind, Result};
+use {event, Config, Error, Event, EventKind, Result};
 
 use debounce::OperationsBuffer;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ScheduledEvent {
-    id: u64,
+    id: usize,
     when: Instant,
     path: PathBuf,
 }
@@ -48,58 +48,26 @@ impl ScheduleWorker {
 
     fn fire_event(&self, ev: ScheduledEvent) {
         let ScheduledEvent { path, .. } = ev;
-        if let Ok(ref mut op_buf) = self.operations_buffer.lock() {
-            if let Some((op, from_path, _)) = op_buf.remove(&path) {
-                let is_partial_rename = from_path.is_none();
-                if let Some(from_path) = from_path {
-                    self.tx
-                        .send(Ok(Event::new(EventKind::Modify(event::ModifyKind::Name(
-                            event::RenameMode::Both,
-                        )))
-                        .add_path(from_path)
-                        .add_path(path.clone())))
-                        .ok();
-                }
-                let message = match op {
-                    Some(op::Op::CREATE) => {
-                        Some(Event::new(EventKind::Create(event::CreateKind::Any)).add_path(path))
-                    }
-                    Some(op::Op::WRITE) => {
-                        self.ongoing_events.remove(&path);
-                        Some(Event::new(EventKind::Modify(event::ModifyKind::Any)).add_path(path))
-                    }
-                    Some(op::Op::METADATA) => Some(
-                        Event::new(EventKind::Modify(event::ModifyKind::Metadata(
-                            event::MetadataKind::Any,
-                        )))
-                        .add_path(path),
-                    ),
-                    Some(op::Op::REMOVE) => {
-                        self.ongoing_events.remove(&path);
-                        Some(Event::new(EventKind::Remove(event::RemoveKind::Any)).add_path(path))
-                    }
-                    Some(op::Op::RENAME) if is_partial_rename => {
-                        if path.exists() {
-                            Some(
-                                Event::new(EventKind::Create(event::CreateKind::Any))
-                                    .add_path(path),
-                            )
-                        } else {
-                            Some(
-                                Event::new(EventKind::Remove(event::RemoveKind::Any))
-                                    .add_path(path),
-                            )
-                        }
-                    }
-                    _ => None,
-                };
-                if let Some(m) = message {
-                    self.tx.send(Ok(m)).ok();
-                }
-            } else {
-                // self.tx.send(Err()).ok();
-                // TODO error!("path not found in operations_buffer: {}", path.display())
+        if let Some((event, _)) = self.operations_buffer.remove(&path) {
+            // let is_partial_rename = from_path.is_none();
+            // if let Some(from_path) = from_path {
+            //     self.tx
+            //         .send(Ok(Event::new(EventKind::Modify(event::ModifyKind::Name(
+            //             event::RenameMode::Both,
+            //         )))
+            //         .add_path(from_path)
+            //         .add_path(path.clone())))
+            //         .ok();
+            // }
+
+            if event.kind.is_modify() || event.kind.is_remove() {
+                self.ongoing_events.remove(&path);
             }
+
+            self.tx.send(Ok(event)).ok();
+        } else {
+            // self.tx.send(Err()).ok();
+            // TODO error!("path not found in operations_buffer: {}", path.display())
         }
     }
 
@@ -137,7 +105,7 @@ impl ScheduleWorker {
 
 #[derive(Clone)]
 pub struct WatchTimer {
-    counter: u64,
+    counter: usize,
     new_event_trigger: Arc<Condvar>,
     stop_trigger: Arc<Condvar>,
     delay: Duration,
@@ -221,7 +189,7 @@ impl WatchTimer {
         }
     }
 
-    pub fn schedule(&mut self, path: PathBuf) -> u64 {
+    pub fn schedule(&mut self, path: PathBuf) -> usize {
         self.counter = self.counter.wrapping_add(1);
 
         self.events.lock().unwrap().push_back(ScheduledEvent {
@@ -235,7 +203,7 @@ impl WatchTimer {
         self.counter
     }
 
-    pub fn ignore(&self, id: u64) {
+    pub fn ignore(&self, id: usize) {
         let mut events = self.events.lock().unwrap();
         let index = events.iter().rposition(|e| e.id == id);
         if let Some(index) = index {

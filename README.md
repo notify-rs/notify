@@ -172,11 +172,14 @@ components of the design, once they have gone through revising and maturing in
 the `next` branch, will be incorporated in the `main` branch. The first large
 piece, a new event classification system, landed in 5.0.
 
-Do be aware of the licensing difference. Notify is so far under [CC0][cc0]. The
-`next` branch is instead under the [Artistic License 2.0][artistic]. Pieces of
-the `next` branch brought to `main` are dual-licensed under CC0, but the eventual
-plan is to be entirely Artistic License 2.0 code. The formal license change
-_will_ incur a major version bump.
+## License
+
+Notify is currently undergoing a transition to using the
+[Artistic License 2.0][artistic] from the current [CC Zero 1.0][cc0]. A part of
+the code is only under CC0, and another part is under _both_ CC0 and Artistic.
+When the code will be entirely free of CC0 code, the license will be formally
+changed (and that will incur a major version bump). As part of this, when you
+contribute to Notify you currently agree to release under both.
 
 ## Origins
 

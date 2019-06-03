@@ -11,7 +11,8 @@ extern crate walkdir;
 use self::inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use self::walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
-use super::{op, Config, Error, Event, Op, RawEvent, RecursiveMode, Result, Watcher};
+use super::{Config, Error, RecursiveMode, Result, Watcher};
+use super::event::*;
 use crossbeam_channel::{bounded, unbounded, Sender};
 use mio;
 use mio_extras;
@@ -42,7 +43,7 @@ struct EventLoop {
     event_tx: EventTx,
     watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool)>,
     paths: HashMap<WatchDescriptor, PathBuf>,
-    rename_event: Option<RawEvent>,
+    rename_event: Option<Event>,
 }
 
 /// Watcher implementation based on inotify
@@ -52,18 +53,14 @@ enum EventLoopMsg {
     AddWatch(PathBuf, RecursiveMode, Sender<Result<()>>),
     RemoveWatch(PathBuf, Sender<Result<()>>),
     Shutdown,
-    RenameTimeout(u32),
+    RenameTimeout(usize),
     Configure(Config, Sender<Result<bool>>),
 }
 
 #[inline]
-fn send_pending_rename_event(rename_event: &mut Option<RawEvent>, event_tx: &EventTx) {
+fn send_pending_rename_event(rename_event: &mut Option<Event>, event_tx: &EventTx) {
     if let Some(e) = rename_event.take() {
-        event_tx.send(RawEvent {
-            path: e.path,
-            op: Ok(op::Op::REMOVE),
-            cookie: None,
-        });
+        event_tx.send(Ok(e));
     }
 }
 
@@ -194,7 +191,9 @@ impl EventLoop {
                     break;
                 }
                 EventLoopMsg::RenameTimeout(cookie) => {
-                    let current_cookie = self.rename_event.as_ref().and_then(|e| e.cookie);
+                    let current_cookie = self.rename_event
+                        .as_ref()
+                        .and_then(|e| e.tracker());
                     // send pending rename event only if the rename event for which the timer has been created hasn't been handled already; otherwise ignore this timeout
                     if current_cookie == Some(cookie) {
                         send_pending_rename_event(&mut self.rename_event, &self.event_tx);
@@ -226,11 +225,9 @@ impl EventLoop {
                 Ok(events) => {
                     for event in events {
                         if event.mask.contains(EventMask::Q_OVERFLOW) {
-                            self.event_tx.send(RawEvent {
-                                path: None,
-                                op: Ok(op::Op::RESCAN),
-                                cookie: None,
-                            });
+                            self.event_tx.send(Ok(
+                                Event::new(EventKind::Other).set_flag(Flag::Rescan)
+                            ));
                         }
 
                         let path = match event.name {
@@ -241,59 +238,108 @@ impl EventLoop {
                         if event.mask.contains(EventMask::MOVED_FROM) {
                             send_pending_rename_event(&mut self.rename_event, &self.event_tx);
                             remove_watch_by_event(&path, &self.watches, &mut remove_watches);
-                            self.rename_event = Some(RawEvent {
-                                path,
-                                op: Ok(op::Op::RENAME),
-                                cookie: Some(event.cookie),
-                            });
+                            self.rename_event = Some(Event::new(
+                                EventKind::Modify(ModifyKind::Name(RenameMode::From))
+                            ).add_some_path(path.clone()).set_tracker(event.cookie as usize));
                         } else {
-                            let mut o = Op::empty();
-                            let mut c = None;
+                            let mut evs = Vec::new();
                             if event.mask.contains(EventMask::MOVED_TO) {
                                 if let Some(e) = self.rename_event.take() {
-                                    if e.cookie == Some(event.cookie) {
-                                        self.event_tx.send(e);
-                                        o.insert(op::Op::RENAME);
-                                        c = Some(event.cookie);
+                                    if e.tracker() == Some(event.cookie as usize) {
+                                        self.event_tx.send(Ok(e.clone()));
+                                        evs.push(Event::new(
+                                            EventKind::Modify(ModifyKind::Name(RenameMode::To))
+                                        ).set_tracker(event.cookie as usize)
+                                            .add_some_path(path.clone()));
+                                        evs.push(Event::new(
+                                            EventKind::Modify(ModifyKind::Name(RenameMode::Both))
+                                        ).set_tracker(event.cookie as usize)
+                                            .add_some_path(e.paths.first().cloned())
+                                            .add_some_path(path.clone()));
                                     } else {
-                                        o.insert(op::Op::CREATE);
+                                        // TODO should it be rename?
+                                        evs.push(Event::new(
+                                            EventKind::Create(if event.mask.contains(EventMask::ISDIR) {
+                                                CreateKind::Folder
+                                            } else {
+                                                CreateKind::File
+                                            })
+                                        ).add_some_path(path.clone()));
                                     }
                                 } else {
-                                    o.insert(op::Op::CREATE);
+                                    // TODO should it be rename?
+                                    evs.push(Event::new(
+                                        EventKind::Create(if event.mask.contains(EventMask::ISDIR) {
+                                            CreateKind::Folder
+                                        } else {
+                                            CreateKind::File
+                                        })
+                                    ).add_some_path(path.clone()));
                                 }
                                 add_watch_by_event(&path, &event, &self.watches, &mut add_watches);
                             }
                             if event.mask.contains(EventMask::MOVE_SELF) {
-                                o.insert(op::Op::RENAME);
+                                evs.push(Event::new(
+                                    EventKind::Modify(ModifyKind::Name(RenameMode::From))
+                                ).add_some_path(path.clone()));
+                                // TODO stat the path and get to new path
+                                // - emit To and Both events
+                                // - change prefix for further events
                             }
                             if event.mask.contains(EventMask::CREATE) {
-                                o.insert(op::Op::CREATE);
+                                evs.push(Event::new(
+                                    EventKind::Create(if event.mask.contains(EventMask::ISDIR) {
+                                        CreateKind::Folder
+                                    } else {
+                                        CreateKind::File
+                                    })
+                                ).add_some_path(path.clone()));
                                 add_watch_by_event(&path, &event, &self.watches, &mut add_watches);
                             }
                             if event.mask.contains(EventMask::DELETE_SELF)
                                 || event.mask.contains(EventMask::DELETE)
                             {
-                                o.insert(op::Op::REMOVE);
+                                evs.push(Event::new(
+                                    EventKind::Remove(if event.mask.contains(EventMask::ISDIR) {
+                                        RemoveKind::Folder
+                                    } else {
+                                        RemoveKind::File
+                                    })
+                                ).add_some_path(path.clone()));
                                 remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                             }
                             if event.mask.contains(EventMask::MODIFY) {
-                                o.insert(op::Op::WRITE);
+                                evs.push(Event::new(
+                                    EventKind::Modify(ModifyKind::Data(DataChange::Any))
+                                ).add_some_path(path.clone()));
                             }
                             if event.mask.contains(EventMask::CLOSE_WRITE) {
-                                o.insert(op::Op::CLOSE_WRITE);
+                                evs.push(Event::new(
+                                    EventKind::Access(AccessKind::Close(AccessMode::Write))
+                                ).add_some_path(path.clone()));
+                            }
+                            if event.mask.contains(EventMask::CLOSE_NOWRITE) {
+                                evs.push(Event::new(
+                                    EventKind::Access(AccessKind::Close(AccessMode::Read))
+                                ).add_some_path(path.clone()));
                             }
                             if event.mask.contains(EventMask::ATTRIB) {
-                                o.insert(op::Op::METADATA);
+                                evs.push(Event::new(
+                                    EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any))
+                                ).add_some_path(path.clone()));
+                            }
+                            if event.mask.contains(EventMask::OPEN) {
+                                evs.push(Event::new(
+                                    EventKind::Access(AccessKind::Open(AccessMode::Any))
+                                ).add_some_path(path.clone()));
                             }
 
-                            if !o.is_empty() {
+                            if !evs.is_empty() {
                                 send_pending_rename_event(&mut self.rename_event, &self.event_tx);
+                            }
 
-                                self.event_tx.send(RawEvent {
-                                    path,
-                                    op: Ok(o),
-                                    cookie: c,
-                                });
+                            for ev in evs {
+                                self.event_tx.send(Ok(ev));
                             }
                         }
                     }
@@ -303,9 +349,12 @@ impl EventLoop {
                     // could just have been moved out of the watched directory. So it's necessary to wait
                     // for possible subsequent events in case it's a complete move event but also to make sure
                     // that the first part of the event is handled in a timely manner in case no subsequent events arrive.
+                    // TODO: don't do this here, instead leave it entirely to the debounce
+                    // -> related to some rename events being reported as creates.
+
                     if let Some(ref rename_event) = self.rename_event {
                         let event_loop_tx = self.event_loop_tx.clone();
-                        let cookie = rename_event.cookie.unwrap(); // unwrap is safe because rename_event is always set with some cookie
+                        let cookie = rename_event.tracker().unwrap(); // unwrap is safe because rename_event is always set with some cookie
                         thread::spawn(move || {
                             thread::sleep(Duration::from_millis(10)); // wait up to 10 ms for a subsequent event
                             event_loop_tx
@@ -315,21 +364,17 @@ impl EventLoop {
                     }
                 }
                 Err(e) => {
-                    self.event_tx.send(RawEvent {
-                        path: None,
-                        op: Err(Error::io(e)),
-                        cookie: None,
-                    });
+                    self.event_tx.send(Err(Error::io(e)));
                 }
             }
         }
 
         for path in remove_watches {
-            let _ = self.remove_watch(path, true);
+            self.remove_watch(path, true).ok();
         }
 
         for path in add_watches {
-            let _ = self.add_watch(path, true, false);
+            self.add_watch(path, true, false).ok();
         }
     }
 
@@ -345,7 +390,7 @@ impl EventLoop {
             .into_iter()
             .filter_map(filter_dir)
         {
-            try!(self.add_single_watch(entry.path().to_path_buf(), is_recursive, watch_self));
+            self.add_single_watch(entry.path().to_path_buf(), is_recursive, watch_self)?;
             watch_self = false;
         }
 
@@ -444,7 +489,7 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 }
 
 impl Watcher for INotifyWatcher {
-    fn new_immediate(tx: Sender<RawEvent>) -> Result<INotifyWatcher> {
+    fn new_immediate(tx: Sender<Result<Event>>) -> Result<INotifyWatcher> {
         let inotify = Inotify::init()?;
         let event_tx = EventTx::new_immediate(tx);
         let event_loop = EventLoop::new(inotify, event_tx)?;
