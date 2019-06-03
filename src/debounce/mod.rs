@@ -2,7 +2,7 @@
 
 mod timer;
 
-use super::{op, Config, Event, RawEvent, Result};
+use super::{op, Config, Event, Result};
 
 use self::timer::WatchTimer;
 use crossbeam_channel::Sender;
@@ -16,7 +16,7 @@ pub type OperationsBuffer =
 #[derive(Clone)]
 pub enum EventTx {
     Immediate {
-        tx: Sender<RawEvent>,
+        tx: Sender<Result<Event>>,
     },
 }
 
@@ -27,14 +27,14 @@ impl EventTx {
         }
     }
 
-    pub fn new_immediate(tx: Sender<RawEvent>) -> Self {
+    pub fn new_immediate(tx: Sender<Result<Event>>) -> Self {
         EventTx::Immediate { tx }
     }
 
-    pub fn configure_if_debounced(&self, config: Config, tx: Sender<Result<bool>>) {
+    pub fn configure_if_debounced(&self, _config: Config, _tx: Sender<Result<bool>>) {
     }
 
-    pub fn send(&self, event: RawEvent) {
+    pub fn send(&self, event: Result<Event>) {
         match self {
             EventTx::Immediate { ref tx } => {
                 let _ = tx.send(event);

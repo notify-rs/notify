@@ -304,7 +304,7 @@ fn start_read(rd: &ReadData, event_tx: Arc<EventTx>, handle: HANDLE) {
     }
 }
 
-fn send_pending_rename_event(event: Option<RawEvent>, event_tx: &EventTx) {
+fn send_pending_rename_event(event: Option<Result<Event>>, event_tx: &EventTx) {
     if let Some(e) = event {
         event_tx.send(RawEvent {
             path: e.path,
@@ -428,7 +428,7 @@ pub struct ReadDirectoryChangesWatcher {
 
 impl ReadDirectoryChangesWatcher {
     pub fn create(
-        tx: Sender<RawEvent>,
+        tx: Sender<Result<Event>>,
         meta_tx: Sender<MetaEvent>,
     ) -> Result<ReadDirectoryChangesWatcher> {
         let (cmd_tx, cmd_rx) = unbounded();
@@ -508,7 +508,7 @@ impl ReadDirectoryChangesWatcher {
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
-    fn new_immediate(tx: Sender<RawEvent>) -> Result<ReadDirectoryChangesWatcher> {
+    fn new_immediate(tx: Sender<Result<Event>>) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
         let (meta_tx, _) = unbounded();
         ReadDirectoryChangesWatcher::create(tx, meta_tx)
