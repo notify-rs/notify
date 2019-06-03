@@ -73,7 +73,7 @@ fn translate_flags(flags: fse::StreamFlags) -> op::Op {
     ret
 }
 
-fn send_pending_rename_event(event: Option<RawEvent>, event_tx: &EventTx) {
+fn send_pending_rename_event(event: Option<Result<Event>>, event_tx: &EventTx) {
     if let Some(e) = event {
         event_tx.send(RawEvent {
             path: e.path,
@@ -357,7 +357,7 @@ pub unsafe extern "C" fn callback(
 }
 
 impl Watcher for FsEventWatcher {
-    fn new_immediate(tx: Sender<RawEvent>) -> Result<FsEventWatcher> {
+    fn new_immediate(tx: Sender<Result<Event>>) -> Result<FsEventWatcher> {
         Ok(FsEventWatcher {
             paths: unsafe {
                 cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)

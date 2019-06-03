@@ -26,7 +26,11 @@
 //! fn main() -> Result<()> {
 //!     let (tx, rx) = unbounded();
 //!
+//!     // Automatically select the best implementation for your platform.
 //!     let mut watcher: RecommendedWatcher = Watcher::new_immediate(tx)?;
+//!
+//!     // Add a path to be watched. All files and directories at that path and
+//!     // below will be monitored for changes.
 //!     watcher.watch(".", RecursiveMode::Recursive)?;
 //!
 //!     loop {
@@ -70,7 +74,7 @@
 //!
 //! ```
 //! # use crossbeam_channel::unbounded;
-//! # use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
+//! # use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
 //! #
 //! # fn main() -> Result<()> {
 //! #     let (tx, rx) = unbounded();
@@ -137,7 +141,7 @@ pub trait Watcher: Sized {
     /// Create a new watcher in _immediate_ mode.
     ///
     /// Events will be sent using the provided `tx` immediately after they occur.
-    fn new_immediate(tx: Sender<RawEvent>) -> Result<Self>;
+    fn new_immediate(tx: Sender<Result<Event>>) -> Result<Self>;
 
     /// Begin watching a new path.
     ///
@@ -195,6 +199,6 @@ pub type RecommendedWatcher = PollWatcher;
 /// _immediate_ mode.
 ///
 /// See [`Watcher::new_immediate`](trait.Watcher.html#tymethod.new_immediate).
-pub fn immediate_watcher(tx: Sender<RawEvent>) -> Result<RecommendedWatcher> {
+pub fn immediate_watcher(tx: Sender<Result<Event>>) -> Result<RecommendedWatcher> {
     Watcher::new_immediate(tx)
 }

@@ -446,8 +446,8 @@ impl Event {
     }
 
     /// Retrieves the Notify flag for an event directly, if present.
-    pub fn flag(&self) -> Option<&Flag> {
-        self.attrs.get::<Flag>()
+    pub fn flag(&self) -> Option<Flag> {
+        self.attrs.get::<Flag>().cloned()
     }
 
     /// Retrieves the additional info for an event directly, if present.
@@ -472,6 +472,21 @@ impl Event {
     /// Adds a path to the event.
     pub fn add_path(mut self, path: PathBuf) -> Self {
         self.paths.push(path);
+        self
+    }
+
+    /// Adds a path to the event if the argument is Some.
+    pub fn add_some_path(self, path: Option<PathBuf>) -> Self {
+        if let Some(path) = path {
+            self.add_path(path)
+        } else {
+            self
+        }
+    }
+
+    /// Sets the tracker.
+    pub fn set_tracker(mut self, tracker: usize) -> Self {
+        self.attrs.insert(Tracker(tracker));
         self
     }
 
