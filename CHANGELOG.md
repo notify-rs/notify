@@ -2,7 +2,8 @@
 
 ## 5.0.0 (future)
 
-- RUSTC: New minimum version is 1.32.0 [#201]
+- RUSTC: Push the minimum version to 1.32.0 [#201]
+- RUSTC: Switch the crate to Rust 2018.
 - FIX: Implement `Sync` for PollWatcher to support FreeBSD. [#197]
 - FEATURE: Add new runtime configuration system.
 - FEATURE: Add `Ongoing` events (optional, configured at runtime). [#146], [#183]
