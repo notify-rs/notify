@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+options="$*"
+attempt=1
+lastexit=0
+
+rm tests/last-fails || true
+
+while [[ $attempt < 5 ]]; do
+    echo
+    echo "~~> Test attempt $attempt"
+
+    if [[ -f tests/last-fails ]]; then
+        echo "~~? Testing only: $(cat tests/last-fails | xargs)"
+        echo
+
+        rm tests/last-run.log
+        lastexit=0
+
+        while read t; do
+            cargo test --color=always $options $t -- --exact | tee -a tests/last-run.log
+            status=${PIPESTATUS[0]}
+            if ! [[ $status = 0 ]]; then
+                lastexit=$status
+            fi
+        done < tests/last-fails
+    else
+        echo
+        cargo test --color=always $options | tee tests/last-run.log
+        lastexit=${PIPESTATUS[0]}
+    fi
+
+    if [[ $lastexit = 0 ]]; then
+        break
+    fi
+
+    grep -E "^test \w+ \.\.\. FAILED$" tests/last-run.log \
+        | cut -d\  -f2 > tests/last-fails
+
+    n=$(cat tests/last-fails | wc -l)
+
+    if [[ $n = 0 ]]; then
+        n=compile
+    fi
+
+    echo
+    echo "~~! $n failures this attempt"
+    echo
+
+    if [[ $n = "compile" ]]; then
+        break
+    fi
+
+    ((attempt+=1))
+done
+
+exit $lastexit
