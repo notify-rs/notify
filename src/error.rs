@@ -7,7 +7,7 @@ use std::error::Error as StdError;
 use std::path::PathBuf;
 use std::result::Result as StdResult;
 use std::{self, fmt, io};
-use Config;
+use crate::Config;
 
 /// Type alias to use this library's `Error` type in a Result
 pub type Result<T> = StdResult<T, Error>;

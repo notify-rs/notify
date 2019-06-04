@@ -8,9 +8,8 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant};
-use {event, op, Config, Error, Event, EventKind, Result};
-
-use debounce::OperationsBuffer;
+use crate::{event, op, Config, Error, Event, EventKind, Result};
+use crate::debounce::OperationsBuffer;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ScheduledEvent {

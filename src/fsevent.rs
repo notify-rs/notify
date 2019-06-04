@@ -11,11 +11,11 @@
 //! [ref]: https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/
 
 #![allow(non_upper_case_globals, dead_code)]
-extern crate fsevent as fse;
 
 use super::debounce::{Debounce, EventTx};
 use super::{op, Config, Error, Event, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use fsevent as fse;
 use fsevent_sys as fs;
 use fsevent_sys::core_foundation as cf;
 use libc;

@@ -5,8 +5,6 @@
 //!
 //! [ref]: https://msdn.microsoft.com/en-us/library/windows/desktop/aa363950(v=vs.85).aspx
 
-extern crate kernel32;
-
 use winapi::shared::minwindef::TRUE;
 use winapi::shared::winerror::ERROR_OPERATION_ABORTED;
 use winapi::um::fileapi;

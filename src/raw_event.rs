@@ -2,10 +2,10 @@
 
 pub use self::op::Op;
 pub use std::path::PathBuf;
-use Result;
+use crate::Result;
 
 pub mod op {
-    bitflags! {
+    bitflags::bitflags! {
         pub struct Op: u32 {
             const METADATA       = 0b0000001;
             const CREATE      = 0b0000010;

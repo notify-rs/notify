@@ -3,7 +3,7 @@
 //! Checks the `watch`ed paths periodically to detect changes. This implementation only uses
 //! Rust stdlib APIs and should work on all of the platforms it supports.
 
-use self::walkdir::WalkDir;
+use walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
 use super::{op, Error, Event, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::Sender;
@@ -17,8 +17,6 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant};
-
-extern crate walkdir;
 
 struct PathData {
     mtime: i64,
