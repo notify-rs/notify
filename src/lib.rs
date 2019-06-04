@@ -143,43 +143,23 @@
 
 #![deny(missing_docs)]
 
-extern crate anymap;
-#[macro_use]
-extern crate bitflags;
-extern crate chashmap;
-extern crate crossbeam_channel;
-extern crate filetime;
-#[cfg(target_os = "macos")]
-extern crate fsevent_sys;
-extern crate libc;
-#[cfg(target_os = "linux")]
-extern crate mio;
-#[cfg(target_os = "linux")]
-extern crate mio_extras;
-#[cfg(feature = "serde")]
-#[allow(unused_imports)] // for 2015-edition macro_use
-#[macro_use]
-extern crate serde;
-#[cfg(target_os = "windows")]
-extern crate winapi;
-
-pub use self::config::{Config, RecursiveMode};
-pub use self::error::{Error, ErrorKind, Result};
-pub use self::event::{Event, EventKind};
-pub use self::raw_event::{op, Op, RawEvent};
+pub use config::{Config, RecursiveMode};
+pub use error::{Error, ErrorKind, Result};
+pub use event::{Event, EventKind};
+pub use raw_event::{op, Op, RawEvent};
 use crossbeam_channel::Sender;
 use std::convert::AsRef;
 use std::path::Path;
 use std::time::Duration;
 
 #[cfg(target_os = "macos")]
-pub use self::fsevent::FsEventWatcher;
+pub use fsevent::FsEventWatcher;
 #[cfg(target_os = "linux")]
-pub use self::inotify::INotifyWatcher;
-pub use self::null::NullWatcher;
-pub use self::poll::PollWatcher;
+pub use crate::inotify::INotifyWatcher;
+pub use null::NullWatcher;
+pub use poll::PollWatcher;
 #[cfg(target_os = "windows")]
-pub use self::windows::ReadDirectoryChangesWatcher;
+pub use windows::ReadDirectoryChangesWatcher;
 
 #[cfg(target_os = "macos")]
 pub mod fsevent;

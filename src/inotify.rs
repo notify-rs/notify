@@ -4,16 +4,12 @@
 //! monitor individual files, or to monitor directories.  When a directory is monitored, inotify
 //! will return events for the directory itself, and for files inside the directory.
 
-extern crate inotify as inotify_sys;
-extern crate libc;
-extern crate walkdir;
-
-use self::inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
-use self::walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
 use super::{Config, Error, RecursiveMode, Result, Watcher};
 use super::event::*;
 use crossbeam_channel::{bounded, unbounded, Sender};
+use inotify as inotify_sys;
+use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use mio;
 use mio_extras;
 use std::collections::HashMap;
@@ -25,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
+use walkdir::WalkDir;
 
 const INOTIFY: mio::Token = mio::Token(0);
 const MESSAGE: mio::Token = mio::Token(1);

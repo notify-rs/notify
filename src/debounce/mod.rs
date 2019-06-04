@@ -6,7 +6,7 @@ use chashmap::CHashMap;
 use crossbeam_channel::Sender;
 use super::{event, Config, EventKind, Result};
 use event::*;
-use self::timer::WatchTimer;
+use timer::WatchTimer;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

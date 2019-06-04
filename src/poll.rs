@@ -3,7 +3,7 @@
 //! Checks the `watch`ed paths periodically to detect changes. This implementation only uses
 //! Rust stdlib APIs and should work on all of the platforms it supports.
 
-use self::walkdir::WalkDir;
+use walkdir::WalkDir;
 use super::debounce::{Debounce, EventTx};
 use super::{Error, RecursiveMode, Result, Watcher};
 use super::event::*;
@@ -18,8 +18,6 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant};
-
-extern crate walkdir;
 
 struct PathData {
     mtime: i64,
