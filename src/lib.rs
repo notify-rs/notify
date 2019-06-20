@@ -100,9 +100,9 @@
 #![deny(missing_docs)]
 
 pub use config::{Config, RecursiveMode};
+use crossbeam_channel::Sender;
 pub use error::{Error, ErrorKind, Result};
 pub use event::{Event, EventKind};
-use crossbeam_channel::Sender;
 use std::convert::AsRef;
 use std::path::Path;
 pub(crate) type EventTx = Sender<Result<Event>>;
@@ -111,6 +111,8 @@ pub(crate) type EventTx = Sender<Result<Event>>;
 pub use crate::fsevent::FsEventWatcher;
 #[cfg(target_os = "linux")]
 pub use crate::inotify::INotifyWatcher;
+#[cfg(target_os = "macos")]
+pub use fsevent::FsEventWatcher;
 pub use null::NullWatcher;
 pub use poll::PollWatcher;
 #[cfg(target_os = "windows")]

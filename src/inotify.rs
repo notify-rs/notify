@@ -4,8 +4,8 @@
 //! monitor individual files, or to monitor directories.  When a directory is monitored, inotify
 //! will return events for the directory itself, and for files inside the directory.
 
-use super::{Config, Error, EventTx, RecursiveMode, Result, Watcher};
 use super::event::*;
+use super::{Config, Error, EventTx, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{bounded, unbounded, Sender};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
@@ -187,9 +187,7 @@ impl EventLoop {
                     break;
                 }
                 EventLoopMsg::RenameTimeout(cookie) => {
-                    let current_cookie = self.rename_event
-                        .as_ref()
-                        .and_then(|e| e.tracker());
+                    let current_cookie = self.rename_event.as_ref().and_then(|e| e.tracker());
                     // send pending rename event only if the rename event for which the timer has been created hasn't been handled already; otherwise ignore this timeout
                     if current_cookie == Some(cookie) {
                         send_pending_rename_event(&mut self.rename_event, &self.event_tx);
@@ -217,9 +215,9 @@ impl EventLoop {
                 Ok(events) => {
                     for event in events {
                         if event.mask.contains(EventMask::Q_OVERFLOW) {
-                            self.event_tx.send(Ok(
-                                Event::new(EventKind::Other).set_flag(Flag::Rescan)
-                            )).ok();
+                            self.event_tx
+                                .send(Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan)))
+                                .ok();
                         }
 
                         let path = match event.name {
@@ -230,100 +228,138 @@ impl EventLoop {
                         if event.mask.contains(EventMask::MOVED_FROM) {
                             send_pending_rename_event(&mut self.rename_event, &self.event_tx);
                             remove_watch_by_event(&path, &self.watches, &mut remove_watches);
-                            self.rename_event = Some(Event::new(
-                                EventKind::Modify(ModifyKind::Name(RenameMode::From))
-                            ).add_some_path(path.clone()).set_tracker(event.cookie as usize));
+                            self.rename_event = Some(
+                                Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
+                                    .add_some_path(path.clone())
+                                    .set_tracker(event.cookie as usize),
+                            );
                         } else {
                             let mut evs = Vec::new();
                             if event.mask.contains(EventMask::MOVED_TO) {
                                 if let Some(e) = self.rename_event.take() {
                                     if e.tracker() == Some(event.cookie as usize) {
                                         self.event_tx.send(Ok(e.clone())).ok();
-                                        evs.push(Event::new(
-                                            EventKind::Modify(ModifyKind::Name(RenameMode::To))
-                                        ).set_tracker(event.cookie as usize)
-                                            .add_some_path(path.clone()));
-                                        evs.push(Event::new(
-                                            EventKind::Modify(ModifyKind::Name(RenameMode::Both))
-                                        ).set_tracker(event.cookie as usize)
+                                        evs.push(
+                                            Event::new(EventKind::Modify(ModifyKind::Name(
+                                                RenameMode::To,
+                                            )))
+                                            .set_tracker(event.cookie as usize)
+                                            .add_some_path(path.clone()),
+                                        );
+                                        evs.push(
+                                            Event::new(EventKind::Modify(ModifyKind::Name(
+                                                RenameMode::Both,
+                                            )))
+                                            .set_tracker(event.cookie as usize)
                                             .add_some_path(e.paths.first().cloned())
-                                            .add_some_path(path.clone()));
+                                            .add_some_path(path.clone()),
+                                        );
                                     } else {
                                         // TODO should it be rename?
-                                        evs.push(Event::new(
-                                            EventKind::Create(if event.mask.contains(EventMask::ISDIR) {
-                                                CreateKind::Folder
-                                            } else {
-                                                CreateKind::File
-                                            })
-                                        ).add_some_path(path.clone()));
+                                        evs.push(
+                                            Event::new(EventKind::Create(
+                                                if event.mask.contains(EventMask::ISDIR) {
+                                                    CreateKind::Folder
+                                                } else {
+                                                    CreateKind::File
+                                                },
+                                            ))
+                                            .add_some_path(path.clone()),
+                                        );
                                     }
                                 } else {
                                     // TODO should it be rename?
-                                    evs.push(Event::new(
-                                        EventKind::Create(if event.mask.contains(EventMask::ISDIR) {
-                                            CreateKind::Folder
-                                        } else {
-                                            CreateKind::File
-                                        })
-                                    ).add_some_path(path.clone()));
+                                    evs.push(
+                                        Event::new(EventKind::Create(
+                                            if event.mask.contains(EventMask::ISDIR) {
+                                                CreateKind::Folder
+                                            } else {
+                                                CreateKind::File
+                                            },
+                                        ))
+                                        .add_some_path(path.clone()),
+                                    );
                                 }
                                 add_watch_by_event(&path, &event, &self.watches, &mut add_watches);
                             }
                             if event.mask.contains(EventMask::MOVE_SELF) {
-                                evs.push(Event::new(
-                                    EventKind::Modify(ModifyKind::Name(RenameMode::From))
-                                ).add_some_path(path.clone()));
+                                evs.push(
+                                    Event::new(EventKind::Modify(ModifyKind::Name(
+                                        RenameMode::From,
+                                    )))
+                                    .add_some_path(path.clone()),
+                                );
                                 // TODO stat the path and get to new path
                                 // - emit To and Both events
                                 // - change prefix for further events
                             }
                             if event.mask.contains(EventMask::CREATE) {
-                                evs.push(Event::new(
-                                    EventKind::Create(if event.mask.contains(EventMask::ISDIR) {
-                                        CreateKind::Folder
-                                    } else {
-                                        CreateKind::File
-                                    })
-                                ).add_some_path(path.clone()));
+                                evs.push(
+                                    Event::new(EventKind::Create(
+                                        if event.mask.contains(EventMask::ISDIR) {
+                                            CreateKind::Folder
+                                        } else {
+                                            CreateKind::File
+                                        },
+                                    ))
+                                    .add_some_path(path.clone()),
+                                );
                                 add_watch_by_event(&path, &event, &self.watches, &mut add_watches);
                             }
                             if event.mask.contains(EventMask::DELETE_SELF)
                                 || event.mask.contains(EventMask::DELETE)
                             {
-                                evs.push(Event::new(
-                                    EventKind::Remove(if event.mask.contains(EventMask::ISDIR) {
-                                        RemoveKind::Folder
-                                    } else {
-                                        RemoveKind::File
-                                    })
-                                ).add_some_path(path.clone()));
+                                evs.push(
+                                    Event::new(EventKind::Remove(
+                                        if event.mask.contains(EventMask::ISDIR) {
+                                            RemoveKind::Folder
+                                        } else {
+                                            RemoveKind::File
+                                        },
+                                    ))
+                                    .add_some_path(path.clone()),
+                                );
                                 remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                             }
                             if event.mask.contains(EventMask::MODIFY) {
-                                evs.push(Event::new(
-                                    EventKind::Modify(ModifyKind::Data(DataChange::Any))
-                                ).add_some_path(path.clone()));
+                                evs.push(
+                                    Event::new(EventKind::Modify(ModifyKind::Data(
+                                        DataChange::Any,
+                                    )))
+                                    .add_some_path(path.clone()),
+                                );
                             }
                             if event.mask.contains(EventMask::CLOSE_WRITE) {
-                                evs.push(Event::new(
-                                    EventKind::Access(AccessKind::Close(AccessMode::Write))
-                                ).add_some_path(path.clone()));
+                                evs.push(
+                                    Event::new(EventKind::Access(AccessKind::Close(
+                                        AccessMode::Write,
+                                    )))
+                                    .add_some_path(path.clone()),
+                                );
                             }
                             if event.mask.contains(EventMask::CLOSE_NOWRITE) {
-                                evs.push(Event::new(
-                                    EventKind::Access(AccessKind::Close(AccessMode::Read))
-                                ).add_some_path(path.clone()));
+                                evs.push(
+                                    Event::new(EventKind::Access(AccessKind::Close(
+                                        AccessMode::Read,
+                                    )))
+                                    .add_some_path(path.clone()),
+                                );
                             }
                             if event.mask.contains(EventMask::ATTRIB) {
-                                evs.push(Event::new(
-                                    EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any))
-                                ).add_some_path(path.clone()));
+                                evs.push(
+                                    Event::new(EventKind::Modify(ModifyKind::Metadata(
+                                        MetadataKind::Any,
+                                    )))
+                                    .add_some_path(path.clone()),
+                                );
                             }
                             if event.mask.contains(EventMask::OPEN) {
-                                evs.push(Event::new(
-                                    EventKind::Access(AccessKind::Open(AccessMode::Any))
-                                ).add_some_path(path.clone()));
+                                evs.push(
+                                    Event::new(EventKind::Access(AccessKind::Open(
+                                        AccessMode::Any,
+                                    )))
+                                    .add_some_path(path.clone()),
+                                );
                             }
 
                             if !evs.is_empty() {

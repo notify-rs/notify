@@ -13,8 +13,8 @@ use winapi::um::minwinbase::{LPOVERLAPPED, OVERLAPPED};
 use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
-use crate::{Config, Error, EventTx, RecursiveMode, Result, Watcher};
 use crate::event::*;
+use crate::{Config, Error, EventTx, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::env;
@@ -341,31 +341,40 @@ unsafe extern "system" fn handle_event(
             let newe = Event::new(EventKind::Any).add_path(path);
 
             if (*cur_entry).Action == winnt::FILE_ACTION_RENAMED_OLD_NAME {
-                request.event_tx.send(Ok(newe.set_kind(
-                    EventKind::Modify(ModifyKind::Name(RenameMode::From))
-                ))).ok();
+                request
+                    .event_tx
+                    .send(Ok(newe.set_kind(EventKind::Modify(ModifyKind::Name(
+                        RenameMode::From,
+                    )))))
+                    .ok();
             } else {
                 match (*cur_entry).Action {
                     winnt::FILE_ACTION_RENAMED_NEW_NAME => {
-                        request.event_tx.send(Ok(newe.set_kind(
-                            EventKind::Modify(ModifyKind::Name(RenameMode::To))
-                        ))).ok();
+                        request
+                            .event_tx
+                            .send(Ok(newe.set_kind(EventKind::Modify(ModifyKind::Name(
+                                RenameMode::To,
+                            )))))
+                            .ok();
                     }
                     winnt::FILE_ACTION_ADDED => {
-                        request.event_tx.send(Ok(newe.set_kind(
-                            EventKind::Create(CreateKind::Any)
-                        ))).ok();
-                    },
+                        request
+                            .event_tx
+                            .send(Ok(newe.set_kind(EventKind::Create(CreateKind::Any))))
+                            .ok();
+                    }
                     winnt::FILE_ACTION_REMOVED => {
-                        request.event_tx.send(Ok(newe.set_kind(
-                            EventKind::Remove(RemoveKind::Any)
-                        ))).ok();
-                    },
+                        request
+                            .event_tx
+                            .send(Ok(newe.set_kind(EventKind::Remove(RemoveKind::Any))))
+                            .ok();
+                    }
                     winnt::FILE_ACTION_MODIFIED => {
-                        request.event_tx.send(Ok(newe.set_kind(
-                            EventKind::Modify(ModifyKind::Any)
-                        ))).ok();
-                    },
+                        request
+                            .event_tx
+                            .send(Ok(newe.set_kind(EventKind::Modify(ModifyKind::Any))))
+                            .ok();
+                    }
                     _ => (),
                 };
             }

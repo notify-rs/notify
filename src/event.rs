@@ -390,19 +390,19 @@ pub struct Tracker(pub usize);
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub enum Flag {
-/*
-    /// Event notices are emitted by debounced watchers immediately after the _first_ event of that
-    /// kind is received on a path to indicate activity to a path within the interval of a debounce.
-    ///
-    /// Event notices are a runtime option and are disabled by default. (TODO)
-    Notice,
+    /*
+        /// Event notices are emitted by debounced watchers immediately after the _first_ event of that
+        /// kind is received on a path to indicate activity to a path within the interval of a debounce.
+        ///
+        /// Event notices are a runtime option and are disabled by default. (TODO)
+        Notice,
 
-    /// Ongoing event notices are emitted by debounced watchers on a higher frequency than the
-    /// debouncing delay to indicate ongoing activity to a path within the interval of a debounce.
-    ///
-    /// Ongoing event notices are a runtime option and are disabled by default.
-    Ongoing,
-*/
+        /// Ongoing event notices are emitted by debounced watchers on a higher frequency than the
+        /// debouncing delay to indicate ongoing activity to a path within the interval of a debounce.
+        ///
+        /// Ongoing event notices are a runtime option and are disabled by default.
+        Ongoing,
+    */
     /// Rescan notices are emitted by some platforms (and may also be emitted by Notify itself).
     /// They indicate either a lapse in the events or a change in the filesystem such that events
     /// received so far can no longer be relied on to represent the state of the filesystem now.
