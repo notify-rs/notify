@@ -1,10 +1,12 @@
+#![allow(unused_macros)]
+
 use crossbeam_channel::{Receiver, TryRecvError};
 use notify::*;
 use tempdir::TempDir;
 
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -17,39 +19,92 @@ const TIMEOUT_MS: u64 = 100;
 const TIMEOUT_MS: u64 = 3000; // windows can take a while
 
 pub fn recv_events_with_timeout(
-    rx: &Receiver<RawEvent>,
+    rx: &Receiver<Result<Event>>,
     timeout: Duration,
-) -> Vec<(PathBuf, Op, Option<u32>)> {
+) -> Vec<Event> {
     let start = Instant::now();
-
     let mut evs = Vec::new();
 
     while start.elapsed() < timeout {
         match rx.try_recv() {
-            Ok(RawEvent {
-                path: Some(path),
-                op: Ok(op),
-                cookie,
-            }) => {
-                evs.push((path, op, cookie));
-            }
-            Ok(RawEvent { path: None, .. }) => (),
-            Ok(RawEvent { op: Err(e), .. }) => panic!("unexpected event err: {:?}", e),
+            Ok(Ok(event)) => { evs.push(event); },
+            Ok(Err(err)) => panic!("unexpected event err: {:?}", err),
             Err(TryRecvError::Empty) => (),
             Err(e) => panic!("unexpected channel err: {:?}", e),
         }
-        thread::sleep(Duration::from_millis(1));
+
+        sleep(1);
     }
+
     evs
 }
 
-pub fn recv_events(rx: &Receiver<RawEvent>) -> Vec<(PathBuf, Op, Option<u32>)> {
+pub fn recv_events(rx: &Receiver<Result<Event>>) -> Vec<Event> {
     recv_events_with_timeout(rx, Duration::from_millis(TIMEOUT_MS))
+}
+
+/// Simple kind with only the top level of the event classification
+#[derive(Debug, PartialEq, PartialOrd, Eq, Hash, Ord, Clone, Copy)]
+pub enum Kind {
+    Any,
+    Access,
+    Create,
+    Rename,
+    Metadata,
+    Modify,
+    Remove,
+    Other,
+}
+
+impl From<EventKind> for Kind {
+    fn from(k: EventKind) -> Self {
+        match k {
+            EventKind::Any => Kind::Any,
+            EventKind::Access(_) => Kind::Access,
+            EventKind::Create(_) => Kind::Create,
+            EventKind::Modify(event::ModifyKind::Name(_)) => Kind::Rename,
+            EventKind::Modify(event::ModifyKind::Metadata(_)) => Kind::Metadata,
+            EventKind::Modify(_) => Kind::Modify,
+            EventKind::Remove(_) => Kind::Remove,
+            EventKind::Other => Kind::Other,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Eq, Hash, Ord, Clone)]
+pub struct SlimEvent {
+    pub paths: Vec<PathBuf>,
+    pub kind: Kind,
+    pub tracker: Option<usize>,
+}
+
+impl SlimEvent {
+    pub fn new<P>(paths: &[P], kind: Kind, tracker: Option<usize>) -> Self where P: AsRef<Path> {
+        Self { paths: paths.into_iter().map(|p| p.as_ref().into()).collect(), kind, tracker }
+    }
+
+    pub fn one<P>(paths: &[P], kind: Kind, tracker: Option<usize>) -> Vec<Self> where P: AsRef<Path> {
+        vec![Self::new(paths, kind, tracker)]
+    }
+
+    pub fn seq<P>(evs: &[(&[P], Kind, Option<usize>)]) -> Vec<Self> where P: AsRef<Path> {
+        evs.into_iter().map(|(paths, kind, tracker)| Self::new(paths, *kind, *tracker)).collect()
+    }
+}
+
+/// Converts full-descriptor events into a simplified representation
+pub fn slim(input: Vec<Event>) -> Vec<SlimEvent> {
+    input.into_iter().map(|e| SlimEvent {
+        tracker: e.tracker(),
+        kind: Kind::from(e.kind),
+        paths: e.paths,
+    }).collect()
 }
 
 // FSEvents tends to emit events multiple times and aggregate events,
 // so just check that all expected events arrive for each path,
 // and make sure the paths are in the correct order
+// TODO: remove
 pub fn inflate_events(input: Vec<(PathBuf, Op, Option<u32>)>) -> Vec<(PathBuf, Op, Option<u32>)> {
     let mut output = Vec::new();
     let mut path = None;
@@ -79,6 +134,7 @@ pub fn inflate_events(input: Vec<(PathBuf, Op, Option<u32>)>) -> Vec<(PathBuf, O
     output
 }
 
+// TODO: remove
 pub fn extract_cookies(events: &[(PathBuf, Op, Option<u32>)]) -> Vec<u32> {
     let mut cookies = Vec::new();
     for &(_, _, e_c) in events {
@@ -99,14 +155,14 @@ pub fn sleep(duration: u64) {
 // Sleep for `duration` in milliseconds if running on macOS
 pub fn sleep_macos(duration: u64) {
     if cfg!(target_os = "macos") {
-        thread::sleep(Duration::from_millis(duration));
+        sleep(duration)
     }
 }
 
 // Sleep for `duration` in milliseconds if running on Windows
 pub fn sleep_windows(duration: u64) {
     if cfg!(target_os = "windows") {
-        thread::sleep(Duration::from_millis(duration));
+        sleep(duration)
     }
 }
 
@@ -120,9 +176,9 @@ pub trait TestHelpers {
     /// Rename file or directory.
     fn rename(&self, a: &str, b: &str);
     /// Toggle "other" rights on linux and macOS and "readonly" on windows
-    fn chmod(&self, p: &str);
+    fn modify_metadata(&self, p: &str);
     /// Write some data to a file
-    fn write(&self, p: &str);
+    fn modify_data(&self, p: &str);
     /// Remove file or directory
     fn remove(&self, p: &str);
 }
@@ -179,7 +235,7 @@ impl TestHelpers for TempDir {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn chmod(&self, p: &str) {
+    fn modify_metadata(&self, p: &str) {
         let path = self.mkpath(p);
         let mut permissions = fs::metadata(&path)
             .expect("failed to get metadata")
@@ -192,7 +248,7 @@ impl TestHelpers for TempDir {
     }
 
     #[cfg(target_os = "windows")]
-    fn chmod(&self, p: &str) {
+    fn modify_metadata(&self, p: &str) {
         let path = self.mkpath(p);
         let mut permissions = fs::metadata(&path)
             .expect("failed to get metadata")
@@ -202,7 +258,7 @@ impl TestHelpers for TempDir {
         fs::set_permissions(path, permissions).expect("failed to chmod file or directory");
     }
 
-    fn write(&self, p: &str) {
+    fn modify_data(&self, p: &str) {
         let path = self.mkpath(p);
 
         let mut file = fs::OpenOptions::new()

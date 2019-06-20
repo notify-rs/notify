@@ -15,27 +15,26 @@ use utils::*;
 const NETWORK_PATH: &'static str = ""; // eg.: \\\\MY-PC\\Users\\MyName
 
 #[cfg(target_os = "windows")]
-fn recv_events_simple(rx: &Receiver<RawEvent>) -> Vec<(PathBuf, Op, Option<u32>)> {
-    recv_events(&rx)
+fn recv_events_simple(rx: &Receiver<RawEvent>) -> Vec<SlimEvent> {
+    slim(recv_events(&rx))
 }
 
 #[cfg(target_os = "macos")]
-fn recv_events_simple(rx: &Receiver<RawEvent>) -> Vec<(PathBuf, Op, Option<u32>)> {
-    let mut events = Vec::new();
-    for (path, op, cookie) in inflate_events(recv_events(&rx)) {
-        if op == (op::Op::CREATE | op::Op::WRITE) {
-            events.push((path, op::Op::WRITE, cookie));
-        } else {
-            events.push((path, op, cookie));
+fn recv_events_simple(rx: &Receiver<RawEvent>) -> Vec<SlimEvent> {
+    let mut events = slim(recv_events(&rx));
+    // for (path, op, cookie) in inflate_events(recv_events(&rx)) {
+    for mut e in events.iter_mut() {
+        if e.kind == Kind::Create {
+            e.kind = Kind::Modify;
         }
     }
     events
 }
 
 #[cfg(target_os = "linux")]
-fn recv_events_simple(rx: &Receiver<RawEvent>) -> Vec<(PathBuf, Op, Option<u32>)> {
-    let mut events = recv_events(rx);
-    events.retain(|&(_, op, _)| op != op::Op::CLOSE_WRITE);
+fn recv_events_simple(rx: &Receiver<Result<Event>>) -> Vec<SlimEvent> {
+    let mut events = slim(recv_events(rx));
+    events.retain(|&SlimEvent { kind, .. }| kind != Kind::Access && kind != Kind::Any && kind != Kind::Other);
     events
 }
 
@@ -62,20 +61,16 @@ fn watch_relative() {
 
         tdir.create("dir1/file1");
 
-        if cfg!(target_os = "macos") {
-            assert_eq!(
-                recv_events_simple(&rx),
-                vec![
-                    (tdir.mkpath("dir1/file1"), op::Op::CREATE, None), // fsevents always returns canonicalized paths
-                ]
-            );
-        } else {
-            assert_eq!(
-                recv_events_simple(&rx),
-                vec![(tdir.path().join("dir1/file1"), op::Op::CREATE, None),]
-            );
-        }
+        assert_eq!(
+            recv_events_simple(&rx),
+            SlimEvent::one(&[if cfg!(target_os = "macos") {
+                tdir.mkpath("dir1/file1")
+            } else {
+                tdir.path().join("dir1/file1")
+            }], Kind::Create, None)
+        );
     }
+
     {
         // watch_relative_file
         let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
@@ -92,22 +87,18 @@ fn watch_relative() {
 
         sleep_windows(100);
 
-        tdir.write("file1");
+        tdir.modify_data("file1");
 
-        if cfg!(target_os = "macos") {
-            assert_eq!(
-                recv_events_simple(&rx),
-                vec![
-                    (tdir.mkpath("file1"), op::Op::WRITE, None), // fsevents always returns canonicalized paths
-                ]
-            );
-        } else {
-            assert_eq!(
-                recv_events_simple(&rx),
-                vec![(tdir.path().join("file1"), op::Op::WRITE, None),]
-            );
-        }
+        assert_eq!(
+            recv_events_simple(&rx),
+            SlimEvent::one(&[if cfg!(target_os = "macos") {
+                tdir.mkpath("file1")
+            } else {
+                tdir.path().join("file1")
+            }], Kind::Modify, None)
+        );
     }
+
     if cfg!(target_os = "windows") && !NETWORK_PATH.is_empty() {
         // watch_relative_network_directory
         let tdir = TempDir::new_in(NETWORK_PATH, "temp_dir")
