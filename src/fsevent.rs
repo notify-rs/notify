@@ -372,21 +372,6 @@ impl Watcher for FsEventWatcher {
         })
     }
 
-    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<FsEventWatcher> {
-        Ok(FsEventWatcher {
-            paths: unsafe {
-                cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
-            },
-            since_when: fs::kFSEventStreamEventIdSinceNow,
-            latency: 0.0,
-            flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
-            event_tx: Arc::new(EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx))),
-            runloop: None,
-            context: None,
-            recursive_info: HashMap::new(),
-        })
-    }
-
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         self.stop();
         let result = self.append_path(path, recursive_mode);
