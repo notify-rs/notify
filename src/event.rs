@@ -437,6 +437,14 @@ pub struct Info(pub String);
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Source(pub String);
 
+/// The process ID of the originator of the event.
+///
+/// This attribute is experimental and, while included in Notify itself, is not considered stable
+/// or standard enough to be part of the serde, eq, hash, and debug representations.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
+pub struct ProcessID(pub u32);
+
 // + typeid attr?
 
 impl Event {

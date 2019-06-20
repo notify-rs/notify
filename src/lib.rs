@@ -107,12 +107,10 @@ use std::convert::AsRef;
 use std::path::Path;
 pub(crate) type EventTx = Sender<Result<Event>>;
 
-#[cfg(target_os = "macos")]
-pub use crate::fsevent::FsEventWatcher;
 #[cfg(target_os = "linux")]
 pub use crate::inotify::INotifyWatcher;
 #[cfg(target_os = "macos")]
-pub use fsevent::FsEventWatcher;
+pub use crate::fsevent::FsEventWatcher;
 pub use null::NullWatcher;
 pub use poll::PollWatcher;
 #[cfg(target_os = "windows")]
