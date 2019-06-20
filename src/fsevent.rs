@@ -8,12 +8,14 @@
 //!
 //! For more information see the [FSEvents API reference][ref].
 //!
+//! TODO: document event translation
+//!
 //! [ref]: https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/
 
 #![allow(non_upper_case_globals, dead_code)]
 
-use super::debounce::{Debounce, EventTx};
-use super::{op, Config, Error, Event, RawEvent, RecursiveMode, Result, Watcher};
+use crate::{Config, Error, EventTx, RecursiveMode, Result, Watcher};
+use crate::event::*;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use fsevent as fse;
 use fsevent_sys as fs;
@@ -28,9 +30,7 @@ use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
 use std::str::from_utf8;
-use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 
 /// FSEvents-based `Watcher` implementation
 pub struct FsEventWatcher {
@@ -38,7 +38,7 @@ pub struct FsEventWatcher {
     since_when: fs::FSEventStreamEventId,
     latency: cf::CFTimeInterval,
     flags: fs::FSEventStreamCreateFlags,
-    event_tx: Arc<EventTx>,
+    event_tx: EventTx,
     runloop: Option<usize>,
     context: Option<Box<StreamContextInfo>>,
     recursive_info: HashMap<PathBuf, bool>,
@@ -51,40 +51,147 @@ unsafe impl Send for FsEventWatcher {}
 // It's Sync because all methods that change the mutable state use `&mut self`.
 unsafe impl Sync for FsEventWatcher {}
 
-fn translate_flags(flags: fse::StreamFlags) -> op::Op {
-    let mut ret = op::Op::empty();
-    if flags.contains(fse::StreamFlags::ITEM_XATTR_MOD)
-        || flags.contains(fse::StreamFlags::ITEM_CHANGE_OWNER)
-    {
-        ret.insert(op::Op::METADATA);
-    }
-    if flags.contains(fse::StreamFlags::ITEM_CREATED) {
-        ret.insert(op::Op::CREATE);
-    }
-    if flags.contains(fse::StreamFlags::ITEM_REMOVED) {
-        ret.insert(op::Op::REMOVE);
-    }
-    if flags.contains(fse::StreamFlags::ITEM_RENAMED) {
-        ret.insert(op::Op::RENAME);
-    }
-    if flags.contains(fse::StreamFlags::ITEM_MODIFIED) {
-        ret.insert(op::Op::WRITE);
-    }
-    ret
-}
+fn translate_flags(flags: fse::StreamFlags, precise: bool) -> Vec<Event> {
+    let mut evs = Vec::new();
 
-fn send_pending_rename_event(event: Option<Result<Event>>, event_tx: &EventTx) {
-    if let Some(e) = event {
-        event_tx.send(RawEvent {
-            path: e.path,
-            op: e.op,
-            cookie: None,
+    // «Denotes a sentinel event sent to mark the end of the "historical" events
+    // sent as a result of specifying a `sinceWhen` value in the FSEvents.Create
+    // call that created this event stream. After invoking the client's callback
+    // with all the "historical" events that occurred before now, the client's
+    // callback will be invoked with an event where the HistoryDone flag is set.
+    // The client should ignore the path supplied in this callback.»
+    // — https://www.mbsplugins.eu/FSEventsNextEvent.shtml
+    //
+	// As a result, we just stop processing here and return an empty vec, which
+	// will ignore this completely and not emit any Events whatsoever.
+    if flags.contains(fse::StreamFlags::HISTORY_DONE) {
+        return evs;
+    }
+
+	// FSEvents provides two possible hints as to why events were dropped,
+	// however documentation on what those mean is scant, so we just pass them
+	// through in the info attr field. The intent is clear enough, and the
+	// additional information is provided if the user wants it.
+    if flags.contains(fse::StreamFlags::MUST_SCAN_SUBDIRS) {
+        let e = Event::new(EventKind::Other).set_flag(Flag::Rescan);
+        evs.push(if flags.contains(fse::StreamFlags::USER_DROPPED) {
+            e.set_info("rescan: user dropped")
+        } else if flags.contains(fse::StreamFlags::KERNEL_DROPPED) {
+            e.set_info("rescan: kernel dropped")
+        } else {
+            e
         });
     }
+
+    // In imprecise mode, let's not even bother parsing the kind of the event
+    // except for the above very special events.
+    if !precise {
+        evs.push(Event::new(EventKind::Any));
+        return evs;
+    }
+
+	// This is most likely a rename or a removal. We assume rename but may want
+	// to figure out if it was a removal some way later (TODO). To denote the
+    // special nature of the event, we add an info string.
+    if flags.contains(fse::StreamFlags::ROOT_CHANGED) {
+        evs.push(
+			Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
+			.set_info("root changed")
+		);
+    }
+
+    // A path was mounted at the event path; we treat that as a create.
+    if flags.contains(fse::StreamFlags::MOUNT) {
+        evs.push(Event::new(EventKind::Create(CreateKind::Other)).set_info("mount"));
+    }
+
+    // A path was unmounted at the event path; we treat that as a remove.
+    if flags.contains(fse::StreamFlags::UNMOUNT) {
+        evs.push(Event::new(EventKind::Remove(RemoveKind::Other)).set_info("mount"));
+    }
+
+    if flags.contains(fse::StreamFlags::ITEM_CREATED) {
+        evs.push(if flags.contains(fse::StreamFlags::IS_DIR) {
+            Event::new(EventKind::Create(CreateKind::Folder))
+        } else if flags.contains(fse::StreamFlags::IS_FILE) {
+            Event::new(EventKind::Create(CreateKind::File))
+        } else {
+            let e = Event::new(EventKind::Create(CreateKind::Other));
+            if flags.contains(fse::StreamFlags::IS_SYMLIMK) {
+                // SYMLIMK is a typo in the upstream library!
+                e.set_info("is: symlink")
+            } else if flags.contains(fse::StreamFlags::IS_HARDLINK) {
+                e.set_info("is: hardlink")
+            } else if flags.contains(fse::StreamFlags::ITEM_CLONED) {
+                e.set_info("is: clone")
+            } else {
+                Event::new(EventKind::Create(CreateKind::Any))
+            }
+        });
+    }
+
+    if flags.contains(fse::StreamFlags::ITEM_REMOVED) {
+        evs.push(if flags.contains(fse::StreamFlags::IS_DIR) {
+            Event::new(EventKind::Remove(RemoveKind::Folder))
+        } else if flags.contains(fse::StreamFlags::IS_FILE) {
+            Event::new(EventKind::Remove(RemoveKind::File))
+        } else {
+            let e = Event::new(EventKind::Remove(RemoveKind::Other));
+            if flags.contains(fse::StreamFlags::IS_SYMLIMK) {
+                // SYMLIMK is a typo in the upstream library!
+                e.set_info("is: symlink")
+            } else if flags.contains(fse::StreamFlags::IS_HARDLINK) {
+                e.set_info("is: hardlink")
+            } else if flags.contains(fse::StreamFlags::ITEM_CLONED) {
+                e.set_info("is: clone")
+            } else {
+                Event::new(EventKind::Remove(RemoveKind::Any))
+            }
+        });
+    }
+
+    if flags.contains(fse::StreamFlags::ITEM_RENAMED) {
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From))));
+    }
+
+    // This is only described as "metadata changed", but it may be that it's
+    // only emitted for some more precise subset of events... if so, will need
+    // amending, but for now we have an Any-shaped bucket to put it in.
+    if flags.contains(fse::StreamFlags::INOTE_META_MOD) {
+        // INOTE is a typo in the upstream library! (should be INODE)
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any))));
+    }
+
+    if flags.contains(fse::StreamFlags::FINDER_INFO_MOD) {
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Other)))
+                 .set_info("meta: finder info"));
+    }
+
+    if flags.contains(fse::StreamFlags::ITEM_CHANGE_OWNER) {
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Ownership))));
+    }
+
+    if flags.contains(fse::StreamFlags::ITEM_XATTR_MOD) {
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Extended))));
+    }
+
+    // This is specifically described as a data change, which we take to mean
+    // is a content change.
+    if flags.contains(fse::StreamFlags::ITEM_MODIFIED) {
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content))));
+    }
+
+    if flags.contains(fse::StreamFlags::OWN_EVENT) {
+        for ev in &mut evs {
+            ev.attrs.insert(ProcessID(std::process::id()));
+        }
+    }
+
+    evs
 }
 
 struct StreamContextInfo {
-    event_tx: Arc<EventTx>,
+    event_tx: EventTx,
     done: Receiver<()>,
     recursive_info: HashMap<PathBuf, bool>,
 }
@@ -281,7 +388,6 @@ pub unsafe extern "C" fn callback(
     let ids = slice::from_raw_parts_mut(i_ptr, num);
 
     let event_tx = &(*info).event_tx;
-    let mut rename_event: Option<RawEvent> = None;
 
     for p in 0..num {
         let i = CStr::from_ptr(paths[p]).to_bytes();
@@ -306,54 +412,12 @@ pub unsafe extern "C" fn callback(
             }
         }
 
-        if flag.contains(fse::StreamFlags::MUST_SCAN_SUBDIRS) {
-            event_tx.send(RawEvent {
-                path: None,
-                op: Ok(op::Op::RESCAN),
-                cookie: None,
-            });
-        }
+        if !handle_event { continue; }
 
-        if handle_event {
-            if flag.contains(fse::StreamFlags::ITEM_RENAMED) {
-                if let Some(e) = rename_event {
-                    if e.cookie == Some((id - 1) as u32) {
-                        event_tx.send(e);
-                        event_tx.send(RawEvent {
-                            op: Ok(translate_flags(flag)),
-                            path: Some(path),
-                            cookie: Some((id - 1) as u32),
-                        });
-                        rename_event = None;
-                    } else {
-                        send_pending_rename_event(Some(e), &event_tx);
-                        rename_event = Some(RawEvent {
-                            path: Some(path),
-                            op: Ok(translate_flags(flag)),
-                            cookie: Some(id as u32),
-                        });
-                    }
-                } else {
-                    rename_event = Some(RawEvent {
-                        path: Some(path),
-                        op: Ok(translate_flags(flag)),
-                        cookie: Some(id as u32),
-                    });
-                }
-            } else {
-                send_pending_rename_event(rename_event, &event_tx);
-                rename_event = None;
-
-                event_tx.send(RawEvent {
-                    op: Ok(translate_flags(flag)),
-                    path: Some(path),
-                    cookie: None,
-                });
-            }
+        for ev in translate_flags(flag, true).into_iter() { // TODO: precise
+            event_tx.send(Ok(ev.add_path(path.clone()))).ok(); // TODO: handle error
         }
     }
-
-    send_pending_rename_event(rename_event, &event_tx);
 }
 
 impl Watcher for FsEventWatcher {
@@ -365,7 +429,7 @@ impl Watcher for FsEventWatcher {
             since_when: fs::kFSEventStreamEventIdSinceNow,
             latency: 0.0,
             flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
-            event_tx: Arc::new(EventTx::new_immediate(tx)),
+            event_tx: tx,
             runloop: None,
             context: None,
             recursive_info: HashMap::new(),
@@ -390,13 +454,7 @@ impl Watcher for FsEventWatcher {
 
     fn configure(&mut self, config: Config) -> Result<bool> {
         let (tx, rx) = unbounded();
-
-        if self.event_tx.is_immediate() {
-            self.configure_raw_mode(config, tx);
-        } else {
-            self.event_tx.configure_if_debounced(config, tx);
-        }
-
+        self.configure_raw_mode(config, tx);
         rx.recv()?
     }
 }
