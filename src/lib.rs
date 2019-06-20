@@ -124,7 +124,7 @@ use std::path::Path;
 use std::time::Duration;
 
 #[cfg(target_os = "macos")]
-pub use fsevent::FsEventWatcher;
+pub use crate::fsevent::FsEventWatcher;
 #[cfg(target_os = "linux")]
 pub use crate::inotify::INotifyWatcher;
 pub use null::NullWatcher;
