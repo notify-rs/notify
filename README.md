@@ -9,7 +9,15 @@
 
 _Cross-platform filesystem notification library for Rust._
 
-**This is the readme for the 5.0.0-pre.1 pre-release!**
+**Caution! This is a bleeding-edge 5.0 prerelease!**
+
+You likely want either [the latest 4.0 release] or [5.0.0-pre.1].
+
+Notably, at this stage the debounced interface has been _completely removed._
+You can find its previous implementation at either version above.
+
+[the latest 4.0 release]: https://github.com/passcod/notify/tree/v4.0.10#notify
+[5.0.0-pre.1]: https://github.com/passcod/notify/tree/v5.0.0-pre.1#notify
 
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
 [alert-after]!)
@@ -18,6 +26,7 @@ _Cross-platform filesystem notification library for Rust._
 - [API Documentation][docs]
 - [Crate page][crate]
 - [Changelog][changelog]
+- **todo [Upgrading from 4.0](https://github.com/passcod/notify/wiki/Upgrading-from-4.0-to-5.0)**
 - Earliest supported Rust version: **1.32.0**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax]
@@ -59,23 +68,22 @@ It’s gonna be pretty unstable for a while.
 ```toml
 [dependencies]
 crossbeam-channel = "0.3.8"
-notify = "=5.0.0-pre.1"
+notify = "5.0.0-pre.2"
 ```
 
 ## Usage
 
+The examples below are aspirational only, to preview what the final release may
+look like. They may not work. Refer to [the API documentation][docs] instead.
+
 ```rust
-use crossbeam_channel::unbounded;
-use notify::{RecursiveMode, Result, watcher};
+use notify::{RecommendedWatcher, RecursiveMode, Result, watcher};
 use std::time::Duration;
 
 fn main() -> Result<()> {
-    // Create a channel to receive the events.
-    let (tx, rx) = unbounded();
-
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
-    let mut watcher = watcher(tx, Duration::from_secs(2))?;
+    let mut watcher = watcher(Duration::from_secs(2))?;
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
@@ -83,15 +91,64 @@ fn main() -> Result<()> {
 
     // This is a simple loop, but you may want to use more complex logic here,
     // for example to handle I/O.
-    loop {
-        match rx.recv() {
-            Ok(event) => println!("changed: {:?}", event),
+    for event in &watcher {
+        match event {
+            Ok(event) => println!("changed: {:?}", event.path),
             Err(err) => println!("watch error: {:?}", err),
         };
     }
 
     Ok(())
 }
+```
+
+### With a channel
+
+To get a channel for advanced or flexible cases, use:
+
+```rust
+let rx = watcher.channel();
+
+loop {
+    match rx.recv() {
+        // ...
+    }
+}
+```
+
+To pass in a channel manually:
+
+```rust
+let (tx, rx) = crossbeam_channel::unbounded();
+let mut watcher: RecommendedWatcher = Watcher::with_channel(tx, Duration::from_secs(2))?;
+
+for event in rx.iter() {
+    // ...
+}
+```
+
+### With precise events
+
+By default, Notify issues generic events that carry little additional
+information beyond what path was affected. On some platforms, more is
+available; stay aware though that how exactly that manifests varies. To enable
+precise events, use:
+
+```rust
+use notify::Config;
+watcher.configure(Config::PreciseEvents(true));
+```
+
+### With notice events
+
+Sometimes you want to respond to some events straight away, but not give up the
+advantages of debouncing. Notice events appear once immediately when the occur
+during a debouncing period, and then a second time as usual at the end of the
+debouncing period:
+
+```rust
+use notify::Config;
+watcher.configure(Config::NoticeEvents(true));
 ```
 
 ### With ongoing events
@@ -109,16 +166,22 @@ watcher.configure(Config::OngoingEvents(Some(Duration::from_millis(500))));
 To receive events as they are emitted, without debouncing at all:
 
 ```rust
+let mut watcher = immediate_watcher()?;
+```
+
+With a channel:
+
+```rust
 let (tx, rx) = unbounded();
-let mut watcher = immediate_watcher(tx)?;
+let mut watcher: RecommendedWatcher = Watcher::immediate_with_channel(tx)?;
 ```
 
 ### Serde
 
-Debounced Events can be serialisable via [serde]. To enable the feature:
+Events can be serialisable via [serde]. To enable the feature:
 
 ```toml
-notify = { version = "=5.0.0-pre.1", features = ["serde"] }
+notify = { version = "5.0.0-pre.2", features = ["serde"] }
 ```
 
 ## Platforms
