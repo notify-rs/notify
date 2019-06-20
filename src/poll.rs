@@ -3,9 +3,8 @@
 //! Checks the `watch`ed paths periodically to detect changes. This implementation only uses
 //! Rust stdlib APIs and should work on all of the platforms it supports.
 
-use walkdir::WalkDir;
-use super::{Error, EventTx, RecursiveMode, Result, Watcher};
 use super::event::*;
+use super::{Error, EventTx, RecursiveMode, Result, Watcher};
 use crossbeam_channel::Sender;
 use filetime::FileTime;
 use std::collections::HashMap;
@@ -17,6 +16,7 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant};
+use walkdir::WalkDir;
 
 struct PathData {
     mtime: i64,
@@ -78,9 +78,9 @@ impl PollWatcher {
                     {
                         match fs::metadata(watch) {
                             Err(e) => {
-                                event_tx.send(Err(
-                                    Error::io(e).add_path(watch.clone())
-                                )).ok();
+                                event_tx
+                                    .send(Err(Error::io(e).add_path(watch.clone())))
+                                    .ok();
                                 continue;
                             }
                             Ok(metadata) => {
@@ -101,13 +101,14 @@ impl PollWatcher {
                                             mtime: old_mtime, ..
                                         }) => {
                                             if mtime > old_mtime {
-                                                event_tx.send(Ok(
-                                                    Event::new(EventKind::Modify(
+                                                event_tx
+                                                    .send(Ok(Event::new(EventKind::Modify(
                                                         ModifyKind::Metadata(
-                                                            MetadataKind::WriteTime
-                                                        )
-                                                    )).add_path(watch.clone())
-                                                )).ok();
+                                                            MetadataKind::WriteTime,
+                                                        ),
+                                                    ))
+                                                    .add_path(watch.clone())))
+                                                    .ok();
                                             }
                                         }
                                     }
@@ -123,9 +124,10 @@ impl PollWatcher {
 
                                         match entry.metadata() {
                                             Err(e) => {
-                                                event_tx.send(Err(
-                                                    Error::io(e.into()).add_path(path.to_path_buf())
-                                                )).ok();
+                                                event_tx
+                                                    .send(Err(Error::io(e.into())
+                                                        .add_path(path.to_path_buf())))
+                                                    .ok();
                                             }
                                             Ok(m) => {
                                                 let mtime =
@@ -139,22 +141,27 @@ impl PollWatcher {
                                                     },
                                                 ) {
                                                     None => {
-                                                        event_tx.send(Ok(
-                                                            Event::new(EventKind::Create(
-                                                                CreateKind::Any
-                                                            )).add_path(path.to_path_buf())
-                                                        )).ok();
+                                                        event_tx
+                                                            .send(Ok(Event::new(
+                                                                EventKind::Create(CreateKind::Any),
+                                                            )
+                                                            .add_path(path.to_path_buf())))
+                                                            .ok();
                                                     }
                                                     Some(PathData {
                                                         mtime: old_mtime, ..
                                                     }) => {
                                                         if mtime > old_mtime {
-                                                            event_tx.send(Ok(
-                                                                Event::new(EventKind::Modify(
-                                                                    ModifyKind::Metadata(MetadataKind::WriteTime)
-                                                                )).add_path(path.to_path_buf())
-                                                                // TODO add new mtime as attr
-                                                            )).ok();
+                                                            event_tx
+                                                                .send(Ok(
+                                                                    Event::new(EventKind::Modify(
+                                                                        ModifyKind::Metadata(
+                                                                            MetadataKind::WriteTime,
+                                                                        ),
+                                                                    ))
+                                                                    .add_path(path.to_path_buf()), // TODO add new mtime as attr
+                                                                ))
+                                                                .ok();
                                                         }
                                                     }
                                                 }
@@ -170,9 +177,10 @@ impl PollWatcher {
                         let mut removed = Vec::new();
                         for (path, &PathData { last_check, .. }) in paths.iter() {
                             if last_check < current_time {
-                                event_tx.send(Ok(
-                                    Event::new(EventKind::Remove(RemoveKind::Any)).add_path(path.clone())
-                                )).ok();
+                                event_tx
+                                    .send(Ok(Event::new(EventKind::Remove(RemoveKind::Any))
+                                        .add_path(path.clone())))
+                                    .ok();
                                 removed.push(path.clone());
                             }
                         }
@@ -201,9 +209,7 @@ impl Watcher for PollWatcher {
 
             match fs::metadata(path) {
                 Err(e) => {
-                    self.tx.send(Err(
-                        Error::io(e).add_path(watch.clone())
-                    )).ok();
+                    self.tx.send(Err(Error::io(e).add_path(watch.clone()))).ok();
                 }
                 Ok(metadata) => {
                     if !metadata.is_dir() {
@@ -240,9 +246,9 @@ impl Watcher for PollWatcher {
 
                             match entry.metadata() {
                                 Err(e) => {
-                                    self.tx.send(Err(
-                                        Error::io(e.into()).add_path(path.to_path_buf())
-                                    )).ok();
+                                    self.tx
+                                        .send(Err(Error::io(e.into()).add_path(path.to_path_buf())))
+                                        .ok();
                                 }
                                 Ok(m) => {
                                     let mtime = FileTime::from_last_modification_time(&m).seconds();
