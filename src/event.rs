@@ -469,6 +469,12 @@ impl Event {
         }
     }
 
+    /// Sets the kind.
+    pub fn set_kind(mut self, kind: EventKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
     /// Adds a path to the event.
     pub fn add_path(mut self, path: PathBuf) -> Self {
         self.paths.push(path);

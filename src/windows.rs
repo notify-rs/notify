@@ -1,4 +1,4 @@
-#![warn(missing_docs)]
+#![allow(missing_docs)]
 //! Watcher implementation for Windows' directory management APIs
 //!
 //! For more information see the [ReadDirectoryChangesW reference][ref].
@@ -13,8 +13,8 @@ use winapi::um::minwinbase::{LPOVERLAPPED, OVERLAPPED};
 use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
-use super::debounce::{Debounce, EventTx};
-use super::{op, Config, Error, Event, Op, RawEvent, RecursiveMode, Result, Watcher};
+use crate::{Config, Error, EventTx, RecursiveMode, Result, Watcher};
+use crate::event::*;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::env;
@@ -25,13 +25,10 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
 
 const BUF_SIZE: u32 = 16384;
-
-static mut COOKIE_COUNTER: u32 = 0;
 
 #[derive(Clone)]
 struct ReadData {
@@ -119,11 +116,7 @@ impl ReadDirectoryChangesServer {
                         break;
                     }
                     Action::Configure(config, tx) => {
-                        if self.event_tx.is_immediate() {
-                            self.configure_raw_mode(config, tx);
-                        } else {
-                            self.event_tx.configure_if_debounced(config, tx);
-                        }
+                        self.configure_raw_mode(config, tx);
                     }
                 }
             }
@@ -304,16 +297,6 @@ fn start_read(rd: &ReadData, event_tx: Arc<EventTx>, handle: HANDLE) {
     }
 }
 
-fn send_pending_rename_event(event: Option<Result<Event>>, event_tx: &EventTx) {
-    if let Some(e) = event {
-        event_tx.send(RawEvent {
-            path: e.path,
-            op: Ok(op::Op::REMOVE),
-            cookie: None,
-        });
-    }
-}
-
 unsafe extern "system" fn handle_event(
     error_code: u32,
     _bytes_written: u32,
@@ -332,10 +315,8 @@ unsafe extern "system" fn handle_event(
     // Get the next request queued up as soon as possible
     start_read(&request.data, request.event_tx.clone(), request.handle);
 
-    let mut rename_event = None;
-
     // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length
-    // string as its last member.  Each struct contains an offset for getting the next entry in
+    // string as its last member. Each struct contains an offset for getting the next entry in
     // the buffer.
     let mut cur_offset: *const u8 = request.buffer.as_ptr();
     let mut cur_entry: *const FILE_NOTIFY_INFORMATION = mem::transmute(cur_offset);
@@ -357,56 +338,36 @@ unsafe extern "system" fn handle_event(
         };
 
         if !skip {
-            if (*cur_entry).Action == winnt::FILE_ACTION_RENAMED_OLD_NAME {
-                send_pending_rename_event(rename_event, &request.event_tx);
-                if request.data.file.is_some() {
-                    request.event_tx.send(RawEvent {
-                        path: Some(path),
-                        op: Ok(op::Op::RENAME),
-                        cookie: None,
-                    });
-                    rename_event = None;
-                } else {
-                    COOKIE_COUNTER = COOKIE_COUNTER.wrapping_add(1);
-                    rename_event = Some(RawEvent {
-                        path: Some(path),
-                        op: Ok(op::Op::RENAME),
-                        cookie: Some(COOKIE_COUNTER),
-                    });
-                }
-            } else {
-                let mut o = Op::empty();
-                let mut c = None;
+            let newe = Event::new(EventKind::Any).add_path(path);
 
+            if (*cur_entry).Action == winnt::FILE_ACTION_RENAMED_OLD_NAME {
+                request.event_tx.send(Ok(newe.set_kind(
+                    EventKind::Modify(ModifyKind::Name(RenameMode::From))
+                ))).ok();
+            } else {
                 match (*cur_entry).Action {
                     winnt::FILE_ACTION_RENAMED_NEW_NAME => {
-                        if let Some(e) = rename_event {
-                            if let Some(cookie) = e.cookie {
-                                request.event_tx.send(e);
-                                o.insert(op::Op::RENAME);
-                                c = Some(cookie);
-                            } else {
-                                o.insert(op::Op::CREATE);
-                            }
-                        } else {
-                            o.insert(op::Op::CREATE);
-                        }
-                        rename_event = None;
+                        request.event_tx.send(Ok(newe.set_kind(
+                            EventKind::Modify(ModifyKind::Name(RenameMode::To))
+                        ))).ok();
                     }
-                    winnt::FILE_ACTION_ADDED => o.insert(op::Op::CREATE),
-                    winnt::FILE_ACTION_REMOVED => o.insert(op::Op::REMOVE),
-                    winnt::FILE_ACTION_MODIFIED => o.insert(op::Op::WRITE),
+                    winnt::FILE_ACTION_ADDED => {
+                        request.event_tx.send(Ok(newe.set_kind(
+                            EventKind::Create(CreateKind::Any)
+                        ))).ok();
+                    },
+                    winnt::FILE_ACTION_REMOVED => {
+                        request.event_tx.send(Ok(newe.set_kind(
+                            EventKind::Remove(RemoveKind::Any)
+                        ))).ok();
+                    },
+                    winnt::FILE_ACTION_MODIFIED => {
+                        request.event_tx.send(Ok(newe.set_kind(
+                            EventKind::Modify(ModifyKind::Any)
+                        ))).ok();
+                    },
                     _ => (),
                 };
-
-                send_pending_rename_event(rename_event, &request.event_tx);
-                rename_event = None;
-
-                request.event_tx.send(RawEvent {
-                    path: Some(path),
-                    op: Ok(o),
-                    cookie: c,
-                });
             }
         }
 
@@ -416,10 +377,9 @@ unsafe extern "system" fn handle_event(
         cur_offset = cur_offset.offset((*cur_entry).NextEntryOffset as isize);
         cur_entry = mem::transmute(cur_offset);
     }
-
-    send_pending_rename_event(rename_event, &request.event_tx);
 }
 
+/// Watcher implementation based on ReadDirectoryChanges
 pub struct ReadDirectoryChangesWatcher {
     tx: Sender<Action>,
     cmd_rx: Receiver<Result<PathBuf>>,
@@ -439,31 +399,7 @@ impl ReadDirectoryChangesWatcher {
             return Err(Error::generic("Failed to create wakeup semaphore."));
         }
 
-        let event_tx = EventTx::new_immediate(tx);
-        let action_tx = ReadDirectoryChangesServer::start(event_tx, meta_tx, cmd_tx, wakeup_sem);
-
-        Ok(ReadDirectoryChangesWatcher {
-            tx: action_tx,
-            cmd_rx: cmd_rx,
-            wakeup_sem: wakeup_sem,
-        })
-    }
-
-    pub fn create_debounced(
-        tx: Sender<Result<Event>>,
-        meta_tx: Sender<MetaEvent>,
-        delay: Duration,
-    ) -> Result<ReadDirectoryChangesWatcher> {
-        let (cmd_tx, cmd_rx) = unbounded();
-
-        let wakeup_sem =
-            unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
-        if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
-            return Err(Error::generic("Failed to create wakeup semaphore."));
-        }
-
-        let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
-        let action_tx = ReadDirectoryChangesServer::start(event_tx, meta_tx, cmd_tx, wakeup_sem);
+        let action_tx = ReadDirectoryChangesServer::start(tx, meta_tx, cmd_tx, wakeup_sem);
 
         Ok(ReadDirectoryChangesWatcher {
             tx: action_tx,
