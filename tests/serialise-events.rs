@@ -1,8 +1,5 @@
 // This file is dual-licensed under the Artistic License 2.0 as per the
 // LICENSE.ARTISTIC file, and the Creative Commons Zero 1.0 license.
-extern crate notify;
-#[macro_use]
-extern crate serde_json;
 
 use notify::event::*;
 
@@ -20,7 +17,7 @@ fn events_are_debuggable() {
 
     let mut attrs = AnyMap::new();
     attrs.insert(Info("unmount".into()));
-    attrs.insert(Flag::Ongoing);
+    attrs.insert(Flag::Rescan);
 
     assert_eq!(
         format!(
@@ -32,7 +29,7 @@ fn events_are_debuggable() {
             }
         ),
         String::from(
-            "Event { kind: Remove(Other), paths: [\"/example\"], attr:tracker: None, attr:flag: Some(Ongoing), attr:info: Some(\"unmount\"), attr:source: None }"
+            "Event { kind: Remove(Other), paths: [\"/example\"], attr:tracker: None, attr:flag: Some(Rescan), attr:info: Some(\"unmount\"), attr:source: None }"
         )
     );
 }
