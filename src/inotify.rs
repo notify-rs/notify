@@ -4,8 +4,8 @@
 //! monitor individual files, or to monitor directories.  When a directory is monitored, inotify
 //! will return events for the directory itself, and for files inside the directory.
 
-use super::debounce::{Debounce, EventTx};
-use super::{op, Config, Error, Event, Op, RawEvent, RecursiveMode, Result, Watcher};
+use super::debounce::EventTx;
+use super::{op, Config, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{bounded, unbounded, Sender};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
@@ -444,15 +444,6 @@ impl Watcher for INotifyWatcher {
     fn new_immediate(tx: Sender<RawEvent>) -> Result<INotifyWatcher> {
         let inotify = Inotify::init()?;
         let event_tx = EventTx::new_immediate(tx);
-        let event_loop = EventLoop::new(inotify, event_tx)?;
-        let channel = event_loop.channel();
-        event_loop.run();
-        Ok(INotifyWatcher(Mutex::new(channel)))
-    }
-
-    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<INotifyWatcher> {
-        let inotify = Inotify::init()?;
-        let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
         let event_loop = EventLoop::new(inotify, event_tx)?;
         let channel = event_loop.channel();
         event_loop.run();

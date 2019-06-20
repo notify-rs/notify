@@ -514,12 +514,6 @@ impl Watcher for ReadDirectoryChangesWatcher {
         ReadDirectoryChangesWatcher::create(tx, meta_tx)
     }
 
-    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
-        // create dummy channel for meta event
-        let (meta_tx, _) = unbounded();
-        ReadDirectoryChangesWatcher::create_debounced(tx, meta_tx, delay)
-    }
-
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         let pb = if path.as_ref().is_absolute() {
             path.as_ref().to_owned()

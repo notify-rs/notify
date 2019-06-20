@@ -4,8 +4,8 @@
 //! Rust stdlib APIs and should work on all of the platforms it supports.
 
 use walkdir::WalkDir;
-use super::debounce::{Debounce, EventTx};
-use super::{op, Error, Event, RawEvent, RecursiveMode, Result, Watcher};
+use super::debounce::EventTx;
+use super::{op, Error, RawEvent, RecursiveMode, Result, Watcher};
 use crossbeam_channel::Sender;
 use filetime::FileTime;
 use std::collections::HashMap;
@@ -195,18 +195,6 @@ impl PollWatcher {
 impl Watcher for PollWatcher {
     fn new_immediate(tx: Sender<RawEvent>) -> Result<PollWatcher> {
         PollWatcher::with_delay(tx, Duration::from_secs(30))
-    }
-
-    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<PollWatcher> {
-        let event_tx = EventTx::new_debounced(tx.clone(), Debounce::new(delay, tx));
-        let mut p = PollWatcher {
-            event_tx: event_tx.debounced_tx(),
-            watches: Arc::new(Mutex::new(HashMap::new())),
-            open: Arc::new(AtomicBool::new(true)),
-            delay,
-        };
-        p.run(event_tx);
-        Ok(p)
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
