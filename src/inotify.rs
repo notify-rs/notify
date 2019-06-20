@@ -4,8 +4,7 @@
 //! monitor individual files, or to monitor directories.  When a directory is monitored, inotify
 //! will return events for the directory itself, and for files inside the directory.
 
-use super::debounce::EventTx;
-use super::{Config, Error, RecursiveMode, Result, Watcher};
+use super::{Config, Error, EventTx, RecursiveMode, Result, Watcher};
 use super::event::*;
 use crossbeam_channel::{bounded, unbounded, Sender};
 use inotify as inotify_sys;
@@ -57,7 +56,7 @@ enum EventLoopMsg {
 #[inline]
 fn send_pending_rename_event(rename_event: &mut Option<Event>, event_tx: &EventTx) {
     if let Some(e) = rename_event.take() {
-        event_tx.send(Ok(e));
+        event_tx.send(Ok(e)).ok();
     }
 }
 
@@ -197,11 +196,7 @@ impl EventLoop {
                     }
                 }
                 EventLoopMsg::Configure(config, tx) => {
-                    if self.event_tx.is_immediate() {
-                        self.configure_raw_mode(config, tx);
-                    } else {
-                        self.event_tx.configure_if_debounced(config, tx);
-                    }
+                    self.configure_raw_mode(config, tx);
                 }
             }
         }
@@ -224,7 +219,7 @@ impl EventLoop {
                         if event.mask.contains(EventMask::Q_OVERFLOW) {
                             self.event_tx.send(Ok(
                                 Event::new(EventKind::Other).set_flag(Flag::Rescan)
-                            ));
+                            )).ok();
                         }
 
                         let path = match event.name {
@@ -243,7 +238,7 @@ impl EventLoop {
                             if event.mask.contains(EventMask::MOVED_TO) {
                                 if let Some(e) = self.rename_event.take() {
                                     if e.tracker() == Some(event.cookie as usize) {
-                                        self.event_tx.send(Ok(e.clone()));
+                                        self.event_tx.send(Ok(e.clone())).ok();
                                         evs.push(Event::new(
                                             EventKind::Modify(ModifyKind::Name(RenameMode::To))
                                         ).set_tracker(event.cookie as usize)
@@ -336,7 +331,7 @@ impl EventLoop {
                             }
 
                             for ev in evs {
-                                self.event_tx.send(Ok(ev));
+                                self.event_tx.send(Ok(ev)).ok();
                             }
                         }
                     }
@@ -361,7 +356,7 @@ impl EventLoop {
                     }
                 }
                 Err(e) => {
-                    self.event_tx.send(Err(Error::io(e)));
+                    self.event_tx.send(Err(Error::io(e))).ok();
                 }
             }
         }
@@ -488,8 +483,7 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 impl Watcher for INotifyWatcher {
     fn new_immediate(tx: Sender<Result<Event>>) -> Result<INotifyWatcher> {
         let inotify = Inotify::init()?;
-        let event_tx = EventTx::new_immediate(tx);
-        let event_loop = EventLoop::new(inotify, event_tx)?;
+        let event_loop = EventLoop::new(inotify, tx)?;
         let channel = event_loop.channel();
         event_loop.run();
         Ok(INotifyWatcher(Mutex::new(channel)))
