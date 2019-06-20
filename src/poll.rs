@@ -4,8 +4,7 @@
 //! Rust stdlib APIs and should work on all of the platforms it supports.
 
 use walkdir::WalkDir;
-use crate::debounce::EventTx;
-use super::{Error, RecursiveMode, Result, Watcher};
+use super::{Error, EventTx, RecursiveMode, Result, Watcher};
 use super::event::*;
 use crossbeam_channel::Sender;
 use filetime::FileTime;
@@ -31,7 +30,7 @@ struct WatchData {
 
 /// Polling based `Watcher` implementation
 pub struct PollWatcher {
-    event_tx: EventTx,
+    tx: EventTx,
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
     open: Arc<AtomicBool>,
     delay: Duration,
@@ -40,14 +39,13 @@ pub struct PollWatcher {
 impl PollWatcher {
     /// Create a PollWatcher which polls every `delay` milliseconds
     pub fn with_delay(tx: Sender<Result<Event>>, delay: Duration) -> Result<PollWatcher> {
-        let event_tx = EventTx::new_immediate(tx);
         let mut p = PollWatcher {
-            event_tx: event_tx.clone(),
+            tx: tx.clone(),
             watches: Arc::new(Mutex::new(HashMap::new())),
             open: Arc::new(AtomicBool::new(true)),
             delay,
         };
-        p.run(event_tx);
+        p.run(tx);
         Ok(p)
     }
 
@@ -82,7 +80,7 @@ impl PollWatcher {
                             Err(e) => {
                                 event_tx.send(Err(
                                     Error::io(e).add_path(watch.clone())
-                                ));
+                                )).ok();
                                 continue;
                             }
                             Ok(metadata) => {
@@ -109,7 +107,7 @@ impl PollWatcher {
                                                             MetadataKind::WriteTime
                                                         )
                                                     )).add_path(watch.clone())
-                                                ));
+                                                )).ok();
                                             }
                                         }
                                     }
@@ -127,7 +125,7 @@ impl PollWatcher {
                                             Err(e) => {
                                                 event_tx.send(Err(
                                                     Error::io(e.into()).add_path(path.to_path_buf())
-                                                ));
+                                                )).ok();
                                             }
                                             Ok(m) => {
                                                 let mtime =
@@ -145,7 +143,7 @@ impl PollWatcher {
                                                             Event::new(EventKind::Create(
                                                                 CreateKind::Any
                                                             )).add_path(path.to_path_buf())
-                                                        ));
+                                                        )).ok();
                                                     }
                                                     Some(PathData {
                                                         mtime: old_mtime, ..
@@ -156,7 +154,7 @@ impl PollWatcher {
                                                                     ModifyKind::Metadata(MetadataKind::WriteTime)
                                                                 )).add_path(path.to_path_buf())
                                                                 // TODO add new mtime as attr
-                                                            ));
+                                                            )).ok();
                                                         }
                                                     }
                                                 }
@@ -174,7 +172,7 @@ impl PollWatcher {
                             if last_check < current_time {
                                 event_tx.send(Ok(
                                     Event::new(EventKind::Remove(RemoveKind::Any)).add_path(path.clone())
-                                ));
+                                )).ok();
                                 removed.push(path.clone());
                             }
                         }
@@ -203,9 +201,9 @@ impl Watcher for PollWatcher {
 
             match fs::metadata(path) {
                 Err(e) => {
-                    self.event_tx.send(Err(
+                    self.tx.send(Err(
                         Error::io(e).add_path(watch.clone())
-                    ));
+                    )).ok();
                 }
                 Ok(metadata) => {
                     if !metadata.is_dir() {
@@ -242,9 +240,9 @@ impl Watcher for PollWatcher {
 
                             match entry.metadata() {
                                 Err(e) => {
-                                    self.event_tx.send(Err(
+                                    self.tx.send(Err(
                                         Error::io(e.into()).add_path(path.to_path_buf())
-                                    ));
+                                    )).ok();
                                 }
                                 Ok(m) => {
                                     let mtime = FileTime::from_last_modification_time(&m).seconds();

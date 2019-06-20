@@ -102,10 +102,10 @@
 pub use config::{Config, RecursiveMode};
 pub use error::{Error, ErrorKind, Result};
 pub use event::{Event, EventKind};
-pub use raw_event::{op, Op, RawEvent};
 use crossbeam_channel::Sender;
 use std::convert::AsRef;
 use std::path::Path;
+pub(crate) type EventTx = Sender<Result<Event>>;
 
 #[cfg(target_os = "macos")]
 pub use crate::fsevent::FsEventWatcher;
@@ -128,9 +128,7 @@ pub mod null;
 pub mod poll;
 
 mod config;
-mod debounce;
 mod error;
-mod raw_event;
 
 /// Type that can deliver file activity notifications
 ///
