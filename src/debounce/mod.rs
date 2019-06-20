@@ -148,7 +148,6 @@ impl Debounce {
     pub fn configure(&mut self, config: Config, tx: Sender<Result<bool>>) {
         tx.send(match config {
             Config::OngoingEvents(c) => self.timer.set_ongoing(c),
-            _ => Ok(false),
         })
         .expect("configuration channel disconnected");
     }

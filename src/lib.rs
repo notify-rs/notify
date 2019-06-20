@@ -4,17 +4,12 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify = "5.0.0"
+//! notify = "5.0.0-pre.0"
 //! ```
-//!
-//! ## Upgrading from 4.0
-//!
-//! A guide is available on the wiki:
-//! https://github.com/passcod/notify/wiki/Upgrading-from-4.x-to-5.0
 //!
 //! ## Serde
 //!
-//! Events are serialisable via [serde] if the `serde` feature is enabled:
+//! Debounced Events are serialisable via [serde] if the `serde` feature is enabled:
 //!
 //! ```toml
 //! notify = { version = "5.0.0", features = ["serde"] }
@@ -53,30 +48,6 @@
 //!
 //!     Ok(())
 //! }
-//! ```
-//!
-//! ## With precise events
-//!
-//! By default, Notify emits non-descript events containing only the affected path and some
-//! metadata. To get richer details about _what_ the events are about, you need to enable
-//! [`Config::PreciseEvents`](config/enum.Config.html#variant.PreciseEvents). The full event
-//! classification is described in the [`event`](event/index.html`) module documentation.
-//!
-//! ```
-//! # extern crate crossbeam_channel;
-//! # extern crate notify;
-//! # use crossbeam_channel::unbounded;
-//! # use notify::{Watcher, RecursiveMode, RecommendedWatcher, Result, watcher};
-//! # use std::time::Duration;
-//! #
-//! # fn main() -> Result<()> {
-//! # let (tx, rx) = unbounded();
-//! # let mut watcher: RecommendedWatcher = watcher(tx, Duration::from_secs(10))?;
-//! #
-//! use notify::Config;
-//! watcher.configure(Config::PreciseEvents(true))?;
-//! # Ok(())
-//! # }
 //! ```
 //!
 //! ## Without debouncing

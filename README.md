@@ -9,9 +9,7 @@
 
 _Cross-platform filesystem notification library for Rust._
 
-**This is the readme for the upcoming 5.0 release! Look at [the 4.0 one] instead.**
-
-[the 4.0 one]: https://github.com/passcod/notify/tree/v4.0.10#notify
+**This is the readme for the 5.0.0-pre.0 pre-release!**
 
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
 [alert-after]!)
@@ -20,7 +18,6 @@ _Cross-platform filesystem notification library for Rust._
 - [API Documentation][docs]
 - [Crate page][crate]
 - [Changelog][changelog]
-- **[Upgrading from 4.0](https://github.com/passcod/notify/wiki/Upgrading-from-4.0-to-5.0)**
 - Earliest supported Rust version: **1.32.0**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
@@ -31,19 +28,38 @@ As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
 
 ```toml
 [dependencies]
-notify = "5.0.0"
+crossbeam-channel = "0.3.8"
+notify = "5.0.0-pre.0"
 ```
 
 ## Usage
 
+This prerelease captures all the fixes of the 5.0 branch so far, with the new
+`Event` interface for the "debounced" watcher, but keeping the previous events
+for the immediate (previously known as "raw") watcher.
+
+It is fairly stable in terms of functionality, but be aware that the API _will
+change dramatically_ between prereleases, although the goal is to have a fairly
+similar API for the 5.0.0 stable release. If you just want the 5.0 fixes and
+already-implemented features, you should use this. If you want a stable API
+with a large ecosystem compatibility, you may prefer [the latest 4.0 release].
+If you wish to live at the bleeding edge and try out new developments, later
+prereleases or even depending straight on the main branch is always an option.
+
+[the latest 4.0 release]: https://github.com/passcod/notify/tree/v4.0.10#notify
+
 ```rust
-use notify::{RecommendedWatcher, RecursiveMode, Result, watcher};
+use crossbeam_channel::unbounded;
+use notify::{RecursiveMode, Result, watcher};
 use std::time::Duration;
 
 fn main() -> Result<()> {
+    // Create a channel to receive the events.
+    let (tx, rx) = unbounded();
+
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
-    let mut watcher = watcher(Duration::from_secs(2))?;
+    let mut watcher = watcher(tx, Duration::from_secs(2))?;
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
@@ -51,64 +67,15 @@ fn main() -> Result<()> {
 
     // This is a simple loop, but you may want to use more complex logic here,
     // for example to handle I/O.
-    for event in &watcher {
-        match event {
-            Ok(event) => println!("changed: {:?}", event.path),
+    loop {
+        match rx.recv() {
+            Ok(event) => println!("changed: {:?}", event),
             Err(err) => println!("watch error: {:?}", err),
         };
     }
 
     Ok(())
 }
-```
-
-### With a channel
-
-To get a channel for advanced or flexible cases, use:
-
-```rust
-let rx = watcher.channel();
-
-loop {
-    match rx.recv() {
-        // ...
-    }
-}
-```
-
-To pass in a channel manually:
-
-```rust
-let (tx, rx) = crossbeam_channel::unbounded();
-let mut watcher: RecommendedWatcher = Watcher::with_channel(tx, Duration::from_secs(2))?;
-
-for event in rx.iter() {
-    // ...
-}
-```
-
-### With precise events
-
-By default, Notify issues generic events that carry little additional
-information beyond what path was affected. On some platforms, more is
-available; stay aware though that how exactly that manifests varies. To enable
-precise events, use:
-
-```rust
-use notify::Config;
-watcher.configure(Config::PreciseEvents(true));
-```
-
-### With notice events
-
-Sometimes you want to respond to some events straight away, but not give up the
-advantages of debouncing. Notice events appear once immediately when the occur
-during a debouncing period, and then a second time as usual at the end of the
-debouncing period:
-
-```rust
-use notify::Config;
-watcher.configure(Config::NoticeEvents(true));
 ```
 
 ### With ongoing events
@@ -126,22 +93,16 @@ watcher.configure(Config::OngoingEvents(Some(Duration::from_millis(500))));
 To receive events as they are emitted, without debouncing at all:
 
 ```rust
-let mut watcher = immediate_watcher()?;
-```
-
-With a channel:
-
-```rust
 let (tx, rx) = unbounded();
-let mut watcher: RecommendedWatcher = Watcher::immediate_with_channel(tx)?;
+let mut watcher = immediate_watcher(tx)?;
 ```
 
 ### Serde
 
-Events can be serialisable via [serde]. To enable the feature:
+Debounced Events can be serialisable via [serde]. To enable the feature:
 
 ```toml
-notify = { version = "5.0.0", features = ["serde"] }
+notify = { version = "5.0.0-pre.0", features = ["serde"] }
 ```
 
 ## Platforms
@@ -160,23 +121,29 @@ with a slight performance cost.
 
 ## Next generation
 
-While this current version continues to be developed and maintained, a next
-generation design of the library lives in the
+While this current version continues to be developed and maintained, next
+generation experiments and designs around the library live in the
 [`next`](https://github.com/passcod/notify/tree/next) branch. There is no solid
 ETA, beyond that most of it will not be released before `async`/`await` is
 stabilised in Rust. For an overview and background, see [this draft
 announce](https://github.com/passcod/notify/wiki/Presentation).
 
-Instead of one large release, though, it is much more likely that smaller
-components of the design, once they have gone through revising and maturing in
-the `next` branch, will be incorporated in the `main` branch. The first large
-piece, a new event classification system, landed in 5.0.
+Instead of one large release, though, smaller components of the design, once
+they have gone through revising and maturing, will be incorporated in the
+`main` branch. The first large piece, a new event classification system, has
+already landed.
 
-Do be aware of the licensing difference. Notify is so far under [CC0][cc0]. The
-`next` branch is instead under the [Artistic License 2.0][artistic]. Pieces of
-the `next` branch brought to `main` are dual-licensed under CC0, but the eventual
-plan is to be entirely Artistic License 2.0 code. The formal license change
-_will_ incur a major version bump.
+## License
+
+Notify is currently undergoing a transition to using the
+[Artistic License 2.0][artistic] from the current [CC Zero 1.0][cc0]. A part of
+the code is only under CC0, and another part, including _all new code_ since
+commit [`3378ac5a`], is under _both_ CC0 and Artistic. When the code will be
+entirely free of CC0 code, the license will be formally changed (and that will
+incur a major version bump). As part of this, when you contribute to Notify you
+currently agree to release under both.
+
+[`3378ac5a`]: https://github.com/passcod/notify/commit/3378ac5ad5f174dfeacce6edadd7ded1a08d384e
 
 ## Origins
 
