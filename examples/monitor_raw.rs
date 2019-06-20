@@ -1,6 +1,3 @@
-extern crate crossbeam_channel;
-extern crate notify;
-
 use crossbeam_channel::unbounded;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
@@ -21,12 +18,7 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
     // for example to handle I/O.
     loop {
         match rx.recv() {
-            Ok(notify::RawEvent {
-                path: Some(path),
-                op: Ok(op),
-                cookie,
-            }) => println!("{:?} {:?} ({:?})", op, path, cookie),
-            Ok(event) => println!("broken event: {:?}", event),
+            Ok(event) => println!("changed: {:?}", event),
             Err(e) => println!("watch error: {:?}", e),
         }
     }

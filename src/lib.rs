@@ -54,7 +54,7 @@
 //!
 //! ```
 //! # use crossbeam_channel::unbounded;
-//! # use notify::{Watcher, RecommendedWatcher, Result, watcher};
+//! # use notify::{Watcher, RecommendedWatcher, Result};
 //! # use std::time::Duration;
 //! #
 //! # fn main() -> Result<()> {
