@@ -14,15 +14,15 @@ _Cross-platform filesystem notification library for Rust._
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
 [alert-after]!)
 
-- **[Guides and in-depth docs][wiki]**
+- **wip [Guides and in-depth docs][wiki]**
 - [API Documentation][docs]
 - [Crate page][crate]
 - [Changelog][changelog]
 - Earliest supported Rust version: **1.32.0**
 
-As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
-[mdBook], [pax], [rdiff], [rust-analyzer], [timetrack], [watchexec],
-[xi-editor], and others. (Want to be added to this list? Open a pull request!)
+As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax]
+[rdiff], [rust-analyzer], [timetrack], [watchexec], [xi-editor], and others.
+(Want to be added to this list? Open a pull request!)
 
 ## Installation
 
@@ -168,7 +168,7 @@ Written by [Félix Saparelli] and awesome [contributors].
 [contributors]: https://github.com/passcod/notify/graphs/contributors
 [crate]: https://crates.io/crates/notify
 [docket]: https://iwillspeak.github.io/docket/
-[docs]: https://docs.rs/notify
+[docs]: https://docs.rs/notify/5.0.0-pre.0/notify/
 [fsnotify]: https://github.com/go-fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
 [hotwatch]: https://github.com/francesca64/hotwatch

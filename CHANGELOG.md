@@ -2,6 +2,13 @@
 
 ## 5.0.0 (future)
 
+- CHANGE: Rewrite event debouncing.
+- CHANGE: Remove `Op` and `DebouncedEvent` event classification. [#187]
+- CHANGE: Make it opt-in to receive information about event kind. [#187]
+- CHANGE: Make `Notice` events opt-in.
+
+## 5.0.0-pre.0
+
 - RUSTC: Push the minimum version to 1.32.0 [#201]
 - RUSTC: Switch the crate to Rust 2018.
 - FIX: Implement `Sync` for PollWatcher to support FreeBSD. [#197]
@@ -10,17 +17,15 @@
 - FEATURE: Bring in new event system from `next` branch. [#187]
 - FEATURE: Allow multiple watchers to send to the same channel. [`2a035c86`]
 - CHANGE: Switch to crossbeam channel. [#160]
-- ~~CHANGE: Rename `Chmod` to `Metadata`. [#179], [#180], previously [#112], [#161]~~
-- CHANGE: Remove `Op` and `DebouncedEvent` event classification. [#187]
-- CHANGE: Make it opt-in to receive information about event kind. [#187]
-- CHANGE: Make `Notice` events opt-in.
+- CHANGE: Rename `Chmod` to `Metadata`. [#179], [#180], previously [#112], [#161]
+- CHANGE: Remove `DebouncedEvent` event classification. [#187]
 - DEPS: \[Linux\] Upgrade inotify to 0.7. [#184]
 - DEPS: \[macOS\] Upgrade fsevent to 0.4. [#195]
 - DEPS: Upgrade filetime to 0.2.6.
 - META: Rename `v4-legacy` branch to `main`, to further clarify status and prepare for a breaking release.
 - DOCS: Change `v5` to `Next Generation Notify` to allow for a breaking release.
 - DOCS: Add rust-analyzer to Readme showcase.
-- DOCS: Add github issue / PR templates.
+- DOCS: Add github issue / PR templates and funding.
 
 [#112]: https://github.com/passcod/notify/issues/112
 [#146]: https://github.com/passcod/notify/issues/146
