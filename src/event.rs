@@ -205,6 +205,8 @@ pub enum EventKind {
     /// This variant should be used as the "else" case when mapping native kernel bitmasks or
     /// bitmaps, such that if the mask is ever extended with new event types the backend will not
     /// gain bugs due to not matching new unknown event types.
+    ///
+    /// This variant is also the default variant used when Notify is in "imprecise" mode.
     Any,
 
     /// An event describing non-mutating access operations on files.
@@ -240,7 +242,8 @@ pub enum EventKind {
 
     /// An event not fitting in any of the above four categories.
     ///
-    /// This may be used for meta-events about the watch itself.
+    /// This may be used for meta-events about the watch itself. In "imprecise" mode, it is, along
+    /// with `Any`, the only other event generated.
     Other,
 }
 
@@ -389,6 +392,8 @@ pub struct Tracker(pub usize);
 pub enum Flag {
     /// Event notices are emitted by debounced watchers immediately after the _first_ event of that
     /// kind is received on a path to indicate activity to a path within the interval of a debounce.
+    ///
+    /// Event notices are a runtime option and are enabled by default. (TODO)
     Notice,
 
     /// Ongoing event notices are emitted by debounced watchers on a higher frequency than the

@@ -26,6 +26,24 @@ impl RecursiveMode {
 /// See the [`Watcher::configure`](../trait.Watcher.html#tymethod.configure) method for usage.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Config {
+    /// Enable or disable emitting precise event classification.
+    ///
+    /// Applicable to all watchers.
+    ///
+    /// When enabled, events are emitted with a `kind` set to as much precision about what kind of
+    /// event they are as the backend is capable of providing. When disabled (default), events are
+    /// instead emitted as `EventKind::Any`. `EventKind::Other` meta-events are left alone.
+    PreciseEvents(bool),
+
+    /// Enable or disable emitting `Notice` events.
+    ///
+    /// Applicable to debounced watchers only.
+    ///
+    /// When enabled, the first modify or remove event for a path is emitted immediately with a
+    /// [`Flag::Notice`](../event/enum.Flag.html) attribute within a debouncing period, enabling
+    /// applications to respond more quickly.
+    NoticeEvents(bool),
+
     /// Enable or disable emitting `Ongoing` events.
     ///
     /// Applicable to debounced watchers only.

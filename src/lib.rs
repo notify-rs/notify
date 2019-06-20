@@ -4,12 +4,12 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify = "5.0.0-pre.0"
+//! notify = "5.0.0"
 //! ```
 //!
 //! ## Serde
 //!
-//! Debounced Events are serialisable via [serde] if the `serde` feature is enabled:
+//! Events are serialisable via [serde] if the `serde` feature is enabled:
 //!
 //! ```toml
 //! notify = { version = "5.0.0-pre.0", features = ["serde"] }
@@ -20,62 +20,46 @@
 //! # Examples
 //!
 //! ```
-//! extern crate crossbeam_channel;
-//! extern crate notify;
-//!
 //! use crossbeam_channel::unbounded;
-//! use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
-//! use std::time::Duration;
+//! use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
 //!
 //! fn main() -> Result<()> {
-//!     // Create a channel to receive the events.
 //!     let (tx, rx) = unbounded();
 //!
-//!     // Automatically select the best implementation for your platform.
-//!     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_secs(2))?;
-//!
-//!     // Add a path to be watched. All files and directories at that path and
-//!     // below will be monitored for changes.
+//!     let mut watcher: RecommendedWatcher = Watcher::new_immediate(tx)?;
 //!     watcher.watch(".", RecursiveMode::Recursive)?;
 //!
 //!     loop {
 //! #       break;
 //!         match rx.recv() {
-//!            Ok(event) => println!("changed: {:?}", event),
-//!            Err(err) => println!("watch error: {:?}", err),
-//!         };
+//!            Ok(event) => println!("event: {:?}", event),
+//!            Err(e) => println!("watch error: {:?}", e),
+//!         }
 //!     }
 //!
 //!     Ok(())
 //! }
 //! ```
 //!
-//! ## Without debouncing
+//! ## With precise events
 //!
-//! To receive events as they are emitted, without debouncing at all:
+//! By default, Notify emits non-descript events containing only the affected path and some
+//! metadata. To get richer details about _what_ the events are about, you need to enable
+//! [`Config::PreciseEvents`](config/enum.Config.html#variant.PreciseEvents). The full event
+//! classification is described in the [`event`](event/index.html`) module documentation.
 //!
 //! ```
-//! # extern crate crossbeam_channel;
-//! # extern crate notify;
-//! #
 //! # use crossbeam_channel::unbounded;
-//! # use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
+//! # use notify::{Watcher, RecommendedWatcher, Result, watcher};
+//! # use std::time::Duration;
 //! #
 //! # fn main() -> Result<()> {
-//! #     let (tx, rx) = unbounded();
+//! # let (tx, rx) = unbounded();
+//! # let mut watcher: RecommendedWatcher = Watcher::new_immediate(tx)?;
 //! #
-//!       let mut watcher: RecommendedWatcher = Watcher::new_immediate(tx)?;
-//! #     watcher.watch(".", RecursiveMode::Recursive)?;
-//! #
-//! #     loop {
-//! #         break;
-//! #         match rx.recv() {
-//! #            Ok(event) => println!("event: {:?}", event),
-//! #            Err(e) => println!("watch error: {:?}", e),
-//! #         }
-//! #     }
-//! #
-//! #     Ok(())
+//! use notify::Config;
+//! watcher.configure(Config::PreciseEvents(true))?;
+//! # Ok(())
 //! # }
 //! ```
 //!
@@ -85,9 +69,6 @@
 //! all send to the same channel. This can accommodate advanced behaviour or work around limits.
 //!
 //! ```
-//! # extern crate crossbeam_channel;
-//! # extern crate notify;
-//! #
 //! # use crossbeam_channel::unbounded;
 //! # use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
 //! #
@@ -121,7 +102,6 @@ pub use raw_event::{op, Op, RawEvent};
 use crossbeam_channel::Sender;
 use std::convert::AsRef;
 use std::path::Path;
-use std::time::Duration;
 
 #[cfg(target_os = "macos")]
 pub use crate::fsevent::FsEventWatcher;
@@ -158,40 +138,6 @@ pub trait Watcher: Sized {
     ///
     /// Events will be sent using the provided `tx` immediately after they occur.
     fn new_immediate(tx: Sender<RawEvent>) -> Result<Self>;
-
-    /// Create a new _debounced_ watcher with a `delay`.
-    ///
-    /// Events won't be sent immediately; every iteration they will be collected, deduplicated, and
-    /// emitted only after the specified delay.
-    ///
-    /// # Advantages
-    ///
-    /// This has the advantage that a lot of logic can be offloaded to Notify.
-    ///
-    /// For example you won't have to handle `Modify(Name(From|To))` events yourself by piecing the
-    /// two rename events together. Instead you will just receive a `Modify(Name(Both))` with two
-    /// paths `from` and `to` in that order.
-    ///
-    /// Notify will also detect the beginning and the end of write operations. As soon as something
-    /// is written to a file, a `Modify` notice is emitted. If no new event arrived until after the
-    /// specified `delay`, a `Modify` event is emitted.
-    ///
-    /// A practical example is "safe-saving", where a temporary file is created and written to, then
-    /// only when everything has been written is it renamed to overwrite the file that was meant to
-    /// be saved. Instead of receiving a `Create` event for the temporary file, `Modify(Data)`
-    /// events to that file, and a `Modify(Name)` event from the temporary file to the file being
-    /// saved, you will just receive a single `Modify(Data)` event.
-    ///
-    /// If you use a delay of more than 30 seconds, you can avoid receiving repetitions of previous
-    /// events on macOS.
-    ///
-    /// # Disadvantages
-    ///
-    /// Your application might not feel as responsive.
-    ///
-    /// If a file is saved very slowly, you might receive a `Modify` event even though the file is
-    /// still being written to.
-    fn new(tx: Sender<Result<Event>>, delay: Duration) -> Result<Self>;
 
     /// Begin watching a new path.
     ///
@@ -251,12 +197,4 @@ pub type RecommendedWatcher = PollWatcher;
 /// See [`Watcher::new_immediate`](trait.Watcher.html#tymethod.new_immediate).
 pub fn immediate_watcher(tx: Sender<RawEvent>) -> Result<RecommendedWatcher> {
     Watcher::new_immediate(tx)
-}
-
-/// Convenience method for creating the `RecommendedWatcher` for the current
-/// platform in default (debounced) mode.
-///
-/// See [`Watcher::new`](trait.Watcher.html#tymethod.new).
-pub fn watcher(tx: Sender<Result<Event>>, delay: Duration) -> Result<RecommendedWatcher> {
-    Watcher::new(tx, delay)
 }
