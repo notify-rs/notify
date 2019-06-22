@@ -16,7 +16,7 @@ You likely want either [the latest 4.0 release] or [5.0.0-pre.1].
 Notably, at this stage the debounced interface has been _completely removed._
 You can find its previous implementation at either version above.
 
-[the latest 4.0 release]: https://github.com/passcod/notify/tree/v4.0.10#notify
+[the latest 4.0 release]: https://github.com/passcod/notify/tree/v4.0.12#notify
 [5.0.0-pre.1]: https://github.com/passcod/notify/tree/v5.0.0-pre.1#notify
 
 (Looking for desktop notifications instead? Have a look at [notify-rust] or

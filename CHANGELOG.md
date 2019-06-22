@@ -7,6 +7,12 @@
 - CHANGE: Make it opt-in to receive information about event kind. [#187]
 - CHANGE: Make `Notice` events opt-in.
 
+## 5.0.0-pre.2
+
+- (Temporary): Remove event debouncing.
+- (Temporary): Remove tests.
+- CHANGE: Rewrite immediate events to use new system.
+
 ## 5.0.0-pre.1 (2019-06-30)
 
 _(no changes, just a new release because the old one failed to publish properly)_
