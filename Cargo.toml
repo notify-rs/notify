@@ -20,7 +20,7 @@ exclude = ["/.travis.yml", "/clippy.toml"]
 
 [badges]
 travis-ci = { repository = "passcod/notify", branch = "main" }
-maintenance = { status = "passively-maintained" }
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 anymap = "0.12.1"
