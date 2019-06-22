@@ -12,7 +12,7 @@
 //! Debounced Events are serialisable via [serde] if the `serde` feature is enabled:
 //!
 //! ```toml
-//! notify = { version = "5.0.0", features = ["serde"] }
+//! notify = { version = "5.0.0-pre.0", features = ["serde"] }
 //! ```
 //!
 //! [serde]: https://serde.rs

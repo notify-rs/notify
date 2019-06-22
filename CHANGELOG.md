@@ -7,7 +7,7 @@
 - CHANGE: Make it opt-in to receive information about event kind. [#187]
 - CHANGE: Make `Notice` events opt-in.
 
-## 5.0.0-pre.0
+## 5.0.0-pre.0 (2019-06-22)
 
 - RUSTC: Push the minimum version to 1.32.0 [#201]
 - RUSTC: Switch the crate to Rust 2018.
