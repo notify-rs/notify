@@ -9,7 +9,7 @@
 
 _Cross-platform filesystem notification library for Rust._
 
-**This is the readme for the 5.0.0-pre.0 pre-release!**
+**This is the readme for the 5.0.0-pre.1 pre-release!**
 
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
 [alert-after]!)
@@ -24,29 +24,45 @@ As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax]
 [rdiff], [rust-analyzer], [timetrack], [watchexec], [xi-editor], and others.
 (Want to be added to this list? Open a pull request!)
 
+## Why a prerelease?
+
+It’s taking a while to bring 5.0 to the standard and featureset I wish for it,
+while at the same time I have less time than ever to spend on this project. In
+short, don’t expect 5.0.0 before Q4 2019. I am aware, though, that people want
+to use the features that are finished so far. This is what this prerelease is.
+
+It has all the fixes and implemented features so far, with the new `Event`
+interface for the "debounced" watcher, but keeping the previous events for the
+immediate (previously known as "raw") watcher. It is fairly stable in terms of
+functionality, and the debounced (default) API is as close as its final 5.0.0
+form as it can be.
+
+The idea is to _pin_ to `=5.0.0-pre.1`, and ignore further prereleases. You’ll
+get long-standing fixes compared to 4.0.x, some new features, and API stability
+for the next few months.
+
+The 4.0.x branch will continue being passively maintained during this time
+though, and it’s what out there in the ecosystem right now, so it’s always an
+option to go for [the latest 4.0 release].
+
+If you want to live at the bleeding edge, you can of course track `main` or
+future prereleases. Keep in mind that there will be breakage, there will be
+changes, and entire features may disappear and reappear between prereleases.
+It’s gonna be pretty unstable for a while.
+
+[the latest 4.0 release]: https://github.com/passcod/notify/tree/v4.0.10#notify
+
+<sup>(What happened to `5.0.0-pre.0`? I broke it. I'm sorry. `.1` is just like it, though.)</sup>
+
 ## Installation
 
 ```toml
 [dependencies]
 crossbeam-channel = "0.3.8"
-notify = "5.0.0-pre.0"
+notify = "=5.0.0-pre.1"
 ```
 
 ## Usage
-
-This prerelease captures all the fixes of the 5.0 branch so far, with the new
-`Event` interface for the "debounced" watcher, but keeping the previous events
-for the immediate (previously known as "raw") watcher.
-
-It is fairly stable in terms of functionality, but be aware that the API _will
-change dramatically_ between prereleases, although the goal is to have a fairly
-similar API for the 5.0.0 stable release. If you just want the 5.0 fixes and
-already-implemented features, you should use this. If you want a stable API
-with a large ecosystem compatibility, you may prefer [the latest 4.0 release].
-If you wish to live at the bleeding edge and try out new developments, later
-prereleases or even depending straight on the main branch is always an option.
-
-[the latest 4.0 release]: https://github.com/passcod/notify/tree/v4.0.10#notify
 
 ```rust
 use crossbeam_channel::unbounded;
@@ -102,7 +118,7 @@ let mut watcher = immediate_watcher(tx)?;
 Debounced Events can be serialisable via [serde]. To enable the feature:
 
 ```toml
-notify = { version = "5.0.0-pre.0", features = ["serde"] }
+notify = { version = "=5.0.0-pre.1", features = ["serde"] }
 ```
 
 ## Platforms
@@ -168,7 +184,7 @@ Written by [Félix Saparelli] and awesome [contributors].
 [contributors]: https://github.com/passcod/notify/graphs/contributors
 [crate]: https://crates.io/crates/notify
 [docket]: https://iwillspeak.github.io/docket/
-[docs]: https://docs.rs/notify/5.0.0-pre.0/notify/
+[docs]: https://docs.rs/notify/5.0.0-pre.1/notify/
 [fsnotify]: https://github.com/go-fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
 [hotwatch]: https://github.com/francesca64/hotwatch

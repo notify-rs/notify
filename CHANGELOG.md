@@ -7,8 +7,13 @@
 - CHANGE: Make it opt-in to receive information about event kind. [#187]
 - CHANGE: Make `Notice` events opt-in.
 
+## 5.0.0-pre.1 (2019-06-30)
+
+_(no changes, just a new release because the old one failed to publish properly)_
+
 ## 5.0.0-pre.0 (2019-06-22)
 
+- **yanked 2019-06-30**
 - RUSTC: Push the minimum version to 1.32.0 [#201]
 - RUSTC: Switch the crate to Rust 2018.
 - FIX: Implement `Sync` for PollWatcher to support FreeBSD. [#197]
