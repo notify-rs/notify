@@ -117,8 +117,7 @@ fn translate_flags(flags: fse::StreamFlags, precise: bool) -> Vec<Event> {
             Event::new(EventKind::Create(CreateKind::File))
         } else {
             let e = Event::new(EventKind::Create(CreateKind::Other));
-            if flags.contains(fse::StreamFlags::IS_SYMLIMK) {
-                // SYMLIMK is a typo in the upstream library!
+            if flags.contains(fse::StreamFlags::IS_SYMLINK) {
                 e.set_info("is: symlink")
             } else if flags.contains(fse::StreamFlags::IS_HARDLINK) {
                 e.set_info("is: hardlink")
@@ -137,8 +136,7 @@ fn translate_flags(flags: fse::StreamFlags, precise: bool) -> Vec<Event> {
             Event::new(EventKind::Remove(RemoveKind::File))
         } else {
             let e = Event::new(EventKind::Remove(RemoveKind::Other));
-            if flags.contains(fse::StreamFlags::IS_SYMLIMK) {
-                // SYMLIMK is a typo in the upstream library!
+            if flags.contains(fse::StreamFlags::IS_SYMLINK) {
                 e.set_info("is: symlink")
             } else if flags.contains(fse::StreamFlags::IS_HARDLINK) {
                 e.set_info("is: hardlink")
@@ -157,8 +155,7 @@ fn translate_flags(flags: fse::StreamFlags, precise: bool) -> Vec<Event> {
     // This is only described as "metadata changed", but it may be that it's
     // only emitted for some more precise subset of events... if so, will need
     // amending, but for now we have an Any-shaped bucket to put it in.
-    if flags.contains(fse::StreamFlags::INOTE_META_MOD) {
-        // INOTE is a typo in the upstream library! (should be INODE)
+    if flags.contains(fse::StreamFlags::INODE_META_MOD) {
         evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any))));
     }
 
