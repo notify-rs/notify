@@ -592,6 +592,51 @@ fn rename_write_file() {
     );
 }
 
+// FSEvent just doesn't see those :(
+#[test]
+#[cfg_attr(target_os = "macos", ignore)]
+fn truncate_write_file() {
+    use std::io::Write;
+
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    tdir.create_all(vec!["file1"]);
+    let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(tdir.mkpath("file1"))
+                .unwrap();
+    file.write_all(b"foofoofoo").unwrap();
+
+    sleep_macos(35_000);
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(DELAY_MS))
+        .expect("failed to create debounced watcher");
+    watcher
+        .watch(tdir.mkpath("."), RecursiveMode::Recursive)
+        .expect("failed to watch directory");
+
+    let mut file = std::fs::OpenOptions::new()
+                .truncate(true)
+                .write(true)
+                .open(tdir.mkpath("file1"))
+                .unwrap();
+    file.write_all(b"barbarbarbar").unwrap();
+
+    assert_eq!(
+        recv_events_debounced(&rx),
+        if cfg!(target_os = "windows") {
+            // this may be an issue of how debounce works: only getting a notice seems buggy
+            vec![DebouncedEvent::NoticeWrite(tdir.mkpath("file1"))]
+        } else {
+            vec![
+                DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
+                DebouncedEvent::Write(tdir.mkpath("file1")),
+            ]
+        }
+    );
+}
+
 #[test]
 fn modify_rename_file() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
