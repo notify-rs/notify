@@ -611,6 +611,40 @@ fn delete_directory() {
 }
 
 #[test]
+fn delete_root_directory() {
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    tdir.create_all(vec!["dir1"]);
+
+    sleep_macos(10);
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher =
+        Watcher::new_raw(tx).expect("failed to create recommended watcher");
+    watcher
+        .watch(tdir.mkpath("dir1"), RecursiveMode::Recursive)
+        .expect("failed to watch directory");
+
+    sleep_windows(100);
+
+    tdir.remove("dir1");
+
+    if cfg!(target_os = "macos") {
+        assert_eq!(
+            inflate_events(recv_events(&rx)),
+            vec![
+                (tdir.mkpath("dir1"), op::Op::CREATE | op::Op::REMOVE, None), // excessive create event
+            ]
+        );
+    } else {
+        assert_eq!(
+            recv_events(&rx),
+            vec![(tdir.mkpath("dir1"), op::Op::REMOVE, None),]
+        );
+    }
+}
+
+#[test]
 fn rename_directory() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 

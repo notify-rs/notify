@@ -8,7 +8,7 @@
 extern crate kernel32;
 
 use winapi::shared::minwindef::TRUE;
-use winapi::shared::winerror::ERROR_OPERATION_ABORTED;
+use winapi::shared::winerror::{ERROR_ACCESS_DENIED, ERROR_OPERATION_ABORTED};
 use winapi::um::fileapi;
 use winapi::um::handleapi::INVALID_HANDLE_VALUE;
 use winapi::um::minwinbase::{LPOVERLAPPED, OVERLAPPED};
@@ -315,12 +315,18 @@ unsafe extern "system" fn handle_event(
     let overlapped: Box<OVERLAPPED> = Box::from_raw(overlapped);
     let request: Box<ReadDirectoryRequest> = Box::from_raw(overlapped.hEvent as *mut _);
 
-    if error_code == ERROR_OPERATION_ABORTED {
-        // received when dir is unwatched or watcher is shutdown; return and let overlapped/request
-        // get drop-cleaned
-        kernel32::ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
-        return;
-    }
+    match error_code {
+        ERROR_ACCESS_DENIED | ERROR_OPERATION_ABORTED => {
+            // received when dir is unwatched or watcher is shutdown; return and let overlapped/request
+            // get drop-cleaned
+            kernel32::ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+            return;
+        },
+        _ => {
+            // These should be propagated forward to the user, but that's a breaking change.
+            // Leaving this comment as a reminder to implement. See also issue #206.
+        }
+    };
 
     // Get the next request queued up as soon as possible
     start_read(&request.data, request.event_tx.clone(), request.handle);
