@@ -68,6 +68,7 @@ script:
       cargo clippy
     else
       cargo test
+      cargo test --release
     fi
 
 after_script: set +e
