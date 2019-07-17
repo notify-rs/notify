@@ -315,18 +315,12 @@ unsafe extern "system" fn handle_event(
     let overlapped: Box<OVERLAPPED> = Box::from_raw(overlapped);
     let request: Box<ReadDirectoryRequest> = Box::from_raw(overlapped.hEvent as *mut _);
 
-    match error_code {
-        ERROR_ACCESS_DENIED | ERROR_OPERATION_ABORTED => {
-            // received when dir is unwatched or watcher is shutdown; return and let overlapped/request
-            // get drop-cleaned
-            kernel32::ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
-            return;
-        },
-        _ => {
-            // These should be propagated forward to the user, but that's a breaking change.
-            // Leaving this comment as a reminder to implement. See also issue #206.
-        }
-    };
+    if error_code == ERROR_OPERATION_ABORTED {
+        // received when dir is unwatched or watcher is shutdown; return and let overlapped/request
+        // get drop-cleaned
+        kernel32::ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+        return;
+    }
 
     // Get the next request queued up as soon as possible
     start_read(&request.data, request.event_tx.clone(), request.handle);
@@ -334,6 +328,17 @@ unsafe extern "system" fn handle_event(
     let event_tx_lock = request.event_tx.lock();
     if let Ok(mut event_tx) = event_tx_lock {
         let mut rename_event = None;
+
+        if error_code == ERROR_ACCESS_DENIED {
+            // received when root dir is removed (#206); drop watcher
+            event_tx.send(RawEvent {
+                path: request.data.file,
+                op: Ok(op::Op::REMOVE),
+                cookie: None,
+            });
+            kernel32::ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+            return;
+        }
 
         // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length
         // string as its last member.  Each struct contains an offset for getting the next entry in
