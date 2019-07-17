@@ -44,6 +44,7 @@ struct ReadData {
 }
 
 struct ReadDirectoryRequest {
+    action_tx: Sender<Action>,
     event_tx: Arc<Mutex<EventTx>>,
     buffer: [u8; BUF_SIZE as usize],
     handle: HANDLE,
@@ -67,6 +68,7 @@ struct WatchState {
 }
 
 struct ReadDirectoryChangesServer {
+    tx: Sender<Action>,
     rx: Receiver<Action>,
     event_tx: Arc<Mutex<EventTx>>,
     meta_tx: Sender<MetaEvent>,
@@ -85,9 +87,11 @@ impl ReadDirectoryChangesServer {
         let (action_tx, action_rx) = channel();
         // it is, in fact, ok to send the semaphore across threads
         let sem_temp = wakeup_sem as u64;
+        let tx = action_tx.clone();
         thread::spawn(move || {
             let wakeup_sem = sem_temp as HANDLE;
             let server = ReadDirectoryChangesServer {
+                tx: action_tx,
                 rx: action_rx,
                 event_tx: Arc::new(Mutex::new(event_tx)),
                 meta_tx: meta_tx,
@@ -97,7 +101,7 @@ impl ReadDirectoryChangesServer {
             };
             server.run();
         });
-        action_tx
+        tx
     }
 
     fn run(mut self) {
@@ -216,7 +220,7 @@ impl ReadDirectoryChangesServer {
             complete_sem: semaphore,
         };
         self.watches.insert(path.clone(), ws);
-        start_read(&rd, self.event_tx.clone(), handle);
+        start_read(&rd, self.tx.clone(), self.event_tx.clone(), handle);
         Ok(path.to_path_buf())
     }
 
@@ -237,13 +241,15 @@ fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
         }
         kernel32::CloseHandle(ws.complete_sem);
     }
+
     let _ = meta_tx.send(MetaEvent::SingleWatchComplete);
 }
 
-fn start_read(rd: &ReadData, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
+fn start_read(rd: &ReadData, action_tx: Sender<Action>, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
     let mut request = Box::new(ReadDirectoryRequest {
-        event_tx: event_tx,
-        handle: handle,
+        action_tx,
+        event_tx,
+        handle,
         buffer: [0u8; BUF_SIZE as usize],
         data: rd.clone(),
     });
@@ -323,7 +329,7 @@ unsafe extern "system" fn handle_event(
     }
 
     // Get the next request queued up as soon as possible
-    start_read(&request.data, request.event_tx.clone(), request.handle);
+    start_read(&request.data, request.action_tx.clone(), request.event_tx.clone(), request.handle);
 
     let event_tx_lock = request.event_tx.lock();
     if let Ok(mut event_tx) = event_tx_lock {
@@ -336,7 +342,8 @@ unsafe extern "system" fn handle_event(
                 op: Ok(op::Op::REMOVE),
                 cookie: None,
             });
-            kernel32::ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+
+            request.action_tx.send(Action::Stop).expect("failed to stop watcher politely");
             return;
         }
 
