@@ -441,6 +441,9 @@ unsafe extern "system" fn handle_event(
     }
 }
 
+/// Windows implementation of the Notify Watcher.
+///
+/// See module and crate level docs for more.
 pub struct ReadDirectoryChangesWatcher {
     tx: Sender<Action>,
     cmd_rx: Receiver<Result<PathBuf>>,
