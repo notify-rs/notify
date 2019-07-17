@@ -57,6 +57,9 @@ enum Action {
     Stop,
 }
 
+/// Do not use (crate-internal).
+#[deprecated(since = "4.0.13", note = "Mistakenly exposed as public API")]
+#[doc(hidden)]
 pub enum MetaEvent {
     SingleWatchComplete,
     WatcherAwakened,
@@ -71,6 +74,7 @@ struct ReadDirectoryChangesServer {
     tx: Sender<Action>,
     rx: Receiver<Action>,
     event_tx: Arc<Mutex<EventTx>>,
+    #[allow(deprecated)]
     meta_tx: Sender<MetaEvent>,
     cmd_tx: Sender<Result<PathBuf>>,
     watches: HashMap<PathBuf, WatchState>,
@@ -78,6 +82,7 @@ struct ReadDirectoryChangesServer {
 }
 
 impl ReadDirectoryChangesServer {
+    #[allow(deprecated)]
     fn start(
         event_tx: EventTx,
         meta_tx: Sender<MetaEvent>,
@@ -134,6 +139,7 @@ impl ReadDirectoryChangesServer {
                 // wait with alertable flag so that the completion routine fires
                 let waitres = kernel32::WaitForSingleObjectEx(self.wakeup_sem, 100, TRUE);
                 if waitres == WAIT_OBJECT_0 {
+                    #[allow(deprecated)]
                     let _ = self.meta_tx.send(MetaEvent::WatcherAwakened);
                 }
             }
@@ -231,6 +237,7 @@ impl ReadDirectoryChangesServer {
     }
 }
 
+#[allow(deprecated)]
 fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
     unsafe {
         let cio = kernel32::CancelIo(ws.dir_handle);
@@ -441,6 +448,9 @@ pub struct ReadDirectoryChangesWatcher {
 }
 
 impl ReadDirectoryChangesWatcher {
+    /// Do not use (crate-internal).
+    #[deprecated(since = "4.0.13", note = "Mistakenly exposed as public API")]
+    #[allow(deprecated)]
     pub fn create(
         tx: Sender<RawEvent>,
         meta_tx: Sender<MetaEvent>,
@@ -466,6 +476,9 @@ impl ReadDirectoryChangesWatcher {
         })
     }
 
+    /// Do not use (crate-internal).
+    #[deprecated(since = "4.0.13", note = "Mistakenly exposed as public API")]
+    #[allow(deprecated)]
     pub fn create_debounced(
         tx: Sender<DebouncedEvent>,
         meta_tx: Sender<MetaEvent>,
@@ -541,12 +554,14 @@ impl Watcher for ReadDirectoryChangesWatcher {
     fn new_raw(tx: Sender<RawEvent>) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
         let (meta_tx, _) = channel();
+        #[allow(deprecated)]
         ReadDirectoryChangesWatcher::create(tx, meta_tx)
     }
 
     fn new(tx: Sender<DebouncedEvent>, delay: Duration) -> Result<ReadDirectoryChangesWatcher> {
         // create dummy channel for meta event
         let (meta_tx, _) = channel();
+        #[allow(deprecated)]
         ReadDirectoryChangesWatcher::create_debounced(tx, meta_tx, delay)
     }
 
