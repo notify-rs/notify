@@ -9,12 +9,9 @@
 
 _Cross-platform filesystem notification library for Rust._
 
-**Caution! This is a bleeding-edge 5.0 prerelease!**
+**Caution! This is unstable code!**
 
 You likely want either [the latest 4.0 release] or [5.0.0-pre.1].
-
-Notably, at this stage the debounced interface has been _completely removed._
-You can find its previous implementation at either version above.
 
 [the latest 4.0 release]: https://github.com/passcod/notify/tree/v4.0.12#notify
 [5.0.0-pre.1]: https://github.com/passcod/notify/tree/v5.0.0-pre.1#notify
@@ -22,46 +19,38 @@ You can find its previous implementation at either version above.
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
 [alert-after]!)
 
-- **wip [Guides and in-depth docs][wiki]**
+- **incomplete [Guides and in-depth docs][wiki]**
 - [API Documentation][docs]
 - [Crate page][crate]
 - [Changelog][changelog]
-- **todo [Upgrading from 4.0](https://github.com/passcod/notify/wiki/Upgrading-from-4.0-to-5.0)**
 - Earliest supported Rust version: **1.32.0**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax]
 [rdiff], [rust-analyzer], [timetrack], [watchexec], [xi-editor], and others.
-(Want to be added to this list? Open a pull request!)
 
-## Why a prerelease?
+## Notify is abandoned
 
-It’s taking a while to bring 5.0 to the standard and featureset I wish for it,
-while at the same time I have less time than ever to spend on this project. In
-short, don’t expect 5.0.0 before Q4 2019. I am aware, though, that people want
-to use the features that are finished so far. This is what this prerelease is.
+Sorry.
 
-It has all the fixes and implemented features so far, with the new `Event`
-interface for the "debounced" watcher, but keeping the previous events for the
-immediate (previously known as "raw") watcher. It is fairly stable in terms of
-functionality, and the debounced (default) API is as close as its final 5.0.0
-form as it can be.
+Notify has been years of my life and as much as it’s a tough decision, I’m also
+greatly relieved. It’s been great, it’s been not so great; it’s now time. I got
+some distance, took a hard look at it all, and realised I don’t want to do this
+any more. For way longer than I should have let this go on for, Notify sparked
+negative joy, and I’m Marie-Kondo-ing it out.
 
-The idea is to _pin_ to `=5.0.0-pre.1`, and ignore further prereleases. You’ll
-get long-standing fixes compared to 4.0.x, some new features, and API stability
-for the next few months.
+The logistics: several people have commit bit, and several people have publish
+bit, and the project is also covered by the
+[Rust Bus](https://users.rust-lang.org/t/bus-factor-1-for-crates/17046).
 
-The 4.0.x branch will continue being passively maintained during this time
-though, and it’s what out there in the ecosystem right now, so it’s always an
-option to go for [the latest 4.0 release].
+If you want to take over or get commit/publish bits and you’re a
+trusted/respected community member, just ask. If you’re not a trusted/respected
+community member, try forking first.
 
-If you want to live at the bleeding edge, you can of course track `main` or
-future prereleases. Keep in mind that there will be breakage, there will be
-changes, and entire features may disappear and reappear between prereleases.
-It’s gonna be pretty unstable for a while.
+I will not merge PRs, I will not commit unless it’s an emergency, I will not
+respond to issues or comments unless I really really feel like it, and the goal
+is total disengagement.
 
-[the latest 4.0 release]: https://github.com/passcod/notify/tree/v4.0.10#notify
-
-<sup>(What happened to `5.0.0-pre.0`? I broke it. I'm sorry. `.1` is just like it, though.)</sup>
+So Long 🔭 And Thanks For All The Fish 🐬
 
 ## Installation
 
@@ -74,7 +63,7 @@ notify = "5.0.0-pre.2"
 ## Usage
 
 The examples below are aspirational only, to preview what the final release may
-look like. They may not work. Refer to [the API documentation][docs] instead.
+have looked like. They may not work. Refer to [the API documentation][docs] instead.
 
 ```rust
 use notify::{RecommendedWatcher, RecursiveMode, Result, watcher};
@@ -198,29 +187,15 @@ some event cannot be observed easily when trying to follow files that do not
 belong to you. In this case, reverting to the pollwatcher can fix the issue,
 with a slight performance cost.
 
-## Next generation
-
-While this current version continues to be developed and maintained, next
-generation experiments and designs around the library live in the
-[`next`](https://github.com/passcod/notify/tree/next) branch. There is no solid
-ETA, beyond that most of it will not be released before `async`/`await` is
-stabilised in Rust. For an overview and background, see [this draft
-announce](https://github.com/passcod/notify/wiki/Presentation).
-
-Instead of one large release, though, smaller components of the design, once
-they have gone through revising and maturing, will be incorporated in the
-`main` branch. The first large piece, a new event classification system, has
-already landed.
-
 ## License
 
-Notify is currently undergoing a transition to using the
-[Artistic License 2.0][artistic] from the current [CC Zero 1.0][cc0]. A part of
+Notify was undergoing a transition to using the
+[Artistic License 2.0][artistic] from [CC Zero 1.0][cc0]. A part of
 the code is only under CC0, and another part, including _all new code_ since
-commit [`3378ac5a`], is under _both_ CC0 and Artistic. When the code will be
-entirely free of CC0 code, the license will be formally changed (and that will
-incur a major version bump). As part of this, when you contribute to Notify you
-currently agree to release under both.
+commit [`3378ac5a`], is under _both_ CC0 and Artistic. When the project was to be
+entirely free of CC0 code, the license would be formally changed (and that would
+have incurred a major version bump). As part of this, contributions to Notify since
+would agree to release under both.
 
 [`3378ac5a`]: https://github.com/passcod/notify/commit/3378ac5ad5f174dfeacce6edadd7ded1a08d384e
 

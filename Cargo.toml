@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "5.0.0-pre.1"
+version = "5.0.0-pre.2"
 
 description = "Cross-platform filesystem notification library"
 documentation = "https://docs.rs/notify"
@@ -20,7 +20,6 @@ exclude = ["/.travis.yml", "/clippy.toml"]
 
 [badges]
 travis-ci = { repository = "passcod/notify", branch = "main" }
-maintenance = { status = "actively-developed" }
 
 [dependencies]
 anymap = "0.12.1"

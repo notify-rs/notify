@@ -52,6 +52,14 @@ _(no changes, just a new release because the old one failed to publish properly)
 [#201]: https://github.com/passcod/notify/issues/201
 [`2a035c86`]: https://github.com/passcod/notify/commit/2a035c86c5f12aeee635a827c1f458211ca923ca
 
+## 4.0.13 (2019-09-01)
+
+- FIX: Undo filetime pin. [#202], [`22e40f5e`]
+- META: Project is abandoned.
+
+[#202]: https://github.com/passcod/notify/issues/202
+[`22e40f5e`]: https://github.com/passcod/notify/commit/22e40f5e4cb2a23528f169fc92015f935edc1c55
+
 ## 4.0.12 (2019-05-22)
 
 - FIX: Implement `Sync` for PollWatcher to support FreeBSD. [#198]
