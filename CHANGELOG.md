@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.0.13 (2019-09-01)
+
+- FIX: Undo filetime pin. [#202], [`22e40f5e`]
+- META: Project is abandoned.
+
+[#202]: https://github.com/passcod/notify/issues/202
+[`22e40f5e`]: https://github.com/passcod/notify/commit/22e40f5e4cb2a23528f169fc92015f935edc1c55
+
 ## 4.0.12 (2019-05-22)
 
 - FIX: Implement `Sync` for PollWatcher to support FreeBSD. [#198]

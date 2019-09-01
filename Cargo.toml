@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "4.0.12"
+version = "4.0.13"
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
@@ -20,7 +20,6 @@ categories = ["filesystem"]
 
 [badges]
 travis-ci = { repository = "passcod/notify", branch = "main" }
-maintenance = { status = "passively-maintained" }
 
 [dependencies]
 bitflags = "^1.0.4"

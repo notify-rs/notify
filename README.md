@@ -19,13 +19,36 @@ _Cross-platform filesystem notification library for Rust._
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
 [mdBook], [pax], [rdiff], [timetrack], [watchexec], [xi-editor], and others.
-(Want to be added to this list? Open a pull request!)
+
+## Notify is abandoned
+
+Sorry.
+
+Notify has been years of my life and as much as it’s a tough decision, I’m also
+greatly relieved. It’s been great, it’s been not so great; it’s now time. I got
+some distance, took a hard look at it all, and realised I don’t want to do this
+any more. For way longer than I should have let this go on for, Notify sparked
+negative joy, and I’m Marie-Kondo-ing it out.
+
+The logistics: several people have commit bit, and several people have publish
+bit, and the project is also covered by the
+[Rust Bus](https://users.rust-lang.org/t/bus-factor-1-for-crates/17046).
+
+If you want to take over or get commit/publish bits and you’re a
+trusted/respected community member, just ask. If you’re not a trusted/respected
+community member, try forking first.
+
+I will not merge PRs, I will not commit unless it’s an emergency, I will not
+respond to issues or comments unless I really really feel like it, and the goal
+is total disengagement.
+
+So Long 🔭 And Thanks For All The Fish 🐬
 
 ## Installation
 
 ```toml
 [dependencies]
-notify = "4.0.12"
+notify = "4.0.13"
 ```
 
 ## Usage
@@ -94,17 +117,6 @@ some event cannot be observed easily when trying to follow files that do not
 belong to you. In this case, reverting to the pollwatcher can fix the issue,
 with a slight performance cost.
 
-## Todo
-
-**Version 4 is not frozen!** I'm just not actively spending time on it.
-
-I do accept pull requests for fixes _and features_, and would even consider
-breaking changes with enough justification. Do contribute, please!
-
-(Originally I thought that Version 5 would take less time to get out, but it
-has now been clear for a while that the finish line is quite far away still.
-I'm still at it, but expect nothing soon.)
-
 ## Origins
 
 Inspired by Go's [fsnotify] and Node.js's [Chokidar], born out of need for
@@ -113,8 +125,6 @@ cross-platform notify libraries.
 
 Written by [Félix Saparelli] and awesome [contributors], and released in the
 Public Domain using the [Creative Commons Zero Declaration][cc0].
-
-Note that licensing will change from version 5 to **[Artistic 2.0][artistic]**.
 
 [Chokidar]: https://github.com/paulmillr/chokidar
 [FileSystemEventSecurity]: https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html
