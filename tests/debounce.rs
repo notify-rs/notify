@@ -1411,3 +1411,33 @@ fn one_file_many_events() {
     );
     io_thread.join().unwrap();
 }
+
+// https://github.com/passcod/notify/issues/205
+#[test]
+#[cfg_attr(not(target_os = "macos"), ignore)]
+fn delay_zero() {
+    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+
+    tdir.create("file1");
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_secs(0))
+        .expect("failed to create debounced watcher");
+    watcher
+        .watch(tdir.mkpath("."), RecursiveMode::Recursive)
+        .expect("failed to watch directory");
+
+    let thread = thread::spawn(move || {
+        for e in rx.into_iter() {
+            println!("{:?}", e);
+        }
+    });
+
+    for _ in 0..100 {
+        tdir.rename("file1", "file2");
+        tdir.rename("file2", "file1");
+    }
+
+    drop(watcher);
+    thread.join().unwrap();
+}
