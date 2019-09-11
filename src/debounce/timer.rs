@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 
 use debounce::OperationsBuffer;
 
+struct TryLockError(ScheduledEvent);
+
 #[derive(PartialEq, Eq)]
 struct ScheduledEvent {
     id: u64,
@@ -30,49 +32,69 @@ struct ScheduleWorker {
 
 impl ScheduleWorker {
     fn fire_due_events(&self, now: Instant) -> Option<Instant> {
-        let mut events = self.events.lock().unwrap();
-        while let Some(event) = events.pop_front() {
-            if event.when <= now {
-                self.fire_event(event)
-            } else {
-                // not due yet, put it back
-                let next_when = event.when;
-                events.push_front(event);
-                return Some(next_when);
+        'a: loop {
+            let mut events = self.events.lock().unwrap();
+            while let Some(event) = events.pop_front() {
+                if event.when <= now {
+                    match self.fire_event(event) {
+                        Ok(()) => {}
+                        Err(TryLockError(event)) => {
+                            events.push_front(event);
+                            drop(events);
+                            std::thread::yield_now();
+                            continue 'a
+                        }
+                    }
+                } else {
+                    // not due yet, put it back
+                    let next_when = event.when;
+                    events.push_front(event);
+                    return Some(next_when);
+                }
             }
+            break
         }
         None
     }
 
-    fn fire_event(&self, ev: ScheduledEvent) {
-        let ScheduledEvent { path, .. } = ev;
-        if let Ok(ref mut op_buf) = self.operations_buffer.lock() {
-            if let Some((op, from_path, _)) = op_buf.remove(&path) {
-                let is_partial_rename = from_path.is_none();
-                if let Some(from_path) = from_path {
-                    self.tx
-                        .send(DebouncedEvent::Rename(from_path, path.clone()))
-                        .unwrap();
-                }
-                let message = match op {
-                    Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
-                    Some(op::Op::WRITE) => Some(DebouncedEvent::Write(path)),
-                    Some(op::Op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
-                    Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
-                    Some(op::Op::RENAME) if is_partial_rename => {
-                        if path.exists() {
-                            Some(DebouncedEvent::Create(path))
-                        } else {
-                            Some(DebouncedEvent::Remove(path))
-                        }
+    fn fire_event(&self, ev: ScheduledEvent) -> Result<(), TryLockError> {
+        match self.operations_buffer.try_lock() {
+            Ok(ref mut op_buf) => {
+                let ScheduledEvent { path, .. } = ev;
+                if let Some((op, from_path, _)) = op_buf.remove(&path) {
+                    let is_partial_rename = from_path.is_none();
+                    if let Some(from_path) = from_path {
+                        self.tx
+                            .send(DebouncedEvent::Rename(from_path, path.clone()))
+                            .unwrap();
                     }
-                    _ => None,
-                };
-                if let Some(m) = message {
-                    let _ = self.tx.send(m);
+                    let message = match op {
+                        Some(op::Op::CREATE) => Some(DebouncedEvent::Create(path)),
+                        Some(op::Op::WRITE) => Some(DebouncedEvent::Write(path)),
+                        Some(op::Op::CHMOD) => Some(DebouncedEvent::Chmod(path)),
+                        Some(op::Op::REMOVE) => Some(DebouncedEvent::Remove(path)),
+                        Some(op::Op::RENAME) if is_partial_rename => {
+                            if path.exists() {
+                                Some(DebouncedEvent::Create(path))
+                            } else {
+                                Some(DebouncedEvent::Remove(path))
+                            }
+                        }
+                        _ => None,
+                    };
+                    if let Some(m) = message {
+                        let _ = self.tx.send(m);
+                    }
+                } else {
+                    // TODO error!("path not found in operations_buffer: {}", path.display())
                 }
-            } else {
-                // TODO error!("path not found in operations_buffer: {}", path.display())
+                Ok(())
+            }
+            Err(std::sync::TryLockError::Poisoned { .. }) => {
+                Ok(())
+            }
+            Err(std::sync::TryLockError::WouldBlock) => {
+                Err(TryLockError(ev))
             }
         }
     }
