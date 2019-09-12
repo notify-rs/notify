@@ -1414,7 +1414,6 @@ fn one_file_many_events() {
 
 // https://github.com/passcod/notify/issues/205
 #[test]
-#[cfg_attr(not(target_os = "macos"), ignore)]
 fn delay_zero() {
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
