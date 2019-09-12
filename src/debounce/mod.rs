@@ -12,8 +12,8 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-pub type OperationsBuffer =
-    Arc<Mutex<HashMap<PathBuf, (Option<op::Op>, Option<PathBuf>, Option<u64>)>>>;
+pub type OperationsBufferInner = HashMap<PathBuf, (Option<op::Op>, Option<PathBuf>, Option<u64>)>;
+pub type OperationsBuffer = Arc<Mutex<OperationsBufferInner>>;
 
 pub enum EventTx {
     Raw {
