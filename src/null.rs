@@ -2,8 +2,7 @@
 
 #![allow(unused_variables)]
 
-use super::{Event, RecursiveMode, Result, Watcher};
-use crossbeam_channel::Sender;
+use super::{EventFn, RecursiveMode, Result, Watcher};
 use std::path::Path;
 
 /// Stub `Watcher` implementation
@@ -12,7 +11,7 @@ use std::path::Path;
 pub struct NullWatcher;
 
 impl Watcher for NullWatcher {
-    fn new_immediate(tx: Sender<Result<Event>>) -> Result<NullWatcher> {
+    fn new_immediate<F: EventFn>(_event_fn: F) -> Result<NullWatcher> {
         Ok(NullWatcher)
     }
 

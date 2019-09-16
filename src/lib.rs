@@ -20,26 +20,20 @@
 //! # Examples
 //!
 //! ```
-//! use crossbeam_channel::unbounded;
 //! use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
 //!
 //! fn main() -> Result<()> {
-//!     let (tx, rx) = unbounded();
-//!
 //!     // Automatically select the best implementation for your platform.
-//!     let mut watcher: RecommendedWatcher = Watcher::new_immediate(tx)?;
+//!     let mut watcher: RecommendedWatcher = Watcher::new_immediate(|res| {
+//!         match res {
+//!            Ok(event) => println!("event: {:?}", event),
+//!            Err(e) => println!("watch error: {:?}", e),
+//!         }
+//!     })?;
 //!
 //!     // Add a path to be watched. All files and directories at that path and
 //!     // below will be monitored for changes.
 //!     watcher.watch(".", RecursiveMode::Recursive)?;
-//!
-//!     loop {
-//! #       break;
-//!         match rx.recv() {
-//!            Ok(event) => println!("event: {:?}", event),
-//!            Err(e) => println!("watch error: {:?}", e),
-//!         }
-//!     }
 //!
 //!     Ok(())
 //! }
@@ -53,45 +47,49 @@
 //! classification is described in the [`event`](event/index.html`) module documentation.
 //!
 //! ```
-//! # use crossbeam_channel::unbounded;
-//! # use notify::{Watcher, RecommendedWatcher, Result};
+//! # use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
 //! # use std::time::Duration;
-//! #
 //! # fn main() -> Result<()> {
-//! # let (tx, rx) = unbounded();
-//! # let mut watcher: RecommendedWatcher = Watcher::new_immediate(tx)?;
-//! #
+//! # // Automatically select the best implementation for your platform.
+//! # let mut watcher: RecommendedWatcher = Watcher::new_immediate(|res| {
+//! #     match res {
+//! #        Ok(event) => println!("event: {:?}", event),
+//! #        Err(e) => println!("watch error: {:?}", e),
+//! #     }
+//! # })?;
+//!
+//! # // Add a path to be watched. All files and directories at that path and
+//! # // below will be monitored for changes.
+//! # watcher.watch(".", RecursiveMode::Recursive)?;
+//!
 //! use notify::Config;
 //! watcher.configure(Config::PreciseEvents(true))?;
+//!
 //! # Ok(())
 //! # }
+//!
 //! ```
 //!
 //! ## With different configurations
 //!
 //! It is possible to create several watchers with different configurations or implementations that
-//! all send to the same channel. This can accommodate advanced behaviour or work around limits.
+//! all call the same event function. This can accommodate advanced behaviour or work around limits.
 //!
 //! ```
-//! # use crossbeam_channel::unbounded;
 //! # use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
 //! #
 //! # fn main() -> Result<()> {
-//! #     let (tx, rx) = unbounded();
-//! #
-//!       let mut watcher1: RecommendedWatcher = Watcher::new_immediate(tx.clone())?;
-//!       let mut watcher2: RecommendedWatcher = Watcher::new_immediate(tx)?;
-//! #
-//! #     watcher1.watch(".", RecursiveMode::Recursive)?;
-//! #     watcher2.watch(".", RecursiveMode::Recursive)?;
-//! #
-//!       loop {
-//! #         break;
-//!           match rx.recv() {
+//!       fn event_fn(res: Result<notify::Event>) {
+//!           match res {
 //!              Ok(event) => println!("event: {:?}", event),
 //!              Err(e) => println!("watch error: {:?}", e),
 //!           }
 //!       }
+//!
+//!       let mut watcher1: RecommendedWatcher = Watcher::new_immediate(event_fn)?;
+//!       let mut watcher2: RecommendedWatcher = Watcher::new_immediate(event_fn)?;
+//! #     watcher1.watch(".", RecursiveMode::Recursive)?;
+//! #     watcher2.watch(".", RecursiveMode::Recursive)?;
 //! #
 //! #     Ok(())
 //! # }
@@ -100,12 +98,10 @@
 #![deny(missing_docs)]
 
 pub use config::{Config, RecursiveMode};
-use crossbeam_channel::Sender;
 pub use error::{Error, ErrorKind, Result};
 pub use event::{Event, EventKind};
 use std::convert::AsRef;
 use std::path::Path;
-pub(crate) type EventTx = Sender<Result<Event>>;
 
 #[cfg(target_os = "linux")]
 pub use crate::inotify::INotifyWatcher;
@@ -130,6 +126,13 @@ pub mod poll;
 mod config;
 mod error;
 
+/// The set of requirements for watcher event handling functions.
+pub trait EventFn: 'static + Fn(Result<Event>) + Send + Sync {}
+
+impl<F> EventFn for F
+where
+    F: 'static + Fn(Result<Event>) + Send + Sync {}
+
 /// Type that can deliver file activity notifications
 ///
 /// Watcher is implemented per platform using the best implementation available on that platform.
@@ -139,7 +142,9 @@ pub trait Watcher: Sized {
     /// Create a new watcher in _immediate_ mode.
     ///
     /// Events will be sent using the provided `tx` immediately after they occur.
-    fn new_immediate(tx: Sender<Result<Event>>) -> Result<Self>;
+    fn new_immediate<F>(event_fn: F) -> Result<Self>
+    where
+        F: EventFn;
 
     /// Begin watching a new path.
     ///
@@ -197,6 +202,9 @@ pub type RecommendedWatcher = PollWatcher;
 /// _immediate_ mode.
 ///
 /// See [`Watcher::new_immediate`](trait.Watcher.html#tymethod.new_immediate).
-pub fn immediate_watcher(tx: Sender<Result<Event>>) -> Result<RecommendedWatcher> {
-    Watcher::new_immediate(tx)
+pub fn immediate_watcher<F>(event_fn: F) -> Result<RecommendedWatcher>
+where
+    F: EventFn,
+{
+    Watcher::new_immediate(event_fn)
 }
