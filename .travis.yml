@@ -25,6 +25,9 @@ matrix:
       rust: nightly
     - os: linux
       rust: 1.26.1
+      script:
+      - mv Cargo.lock.min Cargo.lock
+      - cargo build
     - os: linux
 
     # macOS
@@ -32,6 +35,9 @@ matrix:
       rust: nightly
     - os: osx
       rust: 1.26.1
+      script:
+      - mv Cargo.lock.min Cargo.lock
+      - cargo build
     - os: osx
 
     # Other windowses later
@@ -39,6 +45,9 @@ matrix:
       rust: nightly
     - os: windows
       rust: 1.26.1
+      script:
+      - mv Cargo.lock.min Cargo.lock
+      - cargo build
 
     # Clippy only
     - env: CARGO_CLIPPY=1
