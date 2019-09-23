@@ -6,6 +6,7 @@
 - CHANGE: Remove `Op` and `DebouncedEvent` event classification. [#187]
 - CHANGE: Make it opt-in to receive information about event kind. [#187]
 - CHANGE: Make `Notice` events opt-in.
+- CHANGE: Remove `Sender`s from watcher API in favour of `EventFn` [#214]
 
 ## 5.0.0-pre.2
 
