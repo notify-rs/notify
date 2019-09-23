@@ -37,8 +37,7 @@ pub struct PollWatcher {
 
 impl PollWatcher {
     /// Create a PollWatcher which polls every `delay` milliseconds
-    pub fn with_delay<F: EventFn>(event_fn: F, delay: Duration) -> Result<PollWatcher> {
-        let event_fn = Arc::new(event_fn);
+    pub fn with_delay(event_fn: Arc<dyn EventFn>, delay: Duration) -> Result<PollWatcher> {
         let mut p = PollWatcher {
             event_fn,
             watches: Arc::new(Mutex::new(HashMap::new())),
@@ -188,7 +187,7 @@ impl PollWatcher {
 
 impl Watcher for PollWatcher {
     fn new_immediate<F: EventFn>(event_fn: F) -> Result<PollWatcher> {
-        PollWatcher::with_delay(event_fn, Duration::from_secs(30))
+        PollWatcher::with_delay(Arc::new(event_fn), Duration::from_secs(30))
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
