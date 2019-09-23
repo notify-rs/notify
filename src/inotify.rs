@@ -30,13 +30,13 @@ const MESSAGE: mio::Token = mio::Token(1);
 // -  messages telling it what to do
 //
 // -  events telling it that something has happened on one of the watched files.
-struct EventLoop<F> {
+struct EventLoop {
     running: bool,
     poll: mio::Poll,
     event_loop_tx: mio_extras::channel::Sender<EventLoopMsg>,
     event_loop_rx: mio_extras::channel::Receiver<EventLoopMsg>,
     inotify: Option<Inotify>,
-    event_fn: F,
+    event_fn: Box<dyn EventFn>,
     watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool)>,
     paths: HashMap<WatchDescriptor, PathBuf>,
     rename_event: Option<Event>,
@@ -93,8 +93,8 @@ fn remove_watch_by_event(
     }
 }
 
-impl<F: EventFn> EventLoop<F> {
-    pub fn new(inotify: Inotify, event_fn: F) -> Result<Self> {
+impl EventLoop {
+    pub fn new(inotify: Inotify, event_fn: Box<dyn EventFn>) -> Result<Self> {
         let (event_loop_tx, event_loop_rx) = mio_extras::channel::channel::<EventLoopMsg>();
         let poll = mio::Poll::new()?;
         poll.register(
@@ -190,7 +190,7 @@ impl<F: EventFn> EventLoop<F> {
                     let current_cookie = self.rename_event.as_ref().and_then(|e| e.tracker());
                     // send pending rename event only if the rename event for which the timer has been created hasn't been handled already; otherwise ignore this timeout
                     if current_cookie == Some(cookie) {
-                        send_pending_rename_event(&mut self.rename_event, &self.event_fn);
+                        send_pending_rename_event(&mut self.rename_event, &*self.event_fn);
                     }
                 }
                 EventLoopMsg::Configure(config, tx) => {
@@ -225,7 +225,7 @@ impl<F: EventFn> EventLoop<F> {
                         };
 
                         if event.mask.contains(EventMask::MOVED_FROM) {
-                            send_pending_rename_event(&mut self.rename_event, &self.event_fn);
+                            send_pending_rename_event(&mut self.rename_event, &*self.event_fn);
                             remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                             self.rename_event = Some(
                                 Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
@@ -362,7 +362,7 @@ impl<F: EventFn> EventLoop<F> {
                             }
 
                             if !evs.is_empty() {
-                                send_pending_rename_event(&mut self.rename_event, &self.event_fn);
+                                send_pending_rename_event(&mut self.rename_event, &*self.event_fn);
                             }
 
                             for ev in evs {
@@ -518,7 +518,7 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 impl Watcher for INotifyWatcher {
     fn new_immediate<F: EventFn>(event_fn: F) -> Result<INotifyWatcher> {
         let inotify = Inotify::init()?;
-        let event_loop = EventLoop::new(inotify, event_fn)?;
+        let event_loop = EventLoop::new(inotify, Box::new(event_fn))?;
         let channel = event_loop.channel();
         event_loop.run();
         Ok(INotifyWatcher(Mutex::new(channel)))
