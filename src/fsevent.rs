@@ -199,6 +199,37 @@ extern "C" {
 }
 
 impl FsEventWatcher {
+    fn from_event_fn(event_fn: Arc<dyn EventFn>) -> Result<Self> {
+        Ok(FsEventWatcher {
+            paths: unsafe {
+                cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
+            },
+            since_when: fs::kFSEventStreamEventIdSinceNow,
+            latency: 0.0,
+            flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
+            event_fn: event_fn,
+            runloop: None,
+            context: None,
+            recursive_info: HashMap::new(),
+        })
+    }
+
+    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.stop();
+        let result = self.append_path(path, recursive_mode);
+        // ignore return error: may be empty path list
+        let _ = self.run();
+        result
+    }
+
+    fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
+        self.stop();
+        let result = self.remove_path(path);
+        // ignore return error: may be empty path list
+        let _ = self.run();
+        result
+    }
+
     #[inline]
     fn is_running(&self) -> bool {
         self.runloop.is_some()
@@ -419,36 +450,19 @@ pub unsafe extern "C" fn callback(
     }
 }
 
+
+
 impl Watcher for FsEventWatcher {
     fn new_immediate<F: EventFn>(event_fn: F) -> Result<FsEventWatcher> {
-        Ok(FsEventWatcher {
-            paths: unsafe {
-                cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
-            },
-            since_when: fs::kFSEventStreamEventIdSinceNow,
-            latency: 0.0,
-            flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
-            event_fn: Arc::new(event_fn),
-            runloop: None,
-            context: None,
-            recursive_info: HashMap::new(),
-        })
+        FsEventWatcher::from_event_fn(Arc::new(event_fn))
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
-        self.stop();
-        let result = self.append_path(path, recursive_mode);
-        // ignore return error: may be empty path list
-        let _ = self.run();
-        result
+        self.watch_inner(path.as_ref(), recursive_mode)
     }
 
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        self.stop();
-        let result = self.remove_path(path);
-        // ignore return error: may be empty path list
-        let _ = self.run();
-        result
+        self.unwatch_inner(path.as_ref())
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
@@ -472,13 +486,8 @@ fn test_fsevent_watcher_drop() {
     use super::*;
     use std::time::Duration;
 
-    let event_fn = |e| {
-        println!(
-            "debug => {:?} {:?}",
-            e.op.map(|e| e.bits()).unwrap_or(0),
-            e.path
-        );
-    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    let event_fn = move |res| tx.send(res).unwrap();
 
     {
         let mut watcher: RecommendedWatcher = Watcher::new_immediate(event_fn).unwrap();
@@ -492,6 +501,11 @@ fn test_fsevent_watcher_drop() {
     }
 
     thread::sleep(Duration::from_millis(1000));
+
+    for res in rx {
+        let e = res.unwrap();
+        println!("debug => {:?} {:?}", e.kind, e.paths);
+    }
 
     println!("in test: {} works", file!());
 }

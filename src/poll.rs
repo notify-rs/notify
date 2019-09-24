@@ -29,15 +29,22 @@ struct WatchData {
 
 /// Polling based `Watcher` implementation
 pub struct PollWatcher {
-    event_fn: Arc<dyn EventFn>,
+    event_fn: Arc<Mutex<dyn EventFn>>,
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
     open: Arc<AtomicBool>,
     delay: Duration,
 }
 
+fn emit_event(event_fn: &Mutex<dyn EventFn>, res: Result<Event>) {
+    if let Ok(guard) = event_fn.lock() {
+        let f: &dyn EventFn = &*guard;
+        f(res);
+    }
+}
+
 impl PollWatcher {
     /// Create a PollWatcher which polls every `delay` milliseconds
-    pub fn with_delay(event_fn: Arc<dyn EventFn>, delay: Duration) -> Result<PollWatcher> {
+    pub fn with_delay(event_fn: Arc<Mutex<dyn EventFn>>, delay: Duration) -> Result<PollWatcher> {
         let mut p = PollWatcher {
             event_fn,
             watches: Arc::new(Mutex::new(HashMap::new())),
@@ -53,6 +60,7 @@ impl PollWatcher {
         let open = self.open.clone();
         let delay = self.delay;
         let event_fn = self.event_fn.clone();
+        let event_fn = move |res| emit_event(&event_fn, res);
 
         thread::spawn(move || {
             // In order of priority:
@@ -183,23 +191,17 @@ impl PollWatcher {
             }
         });
     }
-}
 
-impl Watcher for PollWatcher {
-    fn new_immediate<F: EventFn>(event_fn: F) -> Result<PollWatcher> {
-        PollWatcher::with_delay(Arc::new(event_fn), Duration::from_secs(30))
-    }
-
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
+    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
         if let Ok(mut watches) = self.watches.lock() {
             let current_time = Instant::now();
 
-            let watch = path.as_ref().to_owned();
+            let watch = path.to_owned();
 
             match fs::metadata(path) {
                 Err(e) => {
                     let err = Error::io(e).add_path(watch.clone());
-                    (self.event_fn)(Err(err));
+                    emit_event(&self.event_fn, Err(err));
                 }
                 Ok(metadata) => {
                     if !metadata.is_dir() {
@@ -237,7 +239,7 @@ impl Watcher for PollWatcher {
                             match entry.metadata() {
                                 Err(e) => {
                                     let err = Error::io(e.into()).add_path(path.to_path_buf());
-                                    (self.event_fn)(Err(err));
+                                    emit_event(&self.event_fn, Err(err));
                                 }
                                 Ok(m) => {
                                     let mtime = FileTime::from_last_modification_time(&m).seconds();
@@ -265,17 +267,34 @@ impl Watcher for PollWatcher {
         Ok(())
     }
 
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+    fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
         if (*self.watches)
             .lock()
             .unwrap()
-            .remove(path.as_ref())
+            .remove(path)
             .is_some()
         {
             Ok(())
         } else {
             Err(Error::watch_not_found())
         }
+    }
+}
+
+impl Watcher for PollWatcher {
+    fn new_immediate<F: EventFn>(event_fn: F) -> Result<PollWatcher> {
+        let event_fn = Arc::new(Mutex::new(event_fn));
+        let delay = Duration::from_secs(30);
+        PollWatcher::with_delay(event_fn, delay)
+    }
+
+    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
+        self.watch_inner(path.as_ref(), recursive_mode)
+
+    }
+
+    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+        self.unwatch_inner(path.as_ref())
     }
 }
 

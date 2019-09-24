@@ -127,11 +127,11 @@ mod config;
 mod error;
 
 /// The set of requirements for watcher event handling functions.
-pub trait EventFn: 'static + Fn(Result<Event>) + Send + Sync {}
+pub trait EventFn: 'static + Fn(Result<Event>) + Send {}
 
 impl<F> EventFn for F
 where
-    F: 'static + Fn(Result<Event>) + Send + Sync {}
+    F: 'static + Fn(Result<Event>) + Send {}
 
 /// Type that can deliver file activity notifications
 ///

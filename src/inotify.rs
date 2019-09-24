@@ -515,18 +515,18 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
     None
 }
 
-impl Watcher for INotifyWatcher {
-    fn new_immediate<F: EventFn>(event_fn: F) -> Result<INotifyWatcher> {
+impl INotifyWatcher {
+    fn from_event_fn(event_fn: Box<dyn EventFn>) -> Result<Self> {
         let inotify = Inotify::init()?;
-        let event_loop = EventLoop::new(inotify, Box::new(event_fn))?;
+        let event_loop = EventLoop::new(inotify, event_fn)?;
         let channel = event_loop.channel();
         event_loop.run();
         Ok(INotifyWatcher(Mutex::new(channel)))
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
-        let pb = if path.as_ref().is_absolute() {
-            path.as_ref().to_owned()
+    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        let pb = if path.is_absolute() {
+            path.to_owned()
         } else {
             let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
@@ -539,9 +539,9 @@ impl Watcher for INotifyWatcher {
         rx.recv().unwrap()
     }
 
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        let pb = if path.as_ref().is_absolute() {
-            path.as_ref().to_owned()
+    fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
+        let pb = if path.is_absolute() {
+            path.to_owned()
         } else {
             let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
@@ -552,6 +552,20 @@ impl Watcher for INotifyWatcher {
         // we expect the event loop to live and reply => unwraps must not panic
         self.0.lock().unwrap().send(msg).unwrap();
         rx.recv().unwrap()
+    }
+}
+
+impl Watcher for INotifyWatcher {
+    fn new_immediate<F: EventFn>(event_fn: F) -> Result<INotifyWatcher> {
+        INotifyWatcher::from_event_fn(Box::new(event_fn))
+    }
+
+    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
+        self.watch_inner(path.as_ref(), recursive_mode)
+    }
+
+    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+        self.unwatch_inner(path.as_ref())
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
