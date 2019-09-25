@@ -39,12 +39,12 @@ impl ScheduleWorker {
             // events Mutex, and retry after yielding.
             match self.operations_buffer.try_lock() {
                 Ok(op_buf) => break (events, op_buf),
-                Err(std::sync::TryLockError::Poisoned {..}) => return None,
-                Err(std::sync::TryLockError::WouldBlock) => {
+                Err(::std::sync::TryLockError::Poisoned {..}) => return None,
+                Err(::std::sync::TryLockError::WouldBlock) => {
                     // drop the lock before yielding to give other threads a chance to complete
                     // their work.
                     drop(events);
-                    std::thread::yield_now();
+                    ::std::thread::yield_now();
                 }
             }
         };
