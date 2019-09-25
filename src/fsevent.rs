@@ -257,11 +257,11 @@ impl FsEventWatcher {
 #[doc(hidden)]
 pub extern "C" fn callback(
     stream_ref: fs::FSEventStreamRef,
-    info: *mut libc::c_void,
-    num_events: libc::size_t,         // size_t numEvents
-    event_paths: *mut libc::c_void,   // void *eventPaths
-    event_flags: *const libc::c_void, // const FSEventStreamEventFlags eventFlags[]
-    event_ids: *const libc::c_void,   // const FSEventStreamEventId eventIds[]
+    info: *mut ::std::os::raw::c_void,
+    num_events: libc::size_t,                   // size_t numEvents
+    event_paths: *mut ::std::os::raw::c_void,   // void *eventPaths
+    event_flags: *const ::std::os::raw::c_void, // const FSEventStreamEventFlags eventFlags[]
+    event_ids: *const ::std::os::raw::c_void,   // const FSEventStreamEventId eventIds[]
 ) {
     unsafe {
         callback_impl(
@@ -279,11 +279,11 @@ pub extern "C" fn callback(
 #[doc(hidden)]
 unsafe fn callback_impl(
     stream_ref: fs::FSEventStreamRef,
-    info: *mut libc::c_void,
-    num_events: libc::size_t,         // size_t numEvents
-    event_paths: *mut libc::c_void,   // void *eventPaths
-    event_flags: *const libc::c_void, // const FSEventStreamEventFlags eventFlags[]
-    event_ids: *const libc::c_void,   // const FSEventStreamEventId eventIds[]
+    info: *mut ::std::os::raw::c_void,
+    num_events: libc::size_t,                   // size_t numEvents
+    event_paths: *mut ::std::os::raw::c_void,   // void *eventPaths
+    event_flags: *const ::std::os::raw::c_void, // const FSEventStreamEventFlags eventFlags[]
+    event_ids: *const ::std::os::raw::c_void,   // const FSEventStreamEventId eventIds[]
 ) {
     let num = num_events as usize;
     let e_ptr = event_flags as *mut u32;
