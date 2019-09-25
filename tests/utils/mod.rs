@@ -4,7 +4,8 @@ use tempdir::TempDir;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::mpsc::{Receiver, TryRecvError};
+use std::process;
+use std::sync::{mpsc::{Receiver, TryRecvError}, atomic::{AtomicBool, Ordering::SeqCst}, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -41,6 +42,29 @@ pub fn recv_events_with_timeout(
         thread::sleep(Duration::from_millis(1));
     }
     evs
+}
+
+pub fn fail_after(test_name: &'static str, duration: Duration) -> impl Drop {
+    struct SuccessOnDrop(Arc<AtomicBool>);
+    impl Drop for SuccessOnDrop {
+        fn drop(&mut self) {
+            self.0.store(true, SeqCst)
+        }
+    }
+
+    let finished = SuccessOnDrop(Arc::new(AtomicBool::new(false)));
+    // timeout the test to catch deadlocks
+    {
+        let finished = finished.0.clone();
+        thread::spawn(move || {
+            thread::sleep(duration);
+            if finished.load(SeqCst) == false {
+                println!("test `{}` timed out", test_name);
+                process::abort();
+            }
+        });
+    }
+    finished
 }
 
 pub fn recv_events(rx: &Receiver<RawEvent>) -> Vec<(PathBuf, Op, Option<u32>)> {

@@ -1415,6 +1415,7 @@ fn one_file_many_events() {
 // https://github.com/passcod/notify/issues/205
 #[test]
 fn delay_zero() {
+    let _timeout_test = fail_after("delay_zero", Duration::from_secs(2));
     let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
 
     tdir.create("file1");
@@ -1427,9 +1428,7 @@ fn delay_zero() {
         .expect("failed to watch directory");
 
     let thread = thread::spawn(move || {
-        for e in rx.into_iter() {
-            println!("{:?}", e);
-        }
+        for _ in rx.into_iter() {}
     });
 
     for _ in 0..100 {
