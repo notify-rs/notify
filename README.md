@@ -2,7 +2,7 @@
 
 [![» Crate](https://flat.badgen.net/crates/v/notify)][crate]
 [![» Docs](https://flat.badgen.net/badge/api/docs.rs/df3600)][docs]
-[![» CI](https://flat.badgen.net/travis/passcod/notify/main)][build]
+[![» CI](https://flat.badgen.net/travis/notify-rs/notify/main)][build]
 [![» Downloads](https://flat.badgen.net/crates/d/notify)][crate]
 [![» Conduct](https://flat.badgen.net/badge/contributor/covenant/5e0d73)][coc]
 [![» Public Domain](https://flat.badgen.net/badge/license/CC0-1.0/purple)][cc0]
@@ -13,8 +13,8 @@ _Cross-platform filesystem notification library for Rust._
 
 You likely want either [the latest 4.0 release] or [5.0.0-pre.1].
 
-[the latest 4.0 release]: https://github.com/passcod/notify/tree/v4.0.12#notify
-[5.0.0-pre.1]: https://github.com/passcod/notify/tree/v5.0.0-pre.1#notify
+[the latest 4.0 release]: https://github.com/notify-rs/notify/tree/v4.0.13#notify
+[5.0.0-pre.1]: https://github.com/notify-rs/notify/tree/v5.0.0-pre.1#notify
 
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
 [alert-after]!)
@@ -213,7 +213,7 @@ Written by [Félix Saparelli] and awesome [contributors].
 [alacritty]: https://github.com/jwilm/alacritty
 [alert-after]: https://github.com/frewsxcv/alert-after
 [artistic]: ./LICENSE.ARTISTIC
-[build]: https://travis-ci.org/notify-rs/notify
+[build]: https://travis-ci.com/notify-rs/notify
 [cargo watch]: https://github.com/passcod/cargo-watch
 [cc0]: ./LICENSE
 [changelog]: ./CHANGELOG.md
