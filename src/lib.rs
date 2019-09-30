@@ -154,8 +154,8 @@ pub trait Watcher: Sized {
     /// be unexpected. See discussions in [#165] and [#166]. If less surprising behaviour is wanted
     /// one may non-recursively watch the _parent_ directory as well and manage related events.
     ///
-    /// [#165]: https://github.com/passcod/notify/issues/165
-    /// [#166]: https://github.com/passcod/notify/issues/166
+    /// [#165]: https://github.com/notify-rs/notify/issues/165
+    /// [#166]: https://github.com/notify-rs/notify/issues/166
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()>;
 
     /// Stop watching a path.

@@ -364,7 +364,7 @@ pub struct Event {
     /// For vendor or custom information, it is recommended to use type wrappers to differentiate
     /// entries within the `AnyMap` container and avoid conflicts. For interoperability, one of the
     /// “well-known” types (or propose a new one) should be used instead. See the list on the wiki:
-    /// https://github.com/passcod/notify/wiki/Well-Known-Event-Attrs
+    /// https://github.com/notify-rs/notify/wiki/Well-Known-Event-Attrs
     ///
     /// There is currently no way to serialise or deserialise arbitrary attributes, only well-known
     /// ones handled explicitly here are supported. This might change in the future.
