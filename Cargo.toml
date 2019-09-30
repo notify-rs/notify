@@ -4,8 +4,8 @@ version = "5.0.0-pre.2"
 
 description = "Cross-platform filesystem notification library"
 documentation = "https://docs.rs/notify"
-homepage = "https://github.com/passcod/notify"
-repository = "https://github.com/passcod/notify.git"
+homepage = "https://github.com/notify-rs/notify"
+repository = "https://github.com/notify-rs/notify.git"
 readme = "README.md"
 license = "CC0-1.0"
 keywords = ["events", "filesystem", "notify", "watch"]
@@ -19,7 +19,7 @@ edition = "2018"
 exclude = ["/.travis.yml", "/clippy.toml"]
 
 [badges]
-travis-ci = { repository = "passcod/notify", branch = "main" }
+travis-ci = { repository = "notify-rs/notify", branch = "main" }
 
 [dependencies]
 anymap = "0.12.1"

@@ -197,7 +197,7 @@ entirely free of CC0 code, the license would be formally changed (and that would
 have incurred a major version bump). As part of this, contributions to Notify since
 would agree to release under both.
 
-[`3378ac5a`]: https://github.com/passcod/notify/commit/3378ac5ad5f174dfeacce6edadd7ded1a08d384e
+[`3378ac5a`]: https://github.com/notify-rs/notify/commit/3378ac5ad5f174dfeacce6edadd7ded1a08d384e
 
 ## Origins
 
@@ -213,13 +213,13 @@ Written by [Félix Saparelli] and awesome [contributors].
 [alacritty]: https://github.com/jwilm/alacritty
 [alert-after]: https://github.com/frewsxcv/alert-after
 [artistic]: ./LICENSE.ARTISTIC
-[build]: https://travis-ci.org/passcod/notify
+[build]: https://travis-ci.org/notify-rs/notify
 [cargo watch]: https://github.com/passcod/cargo-watch
 [cc0]: ./LICENSE
 [changelog]: ./CHANGELOG.md
 [cobalt]: https://github.com/cobalt-org/cobalt.rs
 [coc]: http://contributor-covenant.org/version/1/4/
-[contributors]: https://github.com/passcod/notify/graphs/contributors
+[contributors]: https://github.com/notify-rs/notify/graphs/contributors
 [crate]: https://crates.io/crates/notify
 [docket]: https://iwillspeak.github.io/docket/
 [docs]: https://docs.rs/notify/5.0.0-pre.1/notify/
@@ -234,5 +234,5 @@ Written by [Félix Saparelli] and awesome [contributors].
 [serde]: https://serde.rs/
 [timetrack]: https://github.com/joshmcguigan/timetrack
 [watchexec]: https://github.com/mattgreen/watchexec
-[wiki]: https://github.com/passcod/notify/wiki
+[wiki]: https://github.com/notify-rs/notify/wiki
 [xi-editor]: https://xi-editor.io/
