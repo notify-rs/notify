@@ -20,30 +20,6 @@ _Cross-platform filesystem notification library for Rust._
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
 [mdBook], [pax], [rdiff], [timetrack], [watchexec], [xi-editor], and others.
 
-## Notify is abandoned
-
-Sorry.
-
-Notify has been years of my life and as much as it’s a tough decision, I’m also
-greatly relieved. It’s been great, it’s been not so great; it’s now time. I got
-some distance, took a hard look at it all, and realised I don’t want to do this
-any more. For way longer than I should have let this go on for, Notify sparked
-negative joy, and I’m Marie-Kondo-ing it out.
-
-The logistics: several people have commit bit, and several people have publish
-bit, and the project is also covered by the
-[Rust Bus](https://users.rust-lang.org/t/bus-factor-1-for-crates/17046).
-
-If you want to take over or get commit/publish bits and you’re a
-trusted/respected community member, just ask. If you’re not a trusted/respected
-community member, try forking first.
-
-I will not merge PRs, I will not commit unless it’s an emergency, I will not
-respond to issues or comments unless I really really feel like it, and the goal
-is total disengagement.
-
-So Long 🔭 And Thanks For All The Fish 🐬
-
 ## Installation
 
 ```toml
