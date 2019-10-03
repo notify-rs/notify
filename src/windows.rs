@@ -16,7 +16,7 @@ use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
 use crate::event::*;
-use crate::{Config, Error, EventTx, RecursiveMode, Result, Watcher};
+use crate::{Config, Error, EventFn, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::env;
@@ -27,7 +27,7 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 const BUF_SIZE: u32 = 16384;
@@ -41,7 +41,7 @@ struct ReadData {
 }
 
 struct ReadDirectoryRequest {
-    event_tx: Arc<EventTx>,
+    event_fn: Arc<Mutex<dyn EventFn>>,
     buffer: [u8; BUF_SIZE as usize],
     handle: HANDLE,
     data: ReadData,
@@ -66,7 +66,7 @@ struct WatchState {
 
 struct ReadDirectoryChangesServer {
     rx: Receiver<Action>,
-    event_tx: Arc<EventTx>,
+    event_fn: Arc<Mutex<dyn EventFn>>,
     meta_tx: Sender<MetaEvent>,
     cmd_tx: Sender<Result<PathBuf>>,
     watches: HashMap<PathBuf, WatchState>,
@@ -75,7 +75,7 @@ struct ReadDirectoryChangesServer {
 
 impl ReadDirectoryChangesServer {
     fn start(
-        event_tx: EventTx,
+        event_fn: Arc<Mutex<dyn EventFn>>,
         meta_tx: Sender<MetaEvent>,
         cmd_tx: Sender<Result<PathBuf>>,
         wakeup_sem: HANDLE,
@@ -87,7 +87,7 @@ impl ReadDirectoryChangesServer {
             let wakeup_sem = sem_temp as HANDLE;
             let server = ReadDirectoryChangesServer {
                 rx: action_rx,
-                event_tx: Arc::new(event_tx),
+                event_fn: event_fn,
                 meta_tx: meta_tx,
                 cmd_tx: cmd_tx,
                 watches: HashMap::new(),
@@ -213,7 +213,7 @@ impl ReadDirectoryChangesServer {
             complete_sem: semaphore,
         };
         self.watches.insert(path.clone(), ws);
-        start_read(&rd, self.event_tx.clone(), handle);
+        start_read(&rd, self.event_fn.clone(), handle);
         Ok(path.to_path_buf())
     }
 
@@ -242,9 +242,9 @@ fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
     let _ = meta_tx.send(MetaEvent::SingleWatchComplete);
 }
 
-fn start_read(rd: &ReadData, event_tx: Arc<EventTx>, handle: HANDLE) {
+fn start_read(rd: &ReadData, event_fn: Arc<Mutex<dyn EventFn>>, handle: HANDLE) {
     let mut request = Box::new(ReadDirectoryRequest {
-        event_tx,
+        event_fn,
         handle,
         buffer: [0u8; BUF_SIZE as usize],
         data: rd.clone(),
@@ -315,7 +315,7 @@ unsafe extern "system" fn handle_event(
     }
 
     // Get the next request queued up as soon as possible
-    start_read(&request.data, request.event_tx.clone(), request.handle);
+    start_read(&request.data, request.event_fn.clone(), request.handle);
 
     // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length
     // string as its last member. Each struct contains an offset for getting the next entry in
@@ -342,40 +342,42 @@ unsafe extern "system" fn handle_event(
         if !skip {
             let newe = Event::new(EventKind::Any).add_path(path);
 
+            fn emit_event(event_fn: &Mutex<dyn EventFn>, res: Result<Event>) {
+                if let Ok(guard) = event_fn.lock() {
+                    let f: &dyn EventFn = &*guard;
+                    f(res);
+                }
+            }
+
+            let event_fn = |res| emit_event(&request.event_fn, res);
+
             if (*cur_entry).Action == winnt::FILE_ACTION_RENAMED_OLD_NAME {
-                request
-                    .event_tx
-                    .send(Ok(newe.set_kind(EventKind::Modify(ModifyKind::Name(
-                        RenameMode::From,
-                    )))))
-                    .ok();
+                let mode = RenameMode::From;
+                let kind = ModifyKind::Name(mode);
+                let kind = EventKind::Modify(kind);
+                let ev = newe.set_kind(kind);
+                event_fn(Ok(ev))
             } else {
                 match (*cur_entry).Action {
                     winnt::FILE_ACTION_RENAMED_NEW_NAME => {
-                        request
-                            .event_tx
-                            .send(Ok(newe.set_kind(EventKind::Modify(ModifyKind::Name(
-                                RenameMode::To,
-                            )))))
-                            .ok();
+                        let kind = EventKind::Modify(ModifyKind::Name(RenameMode::To));
+                        let ev = newe.set_kind(kind);
+                        event_fn(Ok(ev));
                     }
                     winnt::FILE_ACTION_ADDED => {
-                        request
-                            .event_tx
-                            .send(Ok(newe.set_kind(EventKind::Create(CreateKind::Any))))
-                            .ok();
+                        let kind = EventKind::Create(CreateKind::Any);
+                        let ev = newe.set_kind(kind);
+                        event_fn(Ok(ev));
                     }
                     winnt::FILE_ACTION_REMOVED => {
-                        request
-                            .event_tx
-                            .send(Ok(newe.set_kind(EventKind::Remove(RemoveKind::Any))))
-                            .ok();
+                        let kind = EventKind::Remove(RemoveKind::Any);
+                        let ev = newe.set_kind(kind);
+                        event_fn(Ok(ev));
                     }
                     winnt::FILE_ACTION_MODIFIED => {
-                        request
-                            .event_tx
-                            .send(Ok(newe.set_kind(EventKind::Modify(ModifyKind::Any))))
-                            .ok();
+                        let kind = EventKind::Modify(ModifyKind::Any);
+                        let ev = newe.set_kind(kind);
+                        event_fn(Ok(ev));
                     }
                     _ => (),
                 };
@@ -399,7 +401,7 @@ pub struct ReadDirectoryChangesWatcher {
 
 impl ReadDirectoryChangesWatcher {
     pub fn create(
-        tx: Sender<Result<Event>>,
+        event_fn: Arc<Mutex<dyn EventFn>>,
         meta_tx: Sender<MetaEvent>,
     ) -> Result<ReadDirectoryChangesWatcher> {
         let (cmd_tx, cmd_rx) = unbounded();
@@ -410,7 +412,7 @@ impl ReadDirectoryChangesWatcher {
             return Err(Error::generic("Failed to create wakeup semaphore."));
         }
 
-        let action_tx = ReadDirectoryChangesServer::start(tx, meta_tx, cmd_tx, wakeup_sem);
+        let action_tx = ReadDirectoryChangesServer::start(event_fn, meta_tx, cmd_tx, wakeup_sem);
 
         Ok(ReadDirectoryChangesWatcher {
             tx: action_tx,
@@ -452,18 +454,10 @@ impl ReadDirectoryChangesWatcher {
             Ok(())
         }
     }
-}
 
-impl Watcher for ReadDirectoryChangesWatcher {
-    fn new_immediate(tx: Sender<Result<Event>>) -> Result<ReadDirectoryChangesWatcher> {
-        // create dummy channel for meta event
-        let (meta_tx, _) = unbounded();
-        ReadDirectoryChangesWatcher::create(tx, meta_tx)
-    }
-
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
-        let pb = if path.as_ref().is_absolute() {
-            path.as_ref().to_owned()
+    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        let pb = if path.is_absolute() {
+            path.to_owned()
         } else {
             let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
@@ -477,9 +471,9 @@ impl Watcher for ReadDirectoryChangesWatcher {
         self.send_action_require_ack(Action::Watch(pb.clone(), recursive_mode), &pb)
     }
 
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        let pb = if path.as_ref().is_absolute() {
-            path.as_ref().to_owned()
+    fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
+        let pb = if path.is_absolute() {
+            path.to_owned()
         } else {
             let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
@@ -490,6 +484,24 @@ impl Watcher for ReadDirectoryChangesWatcher {
             .map_err(|_| Error::generic("Error sending to internal channel"));
         self.wakeup_server();
         res
+    }
+}
+
+impl Watcher for ReadDirectoryChangesWatcher {
+    fn new_immediate<F: EventFn>(event_fn: F) -> Result<ReadDirectoryChangesWatcher> {
+        // create dummy channel for meta event
+        // TODO: determine the original purpose of this - can we remove it?
+        let (meta_tx, _) = unbounded();
+        let event_fn = Arc::new(Mutex::new(event_fn));
+        ReadDirectoryChangesWatcher::create(event_fn, meta_tx)
+    }
+
+    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
+        self.watch_inner(path.as_ref(), recursive_mode)
+    }
+
+    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+        self.unwatch_inner(path.as_ref())
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
