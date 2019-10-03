@@ -7,6 +7,7 @@
 - CHANGE: Make it opt-in to receive information about event kind. [#187]
 - CHANGE: Make `Notice` events opt-in.
 - CHANGE: Remove `Sender`s from watcher API in favour of `EventFn` [#214]
+- META: The project maintainers have changed from @passcod to notify-rs.
 
 ## 5.0.0-pre.2
 
