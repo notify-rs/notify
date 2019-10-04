@@ -13,7 +13,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 /// An `AnyMap` convenience type with the needed bounds for events.
-pub type AnyMap = Map<CloneAny + Send + Sync>;
+pub type AnyMap = Map<dyn CloneAny + Send + Sync>;
 
 /// An event describing open or close operations on files.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
