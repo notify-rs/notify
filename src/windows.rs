@@ -87,11 +87,11 @@ impl ReadDirectoryChangesServer {
             let wakeup_sem = sem_temp as HANDLE;
             let server = ReadDirectoryChangesServer {
                 rx: action_rx,
-                event_fn: event_fn,
-                meta_tx: meta_tx,
-                cmd_tx: cmd_tx,
+                event_fn,
+                meta_tx,
+                cmd_tx,
                 watches: HashMap::new(),
-                wakeup_sem: wakeup_sem,
+                wakeup_sem,
             };
             server.run();
         });
@@ -112,7 +112,7 @@ impl ReadDirectoryChangesServer {
                     Action::Unwatch(path) => self.remove_watch(path),
                     Action::Stop => {
                         stopped = true;
-                        for (_, ws) in &self.watches {
+                        for ws in self.watches.values() {
                             stop_watch(ws, &self.meta_tx);
                         }
                         break;
@@ -206,7 +206,7 @@ impl ReadDirectoryChangesServer {
             dir: dir_target,
             file: wf,
             complete_sem: semaphore,
-            is_recursive: is_recursive,
+            is_recursive,
         };
         let ws = WatchState {
             dir_handle: handle,
@@ -416,8 +416,8 @@ impl ReadDirectoryChangesWatcher {
 
         Ok(ReadDirectoryChangesWatcher {
             tx: action_tx,
-            cmd_rx: cmd_rx,
-            wakeup_sem: wakeup_sem,
+            cmd_rx,
+            wakeup_sem,
         })
     }
 
