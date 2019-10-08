@@ -14,8 +14,8 @@
 
 #![allow(non_upper_case_globals, dead_code)]
 
-use crate::{Config, Error, EventFn, RecursiveMode, Result, Watcher};
 use crate::event::*;
+use crate::{Config, Error, EventFn, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use fsevent as fse;
 use fsevent_sys as fs;
@@ -63,16 +63,16 @@ fn translate_flags(flags: fse::StreamFlags, precise: bool) -> Vec<Event> {
     // The client should ignore the path supplied in this callback.»
     // — https://www.mbsplugins.eu/FSEventsNextEvent.shtml
     //
-	// As a result, we just stop processing here and return an empty vec, which
-	// will ignore this completely and not emit any Events whatsoever.
+    // As a result, we just stop processing here and return an empty vec, which
+    // will ignore this completely and not emit any Events whatsoever.
     if flags.contains(fse::StreamFlags::HISTORY_DONE) {
         return evs;
     }
 
-	// FSEvents provides two possible hints as to why events were dropped,
-	// however documentation on what those mean is scant, so we just pass them
-	// through in the info attr field. The intent is clear enough, and the
-	// additional information is provided if the user wants it.
+    // FSEvents provides two possible hints as to why events were dropped,
+    // however documentation on what those mean is scant, so we just pass them
+    // through in the info attr field. The intent is clear enough, and the
+    // additional information is provided if the user wants it.
     if flags.contains(fse::StreamFlags::MUST_SCAN_SUBDIRS) {
         let e = Event::new(EventKind::Other).set_flag(Flag::Rescan);
         evs.push(if flags.contains(fse::StreamFlags::USER_DROPPED) {
@@ -91,14 +91,14 @@ fn translate_flags(flags: fse::StreamFlags, precise: bool) -> Vec<Event> {
         return evs;
     }
 
-	// This is most likely a rename or a removal. We assume rename but may want
-	// to figure out if it was a removal some way later (TODO). To denote the
+    // This is most likely a rename or a removal. We assume rename but may want
+    // to figure out if it was a removal some way later (TODO). To denote the
     // special nature of the event, we add an info string.
     if flags.contains(fse::StreamFlags::ROOT_CHANGED) {
         evs.push(
-			Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
-			.set_info("root changed")
-		);
+            Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
+                .set_info("root changed"),
+        );
     }
 
     // A path was mounted at the event path; we treat that as a create.
@@ -150,33 +150,45 @@ fn translate_flags(flags: fse::StreamFlags, precise: bool) -> Vec<Event> {
     }
 
     if flags.contains(fse::StreamFlags::ITEM_RENAMED) {
-        evs.push(Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From))));
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Name(
+            RenameMode::From,
+        ))));
     }
 
     // This is only described as "metadata changed", but it may be that it's
     // only emitted for some more precise subset of events... if so, will need
     // amending, but for now we have an Any-shaped bucket to put it in.
     if flags.contains(fse::StreamFlags::INODE_META_MOD) {
-        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any))));
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(
+            MetadataKind::Any,
+        ))));
     }
 
     if flags.contains(fse::StreamFlags::FINDER_INFO_MOD) {
-        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Other)))
-                 .set_info("meta: finder info"));
+        evs.push(
+            Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Other)))
+                .set_info("meta: finder info"),
+        );
     }
 
     if flags.contains(fse::StreamFlags::ITEM_CHANGE_OWNER) {
-        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Ownership))));
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(
+            MetadataKind::Ownership,
+        ))));
     }
 
     if flags.contains(fse::StreamFlags::ITEM_XATTR_MOD) {
-        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Extended))));
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(
+            MetadataKind::Extended,
+        ))));
     }
 
     // This is specifically described as a data change, which we take to mean
     // is a content change.
     if flags.contains(fse::StreamFlags::ITEM_MODIFIED) {
-        evs.push(Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content))));
+        evs.push(Event::new(EventKind::Modify(ModifyKind::Data(
+            DataChange::Content,
+        ))));
     }
 
     if flags.contains(fse::StreamFlags::OWN_EVENT) {
@@ -441,16 +453,17 @@ pub unsafe extern "C" fn callback(
             }
         }
 
-        if !handle_event { continue; }
+        if !handle_event {
+            continue;
+        }
 
-        for ev in translate_flags(flag, true).into_iter() { // TODO: precise
+        for ev in translate_flags(flag, true).into_iter() {
+            // TODO: precise
             let ev = ev.add_path(path.clone());
             (*event_fn)(Ok(ev));
         }
     }
 }
-
-
 
 impl Watcher for FsEventWatcher {
     fn new_immediate<F: EventFn>(event_fn: F) -> Result<FsEventWatcher> {

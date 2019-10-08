@@ -144,7 +144,8 @@ impl PollWatcher {
                                                     },
                                                 ) {
                                                     None => {
-                                                        let kind = EventKind::Create(CreateKind::Any);
+                                                        let kind =
+                                                            EventKind::Create(CreateKind::Any);
                                                         let ev = Event::new(kind)
                                                             .add_path(path.to_path_buf());
                                                         event_fn(Ok(ev));
@@ -268,12 +269,7 @@ impl PollWatcher {
     }
 
     fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
-        if (*self.watches)
-            .lock()
-            .unwrap()
-            .remove(path)
-            .is_some()
-        {
+        if (*self.watches).lock().unwrap().remove(path).is_some() {
             Ok(())
         } else {
             Err(Error::watch_not_found())
@@ -290,7 +286,6 @@ impl Watcher for PollWatcher {
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         self.watch_inner(path.as_ref(), recursive_mode)
-
     }
 
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {

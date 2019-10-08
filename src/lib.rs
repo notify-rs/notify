@@ -103,10 +103,10 @@ pub use event::{Event, EventKind};
 use std::convert::AsRef;
 use std::path::Path;
 
-#[cfg(target_os = "linux")]
-pub use crate::inotify::INotifyWatcher;
 #[cfg(target_os = "macos")]
 pub use crate::fsevent::FsEventWatcher;
+#[cfg(target_os = "linux")]
+pub use crate::inotify::INotifyWatcher;
 pub use null::NullWatcher;
 pub use poll::PollWatcher;
 #[cfg(target_os = "windows")]
@@ -129,9 +129,7 @@ mod error;
 /// The set of requirements for watcher event handling functions.
 pub trait EventFn: 'static + Fn(Result<Event>) + Send {}
 
-impl<F> EventFn for F
-where
-    F: 'static + Fn(Result<Event>) + Send {}
+impl<F> EventFn for F where F: 'static + Fn(Result<Event>) + Send {}
 
 /// Type that can deliver file activity notifications
 ///
