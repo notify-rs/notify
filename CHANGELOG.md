@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.0.14 (2019-10-17)
+
+- FIX: Fix deadlock in debouncer. [#210], [`6ccf3e8d`]
+
+[#202]: https://github.com/notify-rs/notify/pull/210
+[`22e40f5e`]: https://github.com/notify-rs/notify/commit/6ccf3e8d87f7643dde65b1f6abd911f1c971e569
+
 ## 4.0.13 (2019-09-01)
 
 - FIX: Undo filetime pin. [#202], [`22e40f5e`]

@@ -1,13 +1,14 @@
 [package]
 name = "notify"
-version = "4.0.13"
+version = "4.0.14"
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
   "Michael Maurizi <michael.maurizi@gmail.com>",
   "Pierre Baillet <oct@zoy.org>",
   "Joe Wilm <joe@jwilm.com>",
-  "Daniel Faust <hessijames@gmail.com>"
+  "Daniel Faust <hessijames@gmail.com>",
+  "Aron Heinecke <Ox0p54r36@t-online.de>"
 ]
 description = "Cross-platform filesystem notification library"
 documentation = "https://docs.rs/notify"
