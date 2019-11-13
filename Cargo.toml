@@ -16,7 +16,11 @@ authors = [
 ]
 
 edition = "2018"
-exclude = ["/.travis.yml", "/clippy.toml"]
+exclude = [
+  "/.travis.yml",
+  "/clippy.toml",
+  ".github/*"
+]
 
 [badges]
 travis-ci = { repository = "notify-rs/notify", branch = "main" }
