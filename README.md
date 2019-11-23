@@ -2,7 +2,7 @@
 
 [![» Crate](https://flat.badgen.net/crates/v/notify)][crate]
 [![» Docs](https://flat.badgen.net/badge/api/docs.rs/df3600)][docs]
-[![» CI](https://flat.badgen.net/travis/passcod/notify/main)][build]
+[![» CI](https://flat.badgen.net/travis/notify-rs/notify/main)][build]
 [![» Downloads](https://flat.badgen.net/crates/d/notify)][crate]
 [![» Conduct](https://flat.badgen.net/badge/contributor/covenant/5e0d73)][coc]
 [![» Public Domain](https://flat.badgen.net/badge/license/CC0-1.0/purple)][cc0]
@@ -14,7 +14,7 @@ _Cross-platform filesystem notification library for Rust._
 
 - [API Documentation][docs]
 - [Crate page][crate]
-- [Version Next progress](https://github.com/passcod/notify/tree/next#status)
+- [Version Next progress](https://github.com/notify-rs/notify/tree/next#status)
 - Earliest supported Rust version: **1.26.1**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
@@ -24,7 +24,7 @@ As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
 
 ```toml
 [dependencies]
-notify = "4.0.13"
+notify = "4.0.15"
 ```
 
 ## Usage
@@ -107,13 +107,13 @@ Public Domain using the [Creative Commons Zero Declaration][cc0].
 [Félix Saparelli]: https://passcod.name
 [alert-after]: https://github.com/frewsxcv/alert-after
 [alacritty]: https://github.com/jwilm/alacritty
-[artistic]: https://github.com/passcod/notify/blob/next/LICENSE
-[build]: https://travis-ci.org/passcod/notify
+[artistic]: https://github.com/notify-rs/notify/blob/next/LICENSE
+[build]: https://travis-ci.com/notify-rs/notify
 [cargo watch]: https://github.com/passcod/cargo-watch
 [cc0]: https://creativecommons.org/publicdomain/zero/1.0/
 [cobalt]: https://github.com/cobalt-org/cobalt.rs
 [coc]: http://contributor-covenant.org/version/1/4/
-[contributors]: https://github.com/passcod/notify/graphs/contributors
+[contributors]: https://github.com/notify-rs/notify/graphs/contributors
 [crate]: https://crates.io/crates/notify
 [docs-debounce]: https://docs.rs/notify/#default-debounced-api
 [docs-raw]: https://docs.rs/notify/#raw-api

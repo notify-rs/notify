@@ -104,7 +104,7 @@ impl Debounce {
 
             // get details for the last rename event from the operations_buffer.
             // the last rename event might not be found in case the timer already fired
-            // (https://github.com/passcod/notify/issues/101).
+            // (https://github.com/notify-rs/notify/issues/101).
             if let Some(&mut (ref mut operation, ref mut from_path, ref mut timer_id)) =
                 op_buf.get_mut(self.rename_path.as_ref().unwrap())
             {
@@ -128,7 +128,7 @@ impl Debounce {
                             _ => {
                                 // this code can only be reached with fsevents because it may
                                 // repeat a rename event for a file that has been renamed before
-                                // (https://github.com/passcod/notify/issues/99)
+                                // (https://github.com/notify-rs/notify/issues/99)
                             }
                         }
                     } else {
@@ -164,7 +164,7 @@ impl Debounce {
                                 // file has been renamed and then removed / keep write event
                                 // this code can only be reached with fsevents because it may
                                 // repeat a rename event for a file that has been renamed before
-                                // (https://github.com/passcod/notify/issues/100)
+                                // (https://github.com/notify-rs/notify/issues/100)
                                 restart_timer(timer_id, path, &mut self.timer);
                             }
                             // CLOSE_WRITE and RESCAN aren't tracked by operations_buffer
@@ -399,7 +399,7 @@ impl Debounce {
 
                         // renaming a deleted file should be impossible,
                         // but with fsevents everything is possible
-                        // (https://github.com/passcod/notify/issues/101)
+                        // (https://github.com/notify-rs/notify/issues/101)
                         Some(op::Op::REMOVE) => {}
 
                         _ => { unreachable!(); }
