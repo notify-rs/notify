@@ -5,7 +5,7 @@
 //!
 //! [ref]: https://msdn.microsoft.com/en-us/library/windows/desktop/aa363950(v=vs.85).aspx
 
-extern crate kernel32;
+extern crate winapi;
 
 use winapi::shared::minwindef::TRUE;
 use winapi::shared::winerror::ERROR_OPERATION_ABORTED;
@@ -458,7 +458,7 @@ impl ReadDirectoryChangesWatcher {
         let (cmd_tx, cmd_rx) = channel();
 
         let wakeup_sem =
-            unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
+            unsafe { synchapi::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
             return Err(Error::Generic(
                 "Failed to create wakeup semaphore.".to_owned(),
