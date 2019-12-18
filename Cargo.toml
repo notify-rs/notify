@@ -36,7 +36,7 @@ walkdir = "2.0.1"
 chashmap = "2.2.2"
 
 [target.'cfg(target_os="linux")'.dependencies]
-inotify = { version = "0.7", default-features = false }
+inotify = { version = "0.8", default-features = false }
 mio = "0.6.15"
 mio-extras = "2.0.5"
 
