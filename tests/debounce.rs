@@ -625,15 +625,10 @@ fn truncate_write_file() {
 
     assert_eq!(
         recv_events_debounced(&rx),
-        if cfg!(target_os = "windows") {
-            // this may be an issue of how debounce works: only getting a notice seems buggy
-            vec![DebouncedEvent::NoticeWrite(tdir.mkpath("file1"))]
-        } else {
-            vec![
-                DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
-                DebouncedEvent::Write(tdir.mkpath("file1")),
-            ]
-        }
+        vec![
+            DebouncedEvent::NoticeWrite(tdir.mkpath("file1")),
+            DebouncedEvent::Write(tdir.mkpath("file1")),
+        ]
     );
 }
 
