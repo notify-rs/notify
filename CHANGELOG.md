@@ -16,6 +16,7 @@
 - CHANGE: Rewrite immediate events to use new system.
 - CHANGE: Remove `Sender`s from watcher API in favour of `EventFn` [#214]
 - DEPS: Update inotify to 0.8. [#234]
+- DEPS: Update crossbeam-channel to 0.4.
 
 [#214]: https://github.com/notify-rs/notify/pull/214
 [#234]: https://github.com/notify-rs/notify/pull/234

@@ -28,7 +28,7 @@ travis-ci = { repository = "notify-rs/notify", branch = "main" }
 [dependencies]
 anymap = "0.12.1"
 bitflags = "1.0.4"
-crossbeam-channel = "0.3.8"
+crossbeam-channel = "0.4.0"
 filetime = "0.2.6"
 libc = "0.2.4"
 serde = { version = "1.0.89", features = ["derive"], optional = true }
