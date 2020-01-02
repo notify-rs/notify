@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "4.0.14"
+version = "4.0.15"
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
@@ -12,15 +12,15 @@ authors = [
 ]
 description = "Cross-platform filesystem notification library"
 documentation = "https://docs.rs/notify"
-homepage = "https://github.com/passcod/notify"
-repository = "https://github.com/passcod/notify.git"
+homepage = "https://github.com/notify-rs/notify"
+repository = "https://github.com/notify-rs/notify.git"
 readme = "README.md"
 license = "CC0-1.0"
 keywords = ["events", "filesystem", "notify", "watch"]
 categories = ["filesystem"]
 
 [badges]
-travis-ci = { repository = "passcod/notify", branch = "main" }
+travis-ci = { repository = "notify-rs/notify", branch = "main" }
 
 [dependencies]
 bitflags = "^1.0.4"
@@ -38,8 +38,7 @@ fsevent = "0.4"
 fsevent-sys = "2"
 
 [target.'cfg(windows)'.dependencies]
-winapi = "^0.3.5"
-kernel32-sys = "^0.2.1"
+winapi = { version = "0.3.8", features = ["fileapi", "handleapi", "ioapiset", "minwinbase", "synchapi", "winbase", "winnt"] }
 
 [dev-dependencies]
 tempdir = "^0.3.4"

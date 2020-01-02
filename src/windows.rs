@@ -5,13 +5,15 @@
 //!
 //! [ref]: https://msdn.microsoft.com/en-us/library/windows/desktop/aa363950(v=vs.85).aspx
 
-extern crate kernel32;
+extern crate winapi;
 
 use winapi::shared::minwindef::TRUE;
 use winapi::shared::winerror::ERROR_OPERATION_ABORTED;
 use winapi::um::fileapi;
-use winapi::um::handleapi::INVALID_HANDLE_VALUE;
+use winapi::um::handleapi::{self, INVALID_HANDLE_VALUE};
+use winapi::um::ioapiset;
 use winapi::um::minwinbase::{LPOVERLAPPED, OVERLAPPED};
+use winapi::um::synchapi;
 use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
@@ -128,7 +130,7 @@ impl ReadDirectoryChangesServer {
 
             unsafe {
                 // wait with alertable flag so that the completion routine fires
-                let waitres = kernel32::WaitForSingleObjectEx(self.wakeup_sem, 100, TRUE);
+                let waitres = synchapi::WaitForSingleObjectEx(self.wakeup_sem, 100, TRUE);
                 if waitres == WAIT_OBJECT_0 {
                     let _ = self.meta_tx.send(MetaEvent::WatcherAwakened);
                 }
@@ -137,7 +139,7 @@ impl ReadDirectoryChangesServer {
 
         // we have to clean this up, since the watcher may be long gone
         unsafe {
-            kernel32::CloseHandle(self.wakeup_sem);
+            handleapi::CloseHandle(self.wakeup_sem);
         }
     }
 
@@ -165,7 +167,7 @@ impl ReadDirectoryChangesServer {
             .collect();
         let handle;
         unsafe {
-            handle = kernel32::CreateFileW(
+            handle = fileapi::CreateFileW(
                 encoded_path.as_ptr(),
                 winnt::FILE_LIST_DIRECTORY,
                 winnt::FILE_SHARE_READ | winnt::FILE_SHARE_DELETE | winnt::FILE_SHARE_WRITE,
@@ -196,10 +198,10 @@ impl ReadDirectoryChangesServer {
         };
         // every watcher gets its own semaphore to signal completion
         let semaphore =
-            unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
+            unsafe { synchapi::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if semaphore == ptr::null_mut() || semaphore == INVALID_HANDLE_VALUE {
             unsafe {
-                kernel32::CloseHandle(handle);
+                handleapi::CloseHandle(handle);
             }
             return Err(Error::Generic(
                 "Failed to create semaphore for watch.".to_owned(),
@@ -229,13 +231,13 @@ impl ReadDirectoryChangesServer {
 
 fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
     unsafe {
-        let cio = kernel32::CancelIo(ws.dir_handle);
-        let ch = kernel32::CloseHandle(ws.dir_handle);
+        let cio = ioapiset::CancelIo(ws.dir_handle);
+        let ch = handleapi::CloseHandle(ws.dir_handle);
         // have to wait for it, otherwise we leak the memory allocated for there read request
         if cio != 0 && ch != 0 {
-            kernel32::WaitForSingleObjectEx(ws.complete_sem, INFINITE, TRUE);
+            synchapi::WaitForSingleObjectEx(ws.complete_sem, INFINITE, TRUE);
         }
-        kernel32::CloseHandle(ws.complete_sem);
+        handleapi::CloseHandle(ws.complete_sem);
     }
     let _ = meta_tx.send(MetaEvent::SingleWatchComplete);
 }
@@ -289,7 +291,7 @@ fn start_read(rd: &ReadData, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
             // allow overlapped to drop by omitting forget()
             let request: Box<ReadDirectoryRequest> = mem::transmute(request_p);
 
-            kernel32::ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+            synchapi::ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
         } else {
             // read ok. forget overlapped to let the completion routine handle memory
             mem::forget(overlapped);
@@ -318,7 +320,7 @@ unsafe extern "system" fn handle_event(
     if error_code == ERROR_OPERATION_ABORTED {
         // received when dir is unwatched or watcher is shutdown; return and let overlapped/request
         // get drop-cleaned
-        kernel32::ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+        synchapi::ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
         return;
     }
 
@@ -430,7 +432,7 @@ impl ReadDirectoryChangesWatcher {
         let (cmd_tx, cmd_rx) = channel();
 
         let wakeup_sem =
-            unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
+            unsafe { synchapi::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
             return Err(Error::Generic(
                 "Failed to create wakeup semaphore.".to_owned(),
@@ -456,7 +458,7 @@ impl ReadDirectoryChangesWatcher {
         let (cmd_tx, cmd_rx) = channel();
 
         let wakeup_sem =
-            unsafe { kernel32::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
+            unsafe { synchapi::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
             return Err(Error::Generic(
                 "Failed to create wakeup semaphore.".to_owned(),
@@ -482,7 +484,7 @@ impl ReadDirectoryChangesWatcher {
         // so that if you add a watch you don't block for 100ms in watch() while the
         // server sleeps.
         unsafe {
-            kernel32::ReleaseSemaphore(self.wakeup_sem, 1, ptr::null_mut());
+            synchapi::ReleaseSemaphore(self.wakeup_sem, 1, ptr::null_mut());
         }
     }
 
