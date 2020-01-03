@@ -310,19 +310,19 @@ pub mod op {
     /// Multiple actions may be delivered in a single event.
         pub struct Op: u32 {
     /// Attributes changed
-            const CHMOD       = 0b0000001;
+            const CHMOD       = 0b000_0001;
     /// Created
-            const CREATE      = 0b0000010;
+            const CREATE      = 0b000_0010;
     /// Removed
-            const REMOVE      = 0b0000100;
+            const REMOVE      = 0b000_0100;
     /// Renamed
-            const RENAME      = 0b0001000;
+            const RENAME      = 0b000_1000;
     /// Written
-            const WRITE       = 0b0010000;
+            const WRITE       = 0b001_0000;
     /// File opened for writing was closed
-            const CLOSE_WRITE = 0b0100000;
+            const CLOSE_WRITE = 0b010_0000;
     /// Directories need to be rescanned
-            const RESCAN      = 0b1000000;
+            const RESCAN      = 0b100_0000;
         }
     }
 

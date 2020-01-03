@@ -180,7 +180,7 @@ impl WatchTimer {
         self.events.lock().unwrap().push_back(ScheduledEvent {
             id: self.counter,
             when: Instant::now() + self.delay,
-            path: path,
+            path,
         });
 
         self.new_event_trigger.notify_one();
