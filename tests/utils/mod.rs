@@ -1,5 +1,5 @@
 use notify::*;
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 use std::fs;
 use std::io::Write;

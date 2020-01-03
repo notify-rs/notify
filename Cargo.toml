@@ -41,7 +41,7 @@ fsevent-sys = "2"
 winapi = { version = "0.3.8", features = ["fileapi", "handleapi", "ioapiset", "minwinbase", "synchapi", "winbase", "winnt"] }
 
 [dev-dependencies]
-tempdir = "^0.3.4"
+tempfile = "3"
 
 [features]
 timing_tests = []

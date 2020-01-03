@@ -1,5 +1,5 @@
 extern crate notify;
-extern crate tempdir;
+extern crate tempfile;
 
 mod utils;
 
@@ -7,7 +7,7 @@ use notify::*;
 use std::env;
 use std::sync::mpsc;
 use std::thread;
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 #[cfg(all(feature = "manual_tests", target_os = "linux"))]
 use std::fs::File;
@@ -18,7 +18,8 @@ use std::time::{Duration, Instant};
 
 use utils::*;
 
-const NETWORK_PATH: &'static str = ""; // eg.: \\\\MY-PC\\Users\\MyName
+const NETWORK_PATH: &str = ""; // eg.: \\\\MY-PC\\Users\\MyName
+const TEMP_DIR: &str = "temp_dir";
 
 #[cfg(target_os = "linux")]
 #[test]
@@ -94,7 +95,7 @@ fn watch_relative() {
     // both of the following tests set the same environment variable, so they must not run in parallel
     {
         // watch_relative_directory
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
         tdir.create("dir1");
 
         env::set_current_dir(tdir.path()).expect("failed to change working directory");
@@ -120,7 +121,7 @@ fn watch_relative() {
     }
     {
         // watch_relative_file
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
         tdir.create("file1");
 
         env::set_current_dir(tdir.path()).expect("failed to change working directory");
@@ -144,7 +145,7 @@ fn watch_relative() {
     }
     if cfg!(target_os = "windows") && !NETWORK_PATH.is_empty() {
         // watch_relative_network_directory
-        let tdir = TempDir::new_in(NETWORK_PATH, "temp_dir")
+        let tdir = TempDir::new_in(NETWORK_PATH)
             .expect("failed to create temporary directory");
         tdir.create("dir1");
 
@@ -171,7 +172,7 @@ fn watch_relative() {
     }
     if cfg!(target_os = "windows") && !NETWORK_PATH.is_empty() {
         // watch_relative_network_file
-        let tdir = TempDir::new_in(NETWORK_PATH, "temp_dir")
+        let tdir = TempDir::new_in(NETWORK_PATH)
             .expect("failed to create temporary directory");
         tdir.create("file1");
 
@@ -204,7 +205,7 @@ fn watch_absolute_network_directory() {
     }
 
     let tdir =
-        TempDir::new_in(NETWORK_PATH, "temp_dir").expect("failed to create temporary directory");
+        TempDir::new_in(NETWORK_PATH).expect("failed to create temporary directory");
     tdir.create("dir1");
 
     let (tx, _) = mpsc::channel();
@@ -235,7 +236,7 @@ fn watch_absolute_network_file() {
     }
 
     let tdir =
-        TempDir::new_in(NETWORK_PATH, "temp_dir").expect("failed to create temporary directory");
+        TempDir::new_in(NETWORK_PATH).expect("failed to create temporary directory");
     tdir.create("file1");
 
     env::set_current_dir(tdir.path()).expect("failed to change working directory");
@@ -273,7 +274,7 @@ fn inotify_queue_overflow() {
         .expect("failed to read max_queued_events");
     assert_eq!(max_queued_events.trim(), "10");
 
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher =
@@ -312,7 +313,7 @@ fn inotify_queue_overflow() {
 
 #[test]
 fn watch_recursive_create_directory() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -372,7 +373,7 @@ fn watch_recursive_create_directory() {
 
 #[test]
 fn watch_recursive_move() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1a"]);
 
@@ -451,7 +452,7 @@ fn watch_recursive_move() {
 #[test]
 #[cfg_attr(target_os = "macos", ignore)]
 fn watch_recursive_move_in() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["watch_dir", "dir1a/dir1"]);
 
@@ -529,7 +530,7 @@ fn watch_recursive_move_in() {
 #[test]
 #[cfg_attr(target_os = "macos", ignore)]
 fn watch_recursive_move_out() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["watch_dir/dir1a/dir1"]);
 
@@ -611,7 +612,7 @@ fn watch_recursive_move_out() {
 
 #[test]
 fn watch_nonrecursive() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1"]);
 
@@ -652,7 +653,7 @@ fn watch_nonrecursive() {
 
 #[test]
 fn watch_file() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -695,7 +696,7 @@ fn watch_file() {
 
 #[test]
 fn poll_watch_recursive_create_directory() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     let (tx, rx) = mpsc::channel();
     let mut watcher = PollWatcher::with_delay_ms(tx, 50).expect("failed to create poll watcher");
@@ -731,7 +732,7 @@ fn poll_watch_recursive_create_directory() {
 #[test]
 #[ignore] // fails sometimes on AppVeyor
 fn poll_watch_recursive_move() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1a"]);
 
@@ -795,7 +796,7 @@ fn poll_watch_recursive_move() {
 #[test]
 #[ignore] // fails sometimes on AppVeyor
 fn poll_watch_recursive_move_in() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["watch_dir", "dir1a/dir1"]);
 
@@ -848,7 +849,7 @@ fn poll_watch_recursive_move_in() {
 #[test]
 #[ignore] // fails sometimes on AppVeyor
 fn poll_watch_recursive_move_out() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["watch_dir/dir1a/dir1"]);
 
@@ -902,7 +903,7 @@ fn poll_watch_recursive_move_out() {
 
 #[test]
 fn poll_watch_nonrecursive() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1"]);
 
@@ -932,7 +933,7 @@ fn poll_watch_nonrecursive() {
 
 #[test]
 fn poll_watch_file() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -955,8 +956,8 @@ fn poll_watch_file() {
 
 #[test]
 fn watch_nonexisting() {
-    let tdir1 = TempDir::new("temp_dir1").expect("failed to create temporary directory");
-    let tdir2 = TempDir::new("temp_dir2").expect("failed to create temporary directory");
+    let tdir1 = tempfile::Builder::new().prefix("temp_dir1").tempdir().expect("failed to create temporary directory");
+    let tdir2 = tempfile::Builder::new().prefix("temp_dir2").tempdir().expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -998,7 +999,7 @@ fn watch_nonexisting() {
 
 #[test]
 fn unwatch_file() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -1019,7 +1020,7 @@ fn unwatch_file() {
 
 #[test]
 fn unwatch_directory() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1"]);
 
@@ -1041,7 +1042,7 @@ fn unwatch_directory() {
 #[test]
 #[cfg_attr(target_os = "windows", ignore)]
 fn unwatch_nonexisting() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -1058,7 +1059,7 @@ fn unwatch_nonexisting() {
 
 #[test]
 fn self_delete_file() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -1114,7 +1115,7 @@ fn self_delete_file() {
 #[test]
 #[cfg_attr(target_os = "windows", ignore)]
 fn self_delete_directory() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1"]);
 
@@ -1179,7 +1180,7 @@ fn self_delete_directory() {
 #[test]
 #[cfg_attr(target_os = "windows", ignore)]
 fn self_rename_file() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -1272,7 +1273,7 @@ fn self_rename_file() {
 
 #[test]
 fn self_rename_directory() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1"]);
 
@@ -1377,7 +1378,7 @@ fn self_rename_directory() {
 
 #[test]
 fn parent_rename_file() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1/file1"]);
 
@@ -1463,7 +1464,7 @@ fn parent_rename_directory() {
         panic!("cannot remove parent directory on windows");
     }
 
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1/watch_dir"]);
 

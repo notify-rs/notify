@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.0.15 (2020)
+
+- DEPS(DEV): Replace tempdir with tempfile since tempdir is deprecated.
+
 ## 4.0.14 (2019-10-17)
 
 - FIX: Fix deadlock in debouncer. [#210], [`6ccf3e8d`]

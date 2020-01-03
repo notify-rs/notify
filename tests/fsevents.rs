@@ -1,15 +1,16 @@
 #![allow(dead_code)]
 
 extern crate notify;
-extern crate tempdir;
+extern crate tempfile;
 
 mod utils;
+
+const TEMP_DIR: &str = "temp_dir";
 
 #[cfg(all(target_os = "macos", feature = "timing_tests"))]
 mod timing_tests {
     use notify::*;
     use std::sync::mpsc;
-    use tempdir::TempDir;
 
     use utils::*;
 
@@ -17,7 +18,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_create_delete_file_0() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         sleep(10);
 
@@ -47,7 +48,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_create_delete_file_1() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         sleep(10);
 
@@ -77,7 +78,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_create_delete_file_2() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         sleep(10);
 
@@ -107,7 +108,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_create_delete_file_4() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         sleep(10);
 
@@ -137,7 +138,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_create_delete_file_8() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         sleep(10);
 
@@ -167,7 +168,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_create_delete_file_16() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         sleep(10);
 
@@ -197,7 +198,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_create_delete_file_32() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         sleep(10);
 
@@ -227,7 +228,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_create_delete_file_64() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         sleep(10);
 
@@ -257,7 +258,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_rename_rename_file_0() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         tdir.create_all(vec!["file1a"]);
 
@@ -288,7 +289,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_rename_rename_file_10() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         tdir.create_all(vec!["file1a"]);
 
@@ -325,7 +326,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_rename_rename_file_20() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         tdir.create_all(vec!["file1a"]);
 
@@ -362,7 +363,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_rename_rename_back_file_0() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         tdir.create_all(vec!["file1a"]);
 
@@ -396,7 +397,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_rename_rename_back_file_10() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         tdir.create_all(vec!["file1a"]);
 
@@ -437,7 +438,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_rename_rename_back_file_20() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         tdir.create_all(vec!["file1a"]);
 
@@ -478,7 +479,7 @@ mod timing_tests {
 
     #[test]
     fn fsevents_rename_rename_back_file_sleep() {
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
 
         tdir.create_all(vec!["file1a"]);
 
