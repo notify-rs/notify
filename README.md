@@ -32,7 +32,7 @@ As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax]
 
 ```toml
 [dependencies]
-crossbeam-channel = "0.3.8"
+crossbeam-channel = "0.4.0"
 notify = "5.0.0-pre.2"
 ```
 

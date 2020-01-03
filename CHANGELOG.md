@@ -14,6 +14,13 @@
 - (Temporary): Remove event debouncing.
 - (Temporary): Remove tests.
 - CHANGE: Rewrite immediate events to use new system.
+- CHANGE: Remove `Sender`s from watcher API in favour of `EventFn` [#214]
+- DEPS: Update inotify to 0.8. [#234]
+- DEPS: Update crossbeam-channel to 0.4.
+- DEPS: \[macOS\] Update fsevent to 2.0.1 and fsevent-sys to 3.0.0.
+
+[#214]: https://github.com/notify-rs/notify/pull/214
+[#234]: https://github.com/notify-rs/notify/pull/234
 
 ## 5.0.0-pre.1 (2019-06-30)
 
@@ -53,6 +60,19 @@ _(no changes, just a new release because the old one failed to publish properly)
 [#197]: https://github.com/notify-rs/notify/issues/197
 [#201]: https://github.com/notify-rs/notify/issues/201
 [`2a035c86`]: https://github.com/notify-rs/notify/commit/2a035c86c5f12aeee635a827c1f458211ca923ca
+
+## 4.0.15 (2020)
+
+- DEPS: Update winapi to 0.3.8 and remove kernel32-sys. [#232]
+- META: The project maintainers are changed from @passcod to notify-rs.
+
+[#232]: https://github.com/notify-rs/notify/pull/232
+
+## 4.0.14 (2019-10-17)
+
+- FIX: Fix deadlock in debouncer. [#210]
+
+[#210]: https://github.com/notify-rs/notify/pull/210
 
 ## 4.0.13 (2019-09-01)
 

@@ -350,15 +350,15 @@ impl FsEventWatcher {
         let stream_context = fs::FSEventStreamContext {
             version: 0,
             info: unsafe { transmute(self.context.as_ref().map(|ctx| &**ctx)) },
-            retain: cf::NULL,
-            copy_description: cf::NULL,
+            retain: None,
+            release: None,
+            copy_description: None,
         };
 
-        let cb = callback as *mut _;
         let stream = unsafe {
             fs::FSEventStreamCreate(
                 cf::kCFAllocatorDefault,
-                cb,
+                callback,
                 &stream_context,
                 self.paths,
                 self.since_when,
@@ -411,13 +411,35 @@ impl FsEventWatcher {
 
 #[allow(unused_variables)]
 #[doc(hidden)]
-pub unsafe extern "C" fn callback(
+pub extern "C" fn callback(
     stream_ref: fs::FSEventStreamRef,
     info: *mut libc::c_void,
-    num_events: libc::size_t,                // size_t numEvents
-    event_paths: *const *const libc::c_char, // void *eventPaths
-    event_flags: *mut libc::c_void,          // const FSEventStreamEventFlags eventFlags[]
-    event_ids: *mut libc::c_void,            // const FSEventStreamEventId eventIds[]
+    num_events: libc::size_t,         // size_t numEvents
+    event_paths: *mut libc::c_void,   // void *eventPaths
+    event_flags: *const libc::c_void, // const FSEventStreamEventFlags eventFlags[]
+    event_ids: *const libc::c_void,   // const FSEventStreamEventId eventIds[]
+) {
+    unsafe {
+        callback_impl(
+            stream_ref,
+            info,
+            num_events,
+            event_paths,
+            event_flags,
+            event_ids,
+        )
+    }
+}
+
+#[allow(unused_variables)]
+#[doc(hidden)]
+unsafe fn callback_impl(
+    stream_ref: fs::FSEventStreamRef,
+    info: *mut libc::c_void,
+    num_events: libc::size_t,         // size_t numEvents
+    event_paths: *mut libc::c_void,   // void *eventPaths
+    event_flags: *const libc::c_void, // const FSEventStreamEventFlags eventFlags[]
+    event_ids: *const libc::c_void,   // const FSEventStreamEventId eventIds[]
 ) {
     let num = num_events as usize;
     let e_ptr = event_flags as *mut u32;

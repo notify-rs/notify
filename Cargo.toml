@@ -28,7 +28,7 @@ travis-ci = { repository = "notify-rs/notify", branch = "main" }
 [dependencies]
 anymap = "0.12.1"
 bitflags = "1.0.4"
-crossbeam-channel = "0.3.8"
+crossbeam-channel = "0.4.0"
 filetime = "0.2.6"
 libc = "0.2.4"
 serde = { version = "1.0.89", features = ["derive"], optional = true }
@@ -41,8 +41,8 @@ mio = "0.6.15"
 mio-extras = "2.0.5"
 
 [target.'cfg(target_os="macos")'.dependencies]
-fsevent = "1.0.1"
-fsevent-sys = "2"
+fsevent = "2.0.1"
+fsevent-sys = "3"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.8", features = ["fileapi", "handleapi", "ioapiset", "minwinbase", "synchapi", "winbase", "winnt"] }

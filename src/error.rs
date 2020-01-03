@@ -104,7 +104,7 @@ impl fmt::Display for Error {
             ErrorKind::WatchNotFound => "No watch was found.".into(),
             ErrorKind::InvalidConfig(ref config) => format!("Invalid configuration: {:?}", config),
             ErrorKind::Generic(ref err) => err.clone(),
-            ErrorKind::Io(ref err) => err.description().into(),
+            ErrorKind::Io(ref err) => err.to_string(),
         };
 
         if self.paths.is_empty() {
@@ -116,16 +116,6 @@ impl fmt::Display for Error {
 }
 
 impl StdError for Error {
-    fn description(&self) -> &str {
-        match self.kind {
-            ErrorKind::PathNotFound => "Path(s) were not found",
-            ErrorKind::WatchNotFound => "No watch was found",
-            ErrorKind::InvalidConfig(_) => "Invalid configuration",
-            ErrorKind::Generic(_) => "Generic error",
-            ErrorKind::Io(_) => "I/O Error",
-        }
-    }
-
     fn cause(&self) -> Option<&dyn StdError> {
         match self.kind {
             ErrorKind::Io(ref cause) => Some(cause),
