@@ -2,6 +2,7 @@
 
 ## 4.0.15 (2020)
 
+- DEPS: Update inotify to 0.7.
 - DEPS(DEV): Replace tempdir with tempfile since tempdir is deprecated.
 
 ## 4.0.14 (2019-10-17)
