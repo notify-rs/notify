@@ -34,7 +34,10 @@ fn recv_events_debounced(rx: &mpsc::Receiver<DebouncedEvent>) -> Vec<DebouncedEv
 
 #[test]
 fn create_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -55,7 +58,10 @@ fn create_file() {
 
 #[test]
 fn write_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -81,7 +87,10 @@ fn write_file() {
 
 #[test]
 fn write_long_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -129,7 +138,10 @@ fn write_long_file() {
 
 #[test]
 fn modify_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -163,7 +175,10 @@ fn modify_file() {
 
 #[test]
 fn delete_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -189,7 +204,10 @@ fn delete_file() {
 
 #[test]
 fn rename_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -215,7 +233,10 @@ fn rename_file() {
 
 #[test]
 fn create_write_modify_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -238,7 +259,10 @@ fn create_write_modify_file() {
 
 #[test]
 fn create_delete_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -258,7 +282,10 @@ fn create_delete_file() {
 
 #[test]
 fn delete_create_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -286,7 +313,10 @@ fn delete_create_file() {
 
 #[test]
 fn create_rename_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -308,7 +338,10 @@ fn create_rename_file() {
 
 #[test]
 fn create_rename_delete_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -342,7 +375,10 @@ fn create_rename_delete_file() {
 
 #[test]
 fn create_rename_overwrite_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file2"]);
 
@@ -380,7 +416,10 @@ fn create_rename_overwrite_file() {
 #[test]
 fn create_rename_write_create() {
     // fsevents
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -410,7 +449,10 @@ fn create_rename_write_create() {
 #[test]
 fn create_rename_remove_create() {
     // fsevents
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -454,7 +496,10 @@ fn create_rename_remove_create() {
 #[test]
 fn move_out_sleep_move_in() {
     // fsevents
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create("watch_dir");
 
@@ -495,7 +540,10 @@ fn move_out_sleep_move_in() {
 #[test]
 #[ignore]
 fn move_repeatedly() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create("watch_dir");
 
@@ -535,7 +583,10 @@ fn move_repeatedly() {
 
 #[test]
 fn write_rename_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -564,7 +615,10 @@ fn write_rename_file() {
 
 #[test]
 fn rename_write_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -598,13 +652,16 @@ fn rename_write_file() {
 fn truncate_write_file() {
     use std::io::Write;
 
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
     let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .open(tdir.mkpath("file1"))
-                .unwrap();
+        .write(true)
+        .open(tdir.mkpath("file1"))
+        .unwrap();
     file.write_all(b"foofoofoo").unwrap();
 
     sleep_macos(35_000);
@@ -617,10 +674,10 @@ fn truncate_write_file() {
         .expect("failed to watch directory");
 
     let mut file = std::fs::OpenOptions::new()
-                .truncate(true)
-                .write(true)
-                .open(tdir.mkpath("file1"))
-                .unwrap();
+        .truncate(true)
+        .write(true)
+        .open(tdir.mkpath("file1"))
+        .unwrap();
     file.write_all(b"barbarbarbar").unwrap();
 
     assert_eq!(
@@ -634,7 +691,10 @@ fn truncate_write_file() {
 
 #[test]
 fn modify_rename_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -675,7 +735,10 @@ fn modify_rename_file() {
 
 #[test]
 fn rename_modify_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -717,7 +780,10 @@ fn rename_modify_file() {
 
 #[test]
 fn rename_rename_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -745,7 +811,10 @@ fn rename_rename_file() {
 
 #[test]
 fn write_delete_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["file1"]);
 
@@ -773,7 +842,10 @@ fn write_delete_file() {
 
 #[test]
 fn create_directory() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -795,7 +867,10 @@ fn create_directory() {
 // https://github.com/passcod/notify/issues/124
 #[test]
 fn create_directory_watch_subdirectories() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -836,7 +911,10 @@ fn create_directory_watch_subdirectories() {
 
 #[test]
 fn modify_directory() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1"]);
 
@@ -870,7 +948,10 @@ fn modify_directory() {
 
 #[test]
 fn delete_directory() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1"]);
 
@@ -896,7 +977,10 @@ fn delete_directory() {
 
 #[test]
 fn rename_directory() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1"]);
 
@@ -922,7 +1006,10 @@ fn rename_directory() {
 
 #[test]
 fn create_modify_directory() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -944,7 +1031,10 @@ fn create_modify_directory() {
 
 #[test]
 fn create_delete_directory() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -964,7 +1054,10 @@ fn create_delete_directory() {
 
 #[test]
 fn delete_create_directory() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1"]);
 
@@ -992,7 +1085,10 @@ fn delete_create_directory() {
 
 #[test]
 fn create_rename_directory() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -1014,7 +1110,10 @@ fn create_rename_directory() {
 
 #[test]
 fn create_rename_delete_directory() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     sleep_macos(10);
 
@@ -1042,7 +1141,10 @@ fn create_rename_overwrite_directory() {
         panic!("cannot overwrite directory on windows");
     }
 
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir2"]);
 
@@ -1078,7 +1180,10 @@ fn create_rename_overwrite_directory() {
 
 #[test]
 fn modify_rename_directory() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1"]);
 
@@ -1120,7 +1225,10 @@ fn modify_rename_directory() {
 
 #[test]
 fn rename_modify_directory() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1"]);
 
@@ -1179,7 +1287,10 @@ fn rename_modify_directory() {
 
 #[test]
 fn rename_rename_directory() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1"]);
 
@@ -1207,7 +1318,10 @@ fn rename_rename_directory() {
 
 #[test]
 fn modify_delete_directory() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["dir1"]);
 
@@ -1250,7 +1364,10 @@ fn modify_delete_directory() {
 #[test]
 #[cfg_attr(target_os = "macos", ignore)]
 fn move_in_directory_watch_subdirectories() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create_all(vec!["watch_dir", "dir1/dir2"]);
 
@@ -1282,7 +1399,10 @@ fn move_in_directory_watch_subdirectories() {
 #[test]
 #[cfg_attr(target_os = "macos", ignore)]
 fn rename_create_remove_temp_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create("file1");
     sleep_macos(10);
@@ -1312,7 +1432,10 @@ fn rename_create_remove_temp_file() {
 #[test]
 #[cfg_attr(target_os = "macos", ignore)]
 fn rename_rename_remove_temp_file() {
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create("file1");
     tdir.create("file3");
@@ -1372,7 +1495,10 @@ fn watcher_terminates() {
 #[test]
 fn one_file_many_events() {
     let delay = Duration::from_millis(250);
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
     let dir = tdir.path();
 
     let (tx, rx) = mpsc::channel();
@@ -1411,20 +1537,21 @@ fn one_file_many_events() {
 #[test]
 fn delay_zero() {
     let _timeout_test = fail_after("delay_zero", Duration::from_secs(2));
-    let tdir = tempfile::Builder::new().prefix(TEMP_DIR).tempdir().expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
 
     tdir.create("file1");
 
     let (tx, rx) = mpsc::channel();
-    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_secs(0))
-        .expect("failed to create debounced watcher");
+    let mut watcher: RecommendedWatcher =
+        Watcher::new(tx, Duration::from_secs(0)).expect("failed to create debounced watcher");
     watcher
         .watch(tdir.mkpath("."), RecursiveMode::Recursive)
         .expect("failed to watch directory");
 
-    let thread = thread::spawn(move || {
-        for _ in rx.into_iter() {}
-    });
+    let thread = thread::spawn(move || for _ in rx.into_iter() {});
 
     for _ in 0..100 {
         tdir.rename("file1", "file2");

@@ -39,7 +39,10 @@ mod windows_tests {
             let mut w = ReadDirectoryChangesWatcher::create(tx, meta_tx).unwrap();
 
             for _ in 0..dir_count {
-                let d = tempfile::Builder::new().prefix("rsnotifytest").tempdir().expect("failed to create temporary directory");
+                let d = tempfile::Builder::new()
+                    .prefix("rsnotifytest")
+                    .tempdir()
+                    .expect("failed to create temporary directory");
                 dirs.push(d);
             }
 
@@ -82,7 +85,10 @@ mod windows_tests {
         let (meta_tx, meta_rx) = mpsc::channel();
         let mut w = ReadDirectoryChangesWatcher::create(tx, meta_tx).unwrap();
 
-        let d = tempfile::Builder::new().prefix("rsnotifytest").tempdir().expect("failed to create temporary directory");
+        let d = tempfile::Builder::new()
+            .prefix("rsnotifytest")
+            .tempdir()
+            .expect("failed to create temporary directory");
         w.watch(d.path(), RecursiveMode::Recursive).unwrap();
 
         // should be at least one awaken in there
