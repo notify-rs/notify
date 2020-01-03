@@ -76,8 +76,8 @@ script:
     elif [[ ! -z "$CARGO_CLIPPY" ]]; then
       cargo clippy
     else
-      cargo test
-      cargo test --release
+      cargo test --no-fail-fast
+      cargo test --release --no-fail-fast
     fi
 
 after_script: set +e
