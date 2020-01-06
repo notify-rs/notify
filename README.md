@@ -11,10 +11,10 @@ _Cross-platform filesystem notification library for Rust._
 
 **Caution! This is unstable code!**
 
-You likely want either [the latest 4.0 release] or [5.0.0-pre.1].
+You likely want either [the latest 4.0 release] or [5.0.0-pre.2].
 
 [the latest 4.0 release]: https://github.com/notify-rs/notify/tree/v4.0.13#notify
-[5.0.0-pre.1]: https://github.com/notify-rs/notify/tree/v5.0.0-pre.1#notify
+[5.0.0-pre.2]: https://github.com/notify-rs/notify/tree/v5.0.0-pre.2#notify
 
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
 [alert-after]!)
@@ -198,7 +198,7 @@ Written by [Félix Saparelli] and awesome [contributors].
 [contributors]: https://github.com/notify-rs/notify/graphs/contributors
 [crate]: https://crates.io/crates/notify
 [docket]: https://iwillspeak.github.io/docket/
-[docs]: https://docs.rs/notify/5.0.0-pre.1/notify/
+[docs]: https://docs.rs/notify/5.0.0-pre.2/notify/
 [fsnotify]: https://github.com/go-fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
 [hotwatch]: https://github.com/francesca64/hotwatch
