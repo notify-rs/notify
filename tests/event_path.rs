@@ -1,5 +1,5 @@
 extern crate notify;
-extern crate tempdir;
+extern crate tempfile;
 
 mod utils;
 
@@ -8,11 +8,12 @@ use std::env;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 use utils::*;
 
-const NETWORK_PATH: &'static str = ""; // eg.: \\\\MY-PC\\Users\\MyName
+const NETWORK_PATH: &str = ""; // eg.: \\\\MY-PC\\Users\\MyName
+const TEMP_DIR: &str = "temp_dir";
 
 #[cfg(target_os = "windows")]
 fn recv_events_simple(rx: &Receiver<RawEvent>) -> Vec<(PathBuf, Op, Option<u32>)> {
@@ -44,7 +45,10 @@ fn watch_relative() {
     // both of the following tests set the same environment variable, so they must not run in parallel
     {
         // watch_relative_directory
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new()
+            .prefix(TEMP_DIR)
+            .tempdir()
+            .expect("failed to create temporary directory");
         tdir.create("dir1");
 
         sleep_macos(10);
@@ -78,7 +82,10 @@ fn watch_relative() {
     }
     {
         // watch_relative_file
-        let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+        let tdir = tempfile::Builder::new()
+            .prefix(TEMP_DIR)
+            .tempdir()
+            .expect("failed to create temporary directory");
         tdir.create("file1");
 
         env::set_current_dir(tdir.path()).expect("failed to change working directory");
@@ -110,8 +117,7 @@ fn watch_relative() {
     }
     if cfg!(target_os = "windows") && !NETWORK_PATH.is_empty() {
         // watch_relative_network_directory
-        let tdir = TempDir::new_in(NETWORK_PATH, "temp_dir")
-            .expect("failed to create temporary directory");
+        let tdir = TempDir::new_in(NETWORK_PATH).expect("failed to create temporary directory");
         tdir.create("dir1");
 
         env::set_current_dir(tdir.path()).expect("failed to change working directory");
@@ -134,8 +140,7 @@ fn watch_relative() {
     }
     if cfg!(target_os = "windows") && !NETWORK_PATH.is_empty() {
         // watch_relative_network_file
-        let tdir = TempDir::new_in(NETWORK_PATH, "temp_dir")
-            .expect("failed to create temporary directory");
+        let tdir = TempDir::new_in(NETWORK_PATH).expect("failed to create temporary directory");
         tdir.create("file1");
 
         env::set_current_dir(tdir.path()).expect("failed to change working directory");
@@ -160,7 +165,10 @@ fn watch_relative() {
 
 #[test]
 fn watch_absolute_directory() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
     tdir.create("dir1");
 
     sleep_macos(10);
@@ -194,7 +202,10 @@ fn watch_absolute_directory() {
 
 #[test]
 fn watch_absolute_file() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
     tdir.create("file1");
 
     let watch_path = tdir.path().join("file1");
@@ -231,8 +242,7 @@ fn watch_absolute_network_directory() {
         return;
     }
 
-    let tdir =
-        TempDir::new_in(NETWORK_PATH, "temp_dir").expect("failed to create temporary directory");
+    let tdir = TempDir::new_in(NETWORK_PATH).expect("failed to create temporary directory");
     tdir.create("dir1");
 
     let watch_path = tdir.path().join("dir1");
@@ -260,8 +270,7 @@ fn watch_absolute_network_file() {
         return;
     }
 
-    let tdir =
-        TempDir::new_in(NETWORK_PATH, "temp_dir").expect("failed to create temporary directory");
+    let tdir = TempDir::new_in(NETWORK_PATH).expect("failed to create temporary directory");
     tdir.create("file1");
 
     let watch_path = tdir.path().join("file1");
@@ -284,7 +293,10 @@ fn watch_absolute_network_file() {
 
 #[test]
 fn watch_canonicalized_directory() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
     tdir.create("dir1");
 
     sleep_macos(10);
@@ -313,7 +325,10 @@ fn watch_canonicalized_directory() {
 
 #[test]
 fn watch_canonicalized_file() {
-    let tdir = TempDir::new("temp_dir").expect("failed to create temporary directory");
+    let tdir = tempfile::Builder::new()
+        .prefix(TEMP_DIR)
+        .tempdir()
+        .expect("failed to create temporary directory");
     tdir.create("file1");
 
     let watch_path = tdir
@@ -345,8 +360,7 @@ fn watch_canonicalized_network_directory() {
         return;
     }
 
-    let tdir =
-        TempDir::new_in(NETWORK_PATH, "temp_dir").expect("failed to create temporary directory");
+    let tdir = TempDir::new_in(NETWORK_PATH).expect("failed to create temporary directory");
     tdir.create("dir1");
 
     let watch_path = tdir
@@ -378,8 +392,7 @@ fn watch_canonicalized_network_file() {
         return;
     }
 
-    let tdir =
-        TempDir::new_in(NETWORK_PATH, "temp_dir").expect("failed to create temporary directory");
+    let tdir = TempDir::new_in(NETWORK_PATH).expect("failed to create temporary directory");
     tdir.create("file1");
 
     let watch_path = tdir

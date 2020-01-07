@@ -39,7 +39,7 @@ impl ScheduleWorker {
             // events Mutex, and retry after yielding.
             match self.operations_buffer.try_lock() {
                 Ok(op_buf) => break (events, op_buf),
-                Err(::std::sync::TryLockError::Poisoned {..}) => return None,
+                Err(::std::sync::TryLockError::Poisoned { .. }) => return None,
                 Err(::std::sync::TryLockError::WouldBlock) => {
                     // drop the lock before yielding to give other threads a chance to complete
                     // their work.
@@ -64,7 +64,7 @@ impl ScheduleWorker {
     fn fire_event(
         &self,
         ev: ScheduledEvent,
-        op_buf: &mut impl DerefMut<Target = OperationsBufferInner>
+        op_buf: &mut impl DerefMut<Target = OperationsBufferInner>,
     ) {
         let ScheduledEvent { path, .. } = ev;
         if let Some((op, from_path, _)) = op_buf.remove(&path) {
@@ -180,7 +180,7 @@ impl WatchTimer {
         self.events.lock().unwrap().push_back(ScheduledEvent {
             id: self.counter,
             when: Instant::now() + self.delay,
-            path: path,
+            path,
         });
 
         self.new_event_trigger.notify_one();

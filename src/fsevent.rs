@@ -15,13 +15,14 @@ extern crate fsevent as fse;
 
 use super::debounce::{Debounce, EventTx};
 use super::{op, DebouncedEvent, Error, RawEvent, RecursiveMode, Result, Watcher};
-use fsevent_sys::core_foundation as cf;
 use fsevent_sys as fs;
+use fsevent_sys::core_foundation as cf;
 use libc;
 use std::collections::HashMap;
 use std::convert::AsRef;
 use std::ffi::CStr;
 use std::mem::transmute;
+use std::os::raw;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
@@ -30,7 +31,6 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use std::os::raw;
 
 /// FSEvents-based `Watcher` implementation
 pub struct FsEventWatcher {
@@ -53,7 +53,9 @@ unsafe impl Sync for FsEventWatcher {}
 
 fn translate_flags(flags: fse::StreamFlags) -> op::Op {
     let mut ret = op::Op::empty();
-    if flags.contains(fse::StreamFlags::ITEM_XATTR_MOD) || flags.contains(fse::StreamFlags::ITEM_CHANGE_OWNER) {
+    if flags.contains(fse::StreamFlags::ITEM_XATTR_MOD)
+        || flags.contains(fse::StreamFlags::ITEM_CHANGE_OWNER)
+    {
         ret.insert(op::Op::CHMOD);
     }
     if flags.contains(fse::StreamFlags::ITEM_CREATED) {

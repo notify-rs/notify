@@ -54,6 +54,7 @@ matrix:
 
   allow_failures:
     - env: CARGO_CLIPPY=1
+    - os: osx # tests on macOS are very fragile, ignore status for now
 
 before_install:
   - set -e
@@ -76,8 +77,8 @@ script:
     elif [[ ! -z "$CARGO_CLIPPY" ]]; then
       cargo clippy
     else
-      cargo test
-      cargo test --release
+      cargo test --no-fail-fast
+      cargo test --release --no-fail-fast
     fi
 
 after_script: set +e

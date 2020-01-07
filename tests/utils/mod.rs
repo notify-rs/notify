@@ -1,11 +1,15 @@
 use notify::*;
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process;
-use std::sync::{mpsc::{Receiver, TryRecvError}, atomic::{AtomicBool, Ordering::SeqCst}, Arc};
+use std::sync::{
+    atomic::{AtomicBool, Ordering::SeqCst},
+    mpsc::{Receiver, TryRecvError},
+    Arc,
+};
 use std::thread;
 use std::time::{Duration, Instant};
 

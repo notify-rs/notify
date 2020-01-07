@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
 extern crate notify;
-extern crate tempdir;
+extern crate tempfile;
 
 #[cfg(target_os = "windows")]
 mod windows_tests {
     use super::notify::*;
-    use super::tempdir::TempDir;
+    use super::tempfile::TempDir;
     use std::sync::mpsc;
     use std::thread;
     use std::time::{Duration, Instant};
@@ -39,7 +39,10 @@ mod windows_tests {
             let mut w = ReadDirectoryChangesWatcher::create(tx, meta_tx).unwrap();
 
             for _ in 0..dir_count {
-                let d = TempDir::new("rsnotifytest").unwrap();
+                let d = tempfile::Builder::new()
+                    .prefix("rsnotifytest")
+                    .tempdir()
+                    .expect("failed to create temporary directory");
                 dirs.push(d);
             }
 
@@ -82,7 +85,10 @@ mod windows_tests {
         let (meta_tx, meta_rx) = mpsc::channel();
         let mut w = ReadDirectoryChangesWatcher::create(tx, meta_tx).unwrap();
 
-        let d = TempDir::new("rsnotifytest").unwrap();
+        let d = tempfile::Builder::new()
+            .prefix("rsnotifytest")
+            .tempdir()
+            .expect("failed to create temporary directory");
         w.watch(d.path(), RecursiveMode::Recursive).unwrap();
 
         // should be at least one awaken in there
@@ -112,7 +118,10 @@ mod windows_tests {
         let mut i = 0;
         loop {
             let (tx, rx) = mpsc::channel();
-            let d = TempDir::new("rsnotifytest").unwrap();
+            let d = tempfile::Builder::new()
+            .prefix("rsnotifytest")
+            .tempdir()
+            .expect("failed to create temporary directory");
             {
                 let (meta_tx, _) = mpsc::channel();
                 let mut w = ReadDirectoryChangesWatcher::create(tx, meta_tx).unwrap();

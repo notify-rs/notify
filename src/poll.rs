@@ -42,7 +42,7 @@ impl PollWatcher {
             watches: Arc::new(Mutex::new(HashMap::new())),
             open: Arc::new(RwLock::new(true)),
         };
-        let event_tx = EventTx::Raw { tx: tx };
+        let event_tx = EventTx::Raw { tx };
         p.run(Duration::from_millis(delay as u64), event_tx);
         Ok(p)
     }
@@ -89,7 +89,7 @@ impl PollWatcher {
                                     match paths.insert(
                                         watch.clone(),
                                         PathData {
-                                            mtime: mtime,
+                                            mtime,
                                             last_check: current_time,
                                         },
                                     ) {
@@ -133,7 +133,7 @@ impl PollWatcher {
                                                 match paths.insert(
                                                     path.to_path_buf(),
                                                     PathData {
-                                                        mtime: mtime,
+                                                        mtime,
                                                         last_check: current_time,
                                                     },
                                                 ) {
@@ -216,7 +216,7 @@ impl Watcher for PollWatcher {
             match fs::metadata(path) {
                 Err(e) => {
                     self.event_tx.send(RawEvent {
-                        path: Some(watch.clone()),
+                        path: Some(watch),
                         op: Err(Error::Io(e)),
                         cookie: None,
                     });
@@ -228,7 +228,7 @@ impl Watcher for PollWatcher {
                         paths.insert(
                             watch.clone(),
                             PathData {
-                                mtime: mtime,
+                                mtime,
                                 last_check: current_time,
                             },
                         );
@@ -236,7 +236,7 @@ impl Watcher for PollWatcher {
                             watch,
                             WatchData {
                                 is_recursive: recursive_mode.is_recursive(),
-                                paths: paths,
+                                paths,
                             },
                         );
                     } else {
@@ -267,7 +267,7 @@ impl Watcher for PollWatcher {
                                     paths.insert(
                                         path.to_path_buf(),
                                         PathData {
-                                            mtime: mtime,
+                                            mtime,
                                             last_check: current_time,
                                         },
                                     );
@@ -278,7 +278,7 @@ impl Watcher for PollWatcher {
                             watch,
                             WatchData {
                                 is_recursive: recursive_mode.is_recursive(),
-                                paths: paths,
+                                paths,
                             },
                         );
                     }

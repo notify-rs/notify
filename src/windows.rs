@@ -92,10 +92,10 @@ impl ReadDirectoryChangesServer {
             let server = ReadDirectoryChangesServer {
                 rx: action_rx,
                 event_tx: Arc::new(Mutex::new(event_tx)),
-                meta_tx: meta_tx,
-                cmd_tx: cmd_tx,
+                meta_tx,
+                cmd_tx,
                 watches: HashMap::new(),
-                wakeup_sem: wakeup_sem,
+                wakeup_sem,
             };
             server.run();
         });
@@ -116,7 +116,7 @@ impl ReadDirectoryChangesServer {
                     Action::Unwatch(path) => self.remove_watch(path),
                     Action::Stop => {
                         stopped = true;
-                        for (_, ws) in &self.watches {
+                        for ws in self.watches.values() {
                             stop_watch(ws, &self.meta_tx);
                         }
                         break;
@@ -199,7 +199,7 @@ impl ReadDirectoryChangesServer {
         // every watcher gets its own semaphore to signal completion
         let semaphore =
             unsafe { synchapi::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
-        if semaphore == ptr::null_mut() || semaphore == INVALID_HANDLE_VALUE {
+        if semaphore.is_null() || semaphore == INVALID_HANDLE_VALUE {
             unsafe {
                 handleapi::CloseHandle(handle);
             }
@@ -211,7 +211,7 @@ impl ReadDirectoryChangesServer {
             dir: dir_target,
             file: wf,
             complete_sem: semaphore,
-            is_recursive: is_recursive,
+            is_recursive,
         };
         let ws = WatchState {
             dir_handle: handle,
@@ -244,8 +244,8 @@ fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
 
 fn start_read(rd: &ReadData, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
     let mut request = Box::new(ReadDirectoryRequest {
-        event_tx: event_tx,
-        handle: handle,
+        event_tx,
+        handle,
         buffer: [0u8; BUF_SIZE as usize],
         data: rd.clone(),
     });
@@ -433,20 +433,20 @@ impl ReadDirectoryChangesWatcher {
 
         let wakeup_sem =
             unsafe { synchapi::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
-        if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
+        if wakeup_sem.is_null() || wakeup_sem == INVALID_HANDLE_VALUE {
             return Err(Error::Generic(
                 "Failed to create wakeup semaphore.".to_owned(),
             ));
         }
 
-        let event_tx = EventTx::Raw { tx: tx };
+        let event_tx = EventTx::Raw { tx };
 
         let action_tx = ReadDirectoryChangesServer::start(event_tx, meta_tx, cmd_tx, wakeup_sem);
 
         Ok(ReadDirectoryChangesWatcher {
             tx: action_tx,
-            cmd_rx: cmd_rx,
-            wakeup_sem: wakeup_sem,
+            cmd_rx,
+            wakeup_sem,
         })
     }
 
@@ -459,7 +459,7 @@ impl ReadDirectoryChangesWatcher {
 
         let wakeup_sem =
             unsafe { synchapi::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
-        if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
+        if wakeup_sem.is_null() || wakeup_sem == INVALID_HANDLE_VALUE {
             return Err(Error::Generic(
                 "Failed to create wakeup semaphore.".to_owned(),
             ));
@@ -474,8 +474,8 @@ impl ReadDirectoryChangesWatcher {
 
         Ok(ReadDirectoryChangesWatcher {
             tx: action_tx,
-            cmd_rx: cmd_rx,
-            wakeup_sem: wakeup_sem,
+            cmd_rx,
+            wakeup_sem,
         })
     }
 

@@ -89,11 +89,11 @@ impl Debounce {
         let timer = WatchTimer::new(tx.clone(), operations_buffer.clone(), delay);
 
         Debounce {
-            tx: tx,
+            tx,
             operations_buffer: operations_buffer,
             rename_path: None,
             rename_cookie: None,
-            timer: timer,
+            timer,
         }
     }
 
@@ -193,7 +193,7 @@ impl Debounce {
         }
 
         if let Ok(mut op_buf) = self.operations_buffer.lock() {
-            if let Some(&(ref operation, _, _)) = op_buf.get(&path) {
+            if let Some(&(operation, _, _)) = op_buf.get(&path) {
                 op = remove_repeated_events(op, operation);
             } else if op.contains(op::Op::CREATE | op::Op::REMOVE) {
                 if path.exists() {
@@ -323,7 +323,7 @@ impl Debounce {
                     }
 
                     // if the file has been renamed before, use original name as from_path
-                    let use_from_path = from_from_path.or(self.rename_path.clone());
+                    let use_from_path = from_from_path.or_else(|| self.rename_path.clone());
 
                     let &mut (ref mut operation, ref mut from_path, ref mut timer_id) =
                         op_buf.entry(path.clone()).or_insert((None, None, None));
@@ -442,7 +442,7 @@ impl Debounce {
                                 }
 
                                 // remember for deletion
-                                remove_path = Some(path.clone());
+                                remove_path = Some(path);
                             }
 
                             // change to remove event
@@ -455,14 +455,14 @@ impl Debounce {
                             None => {
                                 *operation = Some(op::Op::REMOVE);
                                 let _ = self.tx.send(DebouncedEvent::NoticeRemove(path.clone()));
-                                restart_timer(timer_id, path.clone(), &mut self.timer);
+                                restart_timer(timer_id, path, &mut self.timer);
                             }
 
                             // file has been renamed before, change to remove event /
                             // no need to emit NoticeRemove because the file has been renamed before
                             Some(op::Op::RENAME) => {
                                 *operation = Some(op::Op::REMOVE);
-                                restart_timer(timer_id, path.clone(), &mut self.timer);
+                                restart_timer(timer_id, path, &mut self.timer);
                             }
 
                             // multiple remove events are possible if the file/directory
@@ -484,8 +484,8 @@ impl Debounce {
     }
 }
 
-fn remove_repeated_events(mut op: op::Op, prev_op: &Option<op::Op>) -> op::Op {
-    if let Some(prev_op) = *prev_op {
+fn remove_repeated_events(mut op: op::Op, prev_op: Option<op::Op>) -> op::Op {
+    if let Some(prev_op) = prev_op {
         if prev_op.intersects(op::Op::CREATE | op::Op::WRITE | op::Op::CHMOD | op::Op::RENAME) {
             op.remove(op::Op::CREATE);
         }
