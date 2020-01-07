@@ -9,7 +9,7 @@
 - CHANGE: Remove `Sender`s from watcher API in favour of `EventFn` [#214]
 - META: The project maintainers have changed from @passcod to notify-rs.
 
-## 5.0.0-pre.2
+## 5.0.0-pre.2 (2020-01-07)
 
 - (Temporary): Remove event debouncing.
 - (Temporary): Remove tests.
