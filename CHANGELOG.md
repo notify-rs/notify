@@ -1,9 +1,12 @@
 # Changelog
 
-## 4.0.15 (2020)
+## 4.0.15 (2020-01-07)
 
 - DEPS: Update inotify to 0.7.
 - DEPS(DEV): Replace tempdir with tempfile since tempdir is deprecated.
+- DEPS: Update winapi to 0.3 and remove kernel32-sys. [#232]
+
+[#232]: https://github.com/notify-rs/notify/pull/232
 
 ## 4.0.14 (2019-10-17)
 
