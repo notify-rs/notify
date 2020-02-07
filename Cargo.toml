@@ -33,7 +33,6 @@ filetime = "0.2.6"
 libc = "0.2.4"
 serde = { version = "1.0.89", features = ["derive"], optional = true }
 walkdir = "2.0.1"
-chashmap = "2.2.2"
 
 [target.'cfg(target_os="linux")'.dependencies]
 inotify = { version = "0.8", default-features = false }
