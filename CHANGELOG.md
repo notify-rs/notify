@@ -9,6 +9,12 @@
 - CHANGE: Remove `Sender`s from watcher API in favour of `EventFn` [#214]
 - META: The project maintainers have changed from @passcod to notify-rs.
 
+## 5.0.0-pre.3 (2020-06-22)
+
+- DEPS: Removed unused chashmap dependency [#242]
+
+[#242]: https://github.com/notify-rs/notify/pull/242
+
 ## 5.0.0-pre.2 (2020-01-07)
 
 - (Temporary): Remove event debouncing.
