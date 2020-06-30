@@ -13,7 +13,7 @@ _Cross-platform filesystem notification library for Rust._
 
 You likely want either [the latest 4.0 release] or [5.0.0-pre.3].
 
-[the latest 4.0 release]: https://github.com/notify-rs/notify/tree/v4.0.13#notify
+[the latest 4.0 release]: https://github.com/notify-rs/notify/tree/v4.0.15#notify
 [5.0.0-pre.3]: https://github.com/notify-rs/notify/tree/v5.0.0-pre.3#notify
 
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
