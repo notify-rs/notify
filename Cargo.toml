@@ -22,9 +22,6 @@ exclude = [
   ".github/*"
 ]
 
-[badges]
-travis-ci = { repository = "notify-rs/notify", branch = "main" }
-
 [dependencies]
 anymap = "0.12.1"
 bitflags = "1.0.4"
