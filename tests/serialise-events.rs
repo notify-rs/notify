@@ -1,7 +1,11 @@
 // This file is dual-licensed under the Artistic License 2.0 as per the
 // LICENSE.ARTISTIC file, and the Creative Commons Zero 1.0 license.
 
+// FIXME: `anymap` crate triggers this lint and we cannot do anything here.
+#![allow(where_clauses_object_safety)]
+
 use notify::event::*;
+#[cfg(feature = "serde")]
 use serde_json::json;
 
 #[test]

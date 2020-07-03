@@ -201,7 +201,7 @@ impl PollWatcher {
 
             match fs::metadata(path) {
                 Err(e) => {
-                    let err = Error::io(e).add_path(watch.clone());
+                    let err = Error::io(e).add_path(watch);
                     emit_event(&self.event_fn, Err(err));
                 }
                 Ok(metadata) => {

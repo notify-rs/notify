@@ -1,9 +1,6 @@
 //! Error types
 
 use crate::Config;
-use crossbeam_channel;
-#[cfg(target_os = "linux")]
-use mio_extras;
 use std::error::Error as StdError;
 use std::path::PathBuf;
 use std::result::Result as StdResult;

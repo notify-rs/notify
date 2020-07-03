@@ -9,8 +9,6 @@ use super::{Config, Error, EventFn, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{bounded, unbounded, Sender};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
-use mio;
-use mio_extras;
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;

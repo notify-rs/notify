@@ -20,7 +20,6 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use fsevent as fse;
 use fsevent_sys as fs;
 use fsevent_sys::core_foundation as cf;
-use libc;
 use std::collections::HashMap;
 use std::convert::AsRef;
 use std::ffi::CStr;

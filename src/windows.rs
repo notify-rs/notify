@@ -184,7 +184,7 @@ impl ReadDirectoryChangesServer {
                     )
                 } else {
                     // TODO: Call GetLastError for better error info?
-                    Error::path_not_found().add_path(path.clone())
+                    Error::path_not_found().add_path(path)
                 });
             }
         }
@@ -196,7 +196,7 @@ impl ReadDirectoryChangesServer {
         // every watcher gets its own semaphore to signal completion
         let semaphore =
             unsafe { synchapi::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
-        if semaphore == ptr::null_mut() || semaphore == INVALID_HANDLE_VALUE {
+        if semaphore.is_null() || semaphore == INVALID_HANDLE_VALUE {
             unsafe {
                 handleapi::CloseHandle(handle);
             }
@@ -214,7 +214,7 @@ impl ReadDirectoryChangesServer {
         };
         self.watches.insert(path.clone(), ws);
         start_read(&rd, self.event_fn.clone(), handle);
-        Ok(path.to_path_buf())
+        Ok(path)
     }
 
     fn remove_watch(&mut self, path: PathBuf) {
@@ -321,7 +321,7 @@ unsafe extern "system" fn handle_event(
     // string as its last member. Each struct contains an offset for getting the next entry in
     // the buffer.
     let mut cur_offset: *const u8 = request.buffer.as_ptr();
-    let mut cur_entry: *const FILE_NOTIFY_INFORMATION = mem::transmute(cur_offset);
+    let mut cur_entry = cur_offset as *const FILE_NOTIFY_INFORMATION;
     loop {
         // filename length is size in bytes, so / 2
         let len = (*cur_entry).FileNameLength as usize / 2;
@@ -388,7 +388,7 @@ unsafe extern "system" fn handle_event(
             break;
         }
         cur_offset = cur_offset.offset((*cur_entry).NextEntryOffset as isize);
-        cur_entry = mem::transmute(cur_offset);
+        cur_entry = cur_offset as *const FILE_NOTIFY_INFORMATION;
     }
 }
 
@@ -408,7 +408,7 @@ impl ReadDirectoryChangesWatcher {
 
         let wakeup_sem =
             unsafe { synchapi::CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
-        if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
+        if wakeup_sem.is_null() || wakeup_sem == INVALID_HANDLE_VALUE {
             return Err(Error::generic("Failed to create wakeup semaphore."));
         }
 
