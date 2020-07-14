@@ -404,9 +404,7 @@ impl EventLoop {
     }
 
     fn add_watch(&mut self, path: PathBuf, is_recursive: bool, mut watch_self: bool) -> Result<()> {
-        let metadata = metadata(&path).map_err(Error::io)?;
-
-        if !metadata.is_dir() || !is_recursive {
+        if !is_recursive || !metadata(&path).map_err(Error::io)?.is_dir() {
             return self.add_single_watch(path, false, true);
         }
 
