@@ -8,6 +8,9 @@
 - CHANGE: Make `Notice` events opt-in.
 - CHANGE: Remove `Sender`s from watcher API in favour of `EventFn` [#214]
 - META: The project maintainers have changed from @passcod to notify-rs.
+- CHANGE: Avoid stating the watched path for non-recursive watches with inotify [#256]
+
+[#256]: https://github.com/notify-rs/notify/pull/256
 
 ## 5.0.0-pre.3 (2020-06-22)
 
