@@ -206,6 +206,7 @@ struct StreamContextInfo {
 }
 
 extern "C" {
+    /// Indicates whether the run loop is waiting for an event.
     pub fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> bool;
 }
 
