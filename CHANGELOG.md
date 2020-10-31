@@ -10,7 +10,13 @@
 - META: The project maintainers have changed from @passcod to notify-rs.
 - CHANGE: Avoid stating the watched path for non-recursive watches with inotify [#256]
 
+## 5.0.0-pre.4 (2020-10-31)
+
+- CHANGE: Avoid stating the watched path for non-recursive watches with inotify [#256]
+- DOCS: Fix broken link in crate documentation [#260]
+
 [#256]: https://github.com/notify-rs/notify/pull/256
+[#260]: https://github.com/notify-rs/notify/pull/260
 
 ## 5.0.0-pre.3 (2020-06-22)
 
