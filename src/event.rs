@@ -352,7 +352,7 @@ pub struct Event {
     // to use the information. Everything else is secondary. So far, that's why paths live here.
     //
     // In the future, it might be possible to have more data and to benchmark things properly, so
-    // the perfomance can be actually quantified. Also, it might turn out that I have no idea what
+    // the performance can be actually quantified. Also, it might turn out that I have no idea what
     // I was talking about, so the above may be discarded or reviewed. We'll see!
     //
     /// Additional attributes of the event.
