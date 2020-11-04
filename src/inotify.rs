@@ -118,7 +118,10 @@ impl EventLoop {
             &evented_inotify,
             INOTIFY,
             mio::Ready::readable(),
-            mio::PollOpt::edge(),
+            // Use level-sensitive polling (issue #267): `Inotify::read_events`
+            // only consumes one buffer's worth of events at a time, so events
+            // may remain in the inotify fd after calling handle_inotify.
+            mio::PollOpt::level(),
         )?;
 
         let event_loop = EventLoop {

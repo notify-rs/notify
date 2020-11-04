@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.0.16 (future)
+
+- FIX: Report events promptly on Linux, even when many occur in rapid succession. [#268]
+
+[#268]: https://github.com/notify-rs/notify/pull/268
+
 ## 4.0.15 (2020-01-07)
 
 - DEPS: Update inotify to 0.7.
