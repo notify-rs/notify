@@ -9,6 +9,9 @@
 - CHANGE: Remove `Sender`s from watcher API in favour of `EventFn` [#214]
 - META: The project maintainers have changed from @passcod to notify-rs.
 - CHANGE: Avoid stating the watched path for non-recursive watches with inotify [#256]
+- FIX: Report events promptly on Linux, even when many occur in rapid succession. [#268]
+
+[#268]: https://github.com/notify-rs/notify/pull/268
 
 ## 5.0.0-pre.4 (2020-10-31)
 
