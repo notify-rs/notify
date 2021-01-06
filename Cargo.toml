@@ -17,7 +17,6 @@ authors = [
 
 edition = "2018"
 exclude = [
-  "/.travis.yml",
   "/clippy.toml",
   ".github/*"
 ]
