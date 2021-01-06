@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches:
+      # test branches
+      - 'try-**'
+
+      # main branches
+      - main
+      - next
+  pull_request:
+  release:
+    types: [released, pre-released]
+
+jobs:
+  ci:
+    strategy:
+      matrix:
+        version:
+          - 1.36.0 # MSRV
+          - stable
+          - nightly
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: setup toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install ${{ matrix.version }}
+          rustup override set ${{ matrix.version }}
+
+      - name: check build
+        if: matrix.version != 'stable'
+        run: cargo check --features serde --examples
+
+      - name: test
+        if: matrix.version == 'stable'
+        shell: bash
+        run: tests/and-retry --features serde
+
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: install cargo-audit
+        run: |
+          rustup override set stable
+          cargo install cargo-audit
+
+      - name: audit check
+        run: cargo audit
