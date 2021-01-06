@@ -13,6 +13,12 @@
 
 [#268]: https://github.com/notify-rs/notify/pull/268
 
+## unreleased
+- RUSTC: Push the minimum version to 1.36.0 [#276]
+- FIX: Report events promptly on Linux, even when many occur in rapid succession. [#268]
+
+[#276]: https://github.com/notify-rs/notify/pull/276
+
 ## 5.0.0-pre.4 (2020-10-31)
 
 - CHANGE: Avoid stating the watched path for non-recursive watches with inotify [#256]
@@ -47,7 +53,7 @@ _(no changes, just a new release because the old one failed to publish properly)
 ## 5.0.0-pre.0 (2019-06-22)
 
 - **yanked 2019-06-30**
-- RUSTC: Push the minimum version to 1.32.0 [#201]
+- RUSTC: Push the minimum version to 1.36.0 [#201]
 - RUSTC: Switch the crate to Rust 2018.
 - FIX: Implement `Sync` for PollWatcher to support FreeBSD. [#197]
 - FEATURE: Add new runtime configuration system.
