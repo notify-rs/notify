@@ -23,7 +23,7 @@ You likely want either [the latest 4.0 release] or [5.0.0-pre.3].
 - [API Documentation][docs]
 - [Crate page][crate]
 - [Changelog][changelog]
-- Earliest supported Rust version: **1.32.0**
+- Earliest supported Rust version: **1.36.0**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax]
 [rdiff], [rust-analyzer], [timetrack], [watchexec], [xi-editor], and others.
