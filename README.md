@@ -2,7 +2,7 @@
 
 [![» Crate](https://flat.badgen.net/crates/v/notify)][crate]
 [![» Docs](https://flat.badgen.net/badge/api/docs.rs/df3600)][docs]
-[![» CI](https://flat.badgen.net/travis/notify-rs/notify/main)][build]
+[![» CI](https://flat.badgen.net/github/checks/notify-rs/notify)][build]
 [![» Downloads](https://flat.badgen.net/crates/d/notify)][crate]
 [![» Conduct](https://flat.badgen.net/badge/contributor/covenant/5e0d73)][coc]
 [![» Public Domain](https://flat.badgen.net/badge/license/CC0-1.0/purple)][cc0]
@@ -189,7 +189,7 @@ Written by [Félix Saparelli] and awesome [contributors].
 [alacritty]: https://github.com/jwilm/alacritty
 [alert-after]: https://github.com/frewsxcv/alert-after
 [artistic]: ./LICENSE.ARTISTIC
-[build]: https://travis-ci.com/notify-rs/notify
+[build]: https://github.com/notify-rs/notify/actions
 [cargo watch]: https://github.com/passcod/cargo-watch
 [cc0]: ./LICENSE
 [changelog]: ./CHANGELOG.md
