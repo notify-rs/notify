@@ -15,7 +15,7 @@ use std::ffi::OsStr;
 use std::fs::metadata;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use walkdir::WalkDir;
@@ -31,8 +31,9 @@ const MESSAGE: mio::Token = mio::Token(1);
 struct EventLoop {
     running: bool,
     poll: mio::Poll,
-    event_loop_tx: mio_extras::channel::Sender<EventLoopMsg>,
-    event_loop_rx: mio_extras::channel::Receiver<EventLoopMsg>,
+    event_loop_waker: Arc<mio::Waker>,
+    event_loop_tx: crossbeam_channel::Sender<EventLoopMsg>,
+    event_loop_rx: crossbeam_channel::Receiver<EventLoopMsg>,
     inotify: Option<Inotify>,
     event_fn: Box<dyn EventFn>,
     watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool)>,
@@ -41,7 +42,10 @@ struct EventLoop {
 }
 
 /// Watcher implementation based on inotify
-pub struct INotifyWatcher(Mutex<mio_extras::channel::Sender<EventLoopMsg>>);
+pub struct INotifyWatcher {
+    channel: crossbeam_channel::Sender<EventLoopMsg>,
+    waker: Arc<mio::Waker>,
+}
 
 enum EventLoopMsg {
     AddWatch(PathBuf, RecursiveMode, Sender<Result<()>>),
@@ -93,30 +97,21 @@ fn remove_watch_by_event(
 
 impl EventLoop {
     pub fn new(inotify: Inotify, event_fn: Box<dyn EventFn>) -> Result<Self> {
-        let (event_loop_tx, event_loop_rx) = mio_extras::channel::channel::<EventLoopMsg>();
+        let (event_loop_tx, event_loop_rx) = crossbeam_channel::unbounded::<EventLoopMsg>();
         let poll = mio::Poll::new()?;
-        poll.register(
-            &event_loop_rx,
-            MESSAGE,
-            mio::Ready::readable(),
-            mio::PollOpt::edge(),
-        )?;
+
+        let event_loop_waker = Arc::new(mio::Waker::new(poll.registry(), MESSAGE)?);
 
         let inotify_fd = inotify.as_raw_fd();
-        let evented_inotify = mio::unix::EventedFd(&inotify_fd);
-        poll.register(
-            &evented_inotify,
-            INOTIFY,
-            mio::Ready::readable(),
-            // Use level-sensitive polling (issue #267): `Inotify::read_events`
-            // only consumes one buffer's worth of events at a time, so events
-            // may remain in the inotify fd after calling handle_inotify.
-            mio::PollOpt::level(),
-        )?;
+        let mut evented_inotify = mio::unix::SourceFd(&inotify_fd);
+        // TODO: Fix #267
+        poll.registry()
+            .register(&mut evented_inotify, INOTIFY, mio::Interest::READABLE)?;
 
         let event_loop = EventLoop {
             running: true,
             poll,
+            event_loop_waker,
             event_loop_tx,
             event_loop_rx,
             inotify: Some(inotify),
@@ -151,12 +146,8 @@ impl EventLoop {
         }
     }
 
-    fn channel(&self) -> mio_extras::channel::Sender<EventLoopMsg> {
-        self.event_loop_tx.clone()
-    }
-
     // Handle a single event.
-    fn handle_event(&mut self, event: &mio::Event) {
+    fn handle_event(&mut self, event: &mio::event::Event) {
         match event.token() {
             MESSAGE => {
                 // The channel is readable - handle messages.
@@ -382,12 +373,14 @@ impl EventLoop {
 
                     if let Some(ref rename_event) = self.rename_event {
                         let event_loop_tx = self.event_loop_tx.clone();
+                        let waker = self.event_loop_waker.clone();
                         let cookie = rename_event.tracker().unwrap(); // unwrap is safe because rename_event is always set with some cookie
                         thread::spawn(move || {
                             thread::sleep(Duration::from_millis(10)); // wait up to 10 ms for a subsequent event
                             event_loop_tx
                                 .send(EventLoopMsg::RenameTimeout(cookie))
                                 .unwrap();
+                            waker.wake().unwrap();
                         });
                     }
                 }
@@ -520,9 +513,10 @@ impl INotifyWatcher {
     fn from_event_fn(event_fn: Box<dyn EventFn>) -> Result<Self> {
         let inotify = Inotify::init()?;
         let event_loop = EventLoop::new(inotify, event_fn)?;
-        let channel = event_loop.channel();
+        let channel = event_loop.event_loop_tx.clone();
+        let waker = event_loop.event_loop_waker.clone();
         event_loop.run();
-        Ok(INotifyWatcher(Mutex::new(channel)))
+        Ok(INotifyWatcher { channel, waker })
     }
 
     fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
@@ -536,7 +530,8 @@ impl INotifyWatcher {
         let msg = EventLoopMsg::AddWatch(pb, recursive_mode, tx);
 
         // we expect the event loop to live and reply => unwraps must not panic
-        self.0.lock().unwrap().send(msg).unwrap();
+        self.channel.send(msg).unwrap();
+        self.waker.wake().unwrap();
         rx.recv().unwrap()
     }
 
@@ -551,7 +546,8 @@ impl INotifyWatcher {
         let msg = EventLoopMsg::RemoveWatch(pb, tx);
 
         // we expect the event loop to live and reply => unwraps must not panic
-        self.0.lock().unwrap().send(msg).unwrap();
+        self.channel.send(msg).unwrap();
+        self.waker.wake().unwrap();
         rx.recv().unwrap()
     }
 }
@@ -571,7 +567,8 @@ impl Watcher for INotifyWatcher {
 
     fn configure(&mut self, config: Config) -> Result<bool> {
         let (tx, rx) = bounded(1);
-        self.0.lock()?.send(EventLoopMsg::Configure(config, tx))?;
+        self.channel.send(EventLoopMsg::Configure(config, tx))?;
+        self.waker.wake()?;
         rx.recv()?
     }
 }
@@ -579,6 +576,7 @@ impl Watcher for INotifyWatcher {
 impl Drop for INotifyWatcher {
     fn drop(&mut self) {
         // we expect the event loop to live => unwrap must not panic
-        self.0.lock().unwrap().send(EventLoopMsg::Shutdown).unwrap();
+        self.channel.send(EventLoopMsg::Shutdown).unwrap();
+        self.waker.wake().unwrap();
     }
 }
