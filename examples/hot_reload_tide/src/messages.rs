@@ -16,11 +16,6 @@ pub struct Message {
     pub volume: f32,
 }
 
-pub fn save_config(config: Config, path: &str) {
-    let file = std::fs::File::create(path).unwrap();
-    serde_json::to_writer_pretty(file, &config).unwrap();
-}
-
 pub fn load_config(path: &str) -> Result<Config, Box<dyn std::error::Error>> {
     let file = std::fs::File::open(path)?;
     let file_size = file.metadata()?.len();

@@ -55,17 +55,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "announcer"
-version = "0.1.0"
-dependencies = [
- "async-std",
- "notify",
- "serde",
- "serde_json",
- "tide",
-]
-
-[[package]]
 name = "anyhow"
 version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -747,6 +736,17 @@ checksum = "126888268dcc288495a26bf004b38c5fdbb31682f992c84ceb046a1f0fe38840"
 dependencies = [
  "crypto-mac",
  "digest",
+]
+
+[[package]]
+name = "hot-reload-tide"
+version = "0.1.0"
+dependencies = [
+ "async-std",
+ "notify",
+ "serde",
+ "serde_json",
+ "tide",
 ]
 
 [[package]]

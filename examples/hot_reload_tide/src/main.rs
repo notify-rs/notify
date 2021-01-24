@@ -1,6 +1,6 @@
-use announcer::messages::{load_config, save_config, Config, Message};
+use hot_reload_tide::messages::{load_config, Config};
 use notify::{
-    event::{DataChange, ModifyKind},
+    event::ModifyKind,
     Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
 };
 use std::sync::{Arc, Mutex};
