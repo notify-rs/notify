@@ -1,5 +1,5 @@
 [package]
-name = "hot-reload-tide"
+name = "hot_reload_tide"
 version = "0.1.0"
 authors = ["user <savovs@gmail.com>"]
 edition = "2018"
