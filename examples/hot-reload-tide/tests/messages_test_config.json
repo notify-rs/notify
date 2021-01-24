@@ -1,0 +1,9 @@
+{
+  "audio_folder_path": "sounds/",
+  "messages": {
+    "sound.mp3": {
+      "display_name": "Sound 1",
+      "volume": 60.0
+    }
+  }
+}
