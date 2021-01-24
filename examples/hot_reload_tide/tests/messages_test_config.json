@@ -1,8 +1,8 @@
 {
   "audio_folder_path": "sounds/",
   "messages": {
-    "sound2.mp3": {
-      "display_name": "Sound 2",
+    "sound.mp3": {
+      "display_name": "Sound 1",
       "volume": 60.0
     }
   }
