@@ -14,6 +14,10 @@
 [#268]: https://github.com/notify-rs/notify/pull/268
 
 ## unreleased
+
+
+## 5.0.0-pre.5 (2020-01-28)
+
 - RUSTC: Push the minimum version to 1.47.0 [#280]
 - DEPS: Update `inotify` to 0.9 [#280]
 - DEPS: Update `mio` to 0.7 and remove `mio-extras` [#278]
