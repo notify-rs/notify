@@ -14,10 +14,13 @@
 [#268]: https://github.com/notify-rs/notify/pull/268
 
 ## unreleased
-- RUSTC: Push the minimum version to 1.36.0 [#276]
+- RUSTC: Push the minimum version to 1.47.0 [#280]
+- DEPS: Update `inotify` to 0.9 [#280]
+- DEPS: Update `mio` to 0.7 and remove `mio-extras` [#278]
 - FIX: Report events promptly on Linux, even when many occur in rapid succession. [#268]
 
-[#276]: https://github.com/notify-rs/notify/pull/276
+[#280]: https://github.com/notify-rs/notify/pull/280
+[#278]: https://github.com/notify-rs/notify/pull/278
 
 ## 5.0.0-pre.4 (2020-10-31)
 
