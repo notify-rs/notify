@@ -31,7 +31,7 @@ serde = { version = "1.0.89", features = ["derive"], optional = true }
 walkdir = "2.0.1"
 
 [target.'cfg(target_os="linux")'.dependencies]
-inotify = { version = "0.8", default-features = false }
+inotify = { version = "0.9", default-features = false }
 mio = { version = "0.7.7", features = ["os-ext"] }
 
 [target.'cfg(target_os="macos")'.dependencies]
