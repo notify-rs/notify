@@ -739,7 +739,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hot-reload-tide"
+name = "hot_reload_tide"
 version = "0.1.0"
 dependencies = [
  "async-std",
