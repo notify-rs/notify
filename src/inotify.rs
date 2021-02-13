@@ -131,7 +131,14 @@ impl EventLoop {
         let mut events = mio::Events::with_capacity(16);
         loop {
             // Wait for something to happen.
-            self.poll.poll(&mut events, None).expect("poll failed");
+            match self.poll.poll(&mut events, None) {
+                Err(ref e) if matches!(e.kind(), std::io::ErrorKind::Interrupted) => {
+                    // System call was interrupted, we will retry
+                    // TODO: Not covered by tests (to reproduce likely need to setup signal handlers)
+                },
+                Err(e) => panic!("poll failed: {}", e),
+                Ok(()) => {}
+            }
 
             // Process whatever happened.
             for event in &events {
