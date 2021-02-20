@@ -15,6 +15,10 @@
 
 ## unreleased
 
+
+
+## 5.0.0-pre.6 (2021-02-20)
+
 - FIX: Handle interrupted system call errors from mio [#281]
 
 [#281]: https://github.com/notify-rs/notify/pull/281
