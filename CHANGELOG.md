@@ -23,7 +23,7 @@
 
 [#281]: https://github.com/notify-rs/notify/pull/281
 
-## 5.0.0-pre.5 (2020-01-28)
+## 5.0.0-pre.5 (2021-01-28)
 
 - RUSTC: Push the minimum version to 1.47.0 [#280]
 - DEPS: Update `inotify` to 0.9 [#280]
