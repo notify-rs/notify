@@ -29,6 +29,9 @@ pub enum ErrorKind {
 
     /// An invalid value was passed as runtime configuration.
     InvalidConfig(Config),
+
+    /// Can't watch (more) files, limit on the total number of inotify watches reached
+    MaxFilesWatch,
 }
 
 /// Notify error type.
@@ -75,6 +78,11 @@ impl Error {
 
     /// Creates a new i/o Error from a stdlib `io::Error`.
     pub fn io(err: io::Error) -> Self {
+        // do not report inotify limits as "no more space" on linux #266
+        #[cfg(target_os = "linux")]
+        if err.raw_os_error() == Some(28) {
+            return Self::new(ErrorKind::MaxFilesWatch);
+        }
         Self::new(ErrorKind::Io(err))
     }
 
@@ -102,6 +110,7 @@ impl fmt::Display for Error {
             ErrorKind::InvalidConfig(ref config) => format!("Invalid configuration: {:?}", config),
             ErrorKind::Generic(ref err) => err.clone(),
             ErrorKind::Io(ref err) => err.to_string(),
+            ErrorKind::MaxFilesWatch => "OS file watch limit reached.".into(),
         };
 
         if self.paths.is_empty() {
