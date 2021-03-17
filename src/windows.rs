@@ -19,7 +19,6 @@ use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
 use super::debounce::{Debounce, EventTx};
 use super::{op, DebouncedEvent, Error, Op, RawEvent, RecursiveMode, Result, Watcher};
-use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
 use std::mem;
@@ -32,6 +31,10 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::{
+    borrow::{Borrow, BorrowMut},
+    collections::HashMap,
+};
 
 const BUF_SIZE: u32 = 16384;
 
@@ -66,6 +69,10 @@ pub enum MetaEvent {
 struct WatchState {
     dir_handle: HANDLE,
     complete_sem: HANDLE,
+}
+
+thread_local! {
+    pub static APC_QUEUE_SIZE: std::cell::RefCell<usize> = std::cell::RefCell::new(0);
 }
 
 struct ReadDirectoryChangesServer {
@@ -138,6 +145,12 @@ impl ReadDirectoryChangesServer {
         }
 
         // we have to clean this up, since the watcher may be long gone
+        while APC_QUEUE_SIZE.with(|x| *x.borrow()) > 0 {
+            // There is somehow a leak in the APC queue - let the completion routines fire until the APC queue is empty.
+            unsafe {
+                synchapi::WaitForSingleObjectEx(self.wakeup_sem, INFINITE, TRUE);
+            }
+        }
         unsafe {
             handleapi::CloseHandle(self.wakeup_sem);
         }
@@ -294,6 +307,7 @@ fn start_read(rd: &ReadData, event_tx: Arc<Mutex<EventTx>>, handle: HANDLE) {
             synchapi::ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
         } else {
             // read ok. forget overlapped to let the completion routine handle memory
+            APC_QUEUE_SIZE.with(|x| *x.borrow_mut() += 1);
             mem::forget(overlapped);
         }
     }
@@ -314,6 +328,8 @@ unsafe extern "system" fn handle_event(
     _bytes_written: u32,
     overlapped: LPOVERLAPPED,
 ) {
+    APC_QUEUE_SIZE.with(|x| *x.borrow_mut() -= 1);
+
     let overlapped: Box<OVERLAPPED> = Box::from_raw(overlapped);
     let request: Box<ReadDirectoryRequest> = Box::from_raw(overlapped.hEvent as *mut _);
 
