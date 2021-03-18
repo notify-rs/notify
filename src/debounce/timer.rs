@@ -1,12 +1,12 @@
 use super::super::{op, DebouncedEvent};
 
+use std::ops::DerefMut;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use std::{collections::VecDeque, sync::MutexGuard};
-use std::{ops::DerefMut, thread::JoinHandle};
 
 use debounce::{OperationsBuffer, OperationsBufferInner};
 
