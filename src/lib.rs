@@ -520,6 +520,13 @@ impl StdError for Error {
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
+        // do not report inotify limits as "no more space" on linux #266
+        #[cfg(target_os = "linux")]
+        {
+            if err.raw_os_error() == Some(28) {
+                return Error::Generic(String::from("Can't watch (more) files, limit on the total number of inotify watches reached"))
+            }
+        }
         Error::Io(err)
     }
 }
