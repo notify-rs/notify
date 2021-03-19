@@ -3,8 +3,10 @@
 ## 4.0.16 (future)
 
 - FIX: Report events promptly on Linux, even when many occur in rapid succession. [#268]
+- FIX: Display proper error message when reaching inotify limits on linux. [#290]
 
 [#268]: https://github.com/notify-rs/notify/pull/268
+[#290]: https://github.com/notify-rs/notify/pull/290
 
 ## 4.0.15 (2020-01-07)
 
@@ -85,7 +87,7 @@
 - META: Change commit message style: commits are now prefixed by a `[topic]`.
 - FIX: Make sure debounced watcher terminates. [#170]
 - FIX: \[Linux\] Remove thread wake-up on timeout (introduced in 4.0.5 by error). [#174]
-- FIX: Restore compatibility with Rust before 1.30.0. [`eab75118`] 
+- FIX: Restore compatibility with Rust before 1.30.0. [`eab75118`]
 - META: Enforce compatibility with Rust 1.26.1 via CI. [`50924cd6`]
 - META: Add maintenance status badge. [`ecd686ba`]
 - DOCS: Freeze v4 branch (2018-10-05) [`8310b2cc`] — and subsequently unfreeze it. (2019-01-19) [`20c40f99`], [`c00da47c`]
