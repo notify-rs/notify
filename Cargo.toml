@@ -18,9 +18,10 @@ readme = "README.md"
 license = "CC0-1.0"
 keywords = ["events", "filesystem", "notify", "watch"]
 categories = ["filesystem"]
-
-[badges]
-travis-ci = { repository = "notify-rs/notify", branch = "main" }
+exclude = [
+  "/clippy.toml",
+  ".github/*"
+]
 
 [dependencies]
 bitflags = "^1.0.4"
