@@ -3,7 +3,7 @@
 ## 4.0.16 (future)
 
 - FIX: Report events promptly on Linux, even when many occur in rapid succession. [#268]
-- FIX: Fix leaks on Windows and debounce module. [#287]
+- FIX: Fix leaks on Windows and debounce module. [#288]
 
 [#268]: https://github.com/notify-rs/notify/pull/268
 
