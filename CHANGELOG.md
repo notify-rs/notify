@@ -1,6 +1,9 @@
 # Changelog
 
-## 4.0.16 (future)
+## 4.0.17 (future)
+
+
+## 4.0.16 (2021-04-14)
 
 - FIX: Report events promptly on Linux, even when many occur in rapid succession. [#268]
 - FIX: Fix leaks on Windows and debounce module. [#288]
