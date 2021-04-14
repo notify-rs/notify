@@ -235,7 +235,10 @@ fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
         let ch = handleapi::CloseHandle(ws.dir_handle);
         // have to wait for it, otherwise we leak the memory allocated for there read request
         if cio != 0 && ch != 0 {
-            synchapi::WaitForSingleObjectEx(ws.complete_sem, INFINITE, TRUE);
+            while synchapi::WaitForSingleObjectEx(ws.complete_sem, INFINITE, TRUE) != WAIT_OBJECT_0
+            {
+                // drain the apc queue, fix for https://github.com/notify-rs/notify/issues/287#issuecomment-801465550
+            }
         }
         handleapi::CloseHandle(ws.complete_sem);
     }
