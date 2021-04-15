@@ -4,7 +4,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify = "5.0.0-pre.6"
+//! notify = "5.0.0-pre.7"
 //! ```
 //!
 //! ## Serde
@@ -12,7 +12,7 @@
 //! Events are serialisable via [serde] if the `serde` feature is enabled:
 //!
 //! ```toml
-//! notify = { version = "5.0.0-pre.6", features = ["serde"] }
+//! notify = { version = "5.0.0-pre.7", features = ["serde"] }
 //! ```
 //!
 //! [serde]: https://serde.rs
