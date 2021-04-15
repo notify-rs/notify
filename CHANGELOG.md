@@ -15,6 +15,8 @@
 
 ## unreleased
 
+## 5.0.0-pre.7 (2021-04-15)
+
 - FIX: Display proper error message when reaching inotify limits on linux [#285]
 - FIX: Fix leaks on Windows [#298]
 
