@@ -281,6 +281,10 @@ impl FsEventWatcher {
         unsafe {
             let mut err: cf::CFErrorRef = ptr::null_mut();
             let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
+            if cf_path.is_null() {
+                cf::CFRelease(err as cf::CFRef);
+                return Err(Error::watch_not_found().add_path(path.as_ref().into()));
+            }
 
             let mut to_remove = Vec::new();
             for idx in 0..cf::CFArrayGetCount(self.paths) {
@@ -320,6 +324,12 @@ impl FsEventWatcher {
         unsafe {
             let mut err: cf::CFErrorRef = ptr::null_mut();
             let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
+            if cf_path.is_null() {
+                // Most likely the directory was deleted, or permissions changed,
+                // while the above code was running.
+                cf::CFRelease(err as cf::CFRef);
+                return Err(Error::path_not_found().add_path(path.as_ref().into()));
+            }
             cf::CFArrayAppendValue(self.paths, cf_path);
             cf::CFRelease(cf_path);
         }
