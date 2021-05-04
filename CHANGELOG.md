@@ -15,6 +15,10 @@
 
 ## unreleased
 
+- FIX: Don't crash on macos when creating & deleting folders in rapid succession [#302]
+
+[#302]: https://github.com/notify-rs/notify/pull/302
+
 ## 5.0.0-pre.7 (2021-04-15)
 
 - FIX: Display proper error message when reaching inotify limits on linux [#285]
