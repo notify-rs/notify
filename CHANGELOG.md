@@ -2,6 +2,9 @@
 
 ## 4.0.17 (future)
 
+- FIX: Don't crash on macos when creating & deleting folders in rapid succession [#303]
+
+[#303]: https://github.com/notify-rs/notify/pull/303
 
 ## 4.0.16 (2021-04-14)
 
