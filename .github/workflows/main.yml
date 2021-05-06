@@ -28,9 +28,10 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: setup toolchain
+        # `--no-self-update` is needed due to a permission issue on the GHA env.
         run: |
           rustup set profile minimal
-          rustup toolchain install ${{ matrix.version }}
+          rustup toolchain install ${{ matrix.version }} --no-self-update
           rustup override set ${{ matrix.version }}
 
       - name: check build
