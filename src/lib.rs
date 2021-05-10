@@ -95,8 +95,6 @@
 //! # }
 //! ```
 
-// FIXME: `anymap` crate triggers this lint and we cannot do anything here.
-#![allow(where_clauses_object_safety)]
 #![deny(missing_docs)]
 
 pub use config::{Config, RecursiveMode};
