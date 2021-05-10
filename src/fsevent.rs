@@ -192,7 +192,7 @@ fn translate_flags(flags: fse::StreamFlags, precise: bool) -> Vec<Event> {
 
     if flags.contains(fse::StreamFlags::OWN_EVENT) {
         for ev in &mut evs {
-            ev.attrs.insert(ProcessID(std::process::id()));
+            *ev = std::mem::replace(ev, Event::default()).set_process_id(std::process::id());
         }
     }
 
