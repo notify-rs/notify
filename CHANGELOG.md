@@ -10,6 +10,7 @@
 - META: The project maintainers have changed from @passcod to notify-rs.
 - CHANGE: Avoid stating the watched path for non-recursive watches with inotify [#256]
 - FIX: Report events promptly on Linux, even when many occur in rapid succession. [#268]
+- FIX: Remove `anymap`, and replace event attributes with an opaque type. [#306]
 
 [#268]: https://github.com/notify-rs/notify/pull/268
 
