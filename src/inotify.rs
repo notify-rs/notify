@@ -135,7 +135,7 @@ impl EventLoop {
                 Err(ref e) if matches!(e.kind(), std::io::ErrorKind::Interrupted) => {
                     // System call was interrupted, we will retry
                     // TODO: Not covered by tests (to reproduce likely need to setup signal handlers)
-                },
+                }
                 Err(e) => panic!("poll failed: {}", e),
                 Ok(()) => {}
             }
@@ -222,7 +222,9 @@ impl EventLoop {
                             }
 
                             let path = match event.name {
-                                Some(name) => self.paths.get(&event.wd).map(|root| root.join(&name)),
+                                Some(name) => {
+                                    self.paths.get(&event.wd).map(|root| root.join(&name))
+                                }
                                 None => self.paths.get(&event.wd).cloned(),
                             };
 
@@ -230,9 +232,11 @@ impl EventLoop {
                                 send_pending_rename_event(&mut self.rename_event, &*self.event_fn);
                                 remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                                 self.rename_event = Some(
-                                    Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
-                                        .add_some_path(path.clone())
-                                        .set_tracker(event.cookie as usize),
+                                    Event::new(EventKind::Modify(ModifyKind::Name(
+                                        RenameMode::From,
+                                    )))
+                                    .add_some_path(path.clone())
+                                    .set_tracker(event.cookie as usize),
                                 );
                             } else {
                                 let mut evs = Vec::new();
@@ -281,7 +285,12 @@ impl EventLoop {
                                             .add_some_path(path.clone()),
                                         );
                                     }
-                                    add_watch_by_event(&path, &event, &self.watches, &mut add_watches);
+                                    add_watch_by_event(
+                                        &path,
+                                        &event,
+                                        &self.watches,
+                                        &mut add_watches,
+                                    );
                                 }
                                 if event.mask.contains(EventMask::MOVE_SELF) {
                                     evs.push(
@@ -305,7 +314,12 @@ impl EventLoop {
                                         ))
                                         .add_some_path(path.clone()),
                                     );
-                                    add_watch_by_event(&path, &event, &self.watches, &mut add_watches);
+                                    add_watch_by_event(
+                                        &path,
+                                        &event,
+                                        &self.watches,
+                                        &mut add_watches,
+                                    );
                                 }
                                 if event.mask.contains(EventMask::DELETE_SELF)
                                     || event.mask.contains(EventMask::DELETE)
@@ -320,7 +334,11 @@ impl EventLoop {
                                         ))
                                         .add_some_path(path.clone()),
                                     );
-                                    remove_watch_by_event(&path, &self.watches, &mut remove_watches);
+                                    remove_watch_by_event(
+                                        &path,
+                                        &self.watches,
+                                        &mut remove_watches,
+                                    );
                                 }
                                 if event.mask.contains(EventMask::MODIFY) {
                                     evs.push(
@@ -364,7 +382,10 @@ impl EventLoop {
                                 }
 
                                 if !evs.is_empty() {
-                                    send_pending_rename_event(&mut self.rename_event, &*self.event_fn);
+                                    send_pending_rename_event(
+                                        &mut self.rename_event,
+                                        &*self.event_fn,
+                                    );
                                 }
 
                                 for ev in evs {
