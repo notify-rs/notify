@@ -13,6 +13,7 @@
 - FIX: Remove `anymap`, and replace event attributes with an opaque type. [#306]
 
 [#268]: https://github.com/notify-rs/notify/pull/268
+[#306]: https://github.com/notify-rs/notify/pull/306
 
 ## unreleased
 
