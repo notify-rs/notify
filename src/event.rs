@@ -246,42 +246,27 @@ pub enum EventKind {
 impl EventKind {
     /// Indicates whether an event is an Access variant.
     pub fn is_access(&self) -> bool {
-        match *self {
-            EventKind::Access(_) => true,
-            _ => false,
-        }
+        matches!(self, EventKind::Access(_))
     }
 
     /// Indicates whether an event is a Create variant.
     pub fn is_create(&self) -> bool {
-        match *self {
-            EventKind::Create(_) => true,
-            _ => false,
-        }
+        matches!(self, EventKind::Create(_))
     }
 
     /// Indicates whether an event is a Modify variant.
     pub fn is_modify(&self) -> bool {
-        match *self {
-            EventKind::Modify(_) => true,
-            _ => false,
-        }
+        matches!(self, EventKind::Modify(_))
     }
 
     /// Indicates whether an event is a Remove variant.
     pub fn is_remove(&self) -> bool {
-        match *self {
-            EventKind::Remove(_) => true,
-            _ => false,
-        }
+        matches!(self, EventKind::Remove(_))
     }
 
     /// Indicates whether an event is an Other variant.
     pub fn is_other(&self) -> bool {
-        match *self {
-            EventKind::Other => true,
-            _ => false,
-        }
+        matches!(self, EventKind::Other)
     }
 }
 

@@ -205,8 +205,9 @@ impl PollWatcher {
                     emit_event(&self.event_fn, Err(err));
                 }
                 Ok(metadata) => {
+                    let mut paths = HashMap::new();
+
                     if !metadata.is_dir() {
-                        let mut paths = HashMap::new();
                         let mtime = FileTime::from_last_modification_time(&metadata).seconds();
                         paths.insert(
                             watch.clone(),
@@ -215,15 +216,7 @@ impl PollWatcher {
                                 last_check: current_time,
                             },
                         );
-                        watches.insert(
-                            watch,
-                            WatchData {
-                                is_recursive: recursive_mode.is_recursive(),
-                                paths,
-                            },
-                        );
                     } else {
-                        let mut paths = HashMap::new();
                         let depth = if recursive_mode.is_recursive() {
                             usize::max_value()
                         } else {
@@ -254,14 +247,15 @@ impl PollWatcher {
                                 }
                             }
                         }
-                        watches.insert(
-                            watch,
-                            WatchData {
-                                is_recursive: recursive_mode.is_recursive(),
-                                paths,
-                            },
-                        );
                     }
+
+                    watches.insert(
+                        watch,
+                        WatchData {
+                            is_recursive: recursive_mode.is_recursive(),
+                            paths,
+                        },
+                    );
                 }
             }
         }
