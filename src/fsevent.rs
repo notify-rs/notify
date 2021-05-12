@@ -205,7 +205,7 @@ struct StreamContextInfo {
 
 extern "C" {
     /// Indicates whether the run loop is waiting for an event.
-    pub fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> bool;
+    fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> bool;
 }
 
 impl FsEventWatcher {
@@ -419,9 +419,7 @@ impl FsEventWatcher {
     }
 }
 
-#[allow(unused_variables)]
-#[doc(hidden)]
-pub extern "C" fn callback(
+extern "C" fn callback(
     stream_ref: fs::FSEventStreamRef,
     info: *mut libc::c_void,
     num_events: libc::size_t,         // size_t numEvents
