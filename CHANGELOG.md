@@ -18,8 +18,10 @@
 ## unreleased
 
 - FIX: Don't crash on macos when creating & deleting folders in rapid succession [#302]
+- FIX: Remove `anymap`, and replace event attributes with an opaque type. [#306]
 
 [#302]: https://github.com/notify-rs/notify/pull/302
+[#306]: https://github.com/notify-rs/notify/pull/306
 
 ## 5.0.0-pre.7 (2021-04-15)
 
