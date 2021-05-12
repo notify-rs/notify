@@ -526,17 +526,19 @@ fn test_fsevent_watcher_drop() {
     use super::*;
     use std::time::Duration;
 
+    let dir = tempfile::tempdir().unwrap();
+
     let (tx, rx) = std::sync::mpsc::channel();
     let event_fn = move |res| tx.send(res).unwrap();
 
     {
         let mut watcher: RecommendedWatcher = Watcher::new_immediate(event_fn).unwrap();
-        watcher.watch("../../", RecursiveMode::Recursive).unwrap();
+        watcher.watch(dir.path(), RecursiveMode::Recursive).unwrap();
         thread::sleep(Duration::from_millis(2000));
         println!("is running -> {}", watcher.is_running());
 
         thread::sleep(Duration::from_millis(1000));
-        watcher.unwatch("../..").unwrap();
+        watcher.unwatch(dir.path()).unwrap();
         println!("is running -> {}", watcher.is_running());
     }
 
