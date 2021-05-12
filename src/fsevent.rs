@@ -23,7 +23,6 @@ use fsevent_sys::core_foundation as cf;
 use std::collections::HashMap;
 use std::convert::AsRef;
 use std::ffi::CStr;
-use std::mem::transmute;
 use std::os::raw;
 use std::path::{Path, PathBuf};
 use std::ptr;
@@ -37,8 +36,7 @@ pub struct FsEventWatcher {
     latency: cf::CFTimeInterval,
     flags: fs::FSEventStreamCreateFlags,
     event_fn: Arc<dyn EventFn>,
-    runloop: Option<usize>,
-    context: Option<Box<StreamContextInfo>>,
+    runloop: Option<(cf::CFRunLoopRef, Receiver<()>)>,
     recursive_info: HashMap<PathBuf, bool>,
 }
 
@@ -199,7 +197,6 @@ fn translate_flags(flags: fse::StreamFlags, precise: bool) -> Vec<Event> {
 
 struct StreamContextInfo {
     event_fn: Arc<dyn EventFn>,
-    done: Receiver<()>,
     recursive_info: HashMap<PathBuf, bool>,
 }
 
@@ -219,7 +216,6 @@ impl FsEventWatcher {
             flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
             event_fn,
             runloop: None,
-            context: None,
             recursive_info: HashMap::new(),
         })
     }
@@ -250,7 +246,7 @@ impl FsEventWatcher {
             return;
         }
 
-        if let Some(runloop) = self.runloop {
+        if let Some((runloop, done)) = self.runloop.take() {
             unsafe {
                 let runloop = runloop as *mut raw::c_void;
 
@@ -260,18 +256,13 @@ impl FsEventWatcher {
 
                 cf::CFRunLoopStop(runloop);
             }
-        }
 
-        self.runloop = None;
-        if let Some(ref context_info) = self.context {
             // sync done channel
-            match context_info.done.recv() {
+            match done.recv() {
                 Ok(()) => (),
                 Err(_) => panic!("the runloop may not be finished!"),
             }
         }
-
-        self.context = None;
     }
 
     fn remove_path<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
@@ -351,15 +342,25 @@ impl FsEventWatcher {
 
         let info = StreamContextInfo {
             event_fn: self.event_fn.clone(),
-            done: done_rx,
             recursive_info: self.recursive_info.clone(),
         };
 
-        self.context = Some(Box::new(info));
+        // Unfortunately fsevents doesn't provide a mechanism for getting the context back from a
+        // stream after it's been created. So in order to avoid a memory leak, we need to box the
+        // pointer up, alias the pointer, then drop it when the stream has completed.
+        let context = Box::into_raw(Box::new(info));
+
+        // Safety
+        // - This is safe to move into a thread because it will only be accessed when the stream is
+        //   completed and no longer accessing the context.
+        struct ContextPtr(*mut StreamContextInfo);
+        unsafe impl Send for ContextPtr {}
+
+        let thread_context_ptr = ContextPtr(context);
 
         let stream_context = fs::FSEventStreamContext {
             version: 0,
-            info: unsafe { transmute(self.context.as_deref()) },
+            info: context as *mut libc::c_void,
             retain: None,
             release: None,
             copy_description: None,
@@ -377,13 +378,23 @@ impl FsEventWatcher {
             )
         };
 
+        // Wrapper to help send CFRef types across threads.
+        struct CFSendWrapper(cf::CFRef);
+
+        // Safety:
+        // - According to the Apple documentation, it's safe to move `CFRef`s across threads.
+        //   https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/ThreadSafetySummary/ThreadSafetySummary.html
+        unsafe impl Send for CFSendWrapper {}
+
         // move into thread
-        let dummy = stream as usize;
+        let stream = CFSendWrapper(stream);
+
         // channel to pass runloop around
         let (rl_tx, rl_rx) = unbounded();
 
         thread::spawn(move || {
-            let stream = dummy as *mut raw::c_void;
+            let stream = stream.0;
+
             unsafe {
                 let cur_runloop = cf::CFRunLoopGetCurrent();
 
@@ -396,19 +407,26 @@ impl FsEventWatcher {
 
                 // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
                 rl_tx
-                    .send(cur_runloop as *mut libc::c_void as usize)
+                    .send(CFSendWrapper(cur_runloop))
                     .expect("Unable to send runloop to watcher");
+
                 cf::CFRunLoopRun();
                 fs::FSEventStreamStop(stream);
                 fs::FSEventStreamInvalidate(stream);
                 fs::FSEventStreamRelease(stream);
+
+                // Safety:
+                // - It's safe to drop the context now that the stream has been shut down and no
+                //   longer references the context pointer.
+                let _context = Box::from_raw(thread_context_ptr.0);
             }
+
             done_tx
                 .send(())
                 .expect("error while signal run loop is done");
         });
         // block until runloop has been set
-        self.runloop = Some(rl_rx.recv().unwrap());
+        self.runloop = Some((rl_rx.recv().unwrap().0, done_rx));
 
         Ok(())
     }
