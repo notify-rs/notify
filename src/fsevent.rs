@@ -27,8 +27,6 @@ use std::mem::transmute;
 use std::os::raw;
 use std::path::{Path, PathBuf};
 use std::ptr;
-use std::slice;
-use std::str::from_utf8;
 use std::sync::Arc;
 use std::thread;
 
@@ -219,7 +217,7 @@ impl FsEventWatcher {
             since_when: fs::kFSEventStreamEventIdSinceNow,
             latency: 0.0,
             flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
-            event_fn: event_fn,
+            event_fn,
             runloop: None,
             context: None,
             recursive_info: HashMap::new(),
@@ -361,7 +359,7 @@ impl FsEventWatcher {
 
         let stream_context = fs::FSEventStreamContext {
             version: 0,
-            info: unsafe { transmute(self.context.as_ref().map(|ctx| &**ctx)) },
+            info: unsafe { transmute(self.context.as_deref()) },
             retain: None,
             release: None,
             copy_description: None,
@@ -443,34 +441,29 @@ pub extern "C" fn callback(
     }
 }
 
-#[allow(unused_variables)]
-#[doc(hidden)]
 unsafe fn callback_impl(
-    stream_ref: fs::FSEventStreamRef,
+    _stream_ref: fs::FSEventStreamRef,
     info: *mut libc::c_void,
     num_events: libc::size_t,         // size_t numEvents
     event_paths: *mut libc::c_void,   // void *eventPaths
     event_flags: *const libc::c_void, // const FSEventStreamEventFlags eventFlags[]
-    event_ids: *const libc::c_void,   // const FSEventStreamEventId eventIds[]
+    _event_ids: *const libc::c_void,  // const FSEventStreamEventId eventIds[]
 ) {
-    let num = num_events as usize;
+    let event_paths = event_paths as *const *const libc::c_char;
     let e_ptr = event_flags as *mut u32;
-    let i_ptr = event_ids as *mut u64;
-    let info = transmute::<_, *const StreamContextInfo>(info);
-
-    let paths: &[*const libc::c_char] = transmute(slice::from_raw_parts(event_paths, num));
-    let flags = slice::from_raw_parts_mut(e_ptr, num);
-    let ids = slice::from_raw_parts_mut(i_ptr, num);
-
+    let info = info as *const StreamContextInfo;
     let event_fn = &(*info).event_fn;
 
-    for p in 0..num {
-        let i = CStr::from_ptr(paths[p]).to_bytes();
-        let flag = fse::StreamFlags::from_bits(flags[p] as u32)
-            .expect(format!("Unable to decode StreamFlags: {}", flags[p] as u32).as_ref());
-        let id = ids[p];
+    for p in 0..num_events {
+        let path = CStr::from_ptr(*event_paths.add(p))
+            .to_str()
+            .expect("Invalid UTF8 string.");
+        let path = PathBuf::from(path);
 
-        let path = PathBuf::from(from_utf8(i).expect("Invalid UTF8 string."));
+        let flag = *e_ptr.add(p);
+        let flag = fse::StreamFlags::from_bits(flag).unwrap_or_else(|| {
+            panic!("Unable to decode StreamFlags: {}", flag);
+        });
 
         let mut handle_event = false;
         for (p, r) in &(*info).recursive_info {
