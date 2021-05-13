@@ -6,7 +6,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify = "4.0.16"
+//! notify = "4.0.17"
 //! ```
 //!
 //! # Examples

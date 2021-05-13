@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.0.17 (future)
+## 4.0.17 (2021-05-13)
 
 - FIX: Don't crash on macos when creating & deleting folders in rapid succession [#303]
 
