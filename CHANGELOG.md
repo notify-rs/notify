@@ -19,6 +19,10 @@
 
 ## unreleased
 
+- CHANGE: Hide fsevent::{CFRunLoopIsWaiting,callback}, fix clippy lint warnings [#312]
+
+[#312]: https://github.com/notify-rs/notify/pull/312
+
 ## 5.0.0-pre.8 (2021-05-12)
 
 - HOTFIX: Fix breaking change in fsevent-sys in minor version destroying builds [#316]
