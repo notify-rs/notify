@@ -202,7 +202,7 @@ struct StreamContextInfo {
 
 extern "C" {
     /// Indicates whether the run loop is waiting for an event.
-    fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> bool;
+    fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> cf::Boolean;
 }
 
 impl FsEventWatcher {
@@ -250,7 +250,7 @@ impl FsEventWatcher {
             unsafe {
                 let runloop = runloop as *mut raw::c_void;
 
-                while !CFRunLoopIsWaiting(runloop) {
+                while CFRunLoopIsWaiting(runloop) == 0 {
                     thread::yield_now();
                 }
 
