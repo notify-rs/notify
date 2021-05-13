@@ -14,7 +14,6 @@ _Cross-platform filesystem notification library for Rust._
 
 - [API Documentation][docs]
 - [Crate page][crate]
-- [Version Next progress](https://github.com/notify-rs/notify/tree/next#status)
 - Earliest supported Rust version: **1.26.1**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
@@ -24,7 +23,7 @@ As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
 
 ```toml
 [dependencies]
-notify = "4.0.16"
+notify = "4.0.17"
 ```
 
 ## Usage
