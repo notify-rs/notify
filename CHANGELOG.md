@@ -18,11 +18,12 @@
 [#312]: https://github.com/notify-rs/notify/pull/312
 
 ## unreleased
+
 - CHANGE: Remove dependency on `fsevent`. [#313]
-- FIX: Correct the return type for `CFRunLoopIsWaiting` to be `Boolean` [#314]
+- FIX: Correct the return type for `CFRunLoopIsWaiting` to be `Boolean` [#319]
 - CHANGE: Hide fsevent::{CFRunLoopIsWaiting,callback}, fix clippy lint warnings [#312]
 
-[#314]: https://github.com/notify-rs/notify/pull/314
+[#319]: https://github.com/notify-rs/notify/pull/319
 [#313]: https://github.com/notify-rs/notify/pull/313
 [#312]: https://github.com/notify-rs/notify/pull/312
 
