@@ -421,7 +421,7 @@ impl EventAttributes {
 
     /// Retrieves the tracker ID for an event directly, if present.
     pub fn tracker(&self) -> Option<usize> {
-        self.inner.as_ref().and_then(|inner| inner.tracker.clone())
+        self.inner.as_ref().and_then(|inner| inner.tracker)
     }
 
     /// Retrieves the Notify flag for an event directly, if present.
@@ -431,16 +431,14 @@ impl EventAttributes {
 
     /// Retrieves the additional info for an event directly, if present.
     pub fn info(&self) -> Option<&str> {
-        self.inner
-            .as_ref()
-            .and_then(|inner| inner.info.as_ref().map(|info| &**info))
+        self.inner.as_ref().and_then(|inner| inner.info.as_deref())
     }
 
     /// Retrieves the source for an event directly, if present.
     pub fn source(&self) -> Option<&str> {
         self.inner
             .as_ref()
-            .and_then(|inner| inner.source.as_ref().map(|source| &**source))
+            .and_then(|inner| inner.source.as_deref())
     }
 
     /// The process ID of the originator of the event.
@@ -448,9 +446,7 @@ impl EventAttributes {
     /// This attribute is experimental and, while included in Notify itself, is not considered
     /// stable or standard enough to be part of the serde, eq, hash, and debug representations.
     pub fn process_id(&self) -> Option<u32> {
-        self.inner
-            .as_ref()
-            .and_then(|inner| inner.process_id.clone())
+        self.inner.as_ref().and_then(|inner| inner.process_id)
     }
 
     /// Sets the tracker.
