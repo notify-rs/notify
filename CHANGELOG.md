@@ -19,6 +19,8 @@
 
 ## unreleased
 
+## 5.0.0-pre.9 (2021-05-18)
+
 - CHANGE: Remove dependency on `fsevent`. [#313]
 - FIX: Correct the return type for `CFRunLoopIsWaiting` to be `Boolean` [#319]
 - CHANGE: Hide fsevent::{CFRunLoopIsWaiting,callback}, fix clippy lint warnings [#312]
