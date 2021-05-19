@@ -34,7 +34,7 @@ inotify = { version = "0.9", default-features = false }
 mio = { version = "0.7.7", features = ["os-ext"] }
 
 [target.'cfg(target_os="macos")'.dependencies]
-fsevent-sys = "~3.1"
+fsevent-sys = "4"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.8", features = ["fileapi", "handleapi", "ioapiset", "minwinbase", "synchapi", "winbase", "winnt"] }
