@@ -469,10 +469,10 @@ impl FsEventWatcher {
 extern "C" fn callback(
     stream_ref: fs::FSEventStreamRef,
     info: *mut libc::c_void,
-    num_events: libc::size_t,         // size_t numEvents
-    event_paths: *mut libc::c_void,   // void *eventPaths
-    event_flags: *const libc::c_void, // const FSEventStreamEventFlags eventFlags[]
-    event_ids: *const libc::c_void,   // const FSEventStreamEventId eventIds[]
+    num_events: libc::size_t,                        // size_t numEvents
+    event_paths: *mut libc::c_void,                  // void *eventPaths
+    event_flags: *const fs::FSEventStreamEventFlags, // const FSEventStreamEventFlags eventFlags[]
+    event_ids: *const fs::FSEventStreamEventId,      // const FSEventStreamEventId eventIds[]
 ) {
     unsafe {
         callback_impl(
@@ -489,13 +489,12 @@ extern "C" fn callback(
 unsafe fn callback_impl(
     _stream_ref: fs::FSEventStreamRef,
     info: *mut libc::c_void,
-    num_events: libc::size_t,         // size_t numEvents
-    event_paths: *mut libc::c_void,   // void *eventPaths
-    event_flags: *const libc::c_void, // const FSEventStreamEventFlags eventFlags[]
-    _event_ids: *const libc::c_void,  // const FSEventStreamEventId eventIds[]
+    num_events: libc::size_t,                        // size_t numEvents
+    event_paths: *mut libc::c_void,                  // void *eventPaths
+    event_flags: *const fs::FSEventStreamEventFlags, // const FSEventStreamEventFlags eventFlags[]
+    _event_ids: *const fs::FSEventStreamEventId,     // const FSEventStreamEventId eventIds[]
 ) {
     let event_paths = event_paths as *const *const libc::c_char;
-    let e_ptr = event_flags as *mut u32;
     let info = info as *const StreamContextInfo;
     let event_fn = &(*info).event_fn;
 
@@ -505,7 +504,7 @@ unsafe fn callback_impl(
             .expect("Invalid UTF8 string.");
         let path = PathBuf::from(path);
 
-        let flag = *e_ptr.add(p);
+        let flag = *event_flags.add(p);
         let flag = StreamFlags::from_bits(flag).unwrap_or_else(|| {
             panic!("Unable to decode StreamFlags: {}", flag);
         });
