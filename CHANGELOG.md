@@ -19,6 +19,8 @@
 
 ## unreleased
 
+## 5.0.0-pre.9 (2021-05-21)
+
 - Upgrade fsevent-sys dependency to 4.0 [#322]
 - CHANGE: Remove dependency on `fsevent`. [#313]
 - FIX: Correct the return type for `CFRunLoopIsWaiting` to be `Boolean` [#319]
