@@ -25,7 +25,7 @@ use std::ffi::CStr;
 use std::os::raw;
 use std::path::{Path, PathBuf};
 use std::ptr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 bitflags::bitflags! {
@@ -64,7 +64,7 @@ pub struct FsEventWatcher {
     since_when: fs::FSEventStreamEventId,
     latency: cf::CFTimeInterval,
     flags: fs::FSEventStreamCreateFlags,
-    event_fn: Arc<dyn EventFn>,
+    event_fn: Arc<Mutex<dyn EventFn>>,
     runloop: Option<(cf::CFRunLoopRef, Receiver<()>)>,
     recursive_info: HashMap<PathBuf, bool>,
 }
@@ -225,7 +225,7 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
 }
 
 struct StreamContextInfo {
-    event_fn: Arc<dyn EventFn>,
+    event_fn: Arc<Mutex<dyn EventFn>>,
     recursive_info: HashMap<PathBuf, bool>,
 }
 
@@ -235,7 +235,7 @@ extern "C" {
 }
 
 impl FsEventWatcher {
-    fn from_event_fn(event_fn: Arc<dyn EventFn>) -> Result<Self> {
+    fn from_event_fn(event_fn: Arc<Mutex<dyn EventFn>>) -> Result<Self> {
         Ok(FsEventWatcher {
             paths: unsafe {
                 cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
@@ -375,11 +375,14 @@ impl FsEventWatcher {
         };
 
         // Unfortunately fsevents doesn't provide a mechanism for getting the context back from a
-        // stream after it's been created. So in order to avoid a memory leak, we need to box the
-        // pointer up, alias the pointer, then drop it when the stream has completed.
+        // stream after it's been created. So in order to avoid a memory leak in the normal case,
+        // we need to box the pointer up, alias the pointer, then drop it when the stream has
+        // completed. This box will be leaked if a panic is triggered before the inner thread has a
+        // chance to drop the box.
         let context = Box::into_raw(Box::new(info));
 
         // Safety
+        // - StreamContextInfo is Send+Sync.
         // - This is safe to move into a thread because it will only be accessed when the stream is
         //   completed and no longer accessing the context.
         struct ContextPtr(*mut StreamContextInfo);
@@ -531,14 +534,14 @@ unsafe fn callback_impl(
         for ev in translate_flags(flag, true).into_iter() {
             // TODO: precise
             let ev = ev.add_path(path.clone());
-            (*event_fn)(Ok(ev));
+            (event_fn.lock().unwrap())(Ok(ev));
         }
     }
 }
 
 impl Watcher for FsEventWatcher {
     fn new_immediate<F: EventFn>(event_fn: F) -> Result<FsEventWatcher> {
-        FsEventWatcher::from_event_fn(Arc::new(event_fn))
+        FsEventWatcher::from_event_fn(Arc::new(Mutex::new(event_fn)))
     }
 
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
@@ -594,4 +597,10 @@ fn test_fsevent_watcher_drop() {
     }
 
     println!("in test: {} works", file!());
+}
+
+#[test]
+fn test_steam_context_info_send() {
+    fn check_send<T: Send>() {}
+    check_send::<StreamContextInfo>();
 }
