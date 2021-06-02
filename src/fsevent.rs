@@ -457,7 +457,7 @@ impl FsEventWatcher {
                 .send(())
                 .expect("error while signal run loop is done");
         });
-        // block until runloop has been set
+        // block until runloop has been sent
         self.runloop = Some((rl_rx.recv().unwrap().0, done_rx));
 
         Ok(())
