@@ -78,11 +78,6 @@ impl Error {
 
     /// Creates a new i/o Error from a stdlib `io::Error`.
     pub fn io(err: io::Error) -> Self {
-        // do not report inotify limits as "no more space" on linux #266
-        #[cfg(target_os = "linux")]
-        if err.raw_os_error() == Some(28) {
-            return Self::new(ErrorKind::MaxFilesWatch);
-        }
         Self::new(ErrorKind::Io(err))
     }
 
