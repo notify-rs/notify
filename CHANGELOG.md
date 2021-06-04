@@ -19,7 +19,9 @@
 
 ## unreleased
 
-- FIX: Make StreamContextInfo Send to fix soundness issue [#325]
+## 5.0.0-pre.10 (2021-06-04)
+
+- FIX: Make StreamContextInfo `Send` to fix soundness issue [#325]
 
 [#325]: https://github.com/notify-rs/notify/pull/325
 
