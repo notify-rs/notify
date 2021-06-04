@@ -5,7 +5,7 @@
 //! will return events for the directory itself, and for files inside the directory.
 
 use super::event::*;
-use super::{Config, Error, EventFn, RecursiveMode, Result, Watcher};
+use super::{Config, Error, ErrorKind, EventFn, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{bounded, unbounded, Sender};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
@@ -481,7 +481,14 @@ impl EventLoop {
 
         if let Some(ref mut inotify) = self.inotify {
             match inotify.add_watch(&path, watchmask) {
-                Err(e) => Err(Error::io(e)),
+                Err(e) => {
+                    // do not report inotify limits as "no more space" on linux #266
+                    if e.raw_os_error() == Some(libc::ENOSPC) {
+                        Err(Error::new(ErrorKind::MaxFilesWatch))
+                    } else {
+                        Err(Error::io(e))
+                    }
+                }
                 Ok(w) => {
                     watchmask.remove(WatchMask::MASK_ADD);
                     self.watches
