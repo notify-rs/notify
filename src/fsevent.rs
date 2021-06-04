@@ -229,6 +229,21 @@ struct StreamContextInfo {
     recursive_info: HashMap<PathBuf, bool>,
 }
 
+// Free the context when the stream created by `FSEventStreamCreate` is released.
+extern "C" fn release_context(info: *const libc::c_void) {
+    // Safety:
+    // - The [documentation] for `FSEventStreamContext` states that `release` is only
+    //   called when the stream is deallocated, so it is safe to convert `info` back into a
+    //   box and drop it.
+    //
+    // [docs]: https://developer.apple.com/documentation/coreservices/fseventstreamcontext?language=objc
+    unsafe {
+        drop(Box::from_raw(
+            info as *const StreamContextInfo as *mut StreamContextInfo,
+        ));
+    }
+}
+
 extern "C" {
     /// Indicates whether the run loop is waiting for an event.
     fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> cf::Boolean;
@@ -369,32 +384,20 @@ impl FsEventWatcher {
         // done channel is used to sync quit status of runloop thread
         let (done_tx, done_rx) = unbounded();
 
-        let info = StreamContextInfo {
+        // We need to associate the stream context with our callback in order to propagate events
+        // to the rest of the system. This will be owned by the stream, and will be freed when the
+        // stream is closed. This means we will leak the context if we panic before reacing
+        // `FSEventStreamRelease`.
+        let context = Box::into_raw(Box::new(StreamContextInfo {
             event_fn: self.event_fn.clone(),
             recursive_info: self.recursive_info.clone(),
-        };
-
-        // Unfortunately fsevents doesn't provide a mechanism for getting the context back from a
-        // stream after it's been created. So in order to avoid a memory leak in the normal case,
-        // we need to box the pointer up, alias the pointer, then drop it when the stream has
-        // completed. This box will be leaked if a panic is triggered before the inner thread has a
-        // chance to drop the box.
-        let context = Box::into_raw(Box::new(info));
-
-        // Safety
-        // - StreamContextInfo is Send+Sync.
-        // - This is safe to move into a thread because it will only be accessed when the stream is
-        //   completed and no longer accessing the context.
-        struct ContextPtr(*mut StreamContextInfo);
-        unsafe impl Send for ContextPtr {}
-
-        let thread_context_ptr = ContextPtr(context);
+        }));
 
         let stream_context = fs::FSEventStreamContext {
             version: 0,
             info: context as *mut libc::c_void,
             retain: None,
-            release: None,
+            release: Some(release_context),
             copy_description: None,
         };
 
@@ -446,11 +449,6 @@ impl FsEventWatcher {
                 fs::FSEventStreamStop(stream);
                 fs::FSEventStreamInvalidate(stream);
                 fs::FSEventStreamRelease(stream);
-
-                // Safety:
-                // - It's safe to drop the context now that the stream has been shut down and no
-                //   longer references the context pointer.
-                let _context = Box::from_raw(thread_context_ptr.0);
             }
 
             done_tx
