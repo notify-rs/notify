@@ -46,3 +46,12 @@ tempfile = "3.2.0"
 [features]
 timing_tests = []
 manual_tests = []
+
+[patch.crates-io]
+notify = { path = "." }
+
+[workspace]
+members = [
+  ".",
+  "examples/hot_reload_tide"
+]
