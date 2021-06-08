@@ -38,6 +38,10 @@ jobs:
         if: matrix.version != 'stable'
         run: cargo check --features serde --examples
 
+      - name: check build hot reload tide
+        if: matrix.version != 'stable'
+        run: cargo check --manifest-path examples/hot_reload_tide/Cargo.toml
+
       - name: test
         if: matrix.version == 'stable'
         shell: bash
