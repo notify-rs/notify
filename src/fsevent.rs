@@ -534,7 +534,7 @@ unsafe fn callback_impl(
         for ev in translate_flags(flag, true).into_iter() {
             // TODO: precise
             let ev = ev.add_path(path.clone());
-            let event_fn = event_fn.lock().expect("lock not to be poisoned");
+            let mut event_fn = event_fn.lock().expect("lock not to be poisoned");
             (event_fn)(Ok(ev));
         }
     }
