@@ -40,6 +40,7 @@ fsevent-sys = "4"
 winapi = { version = "0.3.8", features = ["fileapi", "handleapi", "ioapiset", "minwinbase", "synchapi", "winbase", "winnt"] }
 
 [dev-dependencies]
+futures = "0.3"
 serde_json = "1.0.39"
 tempfile = "3.2.0"
 
