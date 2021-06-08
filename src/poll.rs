@@ -36,8 +36,8 @@ pub struct PollWatcher {
 }
 
 fn emit_event(event_fn: &Mutex<dyn EventFn>, res: Result<Event>) {
-    if let Ok(guard) = event_fn.lock() {
-        let f: &dyn EventFn = &*guard;
+    if let Ok(mut guard) = event_fn.lock() {
+        let f: &mut dyn EventFn = &mut *guard;
         f(res);
     }
 }

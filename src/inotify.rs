@@ -56,7 +56,7 @@ enum EventLoopMsg {
 }
 
 #[inline]
-fn send_pending_rename_event(rename_event: &mut Option<Event>, event_fn: &dyn EventFn) {
+fn send_pending_rename_event(rename_event: &mut Option<Event>, event_fn: &mut dyn EventFn) {
     if let Some(e) = rename_event.take() {
         event_fn(Ok(e));
     }
@@ -188,7 +188,7 @@ impl EventLoop {
                     let current_cookie = self.rename_event.as_ref().and_then(|e| e.tracker());
                     // send pending rename event only if the rename event for which the timer has been created hasn't been handled already; otherwise ignore this timeout
                     if current_cookie == Some(cookie) {
-                        send_pending_rename_event(&mut self.rename_event, &*self.event_fn);
+                        send_pending_rename_event(&mut self.rename_event, &mut *self.event_fn);
                     }
                 }
                 EventLoopMsg::Configure(config, tx) => {
@@ -229,7 +229,7 @@ impl EventLoop {
                             };
 
                             if event.mask.contains(EventMask::MOVED_FROM) {
-                                send_pending_rename_event(&mut self.rename_event, &*self.event_fn);
+                                send_pending_rename_event(&mut self.rename_event, &mut *self.event_fn);
                                 remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                                 self.rename_event = Some(
                                     Event::new(EventKind::Modify(ModifyKind::Name(
@@ -384,7 +384,7 @@ impl EventLoop {
                                 if !evs.is_empty() {
                                     send_pending_rename_event(
                                         &mut self.rename_event,
-                                        &*self.event_fn,
+                                        &mut *self.event_fn,
                                     );
                                 }
 

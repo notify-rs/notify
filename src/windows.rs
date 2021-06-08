@@ -346,8 +346,8 @@ unsafe extern "system" fn handle_event(
             let newe = Event::new(EventKind::Any).add_path(path);
 
             fn emit_event(event_fn: &Mutex<dyn EventFn>, res: Result<Event>) {
-                if let Ok(guard) = event_fn.lock() {
-                    let f: &dyn EventFn = &*guard;
+                if let Ok(mut guard) = event_fn.lock() {
+                    let f: &mut dyn EventFn = &mut *guard;
                     f(res);
                 }
             }
