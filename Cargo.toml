@@ -39,6 +39,10 @@ fsevent-sys = "4"
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.8", features = ["fileapi", "handleapi", "ioapiset", "minwinbase", "synchapi", "winbase", "winnt"] }
 
+[target.'cfg(target_os="freebsd")'.dependencies]
+kqueue = "1.0"
+mio = { version = "0.7.7", features = ["os-ext"] }
+
 [dev-dependencies]
 serde_json = "1.0.39"
 tempfile = "3.2.0"

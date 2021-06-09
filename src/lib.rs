@@ -107,6 +107,8 @@ use std::path::Path;
 pub use crate::fsevent::FsEventWatcher;
 #[cfg(target_os = "linux")]
 pub use crate::inotify::INotifyWatcher;
+#[cfg(target_os = "freebsd")]
+pub use crate::kqueue::KqueueWatcher;
 pub use null::NullWatcher;
 pub use poll::PollWatcher;
 #[cfg(target_os = "windows")]
@@ -116,6 +118,8 @@ pub use windows::ReadDirectoryChangesWatcher;
 pub mod fsevent;
 #[cfg(target_os = "linux")]
 pub mod inotify;
+#[cfg(target_os = "freebsd")]
+pub mod kqueue;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
@@ -193,7 +197,15 @@ pub type RecommendedWatcher = FsEventWatcher;
 #[cfg(target_os = "windows")]
 pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
 /// The recommended `Watcher` implementation for the current platform
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "freebsd")]
+pub type RecommendedWatcher = KqueueWatcher;
+/// The recommended `Watcher` implementation for the current platform
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "freebsd"
+)))]
 pub type RecommendedWatcher = PollWatcher;
 
 /// Convenience method for creating the `RecommendedWatcher` for the current platform in
