@@ -7,7 +7,7 @@
 use super::event::*;
 use super::{Config, Error, EventFn, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{unbounded, Sender};
-use kqueue::{EventFilter, FilterFlag};
+use kqueue::{EventData, EventFilter, FilterFlag, Ident};
 use std::collections::HashMap;
 use std::env;
 use std::fs::metadata;
@@ -138,7 +138,36 @@ impl EventLoop {
         loop {
             match self.kqueue.poll(None) {
                 Some(event) => {
-                    dbg!(event);
+                    dbg!(&event);
+                    match event {
+                        kqueue::Event {
+                            data: EventData::Vnode(data),
+                            ident: Ident::Filename(_, path),
+                        } => {
+                            let path = PathBuf::from(path);
+                            let event = match data {
+                                kqueue::Vnode::Delete => {
+                                    //TODO: Differenciate folders and files
+                                    Event::new(EventKind::Remove(RemoveKind::Any))
+                                }
+                                kqueue::Vnode::Write => Event::new(EventKind::Access(AccessKind::Close(AccessMode::Write))),
+                                kqueue::Vnode::Extend => Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Size))),
+                                kqueue::Vnode::Truncate => Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Size))),
+                                kqueue::Vnode::Attrib => {
+                                    // this there anyway to know more about the change?
+                                    Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)))
+                                },
+                                kqueue::Vnode::Link => 
+                                    // The link count on a file changed => subdirectory created or
+                                    // delete. Currently now idea how to track this.
+                                Event::new(EventKind::Modify(ModifyKind::Any)),
+                                kqueue::Vnode::Rename => Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Other))),
+                                kqueue::Vnode::Revoke => Event::new(EventKind::Remove(RemoveKind::Any)),
+                            }.add_path(path);
+                            (self.event_fn)(Ok(event));
+                        }
+                        kqueue::Event { ident: _, data: _ } => unreachable!(),
+                    }
                     ()
                 }
                 None => break,
