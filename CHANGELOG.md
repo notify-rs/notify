@@ -19,6 +19,7 @@
 
 ## unreleased
 
+- CHANGE: Make `Watcher` object safe
 - CHANGE: Change EventFn to take FnMut [#333]
 
 [#333]: https://github.com/notify-rs/notify/pull/333

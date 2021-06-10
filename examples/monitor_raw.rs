@@ -6,11 +6,11 @@ fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
 
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
-    let mut watcher: RecommendedWatcher = Watcher::new_immediate(move |res| tx.send(res).unwrap())?;
+    let mut watcher = RecommendedWatcher::new(move |res| tx.send(res).unwrap())?;
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
-    watcher.watch(path, RecursiveMode::Recursive)?;
+    watcher.watch(path.as_ref(), RecursiveMode::Recursive)?;
 
     for res in rx {
         match res {

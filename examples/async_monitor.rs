@@ -7,7 +7,7 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
 
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
-    let watcher = Watcher::new_immediate(move |res| {
+    let watcher = RecommendedWatcher::new(move |res| {
         futures::executor::block_on(async {
             tx.send(res).await.unwrap();
         })
@@ -21,7 +21,7 @@ async fn async_watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
-    watcher.watch(path, RecursiveMode::Recursive)?;
+    watcher.watch(path.as_ref(), RecursiveMode::Recursive)?;
 
     while let Some(res) = rx.next().await {
         match res {

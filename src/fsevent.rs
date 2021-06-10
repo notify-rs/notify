@@ -20,7 +20,6 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use fsevent_sys as fs;
 use fsevent_sys::core_foundation as cf;
 use std::collections::HashMap;
-use std::convert::AsRef;
 use std::ffi::CStr;
 use std::os::raw;
 use std::path::{Path, PathBuf};
@@ -250,6 +249,11 @@ extern "C" {
 }
 
 impl FsEventWatcher {
+    /// Create a new watcher.
+    pub fn new<F: EventFn>(event_fn: F) -> Result<Self> {
+        Self::from_event_fn(Arc::new(Mutex::new(event_fn)))
+    }
+
     fn from_event_fn(event_fn: Arc<Mutex<dyn EventFn>>) -> Result<Self> {
         Ok(FsEventWatcher {
             paths: unsafe {
@@ -309,14 +313,14 @@ impl FsEventWatcher {
         }
     }
 
-    fn remove_path<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        let str_path = path.as_ref().to_str().unwrap();
+    fn remove_path(&mut self, path: &Path) -> Result<()> {
+        let str_path = path.to_str().unwrap();
         unsafe {
             let mut err: cf::CFErrorRef = ptr::null_mut();
             let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
             if cf_path.is_null() {
                 cf::CFRelease(err as cf::CFRef);
-                return Err(Error::watch_not_found().add_path(path.as_ref().into()));
+                return Err(Error::watch_not_found().add_path(path.into()));
             }
 
             let mut to_remove = Vec::new();
@@ -335,10 +339,10 @@ impl FsEventWatcher {
                 cf::CFArrayRemoveValueAtIndex(self.paths, *idx);
             }
         }
-        let p = if let Ok(canonicalized_path) = path.as_ref().canonicalize() {
+        let p = if let Ok(canonicalized_path) = path.canonicalize() {
             canonicalized_path
         } else {
-            path.as_ref().to_owned()
+            path.to_owned()
         };
         match self.recursive_info.remove(&p) {
             Some(_) => Ok(()),
@@ -347,15 +351,15 @@ impl FsEventWatcher {
     }
 
     // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
-    fn append_path<P: AsRef<Path>>(
+    fn append_path(
         &mut self,
-        path: P,
+        path: &Path,
         recursive_mode: RecursiveMode,
     ) -> Result<()> {
-        if !path.as_ref().exists() {
-            return Err(Error::path_not_found().add_path(path.as_ref().into()));
+        if !path.exists() {
+            return Err(Error::path_not_found().add_path(path.into()));
         }
-        let str_path = path.as_ref().to_str().unwrap();
+        let str_path = path.to_str().unwrap();
         unsafe {
             let mut err: cf::CFErrorRef = ptr::null_mut();
             let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
@@ -363,13 +367,13 @@ impl FsEventWatcher {
                 // Most likely the directory was deleted, or permissions changed,
                 // while the above code was running.
                 cf::CFRelease(err as cf::CFRef);
-                return Err(Error::path_not_found().add_path(path.as_ref().into()));
+                return Err(Error::path_not_found().add_path(path.into()));
             }
             cf::CFArrayAppendValue(self.paths, cf_path);
             cf::CFRelease(cf_path);
         }
         self.recursive_info.insert(
-            path.as_ref().to_path_buf().canonicalize().unwrap(),
+            path.to_path_buf().canonicalize().unwrap(),
             recursive_mode.is_recursive(),
         );
         Ok(())
@@ -539,16 +543,12 @@ unsafe fn callback_impl(
 }
 
 impl Watcher for FsEventWatcher {
-    fn new_immediate<F: EventFn>(event_fn: F) -> Result<FsEventWatcher> {
-        FsEventWatcher::from_event_fn(Arc::new(Mutex::new(event_fn)))
+    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.watch_inner(path, recursive_mode)
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path.as_ref(), recursive_mode)
-    }
-
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        self.unwatch_inner(path.as_ref())
+    fn unwatch(&mut self, path: &Path) -> Result<()> {
+        self.unwatch_inner(path)
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
@@ -578,7 +578,7 @@ fn test_fsevent_watcher_drop() {
     let event_fn = move |res| tx.send(res).unwrap();
 
     {
-        let mut watcher: RecommendedWatcher = Watcher::new_immediate(event_fn).unwrap();
+        let mut watcher = FsEventWatcher::new(event_fn).unwrap();
         watcher.watch(dir.path(), RecursiveMode::Recursive).unwrap();
         thread::sleep(Duration::from_millis(2000));
         println!("is running -> {}", watcher.is_running());
@@ -599,7 +599,7 @@ fn test_fsevent_watcher_drop() {
 }
 
 #[test]
-fn test_steam_context_info_send() {
-    fn check_send<T: Send>() {}
+fn test_steam_context_info_send_and_sync() {
+    fn check_send<T: Send + Sync>() {}
     check_send::<StreamContextInfo>();
 }

@@ -28,11 +28,11 @@ async fn main() -> tide::Result<()> {
 
     // We listen to file changes by giving Notify
     // a function that will get called when events happen
-    let mut watcher: RecommendedWatcher =
+    let mut watcher =
         // To make sure that the config lives as long as the function
         // we need to move the ownership of the config inside the function
         // To learn more about move please read [Using move Closures with Threads](https://doc.rust-lang.org/book/ch16-01-threads.html?highlight=move#using-move-closures-with-threads)
-        Watcher::new_immediate(move |result: Result<Event, Error>| {
+        RecommendedWatcher::new(move |result: Result<Event, Error>| {
             let event = result.unwrap();
 
             if event.kind == EventKind::Modify(ModifyKind::Any) {

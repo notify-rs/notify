@@ -1,6 +1,6 @@
 use std::{fs, thread, time::Duration};
 
-use notify::{immediate_watcher, RecursiveMode, Watcher};
+use notify::{RecursiveMode, Watcher};
 
 /// Test for <https://github.com/notify-rs/notify/issues/301>.
 /// Note: This test will fail if your temp directory is not writable.
@@ -11,12 +11,12 @@ fn test_race_with_remove_dir() {
     {
         let tmpdir = tmpdir.path().to_path_buf();
         thread::spawn(move || {
-            let mut watcher = immediate_watcher(move |result| {
+            let mut watcher = notify::recommended_watcher(move |result| {
                 eprintln!("received event: {:?}", result);
             })
             .unwrap();
 
-            watcher.watch(tmpdir, RecursiveMode::NonRecursive).unwrap();
+            watcher.watch(&tmpdir, RecursiveMode::NonRecursive).unwrap();
         });
     }
 

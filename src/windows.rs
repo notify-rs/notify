@@ -403,6 +403,14 @@ pub struct ReadDirectoryChangesWatcher {
 }
 
 impl ReadDirectoryChangesWatcher {
+    pub fn new<F: EventFn>(event_fn: F) -> Result<Self> {
+        // create dummy channel for meta event
+        // TODO: determine the original purpose of this - can we remove it?
+        let (meta_tx, _) = unbounded();
+        let event_fn = Arc::new(Mutex::new(event_fn));
+        Self::create(event_fn, meta_tx)
+    }
+
     pub fn create(
         event_fn: Arc<Mutex<dyn EventFn>>,
         meta_tx: Sender<MetaEvent>,
@@ -491,14 +499,6 @@ impl ReadDirectoryChangesWatcher {
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
-    fn new_immediate<F: EventFn>(event_fn: F) -> Result<ReadDirectoryChangesWatcher> {
-        // create dummy channel for meta event
-        // TODO: determine the original purpose of this - can we remove it?
-        let (meta_tx, _) = unbounded();
-        let event_fn = Arc::new(Mutex::new(event_fn));
-        ReadDirectoryChangesWatcher::create(event_fn, meta_tx)
-    }
-
     fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
         self.watch_inner(path.as_ref(), recursive_mode)
     }
