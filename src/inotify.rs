@@ -556,7 +556,7 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 impl INotifyWatcher {
     /// Create a new watcher.
     pub fn new<F: EventFn>(event_fn: F) -> Result<Self> {
-        Self::from_event_fn(Box::new(event_fn)))
+        Self::from_event_fn(Box::new(event_fn))
     }
 
     fn from_event_fn(event_fn: Box<dyn EventFn>) -> Result<Self> {
