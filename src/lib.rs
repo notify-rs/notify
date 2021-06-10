@@ -20,11 +20,12 @@
 //! # Examples
 //!
 //! ```
+//! # use std::path::Path;
 //! use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
 //!
 //! fn main() -> Result<()> {
 //!     // Automatically select the best implementation for your platform.
-//!     let mut watcher: RecommendedWatcher = Watcher::new_immediate(|res| {
+//!     let mut watcher = notify::recommended_watcher(|res| {
 //!         match res {
 //!            Ok(event) => println!("event: {:?}", event),
 //!            Err(e) => println!("watch error: {:?}", e),
@@ -33,7 +34,7 @@
 //!
 //!     // Add a path to be watched. All files and directories at that path and
 //!     // below will be monitored for changes.
-//!     watcher.watch(".", RecursiveMode::Recursive)?;
+//!     watcher.watch(Path::new("."), RecursiveMode::Recursive)?;
 //!
 //!     Ok(())
 //! }
@@ -48,10 +49,11 @@
 //!
 //! ```
 //! # use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
+//! # use std::path::Path;
 //! # use std::time::Duration;
 //! # fn main() -> Result<()> {
 //! # // Automatically select the best implementation for your platform.
-//! # let mut watcher: RecommendedWatcher = Watcher::new_immediate(|res| {
+//! # let mut watcher = RecommendedWatcher::new(|res| {
 //! #     match res {
 //! #        Ok(event) => println!("event: {:?}", event),
 //! #        Err(e) => println!("watch error: {:?}", e),
@@ -60,7 +62,7 @@
 //!
 //! # // Add a path to be watched. All files and directories at that path and
 //! # // below will be monitored for changes.
-//! # watcher.watch(".", RecursiveMode::Recursive)?;
+//! # watcher.watch(Path::new("."), RecursiveMode::Recursive)?;
 //!
 //! use notify::Config;
 //! watcher.configure(Config::PreciseEvents(true))?;
@@ -77,6 +79,7 @@
 //!
 //! ```
 //! # use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
+//! # use std::path::Path;
 //! #
 //! # fn main() -> Result<()> {
 //!       fn event_fn(res: Result<notify::Event>) {
@@ -86,10 +89,10 @@
 //!           }
 //!       }
 //!
-//!       let mut watcher1: RecommendedWatcher = Watcher::new_immediate(event_fn)?;
-//!       let mut watcher2: RecommendedWatcher = Watcher::new_immediate(event_fn)?;
-//! #     watcher1.watch(".", RecursiveMode::Recursive)?;
-//! #     watcher2.watch(".", RecursiveMode::Recursive)?;
+//!       let mut watcher1 = notify::recommended_watcher(event_fn)?;
+//!       let mut watcher2 = notify::recommended_watcher(event_fn)?;
+//! #     watcher1.watch(Path::new("."), RecursiveMode::Recursive)?;
+//! #     watcher2.watch(Path::new("."), RecursiveMode::Recursive)?;
 //! #
 //! #     Ok(())
 //! # }
@@ -100,7 +103,6 @@
 pub use config::{Config, RecursiveMode};
 pub use error::{Error, ErrorKind, Result};
 pub use event::{Event, EventKind};
-use std::convert::AsRef;
 use std::path::Path;
 
 #[cfg(target_os = "macos")]
@@ -136,14 +138,7 @@ impl<F> EventFn for F where F: 'static + FnMut(Result<Event>) + Send {}
 /// Watcher is implemented per platform using the best implementation available on that platform.
 /// In addition to such event driven implementations, a polling implementation is also provided
 /// that should work on any platform.
-pub trait Watcher: Sized {
-    /// Create a new watcher in _immediate_ mode.
-    ///
-    /// Events will be sent using the provided `tx` immediately after they occur.
-    fn new_immediate<F>(event_fn: F) -> Result<Self>
-    where
-        F: EventFn;
-
+pub trait Watcher {
     /// Begin watching a new path.
     ///
     /// If the `path` is a directory, `recursive_mode` will be evaluated. If `recursive_mode` is
@@ -159,7 +154,7 @@ pub trait Watcher: Sized {
     ///
     /// [#165]: https://github.com/notify-rs/notify/issues/165
     /// [#166]: https://github.com/notify-rs/notify/issues/166
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()>;
+    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
 
     /// Stop watching a path.
     ///
@@ -167,7 +162,7 @@ pub trait Watcher: Sized {
     ///
     /// Returns an error in the case that `path` has not been watched or if removing the watch
     /// fails.
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()>;
+    fn unwatch(&mut self, path: &Path) -> Result<()>;
 
     /// Configure the watcher at runtime.
     ///
@@ -200,9 +195,20 @@ pub type RecommendedWatcher = PollWatcher;
 /// _immediate_ mode.
 ///
 /// See [`Watcher::new_immediate`](trait.Watcher.html#tymethod.new_immediate).
-pub fn immediate_watcher<F>(event_fn: F) -> Result<RecommendedWatcher>
+pub fn recommended_watcher<F>(event_fn: F) -> Result<RecommendedWatcher>
 where
     F: EventFn,
 {
-    Watcher::new_immediate(event_fn)
+    // All recommended watchers currently implement `new`, so just call that.
+    RecommendedWatcher::new(event_fn)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_object_safe() {
+        let _watcher: &dyn Watcher = &NullWatcher;
+    }
 }
