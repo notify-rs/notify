@@ -8,6 +8,7 @@ use notify::{
     event::ModifyKind,
     Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
 };
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tide::{Body, Response};
 
@@ -43,7 +44,7 @@ async fn main() -> tide::Result<()> {
             }
         })?;
 
-    watcher.watch(CONFIG_PATH, RecursiveMode::Recursive)?;
+    watcher.watch(Path::new(CONFIG_PATH), RecursiveMode::Recursive)?;
 
     // We set up a web server using [Tide](https://github.com/http-rs/tide)
     let mut app = tide::with_state(config);
