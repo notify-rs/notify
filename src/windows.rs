@@ -499,12 +499,12 @@ impl ReadDirectoryChangesWatcher {
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path.as_ref(), recursive_mode)
+    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.watch_inner(path, recursive_mode)
     }
 
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        self.unwatch_inner(path.as_ref())
+    fn unwatch(&mut self, path: &Path) -> Result<()> {
+        self.unwatch_inner(path)
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
