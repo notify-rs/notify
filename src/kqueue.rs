@@ -45,6 +45,7 @@ pub struct KqueueWatcher {
 enum EventLoopMsg {
     AddWatch(PathBuf, RecursiveMode, Sender<Result<()>>),
     RemoveWatch(PathBuf, Sender<Result<()>>),
+    Shutdown
 }
 
 impl EventLoop {
@@ -125,6 +126,10 @@ impl EventLoop {
                 }
                 EventLoopMsg::RemoveWatch(path, tx) => {
                     let _ = tx.send(self.remove_watch(path, false));
+                }
+                EventLoopMsg::Shutdown => {
+                    self.running = false;
+                    break;
                 }
             }
         }
@@ -312,5 +317,13 @@ impl Watcher for KqueueWatcher {
 
     fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         self.unwatch_inner(path.as_ref())
+    }
+}
+
+impl Drop for KqueueWatcher {
+    fn drop(&mut self) {
+        // we expect the event loop to live => unwrap must not panic
+        self.channel.send(EventLoopMsg::Shutdown).unwrap();
+        self.waker.wake().unwrap();
     }
 }
