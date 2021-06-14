@@ -166,7 +166,7 @@ impl EventLoop {
                                     // The link count on a file changed => subdirectory created or
                                     // delete. Currently now idea how to track this.
                                 Event::new(EventKind::Modify(ModifyKind::Any)),
-                                kqueue::Vnode::Rename => Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Other))),
+                                kqueue::Vnode::Rename => Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Any))),
                                 kqueue::Vnode::Revoke => Event::new(EventKind::Remove(RemoveKind::Any)),
                             }.add_path(path);
                             (self.event_fn)(Ok(event));
