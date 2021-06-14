@@ -45,7 +45,7 @@ pub struct KqueueWatcher {
 enum EventLoopMsg {
     AddWatch(PathBuf, RecursiveMode, Sender<Result<()>>),
     RemoveWatch(PathBuf, Sender<Result<()>>),
-    Shutdown
+    Shutdown,
 }
 
 impl EventLoop {
@@ -151,26 +151,68 @@ impl EventLoop {
                         } => {
                             let path = PathBuf::from(path);
                             let event = match data {
+                                /*
+                                TODO: Differenciate folders and files
+                                kqueue dosen't tell us if this was a file or a dir, so we
+                                could only emulate this inotify behavior if we keep track of
+                                all files and directories internally and then perform a
+                                lookup.
+                                */
                                 kqueue::Vnode::Delete => {
-                                    //TODO: Differenciate folders and files
                                     Event::new(EventKind::Remove(RemoveKind::Any))
                                 }
-                                kqueue::Vnode::Write => Event::new(EventKind::Access(AccessKind::Close(AccessMode::Write))),
-                                kqueue::Vnode::Extend => Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Size))),
-                                kqueue::Vnode::Truncate => Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Size))),
-                                kqueue::Vnode::Attrib => {
-                                    // this there anyway to know more about the change?
-                                    Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)))
-                                },
-                                kqueue::Vnode::Link => 
-                                    // The link count on a file changed => subdirectory created or
-                                    // delete. Currently now idea how to track this.
-                                Event::new(EventKind::Modify(ModifyKind::Any)),
-                                kqueue::Vnode::Rename => Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Any))),
-                                kqueue::Vnode::Revoke => Event::new(EventKind::Remove(RemoveKind::Any)),
-                            }.add_path(path);
+
+                                //data was write to this file
+                                kqueue::Vnode::Write => Event::new(EventKind::Access(
+                                    AccessKind::Close(AccessMode::Write),
+                                )),
+
+                                /*
+                                Extend and Truncate are just different names for the same
+                                operation, truncate is only used on FreeBSD, extend everwhere
+                                else
+                                */
+                                kqueue::Vnode::Extend => Event::new(EventKind::Modify(
+                                    ModifyKind::Data(DataChange::Size),
+                                )),
+                                kqueue::Vnode::Truncate => Event::new(EventKind::Modify(
+                                    ModifyKind::Data(DataChange::Size),
+                                )),
+
+                                /*
+                                this kevent has the same problem as the delete kevent. The
+                                only way i can think of providing "better" event with more
+                                information is to do the diff our self, while this maybe do
+                                able of delete. In this case it would somewhat expensive to
+                                keep track and compare ever peace of metadata for every file
+                                */
+                                kqueue::Vnode::Attrib => Event::new(EventKind::Modify(
+                                    ModifyKind::Metadata(MetadataKind::Any),
+                                )),
+
+                                /*
+                                The link count on a file changed => subdirectory created or
+                                delete. Currently now idea how to track this.
+                                */
+                                //TODO: Find new files and track them
+                                kqueue::Vnode::Link => {
+                                    Event::new(EventKind::Modify(ModifyKind::Any))
+                                }
+
+                                //TODO: is the anyway to track this with kqueue
+                                kqueue::Vnode::Rename => {
+                                    Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Any)))
+                                }
+
+                                // Access to the file was revoked via revoke(2) or the underlying file system was unmounted.
+                                kqueue::Vnode::Revoke => {
+                                    Event::new(EventKind::Remove(RemoveKind::Any))
+                                }
+                            }
+                            .add_path(path);
                             (self.event_fn)(Ok(event));
                         }
+                        // as we don't add any other EVFILTER to kqueue we should never get here
                         kqueue::Event { ident: _, data: _ } => unreachable!(),
                     }
                     ()
