@@ -159,6 +159,7 @@ impl EventLoop {
                                 lookup.
                                 */
                                 kqueue::Vnode::Delete => {
+                                    remove_watches.push(path.clone());
                                     Event::new(EventKind::Remove(RemoveKind::Any))
                                 }
 
@@ -201,11 +202,13 @@ impl EventLoop {
 
                                 //TODO: is the anyway to track this with kqueue
                                 kqueue::Vnode::Rename => {
+                                    remove_watches.push(path.clone());
                                     Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Any)))
                                 }
 
                                 // Access to the file was revoked via revoke(2) or the underlying file system was unmounted.
                                 kqueue::Vnode::Revoke => {
+                                    remove_watches.push(path.clone());
                                     Event::new(EventKind::Remove(RemoveKind::Any))
                                 }
                             }
