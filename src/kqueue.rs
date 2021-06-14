@@ -170,7 +170,7 @@ impl EventLoop {
 
                                 /*
                                 Extend and Truncate are just different names for the same
-                                operation, truncate is only used on FreeBSD, extend everwhere
+                                operation, extend is only used on FreeBSD, truncate everwhere
                                 else
                                 */
                                 kqueue::Vnode::Extend => Event::new(EventKind::Modify(
@@ -195,8 +195,14 @@ impl EventLoop {
                                 The link count on a file changed => subdirectory created or
                                 delete. Currently now idea how to track this.
                                 */
-                                //TODO: Find new files and track them
                                 kqueue::Vnode::Link => {
+                                    // readd this folder, this is currently the easiest way to
+                                    // track new and removed subfolders
+
+                                    // TODO: This is really expensive, as we recursively walk through
+                                    // all subdirectories.
+                                    remove_watches.push(path.clone());
+                                    add_watches.push(path.clone());
                                     Event::new(EventKind::Modify(ModifyKind::Any))
                                 }
 
