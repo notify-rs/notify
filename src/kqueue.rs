@@ -5,7 +5,7 @@
 //! pieces of kernel code termed filters.
 
 use super::event::*;
-use super::{Config, Error, EventFn, RecursiveMode, Result, Watcher};
+use super::{Error, EventFn, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{unbounded, Sender};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
 use std::collections::HashMap;
