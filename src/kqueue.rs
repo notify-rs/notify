@@ -1,8 +1,8 @@
-//! Watcher implementation for the inotify Linux API
+//! Watcher implementation for the kqueue API
 //!
-//! The inotify API provides a mechanism for monitoring filesystem events.  Inotify can be used to
-//! monitor individual files, or to monitor directories.  When a directory is monitored, inotify
-//! will return events for the directory itself, and for files inside the directory.
+//! The kqueue() system call provides a generic method of notifying the user
+//! when an event happens or a condition holds, based on the results of small
+//! pieces of kernel code termed filters.
 
 use super::event::*;
 use super::{Config, Error, EventFn, RecursiveMode, Result, Watcher};
