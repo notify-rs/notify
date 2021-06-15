@@ -173,12 +173,9 @@ impl EventLoop {
                                 operation, extend is only used on FreeBSD, truncate everwhere
                                 else
                                 */
-                                kqueue::Vnode::Extend => Event::new(EventKind::Modify(
-                                    ModifyKind::Data(DataChange::Size),
-                                )),
-                                kqueue::Vnode::Truncate => Event::new(EventKind::Modify(
-                                    ModifyKind::Data(DataChange::Size),
-                                )),
+                                kqueue::Vnode::Extend | kqueue::Vnode::Truncate => Event::new(
+                                    EventKind::Modify(ModifyKind::Data(DataChange::Size)),
+                                ),
 
                                 /*
                                 this kevent has the same problem as the delete kevent. The
