@@ -163,7 +163,7 @@ impl EventLoop {
                                     Event::new(EventKind::Remove(RemoveKind::Any))
                                 }
 
-                                //data was write to this file
+                                //data was written to this file
                                 kqueue::Vnode::Write => Event::new(EventKind::Access(
                                     AccessKind::Close(AccessMode::Write),
                                 )),
@@ -190,7 +190,7 @@ impl EventLoop {
 
                                 /*
                                 The link count on a file changed => subdirectory created or
-                                delete. Currently now idea how to track this.
+                                delete. Currently no idea how to track this.
                                 */
                                 kqueue::Vnode::Link => {
                                     // readd this folder, this is currently the easiest way to
