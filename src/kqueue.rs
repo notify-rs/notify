@@ -139,7 +139,6 @@ impl EventLoop {
         let mut add_watches = Vec::new();
         let mut remove_watches = Vec::new();
 
-        println!("hello");
         loop {
             match self.kqueue.poll(None) {
                 Some(event) => {
