@@ -276,9 +276,6 @@ impl EventLoop {
 
         self.kqueue
             .add_filename(&path, event_filter, filter_flags)?;
-        if path.is_dir() {
-            self.paths.insert(path.clone());
-        }
         self.watches.insert(path, is_recursive);
         self.kqueue.watch()?;
         Ok(())
