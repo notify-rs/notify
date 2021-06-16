@@ -120,6 +120,9 @@ pub mod fsevent;
 pub mod inotify;
 #[cfg(any(
     target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "dragonflybsd",
+    target_os = "netbsd",
     all(target_os = "macos", feature = "macos_kqueue")
 ))]
 pub mod kqueue;

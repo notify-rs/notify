@@ -41,7 +41,7 @@ mio = { version = "0.7.7", features = ["os-ext"], optional = true }
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.8", features = ["fileapi", "handleapi", "ioapiset", "minwinbase", "synchapi", "winbase", "winnt"] }
 
-[target.'cfg(target_os="freebsd")'.dependencies]
+[target.'cfg(any(target_os="freebsd", target_os="openbsd", target_os = "netbsd", target_os = "dragonflybsd"))'.dependencies]
 kqueue = "1.0"
 mio = { version = "0.7.7", features = ["os-ext"] }
 
