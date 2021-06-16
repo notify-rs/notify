@@ -36,14 +36,21 @@ pub struct PollWatcher {
 }
 
 fn emit_event(event_fn: &Mutex<dyn EventFn>, res: Result<Event>) {
-    if let Ok(guard) = event_fn.lock() {
-        let f: &dyn EventFn = &*guard;
+    if let Ok(mut guard) = event_fn.lock() {
+        let f: &mut dyn EventFn = &mut *guard;
         f(res);
     }
 }
 
 impl PollWatcher {
-    /// Create a PollWatcher which polls every `delay` milliseconds
+    /// Create a new [PollWatcher].
+    pub fn new<F: EventFn>(event_fn: F) -> Result<Self> {
+        let event_fn = Arc::new(Mutex::new(event_fn));
+        let delay = Duration::from_secs(30);
+        Self::with_delay(event_fn, delay)
+    }
+
+    /// Create a [PollWatcher] which polls every `delay` milliseconds
     pub fn with_delay(event_fn: Arc<Mutex<dyn EventFn>>, delay: Duration) -> Result<PollWatcher> {
         let mut p = PollWatcher {
             event_fn,
@@ -272,18 +279,12 @@ impl PollWatcher {
 }
 
 impl Watcher for PollWatcher {
-    fn new_immediate<F: EventFn>(event_fn: F) -> Result<PollWatcher> {
-        let event_fn = Arc::new(Mutex::new(event_fn));
-        let delay = Duration::from_secs(30);
-        PollWatcher::with_delay(event_fn, delay)
+    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.watch_inner(path, recursive_mode)
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path.as_ref(), recursive_mode)
-    }
-
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        self.unwatch_inner(path.as_ref())
+    fn unwatch(&mut self, path: &Path) -> Result<()> {
+        self.unwatch_inner(path)
     }
 }
 
@@ -293,5 +294,8 @@ impl Drop for PollWatcher {
     }
 }
 
-// Because all public methods are `&mut self` it's also perfectly safe to share references.
-unsafe impl Sync for PollWatcher {}
+#[test]
+fn poll_watcher_is_send_and_sync() {
+    fn check<T: Send + Sync>() {}
+    check::<PollWatcher>();
+}

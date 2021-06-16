@@ -11,10 +11,10 @@ _Cross-platform filesystem notification library for Rust._
 
 **Caution! This is unstable code!**
 
-You likely want either [the latest 4.0 release] or [5.0.0-pre.9].
+You likely want either [the latest 4.0 release] or [5.0.0-pre.10].
 
 [the latest 4.0 release]: https://github.com/notify-rs/notify/tree/v4.0.16#notify
-[5.0.0-pre.9]: https://github.com/notify-rs/notify/tree/v5.0.0-pre.9#notify
+[5.0.0-pre.10]: https://github.com/notify-rs/notify/tree/v5.0.0-pre.10#notify
 
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
 [alert-after]!)
@@ -33,7 +33,7 @@ As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax]
 ```toml
 [dependencies]
 crossbeam-channel = "0.4.0"
-notify = "5.0.0-pre.9"
+notify = "5.0.0-pre.10"
 ```
 
 ## Usage
@@ -146,7 +146,7 @@ let mut watcher: RecommendedWatcher = Watcher::immediate_with_channel(tx)?;
 Events can be serialisable via [serde]. To enable the feature:
 
 ```toml
-notify = { version = "5.0.0-pre.9", features = ["serde"] }
+notify = { version = "5.0.0-pre.10", features = ["serde"] }
 ```
 
 ## Platforms
@@ -198,7 +198,7 @@ Written by [Félix Saparelli] and awesome [contributors].
 [contributors]: https://github.com/notify-rs/notify/graphs/contributors
 [crate]: https://crates.io/crates/notify
 [docket]: https://iwillspeak.github.io/docket/
-[docs]: https://docs.rs/notify/5.0.0-pre.9/notify/
+[docs]: https://docs.rs/notify/5.0.0-pre.10/notify/
 [fsnotify]: https://github.com/go-fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
 [hotwatch]: https://github.com/francesca64/hotwatch

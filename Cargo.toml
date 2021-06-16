@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "5.0.0-pre.9"
+version = "5.0.0-pre.10"
 
 description = "Cross-platform filesystem notification library"
 documentation = "https://docs.rs/notify"
@@ -46,6 +46,7 @@ kqueue = "1.0"
 mio = { version = "0.7.7", features = ["os-ext"] }
 
 [dev-dependencies]
+futures = "0.3"
 serde_json = "1.0.39"
 tempfile = "3.2.0"
 
@@ -55,3 +56,12 @@ timing_tests = []
 manual_tests = []
 macos_kqueue = ["kqueue", "mio"]
 macos_fsevent = ["fsevent-sys"]
+
+[patch.crates-io]
+notify = { path = "." }
+
+[workspace]
+members = [
+  ".",
+  "examples/hot_reload_tide"
+]

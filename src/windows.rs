@@ -346,8 +346,8 @@ unsafe extern "system" fn handle_event(
             let newe = Event::new(EventKind::Any).add_path(path);
 
             fn emit_event(event_fn: &Mutex<dyn EventFn>, res: Result<Event>) {
-                if let Ok(guard) = event_fn.lock() {
-                    let f: &dyn EventFn = &*guard;
+                if let Ok(mut guard) = event_fn.lock() {
+                    let f: &mut dyn EventFn = &mut *guard;
                     f(res);
                 }
             }
@@ -403,6 +403,14 @@ pub struct ReadDirectoryChangesWatcher {
 }
 
 impl ReadDirectoryChangesWatcher {
+    pub fn new<F: EventFn>(event_fn: F) -> Result<Self> {
+        // create dummy channel for meta event
+        // TODO: determine the original purpose of this - can we remove it?
+        let (meta_tx, _) = unbounded();
+        let event_fn = Arc::new(Mutex::new(event_fn));
+        Self::create(event_fn, meta_tx)
+    }
+
     pub fn create(
         event_fn: Arc<Mutex<dyn EventFn>>,
         meta_tx: Sender<MetaEvent>,
@@ -491,20 +499,12 @@ impl ReadDirectoryChangesWatcher {
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
-    fn new_immediate<F: EventFn>(event_fn: F) -> Result<ReadDirectoryChangesWatcher> {
-        // create dummy channel for meta event
-        // TODO: determine the original purpose of this - can we remove it?
-        let (meta_tx, _) = unbounded();
-        let event_fn = Arc::new(Mutex::new(event_fn));
-        ReadDirectoryChangesWatcher::create(event_fn, meta_tx)
+    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.watch_inner(path, recursive_mode)
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path.as_ref(), recursive_mode)
-    }
-
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        self.unwatch_inner(path.as_ref())
+    fn unwatch(&mut self, path: &Path) -> Result<()> {
+        self.unwatch_inner(path)
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {

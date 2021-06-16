@@ -5,7 +5,7 @@
 //! will return events for the directory itself, and for files inside the directory.
 
 use super::event::*;
-use super::{Config, Error, EventFn, RecursiveMode, Result, Watcher};
+use super::{Config, Error, ErrorKind, EventFn, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{bounded, unbounded, Sender};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
@@ -56,7 +56,7 @@ enum EventLoopMsg {
 }
 
 #[inline]
-fn send_pending_rename_event(rename_event: &mut Option<Event>, event_fn: &dyn EventFn) {
+fn send_pending_rename_event(rename_event: &mut Option<Event>, event_fn: &mut dyn EventFn) {
     if let Some(e) = rename_event.take() {
         event_fn(Ok(e));
     }
@@ -188,7 +188,7 @@ impl EventLoop {
                     let current_cookie = self.rename_event.as_ref().and_then(|e| e.tracker());
                     // send pending rename event only if the rename event for which the timer has been created hasn't been handled already; otherwise ignore this timeout
                     if current_cookie == Some(cookie) {
-                        send_pending_rename_event(&mut self.rename_event, &*self.event_fn);
+                        send_pending_rename_event(&mut self.rename_event, &mut *self.event_fn);
                     }
                 }
                 EventLoopMsg::Configure(config, tx) => {
@@ -229,7 +229,7 @@ impl EventLoop {
                             };
 
                             if event.mask.contains(EventMask::MOVED_FROM) {
-                                send_pending_rename_event(&mut self.rename_event, &*self.event_fn);
+                                send_pending_rename_event(&mut self.rename_event, &mut *self.event_fn);
                                 remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                                 self.rename_event = Some(
                                     Event::new(EventKind::Modify(ModifyKind::Name(
@@ -384,7 +384,7 @@ impl EventLoop {
                                 if !evs.is_empty() {
                                     send_pending_rename_event(
                                         &mut self.rename_event,
-                                        &*self.event_fn,
+                                        &mut *self.event_fn,
                                     );
                                 }
 
@@ -481,7 +481,14 @@ impl EventLoop {
 
         if let Some(ref mut inotify) = self.inotify {
             match inotify.add_watch(&path, watchmask) {
-                Err(e) => Err(Error::io(e)),
+                Err(e) => {
+                    // do not report inotify limits as "no more space" on linux #266
+                    if e.raw_os_error() == Some(libc::ENOSPC) {
+                        Err(Error::new(ErrorKind::MaxFilesWatch))
+                    } else {
+                        Err(Error::io(e))
+                    }
+                }
                 Ok(w) => {
                     watchmask.remove(WatchMask::MASK_ADD);
                     self.watches
@@ -547,6 +554,11 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 }
 
 impl INotifyWatcher {
+    /// Create a new watcher.
+    pub fn new<F: EventFn>(event_fn: F) -> Result<Self> {
+        Self::from_event_fn(Box::new(event_fn))
+    }
+
     fn from_event_fn(event_fn: Box<dyn EventFn>) -> Result<Self> {
         let inotify = Inotify::init()?;
         let event_loop = EventLoop::new(inotify, event_fn)?;
@@ -590,16 +602,12 @@ impl INotifyWatcher {
 }
 
 impl Watcher for INotifyWatcher {
-    fn new_immediate<F: EventFn>(event_fn: F) -> Result<INotifyWatcher> {
-        INotifyWatcher::from_event_fn(Box::new(event_fn))
+    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.watch_inner(path, recursive_mode)
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path.as_ref(), recursive_mode)
-    }
-
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        self.unwatch_inner(path.as_ref())
+    fn unwatch(&mut self, path: &Path) -> Result<()> {
+        self.unwatch_inner(path)
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
@@ -616,4 +624,10 @@ impl Drop for INotifyWatcher {
         self.channel.send(EventLoopMsg::Shutdown).unwrap();
         self.waker.wake().unwrap();
     }
+}
+
+#[test]
+fn inotify_watcher_is_send_and_sync() {
+    fn check<T: Send + Sync>() {}
+    check::<INotifyWatcher>();
 }

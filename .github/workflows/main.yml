@@ -11,7 +11,7 @@ on:
       - next
   pull_request:
   release:
-    types: [released, pre-released]
+    types: [released, prereleased]
 
 jobs:
   ci:
@@ -43,6 +43,10 @@ jobs:
           FEATURE: ${{ matrix.feature }}
         if: matrix.version != 'stable'
         run: cargo check --features "serde $FEATURE" --examples
+
+      - name: check build hot reload tide
+        if: matrix.version != 'stable'
+        run: cargo check -p hot_reload_tide
 
       - name: test
         if: matrix.version == 'stable'
