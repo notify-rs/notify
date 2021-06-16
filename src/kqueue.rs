@@ -8,7 +8,7 @@ use super::event::*;
 use super::{Error, EventFn, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{unbounded, Sender};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::metadata;
 use std::os::unix::io::AsRawFd;
@@ -189,20 +189,30 @@ impl EventLoop {
 
                                 /*
                                 The link count on a file changed => subdirectory created or
-                                delete. Currently no idea how to track this.
+                                delete.
                                 */
                                 kqueue::Vnode::Link => {
-                                    // readd this folder, this is currently the easiest way to
-                                    // track new and removed subfolders
-
-                                    // TODO: This is really expensive, as we recursively walk through
-                                    // all subdirectories.
+                                    // As we currently don't have a solution that whould allow us
+                                    // to only add/remove the new/delete directory and that dosn't include a
+                                    // possible race condition. On possible solution would be to
+                                    // create a `HashMap<PathBuf, Vec<PathBuf>>` which would
+                                    // include every directory and this content add the time of
+                                    // adding it to kqueue. While this sould allow us to do the
+                                    // diff and only add/remove the files nessesary. This whould
+                                    // also introduce a race condition, where multiple files could
+                                    // all ready be remove from the directory, and we could get out
+                                    // of sync.
+                                    // So for now, until we find a better solution, let remove and
+                                    // readd the whole directory.
+                                    // This is a expensive operation, as we recursive through all
+                                    // subdirectories.
                                     remove_watches.push(path.clone());
                                     add_watches.push(path.clone());
                                     Event::new(EventKind::Modify(ModifyKind::Any))
                                 }
 
-                                //TODO: is the anyway to track this with kqueue
+                                // Kqueue not provide us with the infomation nessesary to provide
+                                // the new file name to the event.
                                 kqueue::Vnode::Rename => {
                                     remove_watches.push(path.clone());
                                     Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Any)))
@@ -266,6 +276,9 @@ impl EventLoop {
 
         self.kqueue
             .add_filename(&path, event_filter, filter_flags)?;
+        if path.is_dir() {
+            self.paths.insert(path.clone());
+        }
         self.watches.insert(path, is_recursive);
         self.kqueue.watch()?;
         Ok(())
