@@ -8,7 +8,7 @@ use super::event::*;
 use super::{Error, EventFn, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{unbounded, Sender};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::env;
 use std::fs::metadata;
 use std::os::unix::io::AsRawFd;
