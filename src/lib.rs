@@ -103,7 +103,7 @@ pub use event::{Event, EventKind};
 use std::convert::AsRef;
 use std::path::Path;
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "macos_fsevent"))]
 pub use crate::fsevent::FsEventWatcher;
 #[cfg(target_os = "linux")]
 pub use crate::inotify::INotifyWatcher;
@@ -118,7 +118,10 @@ pub use windows::ReadDirectoryChangesWatcher;
 pub mod fsevent;
 #[cfg(target_os = "linux")]
 pub mod inotify;
-#[cfg(target_os = "freebsd")]
+#[cfg(any(
+    target_os = "freebsd",
+    all(target_os = "macos", feature = "macos_kqueue")
+))]
 pub mod kqueue;
 #[cfg(target_os = "windows")]
 pub mod windows;
