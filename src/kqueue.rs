@@ -340,10 +340,15 @@ impl KqueueWatcher {
         let (tx, rx) = unbounded();
         let msg = EventLoopMsg::AddWatch(pb, recursive_mode, tx);
 
-        // we expect the event loop to live and reply => unwraps must not panic
-        self.channel.send(msg).unwrap();
-        self.waker.wake().unwrap();
-        rx.recv().unwrap()
+        self.channel
+            .send(msg)
+            .map_err(|e| Error::generic(&e.to_string()))?;
+        self.waker
+            .wake()
+            .map_err(|e| Error::generic(&e.to_string()))?;
+        rx.recv()
+            .unwrap()
+            .map_err(|e| Error::generic(&e.to_string()))
     }
 
     fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
@@ -356,10 +361,15 @@ impl KqueueWatcher {
         let (tx, rx) = unbounded();
         let msg = EventLoopMsg::RemoveWatch(pb, tx);
 
-        // we expect the event loop to live and reply => unwraps must not panic
-        self.channel.send(msg).unwrap();
-        self.waker.wake().unwrap();
-        rx.recv().unwrap()
+        self.channel
+            .send(msg)
+            .map_err(|e| Error::generic(&e.to_string()))?;
+        self.waker
+            .wake()
+            .map_err(|e| Error::generic(&e.to_string()))?;
+        rx.recv()
+            .unwrap()
+            .map_err(|e| Error::generic(&e.to_string()))
     }
 }
 
