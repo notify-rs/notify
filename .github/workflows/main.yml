@@ -22,10 +22,6 @@ jobs:
           - stable
           - nightly
         os: [ubuntu-latest, macos-latest, windows-latest]
-        features: ["serde"]
-        include:
-          - os: macos-latest
-            features: "serde, macos_kqueue"
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -39,8 +35,12 @@ jobs:
           rustup override set ${{ matrix.version }}
 
       - name: check build
-        if: matrix.version != 'stable'
-        run: cargo check --features ${{ matrix.features }} --examples
+        if: matrix.version != 'stable' && matrix.os == 'macos-latest'
+        run: cargo check --features=serde,macos_kqueue --examples
+
+      - name: check build
+        if: matrix.version != 'stable' && matrix.os != 'macos-latest'
+        run: cargo check --features=serde --examples
 
       - name: check build hot reload tide
         if: matrix.version != 'stable'
