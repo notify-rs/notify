@@ -364,16 +364,12 @@ impl KqueueWatcher {
 }
 
 impl Watcher for KqueueWatcher {
-    fn new_immediate<F: EventFn>(event_fn: F) -> Result<KqueueWatcher> {
-        KqueueWatcher::from_event_fn(Box::new(event_fn))
+    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.watch_inner(path, recursive_mode)
     }
 
-    fn watch<P: AsRef<Path>>(&mut self, path: P, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path.as_ref(), recursive_mode)
-    }
-
-    fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        self.unwatch_inner(path.as_ref())
+    fn unwatch(&mut self, path: &Path) -> Result<()> {
+        self.unwatch_inner(path)
     }
 }
 
