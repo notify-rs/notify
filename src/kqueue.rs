@@ -230,7 +230,6 @@ impl EventLoop {
                         // as we don't add any other EVFILTER to kqueue we should never get here
                         kqueue::Event { ident: _, data: _ } => unreachable!(),
                     }
-                    ()
                 }
                 None => break,
             }
@@ -321,6 +320,11 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 }
 
 impl KqueueWatcher {
+    /// Create a new watcher.
+    pub fn new<F: EventFn>(event_fn: F) -> Result<Self> {
+        Self::from_event_fn(Box::new(event_fn))
+    }
+
     fn from_event_fn(event_fn: Box<dyn EventFn>) -> Result<Self> {
         let kqueue = kqueue::Watcher::new()?;
         let event_loop = EventLoop::new(kqueue, event_fn)?;
