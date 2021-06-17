@@ -22,10 +22,10 @@ jobs:
           - stable
           - nightly
         os: [ubuntu-latest, macos-latest, windows-latest]
-        feature: []
+        features: ["serde"]
         include:
           - os: macos-latest
-            feature: "macos_kqueue"
+            features: "serde, macos_kqueue"
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -40,9 +40,8 @@ jobs:
 
       - name: check build
         env:
-          FEATURE: ${{ matrix.feature }}
         if: matrix.version != 'stable'
-        run: cargo check --features "serde $FEATURE" --examples
+        run: cargo check --features ${{ matrix.features }} --examples
 
       - name: check build hot reload tide
         if: matrix.version != 'stable'
