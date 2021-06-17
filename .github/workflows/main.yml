@@ -39,7 +39,6 @@ jobs:
           rustup override set ${{ matrix.version }}
 
       - name: check build
-        env:
         if: matrix.version != 'stable'
         run: cargo check --features ${{ matrix.features }} --examples
 
