@@ -25,7 +25,7 @@ You likely want either [the latest 4.0 release] or [5.0.0-pre.10].
 - [Changelog][changelog]
 - Earliest supported Rust version: **1.47.0**
 
-As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax]
+As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax],
 [rdiff], [rust-analyzer], [timetrack], [watchexec], [xi-editor], and others.
 
 ## Installation
