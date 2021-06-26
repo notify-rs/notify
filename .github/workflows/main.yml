@@ -35,8 +35,12 @@ jobs:
           rustup override set ${{ matrix.version }}
 
       - name: check build
-        if: matrix.version != 'stable'
-        run: cargo check --features serde --examples
+        if: matrix.version != 'stable' && matrix.os == 'macos-latest'
+        run: cargo check --features=serde,macos_kqueue --examples
+
+      - name: check build
+        if: matrix.version != 'stable' && matrix.os != 'macos-latest'
+        run: cargo check --features=serde --examples
 
       - name: check build hot reload tide
         if: matrix.version != 'stable'

@@ -154,6 +154,7 @@ notify = { version = "5.0.0-pre.10", features = ["serde"] }
 - Linux / Android: inotify
 - macOS: FSEvents
 - Windows: ReadDirectoryChangesW
+- FreeBSD / NetBSD / OpenBSD / DragonflyBSD: kqueue
 - All platforms: polling
 
 ### FSEvents
