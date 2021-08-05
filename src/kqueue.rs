@@ -320,11 +320,6 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 }
 
 impl KqueueWatcher {
-    /// Create a new watcher.
-    pub fn new<F: EventFn>(event_fn: F) -> Result<Self> {
-        Self::from_event_fn(Box::new(event_fn))
-    }
-
     fn from_event_fn(event_fn: Box<dyn EventFn>) -> Result<Self> {
         let kqueue = kqueue::Watcher::new()?;
         let event_loop = EventLoop::new(kqueue, event_fn)?;
@@ -378,6 +373,11 @@ impl KqueueWatcher {
 }
 
 impl Watcher for KqueueWatcher {
+    /// Create a new watcher.
+    fn new<F: EventFn>(event_fn: F) -> Result<Self> {
+        Self::from_event_fn(Box::new(event_fn))
+    }
+
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
         self.watch_inner(path, recursive_mode)
     }

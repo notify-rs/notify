@@ -249,11 +249,6 @@ extern "C" {
 }
 
 impl FsEventWatcher {
-    /// Create a new watcher.
-    pub fn new<F: EventFn>(event_fn: F) -> Result<Self> {
-        Self::from_event_fn(Arc::new(Mutex::new(event_fn)))
-    }
-
     fn from_event_fn(event_fn: Arc<Mutex<dyn EventFn>>) -> Result<Self> {
         Ok(FsEventWatcher {
             paths: unsafe {
@@ -533,6 +528,11 @@ unsafe fn callback_impl(
 }
 
 impl Watcher for FsEventWatcher {
+    /// Create a new watcher.
+    fn new<F: EventFn>(event_fn: F) -> Result<Self> {
+        Self::from_event_fn(Arc::new(Mutex::new(event_fn)))
+    }
+
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
         self.watch_inner(path, recursive_mode)
     }
