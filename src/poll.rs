@@ -43,13 +43,6 @@ fn emit_event(event_fn: &Mutex<dyn EventFn>, res: Result<Event>) {
 }
 
 impl PollWatcher {
-    /// Create a new [PollWatcher].
-    pub fn new<F: EventFn>(event_fn: F) -> Result<Self> {
-        let event_fn = Arc::new(Mutex::new(event_fn));
-        let delay = Duration::from_secs(30);
-        Self::with_delay(event_fn, delay)
-    }
-
     /// Create a [PollWatcher] which polls every `delay` milliseconds
     pub fn with_delay(event_fn: Arc<Mutex<dyn EventFn>>, delay: Duration) -> Result<PollWatcher> {
         let mut p = PollWatcher {
@@ -279,6 +272,13 @@ impl PollWatcher {
 }
 
 impl Watcher for PollWatcher {
+    /// Create a new [PollWatcher].
+    fn new<F: EventFn>(event_fn: F) -> Result<Self> {
+        let event_fn = Arc::new(Mutex::new(event_fn));
+        let delay = Duration::from_secs(30);
+        Self::with_delay(event_fn, delay)
+    }
+
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
         self.watch_inner(path, recursive_mode)
     }

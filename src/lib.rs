@@ -149,6 +149,8 @@ impl<F> EventFn for F where F: 'static + FnMut(Result<Event>) + Send {}
 /// In addition to such event driven implementations, a polling implementation is also provided
 /// that should work on any platform.
 pub trait Watcher {
+    /// Create a new watcher.
+    fn new<F: EventFn>(event_fn: F) -> Result<Self> where Self: Sized;
     /// Begin watching a new path.
     ///
     /// If the `path` is a directory, `recursive_mode` will be evaluated. If `recursive_mode` is

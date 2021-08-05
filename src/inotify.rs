@@ -554,11 +554,6 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 }
 
 impl INotifyWatcher {
-    /// Create a new watcher.
-    pub fn new<F: EventFn>(event_fn: F) -> Result<Self> {
-        Self::from_event_fn(Box::new(event_fn))
-    }
-
     fn from_event_fn(event_fn: Box<dyn EventFn>) -> Result<Self> {
         let inotify = Inotify::init()?;
         let event_loop = EventLoop::new(inotify, event_fn)?;
@@ -602,6 +597,11 @@ impl INotifyWatcher {
 }
 
 impl Watcher for INotifyWatcher {
+    /// Create a new watcher.
+    fn new<F: EventFn>(event_fn: F) -> Result<Self> {
+        Self::from_event_fn(Box::new(event_fn))
+    }
+
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
         self.watch_inner(path, recursive_mode)
     }
