@@ -139,6 +139,23 @@ mod config;
 mod error;
 
 /// The set of requirements for watcher event handling functions.
+///
+/// # Example implementation
+///
+/// ```no_run
+/// use notify::{Event, Result, EventHandler};
+///
+/// /// Prints received events
+/// struct EventPrinter;
+///
+/// impl EventHandler for EventPrinter {
+///     fn handle_event(&mut self, event: Result<Event>) {
+///         if let Ok(event) = event {
+///             println!("Event: {:?}", event);
+///         }
+///     }
+/// }
+/// ```
 pub trait EventHandler: Send + 'static {
     /// Handles an event.
     fn handle_event(&mut self, event: Result<Event>);
