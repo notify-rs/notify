@@ -51,6 +51,30 @@ jobs:
         shell: bash
         run: tests/and-retry --features serde
 
+  bsd:
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-netbsd
+          - x86_64-unknown-freebsd
+          - x86_64-apple-darwin
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: setup toolchain
+        # `--no-self-update` is needed due to a permission issue on the GHA env.
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable --no-self-update
+          rustup target add ${{ matrix.target}}
+
+      - name: check build
+        run: |
+          rustc --version && cargo --version  
+          cargo build --target ${{ matrix.target}}
+
   audit:
     runs-on: ubuntu-latest
 
