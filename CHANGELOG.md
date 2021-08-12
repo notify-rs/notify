@@ -19,6 +19,16 @@
 
 ## unreleased
 
+## 5.0.0-pre.12 (2021-08-12)
+
+- CHANGE: Move creation of watcher into trait [#345]
+- CHANGE: Add EventHandler trait to replace EventFn [#346]
+- FIX: Fix build failure on x86_64-unknown-netbsd [#347]
+
+[#345]: https://github.com/notify-rs/notify/pull/345
+[#346]: https://github.com/notify-rs/notify/pull/346
+[#347]: https://github.com/notify-rs/notify/pull/347
+
 ## 5.0.0-pre.11 (2021-07-22)
 
 - FEATURE: Add `Kqueue` backend for use on BSD [#335]
