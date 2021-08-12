@@ -15,7 +15,7 @@
 #![allow(non_upper_case_globals, dead_code)]
 
 use crate::event::*;
-use crate::{Config, Error, EventFn, RecursiveMode, Result, Watcher};
+use crate::{Config, Error, EventHandler, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{unbounded, Sender};
 use fsevent_sys as fs;
 use fsevent_sys::core_foundation as cf;
@@ -63,7 +63,7 @@ pub struct FsEventWatcher {
     since_when: fs::FSEventStreamEventId,
     latency: cf::CFTimeInterval,
     flags: fs::FSEventStreamCreateFlags,
-    event_fn: Arc<Mutex<dyn EventFn>>,
+    event_handler: Arc<Mutex<dyn EventHandler>>,
     runloop: Option<(cf::CFRunLoopRef, thread::JoinHandle<()>)>,
     recursive_info: HashMap<PathBuf, bool>,
 }
@@ -224,7 +224,7 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
 }
 
 struct StreamContextInfo {
-    event_fn: Arc<Mutex<dyn EventFn>>,
+    event_handler: Arc<Mutex<dyn EventHandler>>,
     recursive_info: HashMap<PathBuf, bool>,
 }
 
@@ -249,7 +249,7 @@ extern "C" {
 }
 
 impl FsEventWatcher {
-    fn from_event_fn(event_fn: Arc<Mutex<dyn EventFn>>) -> Result<Self> {
+    fn from_event_handler(event_handler: Arc<Mutex<dyn EventHandler>>) -> Result<Self> {
         Ok(FsEventWatcher {
             paths: unsafe {
                 cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
@@ -257,7 +257,7 @@ impl FsEventWatcher {
             since_when: fs::kFSEventStreamEventIdSinceNow,
             latency: 0.0,
             flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
-            event_fn,
+            event_handler,
             runloop: None,
             recursive_info: HashMap::new(),
         })
@@ -343,11 +343,7 @@ impl FsEventWatcher {
     }
 
     // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
-    fn append_path(
-        &mut self,
-        path: &Path,
-        recursive_mode: RecursiveMode,
-    ) -> Result<()> {
+    fn append_path(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
         if !path.exists() {
             return Err(Error::path_not_found().add_path(path.into()));
         }
@@ -382,7 +378,7 @@ impl FsEventWatcher {
         // stream is closed. This means we will leak the context if we panic before reacing
         // `FSEventStreamRelease`.
         let context = Box::into_raw(Box::new(StreamContextInfo {
-            event_fn: self.event_fn.clone(),
+            event_handler: self.event_handler.clone(),
             recursive_info: self.recursive_info.clone(),
         }));
 
@@ -486,7 +482,7 @@ unsafe fn callback_impl(
 ) {
     let event_paths = event_paths as *const *const libc::c_char;
     let info = info as *const StreamContextInfo;
-    let event_fn = &(*info).event_fn;
+    let event_handler = &(*info).event_handler;
 
     for p in 0..num_events {
         let path = CStr::from_ptr(*event_paths.add(p))
@@ -521,16 +517,16 @@ unsafe fn callback_impl(
         for ev in translate_flags(flag, true).into_iter() {
             // TODO: precise
             let ev = ev.add_path(path.clone());
-            let mut event_fn = event_fn.lock().expect("lock not to be poisoned");
-            (event_fn)(Ok(ev));
+            let mut event_handler = event_handler.lock().expect("lock not to be poisoned");
+            event_handler.handle_event(Ok(ev));
         }
     }
 }
 
 impl Watcher for FsEventWatcher {
     /// Create a new watcher.
-    fn new<F: EventFn>(event_fn: F) -> Result<Self> {
-        Self::from_event_fn(Arc::new(Mutex::new(event_fn)))
+    fn new<F: EventHandler>(event_handler: F) -> Result<Self> {
+        Self::from_event_handler(Arc::new(Mutex::new(event_handler)))
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
@@ -565,10 +561,9 @@ fn test_fsevent_watcher_drop() {
     let dir = tempfile::tempdir().unwrap();
 
     let (tx, rx) = std::sync::mpsc::channel();
-    let event_fn = move |res| tx.send(res).unwrap();
 
     {
-        let mut watcher = FsEventWatcher::new(event_fn).unwrap();
+        let mut watcher = FsEventWatcher::new(tx).unwrap();
         watcher.watch(dir.path(), RecursiveMode::Recursive).unwrap();
         thread::sleep(Duration::from_millis(2000));
         println!("is running -> {}", watcher.is_running());

@@ -4,7 +4,7 @@
 //! Rust stdlib APIs and should work on all of the platforms it supports.
 
 use super::event::*;
-use super::{Error, EventFn, RecursiveMode, Result, Watcher};
+use super::{Error, EventHandler, RecursiveMode, Result, Watcher};
 use filetime::FileTime;
 use std::collections::HashMap;
 use std::fs;
@@ -29,24 +29,27 @@ struct WatchData {
 
 /// Polling based `Watcher` implementation
 pub struct PollWatcher {
-    event_fn: Arc<Mutex<dyn EventFn>>,
+    event_handler: Arc<Mutex<dyn EventHandler>>,
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
     open: Arc<AtomicBool>,
     delay: Duration,
 }
 
-fn emit_event(event_fn: &Mutex<dyn EventFn>, res: Result<Event>) {
-    if let Ok(mut guard) = event_fn.lock() {
-        let f: &mut dyn EventFn = &mut *guard;
-        f(res);
+fn emit_event(event_handler: &Mutex<dyn EventHandler>, res: Result<Event>) {
+    if let Ok(mut guard) = event_handler.lock() {
+        let f: &mut dyn EventHandler = &mut *guard;
+        f.handle_event(res);
     }
 }
 
 impl PollWatcher {
     /// Create a [PollWatcher] which polls every `delay` milliseconds
-    pub fn with_delay(event_fn: Arc<Mutex<dyn EventFn>>, delay: Duration) -> Result<PollWatcher> {
+    pub fn with_delay(
+        event_handler: Arc<Mutex<dyn EventHandler>>,
+        delay: Duration,
+    ) -> Result<PollWatcher> {
         let mut p = PollWatcher {
-            event_fn,
+            event_handler,
             watches: Arc::new(Mutex::new(HashMap::new())),
             open: Arc::new(AtomicBool::new(true)),
             delay,
@@ -59,8 +62,8 @@ impl PollWatcher {
         let watches = self.watches.clone();
         let open = self.open.clone();
         let delay = self.delay;
-        let event_fn = self.event_fn.clone();
-        let event_fn = move |res| emit_event(&event_fn, res);
+        let event_handler = self.event_handler.clone();
+        let event_handler = move |res| emit_event(&event_handler, res);
 
         thread::spawn(move || {
             // In order of priority:
@@ -87,7 +90,7 @@ impl PollWatcher {
                         match fs::metadata(watch) {
                             Err(e) => {
                                 let err = Err(Error::io(e).add_path(watch.clone()));
-                                event_fn(err);
+                                event_handler(err);
                                 continue;
                             }
                             Ok(metadata) => {
@@ -112,7 +115,7 @@ impl PollWatcher {
                                                 let meta = ModifyKind::Metadata(kind);
                                                 let kind = EventKind::Modify(meta);
                                                 let ev = Event::new(kind).add_path(watch.clone());
-                                                event_fn(Ok(ev));
+                                                event_handler(Ok(ev));
                                             }
                                         }
                                     }
@@ -130,7 +133,7 @@ impl PollWatcher {
                                             Err(e) => {
                                                 let err = Error::io(e.into())
                                                     .add_path(path.to_path_buf());
-                                                event_fn(Err(err));
+                                                event_handler(Err(err));
                                             }
                                             Ok(m) => {
                                                 let mtime =
@@ -148,7 +151,7 @@ impl PollWatcher {
                                                             EventKind::Create(CreateKind::Any);
                                                         let ev = Event::new(kind)
                                                             .add_path(path.to_path_buf());
-                                                        event_fn(Ok(ev));
+                                                        event_handler(Ok(ev));
                                                     }
                                                     Some(PathData {
                                                         mtime: old_mtime, ..
@@ -160,7 +163,7 @@ impl PollWatcher {
                                                             // TODO add new mtime as attr
                                                             let ev = Event::new(kind)
                                                                 .add_path(path.to_path_buf());
-                                                            event_fn(Ok(ev));
+                                                            event_handler(Ok(ev));
                                                         }
                                                     }
                                                 }
@@ -178,7 +181,7 @@ impl PollWatcher {
                             if last_check < current_time {
                                 let ev = Event::new(EventKind::Remove(RemoveKind::Any))
                                     .add_path(path.clone());
-                                event_fn(Ok(ev));
+                                event_handler(Ok(ev));
                                 removed.push(path.clone());
                             }
                         }
@@ -202,7 +205,7 @@ impl PollWatcher {
             match fs::metadata(path) {
                 Err(e) => {
                     let err = Error::io(e).add_path(watch);
-                    emit_event(&self.event_fn, Err(err));
+                    emit_event(&self.event_handler, Err(err));
                 }
                 Ok(metadata) => {
                     let mut paths = HashMap::new();
@@ -233,7 +236,7 @@ impl PollWatcher {
                             match entry.metadata() {
                                 Err(e) => {
                                     let err = Error::io(e.into()).add_path(path.to_path_buf());
-                                    emit_event(&self.event_fn, Err(err));
+                                    emit_event(&self.event_handler, Err(err));
                                 }
                                 Ok(m) => {
                                     let mtime = FileTime::from_last_modification_time(&m).seconds();
@@ -273,10 +276,10 @@ impl PollWatcher {
 
 impl Watcher for PollWatcher {
     /// Create a new [PollWatcher].
-    fn new<F: EventFn>(event_fn: F) -> Result<Self> {
-        let event_fn = Arc::new(Mutex::new(event_fn));
+    fn new<F: EventHandler>(event_handler: F) -> Result<Self> {
+        let event_handler = Arc::new(Mutex::new(event_handler));
         let delay = Duration::from_secs(30);
-        Self::with_delay(event_fn, delay)
+        Self::with_delay(event_handler, delay)
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {

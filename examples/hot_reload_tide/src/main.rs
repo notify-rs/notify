@@ -1,12 +1,10 @@
-
 // Imagine this is a web app that remembers information about audio messages.
 // It has a config.json file that acts as a database,
 // you can edit the configuration and the app will pick up changes without the need to restart it.
 // This concept is known as hot-reloading.
 use hot_reload_tide::messages::{load_config, Config};
 use notify::{
-    event::ModifyKind,
-    Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+    event::ModifyKind, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
 };
 use std::path::Path;
 use std::sync::{Arc, Mutex};

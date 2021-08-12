@@ -1,6 +1,9 @@
-use notify::{RecommendedWatcher, RecursiveMode, Event, Watcher};
+use futures::{
+    channel::mpsc::{channel, Receiver},
+    SinkExt, StreamExt,
+};
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
-use futures::{SinkExt, StreamExt, channel::mpsc::{channel, Receiver}};
 
 fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Result<Event>>)> {
     let (mut tx, rx) = channel(1);

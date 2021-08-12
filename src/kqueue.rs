@@ -5,7 +5,7 @@
 //! pieces of kernel code termed filters.
 
 use super::event::*;
-use super::{Error, EventFn, RecursiveMode, Result, Watcher};
+use super::{Error, EventHandler, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{unbounded, Sender};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
 use std::collections::HashMap;
@@ -32,7 +32,7 @@ struct EventLoop {
     event_loop_tx: crossbeam_channel::Sender<EventLoopMsg>,
     event_loop_rx: crossbeam_channel::Receiver<EventLoopMsg>,
     kqueue: kqueue::Watcher,
-    event_fn: Box<dyn EventFn>,
+    event_handler: Box<dyn EventHandler>,
     watches: HashMap<PathBuf, bool>,
 }
 
@@ -49,7 +49,7 @@ enum EventLoopMsg {
 }
 
 impl EventLoop {
-    pub fn new(kqueue: kqueue::Watcher, event_fn: Box<dyn EventFn>) -> Result<Self> {
+    pub fn new(kqueue: kqueue::Watcher, event_handler: Box<dyn EventHandler>) -> Result<Self> {
         let (event_loop_tx, event_loop_rx) = crossbeam_channel::unbounded::<EventLoopMsg>();
         let poll = mio::Poll::new()?;
 
@@ -67,7 +67,7 @@ impl EventLoop {
             event_loop_tx,
             event_loop_rx,
             kqueue,
-            event_fn,
+            event_handler,
             watches: HashMap::new(),
         };
         Ok(event_loop)
@@ -93,7 +93,7 @@ impl EventLoop {
 
             // Process whatever happened.
             for event in &events {
-                self.handle_event(&event);
+                self.handle_event(event);
             }
 
             // Stop, if we're done.
@@ -225,7 +225,7 @@ impl EventLoop {
                                 }
                             }
                             .add_path(path);
-                            (self.event_fn)(Ok(event));
+                            self.event_handler.handle_event(Ok(event));
                         }
                         // as we don't add any other EVFILTER to kqueue we should never get here
                         kqueue::Event { ident: _, data: _ } => unreachable!(),
@@ -320,9 +320,9 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 }
 
 impl KqueueWatcher {
-    fn from_event_fn(event_fn: Box<dyn EventFn>) -> Result<Self> {
+    fn from_event_handler(event_handler: Box<dyn EventHandler>) -> Result<Self> {
         let kqueue = kqueue::Watcher::new()?;
-        let event_loop = EventLoop::new(kqueue, event_fn)?;
+        let event_loop = EventLoop::new(kqueue, event_handler)?;
         let channel = event_loop.event_loop_tx.clone();
         let waker = event_loop.event_loop_waker.clone();
         event_loop.run();
@@ -374,9 +374,10 @@ impl KqueueWatcher {
 
 impl Watcher for KqueueWatcher {
     /// Create a new watcher.
-    fn new<F: EventFn>(event_fn: F) -> Result<Self> {
-        Self::from_event_fn(Box::new(event_fn))
+    fn new<F: EventHandler>(event_handler: F) -> Result<Self> {
+        Self::from_event_handler(Box::new(event_handler))
     }
+
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
         self.watch_inner(path, recursive_mode)
