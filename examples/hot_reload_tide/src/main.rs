@@ -3,9 +3,7 @@
 // you can edit the configuration and the app will pick up changes without the need to restart it.
 // This concept is known as hot-reloading.
 use hot_reload_tide::messages::{load_config, Config};
-use notify::{
-    event::ModifyKind, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
-};
+use notify::{Error, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tide::{Body, Response};
@@ -34,7 +32,7 @@ async fn main() -> tide::Result<()> {
         RecommendedWatcher::new(move |result: Result<Event, Error>| {
             let event = result.unwrap();
 
-            if event.kind == EventKind::Modify(ModifyKind::Any) {
+            if event.kind.is_modify() {
                 match load_config(CONFIG_PATH) {
                     Ok(new_config) => *cloned_config.lock().unwrap() = new_config,
                     Err(error) => println!("Error reloading config: {:?}", error),
