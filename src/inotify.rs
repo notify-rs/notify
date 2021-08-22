@@ -485,12 +485,12 @@ impl EventLoop {
         if let Some(ref mut inotify) = self.inotify {
             match inotify.add_watch(&path, watchmask) {
                 Err(e) => {
-                    // do not report inotify limits as "no more space" on linux #266
-                    if e.raw_os_error() == Some(libc::ENOSPC) {
-                        Err(Error::new(ErrorKind::MaxFilesWatch))
+                    Err(if e.raw_os_error() == Some(libc::ENOSPC) {
+                        // do not report inotify limits as "no more space" on linux #266
+                        Error::new(ErrorKind::MaxFilesWatch)
                     } else {
-                        Err(Error::io(e))
-                    }
+                        Error::io(e)
+                    }.add_path(path))
                 }
                 Ok(w) => {
                     watchmask.remove(WatchMask::MASK_ADD);
@@ -507,17 +507,17 @@ impl EventLoop {
 
     fn remove_watch(&mut self, path: PathBuf, remove_recursive: bool) -> Result<()> {
         match self.watches.remove(&path) {
-            None => return Err(Error::watch_not_found()),
+            None => return Err(Error::watch_not_found().add_path(path)),
             Some((w, _, is_recursive)) => {
                 if let Some(ref mut inotify) = self.inotify {
-                    inotify.rm_watch(w.clone()).map_err(Error::io)?;
+                    inotify.rm_watch(w.clone()).map_err(|e| Error::io(e).add_path(path.clone()))?;
                     self.paths.remove(&w);
 
                     if is_recursive || remove_recursive {
                         let mut remove_list = Vec::new();
                         for (w, p) in &self.paths {
                             if p.starts_with(&path) {
-                                inotify.rm_watch(w.clone()).map_err(Error::io)?;
+                                inotify.rm_watch(w.clone()).map_err(|e| Error::io(e).add_path(p.into()))?;
                                 self.watches.remove(p);
                                 remove_list.push(w.clone());
                             }
@@ -534,8 +534,8 @@ impl EventLoop {
 
     fn remove_all_watches(&mut self) -> Result<()> {
         if let Some(ref mut inotify) = self.inotify {
-            for w in self.paths.keys() {
-                inotify.rm_watch(w.clone()).map_err(Error::io)?;
+            for (w, p) in &self.paths {
+                inotify.rm_watch(w.clone()).map_err(|e| Error::io(e).add_path(p.into()))?;
             }
             self.watches.clear();
             self.paths.clear();
