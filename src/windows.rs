@@ -147,7 +147,7 @@ impl ReadDirectoryChangesServer {
         if !path.is_dir() && !path.is_file() {
             return Err(Error::generic(
                 "Input watch path is neither a file nor a directory.",
-            ));
+            ).add_path(path));
         }
 
         let (watching_file, dir_target) = {
@@ -181,7 +181,7 @@ impl ReadDirectoryChangesServer {
                     Error::generic(
                         "You attempted to watch a single file, but parent \
                          directory could not be opened.",
-                    )
+                    ).add_path(path)
                 } else {
                     // TODO: Call GetLastError for better error info?
                     Error::path_not_found().add_path(path)
@@ -200,7 +200,7 @@ impl ReadDirectoryChangesServer {
             unsafe {
                 handleapi::CloseHandle(handle);
             }
-            return Err(Error::generic("Failed to create semaphore for watch."));
+            return Err(Error::generic("Failed to create semaphore for watch.").add_path(path));
         }
         let rd = ReadData {
             dir: dir_target,
