@@ -107,7 +107,7 @@ watcher.configure(Config::PreciseEvents(true));
 ### With notice events
 
 Sometimes you want to respond to some events straight away, but not give up the
-advantages of debouncing. Notice events appear once immediately when the occur
+advantages of debouncing. Notice events appear once immediately when they occur
 during a debouncing period, and then a second time as usual at the end of the
 debouncing period:
 
