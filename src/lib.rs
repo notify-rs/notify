@@ -40,6 +40,31 @@
 //! }
 //! ```
 //!
+//! You can also directly use a channel from [std::sync::mpsc] or [crossbeam_channel] for the [EventHandler].
+//! ```no_run
+//! # use std::path::Path;
+//! use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
+//!
+//! fn main() -> Result<()> {
+//!     // use a channel, can be crossbeam-channel or std::sync::mpsc::Sender
+//!     let (tx,rx) = std::sync::mpsc::channel();
+//!     let mut watcher = notify::recommended_watcher(tx)?;
+//!     
+//!     // Add a path to be watched. All files and directories at that path and
+//!     // below will be monitored for changes.
+//!     watcher.watch(Path::new("."), RecursiveMode::Recursive)?;
+//!     // listen for events, here on the main thread
+//!     while let Ok(res) = rx.recv() {
+//!         match res {
+//!             Ok(event) => println!("event: {:?}", event),
+//!             Err(e) => println!("watch error: {:?}", e),
+//!         }
+//!     }
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
 //! ## With precise events
 //!
 //! By default, Notify emits non-descript events containing only the affected path and some
