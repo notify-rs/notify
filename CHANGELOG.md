@@ -19,6 +19,14 @@
 
 ## unreleased
 
+## 5.0.0-pre.13 (2021-09-07)
+
+- Fix: Add path information to inotify and kqueue watch/unwatch errors  [#354]
+- Fix: Delete dbg call from kqueue.rs  [#357]
+
+[#354]: https://github.com/notify-rs/notify/pull/354
+[#357]: https://github.com/notify-rs/notify/pull/357
+
 ## 5.0.0-pre.12 (2021-08-12)
 
 - CHANGE: Move creation of watcher into trait [#345]
