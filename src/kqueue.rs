@@ -142,7 +142,6 @@ impl EventLoop {
         loop {
             match self.kqueue.poll(None) {
                 Some(event) => {
-                    dbg!(&event);
                     match event {
                         kqueue::Event {
                             data: EventData::Vnode(data),
