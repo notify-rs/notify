@@ -43,13 +43,10 @@ fn emit_event(event_handler: &Mutex<dyn EventHandler>, res: Result<Event>) {
 }
 
 impl PollWatcher {
-    /// Create a [PollWatcher] which polls every `delay` milliseconds
-    pub fn with_delay(
-        event_handler: Arc<Mutex<dyn EventHandler>>,
-        delay: Duration,
-    ) -> Result<PollWatcher> {
+    /// Create a new [PollWatcher] and set the poll frequency to `delay`.
+    pub fn with_delay<F: EventHandler>(event_handler: F, delay: Duration) -> Result<PollWatcher> {
         let mut p = PollWatcher {
-            event_handler,
+            event_handler: Arc::new(Mutex::new(event_handler)),
             watches: Arc::new(Mutex::new(HashMap::new())),
             open: Arc::new(AtomicBool::new(true)),
             delay,
@@ -276,8 +273,10 @@ impl PollWatcher {
 
 impl Watcher for PollWatcher {
     /// Create a new [PollWatcher].
+    ///
+    /// The default poll frequency is 30 seconds.
+    /// Use [with_delay] to manually set the poll frequency.
     fn new<F: EventHandler>(event_handler: F) -> Result<Self> {
-        let event_handler = Arc::new(Mutex::new(event_handler));
         let delay = Duration::from_secs(30);
         Self::with_delay(event_handler, delay)
     }
