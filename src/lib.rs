@@ -105,18 +105,21 @@ pub use error::{Error, ErrorKind, Result};
 pub use event::{Event, EventKind};
 use std::path::Path;
 
-#[cfg(all(target_os = "macos", feature = "macos_fsevent"))]
+#[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
 pub use crate::fsevent::FsEventWatcher;
 #[cfg(target_os = "linux")]
 pub use crate::inotify::INotifyWatcher;
-#[cfg(target_os = "freebsd")]
+#[cfg(any(
+    target_os = "freebsd",
+    all(target_os = "macos", feature = "macos_kqueue")
+))]
 pub use crate::kqueue::KqueueWatcher;
 pub use null::NullWatcher;
 pub use poll::PollWatcher;
 #[cfg(target_os = "windows")]
 pub use windows::ReadDirectoryChangesWatcher;
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
 pub mod fsevent;
 #[cfg(target_os = "linux")]
 pub mod inotify;
@@ -189,7 +192,9 @@ impl EventHandler for std::sync::mpsc::Sender<Result<Event>> {
 /// that should work on any platform.
 pub trait Watcher {
     /// Create a new watcher.
-    fn new<F: EventHandler>(event_handler: F) -> Result<Self> where Self: Sized;
+    fn new<F: EventHandler>(event_handler: F) -> Result<Self>
+    where
+        Self: Sized;
     /// Begin watching a new path.
     ///
     /// If the `path` is a directory, `recursive_mode` will be evaluated. If `recursive_mode` is
@@ -233,13 +238,16 @@ pub trait Watcher {
 #[cfg(target_os = "linux")]
 pub type RecommendedWatcher = INotifyWatcher;
 /// The recommended `Watcher` implementation for the current platform
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
 pub type RecommendedWatcher = FsEventWatcher;
 /// The recommended `Watcher` implementation for the current platform
 #[cfg(target_os = "windows")]
 pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
 /// The recommended `Watcher` implementation for the current platform
-#[cfg(target_os = "freebsd")]
+#[cfg(any(
+    target_os = "freebsd",
+    all(target_os = "macos", feature = "macos_kqueue")
+))]
 pub type RecommendedWatcher = KqueueWatcher;
 /// The recommended `Watcher` implementation for the current platform
 #[cfg(not(any(
