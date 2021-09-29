@@ -63,5 +63,6 @@ notify = { path = "." }
 [workspace]
 members = [
   ".",
-  "examples/hot_reload_tide"
+  "examples/hot_reload_tide",
+  "examples/watcher_kind"
 ]

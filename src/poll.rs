@@ -288,6 +288,10 @@ impl Watcher for PollWatcher {
     fn unwatch(&mut self, path: &Path) -> Result<()> {
         self.unwatch_inner(path)
     }
+
+    fn kind() -> crate::WatcherKind {
+        crate::WatcherKind::PollWatcher
+    }
 }
 
 impl Drop for PollWatcher {

@@ -542,6 +542,10 @@ impl Watcher for FsEventWatcher {
         self.configure_raw_mode(config, tx);
         rx.recv()?
     }
+
+    fn kind() -> crate::WatcherKind {
+        crate::WatcherKind::Fsevent
+    }
 }
 
 impl Drop for FsEventWatcher {

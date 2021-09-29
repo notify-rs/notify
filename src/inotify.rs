@@ -619,6 +619,10 @@ impl Watcher for INotifyWatcher {
         self.waker.wake()?;
         rx.recv()?
     }
+
+    fn kind() -> crate::WatcherKind {
+        crate::WatcherKind::Inotify
+    }
 }
 
 impl Drop for INotifyWatcher {
