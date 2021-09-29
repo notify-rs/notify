@@ -15,7 +15,7 @@ use winapi::um::synchapi;
 use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
-use crate::event::*;
+use crate::{WatcherKind, event::*};
 use crate::{Config, Error, EventHandler, RecursiveMode, Result, Watcher};
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use std::collections::HashMap;
@@ -511,6 +511,10 @@ impl Watcher for ReadDirectoryChangesWatcher {
         let (tx, rx) = bounded(1);
         self.tx.send(Action::Configure(config, tx))?;
         rx.recv()?
+    }
+
+    fn kind() -> crate::WatcherKind {
+        WatcherKind::ReadDirectoryChangesWatcher
     }
 }
 

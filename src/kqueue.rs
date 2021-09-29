@@ -386,6 +386,10 @@ impl Watcher for KqueueWatcher {
     fn unwatch(&mut self, path: &Path) -> Result<()> {
         self.unwatch_inner(path)
     }
+
+    fn kind() -> crate::WatcherKind {
+        crate::WatcherKind::Kqueue
+    }
 }
 
 impl Drop for KqueueWatcher {

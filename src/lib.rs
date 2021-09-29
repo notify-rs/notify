@@ -185,6 +185,24 @@ impl EventHandler for std::sync::mpsc::Sender<Result<Event>> {
     }
 }
 
+/// Watcher kind enumeration
+#[derive(Debug,PartialEq,Eq)]
+#[non_exhaustive]
+pub enum WatcherKind {
+    /// inotify backend (linux)
+    Inotify,
+    /// FS-Event backend (mac)
+    Fsevent,
+    /// KQueue backend (bsd,mac)
+    Kqueue,
+    /// Polling based backend (fallback)
+    PollWatcher,
+    /// Windows backend
+    ReadDirectoryChangesWatcher,
+    /// Fake watcher for testing
+    NullWatcher,
+}
+
 /// Type that can deliver file activity notifications
 ///
 /// Watcher is implemented per platform using the best implementation available on that platform.
@@ -232,6 +250,9 @@ pub trait Watcher {
     fn configure(&mut self, _option: Config) -> Result<bool> {
         Ok(false)
     }
+
+    /// Returns the watcher kind, allowing to perform backend-specific tasks
+    fn kind() -> WatcherKind where Self: Sized;
 }
 
 /// The recommended `Watcher` implementation for the current platform

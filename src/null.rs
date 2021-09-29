@@ -22,4 +22,8 @@ impl Watcher for NullWatcher {
     fn new<F: crate::EventHandler>(event_handler: F) -> Result<Self> where Self: Sized {
         Ok(NullWatcher)
     }
+
+    fn kind() -> crate::WatcherKind {
+        crate::WatcherKind::NullWatcher
+    }
 }
