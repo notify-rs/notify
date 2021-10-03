@@ -139,98 +139,93 @@ impl EventLoop {
         let mut add_watches = Vec::new();
         let mut remove_watches = Vec::new();
 
-        loop {
-            match self.kqueue.poll(None) {
-                Some(event) => {
-                    match event {
-                        kqueue::Event {
-                            data: EventData::Vnode(data),
-                            ident: Ident::Filename(_, path),
-                        } => {
-                            let path = PathBuf::from(path);
-                            let event = match data {
-                                /*
-                                TODO: Differenciate folders and files
-                                kqueue dosen't tell us if this was a file or a dir, so we
-                                could only emulate this inotify behavior if we keep track of
-                                all files and directories internally and then perform a
-                                lookup.
-                                */
-                                kqueue::Vnode::Delete => {
-                                    remove_watches.push(path.clone());
-                                    Event::new(EventKind::Remove(RemoveKind::Any))
-                                }
-
-                                //data was written to this file
-                                kqueue::Vnode::Write => Event::new(EventKind::Access(
-                                    AccessKind::Close(AccessMode::Write),
-                                )),
-
-                                /*
-                                Extend and Truncate are just different names for the same
-                                operation, extend is only used on FreeBSD, truncate everwhere
-                                else
-                                */
-                                kqueue::Vnode::Extend | kqueue::Vnode::Truncate => Event::new(
-                                    EventKind::Modify(ModifyKind::Data(DataChange::Size)),
-                                ),
-
-                                /*
-                                this kevent has the same problem as the delete kevent. The
-                                only way i can think of providing "better" event with more
-                                information is to do the diff our self, while this maybe do
-                                able of delete. In this case it would somewhat expensive to
-                                keep track and compare ever peace of metadata for every file
-                                */
-                                kqueue::Vnode::Attrib => Event::new(EventKind::Modify(
-                                    ModifyKind::Metadata(MetadataKind::Any),
-                                )),
-
-                                /*
-                                The link count on a file changed => subdirectory created or
-                                delete.
-                                */
-                                kqueue::Vnode::Link => {
-                                    // As we currently don't have a solution that whould allow us
-                                    // to only add/remove the new/delete directory and that dosn't include a
-                                    // possible race condition. On possible solution would be to
-                                    // create a `HashMap<PathBuf, Vec<PathBuf>>` which would
-                                    // include every directory and this content add the time of
-                                    // adding it to kqueue. While this sould allow us to do the
-                                    // diff and only add/remove the files nessesary. This whould
-                                    // also introduce a race condition, where multiple files could
-                                    // all ready be remove from the directory, and we could get out
-                                    // of sync.
-                                    // So for now, until we find a better solution, let remove and
-                                    // readd the whole directory.
-                                    // This is a expensive operation, as we recursive through all
-                                    // subdirectories.
-                                    remove_watches.push(path.clone());
-                                    add_watches.push(path.clone());
-                                    Event::new(EventKind::Modify(ModifyKind::Any))
-                                }
-
-                                // Kqueue not provide us with the infomation nessesary to provide
-                                // the new file name to the event.
-                                kqueue::Vnode::Rename => {
-                                    remove_watches.push(path.clone());
-                                    Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Any)))
-                                }
-
-                                // Access to the file was revoked via revoke(2) or the underlying file system was unmounted.
-                                kqueue::Vnode::Revoke => {
-                                    remove_watches.push(path.clone());
-                                    Event::new(EventKind::Remove(RemoveKind::Any))
-                                }
-                            }
-                            .add_path(path);
-                            self.event_handler.handle_event(Ok(event));
+        while let Some(event) = self.kqueue.poll(None) {
+            match event {
+                kqueue::Event {
+                    data: EventData::Vnode(data),
+                    ident: Ident::Filename(_, path),
+                } => {
+                    let path = PathBuf::from(path);
+                    let event = match data {
+                        /*
+                        TODO: Differenciate folders and files
+                        kqueue dosen't tell us if this was a file or a dir, so we
+                        could only emulate this inotify behavior if we keep track of
+                        all files and directories internally and then perform a
+                        lookup.
+                        */
+                        kqueue::Vnode::Delete => {
+                            remove_watches.push(path.clone());
+                            Event::new(EventKind::Remove(RemoveKind::Any))
                         }
-                        // as we don't add any other EVFILTER to kqueue we should never get here
-                        kqueue::Event { ident: _, data: _ } => unreachable!(),
+
+                        //data was written to this file
+                        kqueue::Vnode::Write => {
+                            Event::new(EventKind::Access(AccessKind::Close(AccessMode::Write)))
+                        }
+
+                        /*
+                        Extend and Truncate are just different names for the same
+                        operation, extend is only used on FreeBSD, truncate everwhere
+                        else
+                        */
+                        kqueue::Vnode::Extend | kqueue::Vnode::Truncate => {
+                            Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Size)))
+                        }
+
+                        /*
+                        this kevent has the same problem as the delete kevent. The
+                        only way i can think of providing "better" event with more
+                        information is to do the diff our self, while this maybe do
+                        able of delete. In this case it would somewhat expensive to
+                        keep track and compare ever peace of metadata for every file
+                        */
+                        kqueue::Vnode::Attrib => {
+                            Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)))
+                        }
+
+                        /*
+                        The link count on a file changed => subdirectory created or
+                        delete.
+                        */
+                        kqueue::Vnode::Link => {
+                            // As we currently don't have a solution that whould allow us
+                            // to only add/remove the new/delete directory and that dosn't include a
+                            // possible race condition. On possible solution would be to
+                            // create a `HashMap<PathBuf, Vec<PathBuf>>` which would
+                            // include every directory and this content add the time of
+                            // adding it to kqueue. While this sould allow us to do the
+                            // diff and only add/remove the files nessesary. This whould
+                            // also introduce a race condition, where multiple files could
+                            // all ready be remove from the directory, and we could get out
+                            // of sync.
+                            // So for now, until we find a better solution, let remove and
+                            // readd the whole directory.
+                            // This is a expensive operation, as we recursive through all
+                            // subdirectories.
+                            remove_watches.push(path.clone());
+                            add_watches.push(path.clone());
+                            Event::new(EventKind::Modify(ModifyKind::Any))
+                        }
+
+                        // Kqueue not provide us with the infomation nessesary to provide
+                        // the new file name to the event.
+                        kqueue::Vnode::Rename => {
+                            remove_watches.push(path.clone());
+                            Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Any)))
+                        }
+
+                        // Access to the file was revoked via revoke(2) or the underlying file system was unmounted.
+                        kqueue::Vnode::Revoke => {
+                            remove_watches.push(path.clone());
+                            Event::new(EventKind::Remove(RemoveKind::Any))
+                        }
                     }
+                    .add_path(path);
+                    self.event_handler.handle_event(Ok(event));
                 }
-                None => break,
+                // as we don't add any other EVFILTER to kqueue we should never get here
+                kqueue::Event { ident: _, data: _ } => unreachable!(),
             }
         }
 
@@ -377,7 +372,6 @@ impl Watcher for KqueueWatcher {
     fn new<F: EventHandler>(event_handler: F) -> Result<Self> {
         Self::from_event_handler(Box::new(event_handler))
     }
-
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
         self.watch_inner(path, recursive_mode)
