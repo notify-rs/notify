@@ -347,6 +347,7 @@ impl FsEventWatcher {
         if !path.exists() {
             return Err(Error::path_not_found().add_path(path.into()));
         }
+        let canonical_path = path.to_path_buf().canonicalize()?;
         let str_path = path.to_str().unwrap();
         unsafe {
             let mut err: cf::CFErrorRef = ptr::null_mut();
@@ -361,7 +362,7 @@ impl FsEventWatcher {
             cf::CFRelease(cf_path);
         }
         self.recursive_info.insert(
-            path.to_path_buf().canonicalize().unwrap(),
+            canonical_path,
             recursive_mode.is_recursive(),
         );
         Ok(())
