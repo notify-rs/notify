@@ -161,7 +161,7 @@ impl EventLoop {
 
                         //data was written to this file
                         kqueue::Vnode::Write => {
-                            Event::new(EventKind::Access(AccessKind::Close(AccessMode::Write)))
+                            Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
                         }
 
                         /*
