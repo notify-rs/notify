@@ -245,11 +245,8 @@ impl EventLoop {
             return self.add_single_watch(path, false);
         }
 
-        for entry in WalkDir::new(path)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(filter_dir)
-        {
+        for entry in WalkDir::new(path).follow_links(true).into_iter() {
+            let entry = entry.map_err(map_walkdir_error)?;
             self.add_single_watch(entry.path().to_path_buf(), is_recursive)?;
         }
         self.kqueue.watch()?;
@@ -284,12 +281,8 @@ impl EventLoop {
                     .map_err(|e| Error::io(e).add_path(path.clone()))?;
 
                 if is_recursive || remove_recursive {
-                    for entry in WalkDir::new(path)
-                        .follow_links(true)
-                        .into_iter()
-                        .filter_map(filter_dir)
-                    {
-                        let p = entry.path().to_path_buf();
+                    for entry in WalkDir::new(path).follow_links(true).into_iter() {
+                        let p = entry.map_err(map_walkdir_error)?.path().to_path_buf();
                         self.kqueue
                             .remove_filename(&p, EventFilter::EVFILT_VNODE)
                             .map_err(|e| Error::io(e).add_path(p))?;
@@ -302,16 +295,13 @@ impl EventLoop {
     }
 }
 
-/// return `DirEntry` when it is a directory
-fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry> {
-    if let Ok(e) = e {
-        if let Ok(metadata) = e.metadata() {
-            if metadata.is_dir() {
-                return Some(e);
-            }
-        }
+fn map_walkdir_error(e: walkdir::Error) -> Error {
+    if e.io_error().is_some() {
+        // save to unwrap otherwise we whouldn't be in this branch
+        Error::io(e.into_io_error().unwrap())
+    } else {
+        Error::generic(&e.to_string())
     }
-    None
 }
 
 impl KqueueWatcher {
