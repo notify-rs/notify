@@ -156,22 +156,58 @@ impl EventLoop {
                         */
                         kqueue::Vnode::Delete => {
                             remove_watches.push(path.clone());
-                            Event::new(EventKind::Remove(RemoveKind::Any))
+                            Ok(Event::new(EventKind::Remove(RemoveKind::Any)).add_path(path))
                         }
 
-                        //data was written to this file
-                        kqueue::Vnode::Write => {
-                            Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
+                        // a write to a directory means that a new file was created in it, let's
+                        // figure out which file this was
+                        kqueue::Vnode::Write if path.is_dir() => {
+                            // find which file is new in the directory by comparing it with our
+                            // list of known watches
+                            std::fs::read_dir(&path)
+                                .map(|dir| {
+                                    dir.filter_map(std::result::Result::ok)
+                                        .map(|f| f.path())
+                                        .find(|f| !self.watches.contains_key(f))
+                                })
+                                .map(|file| {
+                                    if let Some(file) = file {
+                                        // watch this new file
+                                        add_watches.push(file.clone());
+
+                                        Event::new(EventKind::Create(if file.is_dir() {
+                                            CreateKind::Folder
+                                        } else if file.is_file() {
+                                            CreateKind::File
+                                        } else {
+                                            CreateKind::Other
+                                        }))
+                                        .add_path(file)
+                                    } else {
+                                        Event::new(EventKind::Modify(ModifyKind::Data(
+                                            DataChange::Any,
+                                        )))
+                                        .add_path(path)
+                                    }
+                                })
+                                .map_err(Into::into)
                         }
+
+                        // data was written to this file
+                        kqueue::Vnode::Write => Ok(Event::new(EventKind::Modify(
+                            ModifyKind::Data(DataChange::Any),
+                        ))
+                        .add_path(path)),
 
                         /*
                         Extend and Truncate are just different names for the same
                         operation, extend is only used on FreeBSD, truncate everwhere
                         else
                         */
-                        kqueue::Vnode::Extend | kqueue::Vnode::Truncate => {
-                            Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Size)))
-                        }
+                        kqueue::Vnode::Extend | kqueue::Vnode::Truncate => Ok(Event::new(
+                            EventKind::Modify(ModifyKind::Data(DataChange::Size)),
+                        )
+                        .add_path(path)),
 
                         /*
                         this kevent has the same problem as the delete kevent. The
@@ -180,9 +216,10 @@ impl EventLoop {
                         able of delete. In this case it would somewhat expensive to
                         keep track and compare ever peace of metadata for every file
                         */
-                        kqueue::Vnode::Attrib => {
-                            Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)))
-                        }
+                        kqueue::Vnode::Attrib => Ok(Event::new(EventKind::Modify(
+                            ModifyKind::Metadata(MetadataKind::Any),
+                        ))
+                        .add_path(path)),
 
                         /*
                         The link count on a file changed => subdirectory created or
@@ -205,24 +242,26 @@ impl EventLoop {
                             // subdirectories.
                             remove_watches.push(path.clone());
                             add_watches.push(path.clone());
-                            Event::new(EventKind::Modify(ModifyKind::Any))
+                            Ok(Event::new(EventKind::Modify(ModifyKind::Any)).add_path(path))
                         }
 
                         // Kqueue not provide us with the infomation nessesary to provide
                         // the new file name to the event.
                         kqueue::Vnode::Rename => {
                             remove_watches.push(path.clone());
-                            Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Any)))
+                            Ok(
+                                Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Any)))
+                                    .add_path(path),
+                            )
                         }
 
                         // Access to the file was revoked via revoke(2) or the underlying file system was unmounted.
                         kqueue::Vnode::Revoke => {
                             remove_watches.push(path.clone());
-                            Event::new(EventKind::Remove(RemoveKind::Any))
+                            Ok(Event::new(EventKind::Remove(RemoveKind::Any)).add_path(path))
                         }
-                    }
-                    .add_path(path);
-                    self.event_handler.handle_event(Ok(event));
+                    };
+                    self.event_handler.handle_event(event);
                 }
                 // as we don't add any other EVFILTER to kqueue we should never get here
                 kqueue::Event { ident: _, data: _ } => unreachable!(),
