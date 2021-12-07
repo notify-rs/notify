@@ -419,9 +419,8 @@ impl EventLoop {
 
                                 // An error here means the other end of the channel was closed, a thing that can
                                 // happen normally.
-                                let _ = event_loop_tx
-                                    .send(EventLoopMsg::RenameTimeout(cookie));
-                                waker.wake().unwrap();
+                                let _ = event_loop_tx.send(EventLoopMsg::RenameTimeout(cookie));
+                                let _ = waker.wake();
                             });
                         }
                     }
