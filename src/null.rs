@@ -8,6 +8,7 @@ use std::path::Path;
 /// Stub `Watcher` implementation
 ///
 /// Events are never delivered from this watcher.
+#[derive(Debug)]
 pub struct NullWatcher;
 
 impl Watcher for NullWatcher {

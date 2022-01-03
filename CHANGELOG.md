@@ -11,11 +11,13 @@
 - CHANGE: Avoid stating the watched path for non-recursive watches with inotify [#256]
 - FIX: Report events promptly on Linux, even when many occur in rapid succession. [#268]
 - FIX: Remove `anymap`, and replace event attributes with an opaque type. [#306]
-- CHANGE: Hide fsevent::{CFRunLoopIsWaiting,callback}, fix clippy lint warnings [#312]
+- CHANGE: Hide `fsevent::{CFRunLoopIsWaiting,callback}`, fix clippy lint warnings [#312]
+- CHANGE: Add more trait impls for public types, in particular `Debug` [#377]
 
 [#268]: https://github.com/notify-rs/notify/pull/268
 [#306]: https://github.com/notify-rs/notify/pull/306
 [#312]: https://github.com/notify-rs/notify/pull/312
+[#377]: https://github.com/notify-rs/notify/pull/377
 
 ## unreleased
 

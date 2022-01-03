@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 /// Indicates whether only the provided directory or its sub-directories as well should be watched
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub enum RecursiveMode {
     /// Watch all sub-directories as well, including directories created after installing the watch
     Recursive,
@@ -24,7 +24,7 @@ impl RecursiveMode {
 /// Runtime configuration items for watchers.
 ///
 /// See the [`Watcher::configure`](../trait.Watcher.html#tymethod.configure) method for usage.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Config {
     /// Enable or disable emitting precise event classification.
     ///
