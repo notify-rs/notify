@@ -37,6 +37,7 @@ struct EventLoop {
 }
 
 /// Watcher implementation based on inotify
+#[derive(Debug)]
 pub struct KqueueWatcher {
     channel: crossbeam_channel::Sender<EventLoopMsg>,
     waker: Arc<mio::Waker>,

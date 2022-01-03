@@ -186,7 +186,7 @@ impl EventHandler for std::sync::mpsc::Sender<Result<Event>> {
 }
 
 /// Watcher kind enumeration
-#[derive(Debug,PartialEq,Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum WatcherKind {
     /// inotify backend (linux)

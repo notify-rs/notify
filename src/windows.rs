@@ -54,6 +54,7 @@ enum Action {
     Configure(Config, Sender<Result<bool>>),
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum MetaEvent {
     SingleWatchComplete,
     WatcherAwakened,

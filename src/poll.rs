@@ -7,6 +7,7 @@ use super::event::*;
 use super::{Error, EventHandler, RecursiveMode, Result, Watcher};
 use filetime::FileTime;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -17,11 +18,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 use walkdir::WalkDir;
 
+#[derive(Debug)]
 struct PathData {
     mtime: i64,
     last_check: Instant,
 }
 
+#[derive(Debug)]
 struct WatchData {
     is_recursive: bool,
     paths: HashMap<PathBuf, PathData>,
@@ -33,6 +36,16 @@ pub struct PollWatcher {
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
     open: Arc<AtomicBool>,
     delay: Duration,
+}
+
+impl Debug for PollWatcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PollWatcher")
+            .field("watches", &self.watches)
+            .field("open", &self.open)
+            .field("delay", &self.delay)
+            .finish()
+    }
 }
 
 fn emit_event(event_handler: &Mutex<dyn EventHandler>, res: Result<Event>) {
