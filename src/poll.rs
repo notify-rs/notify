@@ -41,6 +41,7 @@ pub struct PollWatcher {
 impl Debug for PollWatcher {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PollWatcher")
+            .field("event_handler", &Arc::as_ptr(&self.watches))
             .field("watches", &self.watches)
             .field("open", &self.open)
             .field("delay", &self.delay)

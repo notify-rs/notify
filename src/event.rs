@@ -346,14 +346,14 @@ pub struct Event {
 }
 
 /// Additional attributes of the event.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct EventAttributes {
     #[cfg_attr(feature = "serde", serde(flatten))]
     inner: Option<Box<EventAttributesInner>>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 struct EventAttributesInner {
     /// Tracking ID for events that are related.
