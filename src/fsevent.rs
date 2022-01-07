@@ -21,6 +21,7 @@ use fsevent_sys as fs;
 use fsevent_sys::core_foundation as cf;
 use std::collections::HashMap;
 use std::ffi::CStr;
+use std::fmt;
 use std::os::raw;
 use std::path::{Path, PathBuf};
 use std::ptr;
@@ -66,6 +67,20 @@ pub struct FsEventWatcher {
     event_handler: Arc<Mutex<dyn EventHandler>>,
     runloop: Option<(cf::CFRunLoopRef, thread::JoinHandle<()>)>,
     recursive_info: HashMap<PathBuf, bool>,
+}
+
+impl fmt::Debug for FsEventWatcher {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("FsEventWatcher")
+            .field("paths", &self.paths)
+            .field("since_when", &self.since_when)
+            .field("latency", &self.latency)
+            .field("flags", &self.flags)
+            .field("event_handler", &Arc::as_ptr(&self.event_handler))
+            .field("runloop", &self.runloop)
+            .field("recursive_info", &self.recursive_info)
+            .finish()
+    }
 }
 
 // CFMutableArrayRef is a type alias to *mut libc::c_void, so FsEventWatcher is not Send/Sync

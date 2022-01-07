@@ -397,6 +397,7 @@ unsafe extern "system" fn handle_event(
 }
 
 /// Watcher implementation based on ReadDirectoryChanges
+#[derive(Debug)]
 pub struct ReadDirectoryChangesWatcher {
     tx: Sender<Action>,
     cmd_rx: Receiver<Result<PathBuf>>,
