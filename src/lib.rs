@@ -252,7 +252,9 @@ pub trait Watcher {
     }
 
     /// Returns the watcher kind, allowing to perform backend-specific tasks
-    fn kind() -> WatcherKind where Self: Sized;
+    fn kind() -> WatcherKind
+    where
+        Self: Sized;
 }
 
 /// The recommended `Watcher` implementation for the current platform

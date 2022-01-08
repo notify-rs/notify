@@ -18,7 +18,7 @@ fn events_are_debuggable() {
     );
 
     let mut attrs = EventAttributes::new();
-    attrs.set_info("unmount".into());
+    attrs.set_info("unmount");
     attrs.set_flag(Flag::Rescan);
 
     assert_eq!(

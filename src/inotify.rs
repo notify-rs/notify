@@ -57,7 +57,10 @@ enum EventLoopMsg {
 }
 
 #[inline]
-fn send_pending_rename_event(rename_event: &mut Option<Event>, event_handler: &mut dyn EventHandler) {
+fn send_pending_rename_event(
+    rename_event: &mut Option<Event>,
+    event_handler: &mut dyn EventHandler,
+) {
     if let Some(e) = rename_event.take() {
         event_handler.handle_event(Ok(e));
     }
@@ -492,7 +495,8 @@ impl EventLoop {
                         Error::new(ErrorKind::MaxFilesWatch)
                     } else {
                         Error::io(e)
-                    }.add_path(path))
+                    }
+                    .add_path(path))
                 }
                 Ok(w) => {
                     watchmask.remove(WatchMask::MASK_ADD);
@@ -512,14 +516,18 @@ impl EventLoop {
             None => return Err(Error::watch_not_found().add_path(path)),
             Some((w, _, is_recursive)) => {
                 if let Some(ref mut inotify) = self.inotify {
-                    inotify.rm_watch(w.clone()).map_err(|e| Error::io(e).add_path(path.clone()))?;
+                    inotify
+                        .rm_watch(w.clone())
+                        .map_err(|e| Error::io(e).add_path(path.clone()))?;
                     self.paths.remove(&w);
 
                     if is_recursive || remove_recursive {
                         let mut remove_list = Vec::new();
                         for (w, p) in &self.paths {
                             if p.starts_with(&path) {
-                                inotify.rm_watch(w.clone()).map_err(|e| Error::io(e).add_path(p.into()))?;
+                                inotify
+                                    .rm_watch(w.clone())
+                                    .map_err(|e| Error::io(e).add_path(p.into()))?;
                                 self.watches.remove(p);
                                 remove_list.push(w.clone());
                             }
@@ -537,7 +545,9 @@ impl EventLoop {
     fn remove_all_watches(&mut self) -> Result<()> {
         if let Some(ref mut inotify) = self.inotify {
             for (w, p) in &self.paths {
-                inotify.rm_watch(w.clone()).map_err(|e| Error::io(e).add_path(p.into()))?;
+                inotify
+                    .rm_watch(w.clone())
+                    .map_err(|e| Error::io(e).add_path(p.into()))?;
             }
             self.watches.clear();
             self.paths.clear();

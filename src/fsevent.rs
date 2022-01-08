@@ -361,10 +361,8 @@ impl FsEventWatcher {
             cf::CFArrayAppendValue(self.paths, cf_path);
             cf::CFRelease(cf_path);
         }
-        self.recursive_info.insert(
-            canonical_path,
-            recursive_mode.is_recursive(),
-        );
+        self.recursive_info
+            .insert(canonical_path, recursive_mode.is_recursive());
         Ok(())
     }
 
