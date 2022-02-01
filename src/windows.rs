@@ -84,7 +84,7 @@ impl ReadDirectoryChangesServer {
         let (action_tx, action_rx) = unbounded();
         // it is, in fact, ok to send the semaphore across threads
         let sem_temp = wakeup_sem as u64;
-        thread::Builder::new()
+        let _ = thread::Builder::new()
             .name("notify-rs windows".to_string())
             .spawn(move || {
                 let wakeup_sem = sem_temp as HANDLE;
