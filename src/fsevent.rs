@@ -432,30 +432,32 @@ impl FsEventWatcher {
         // channel to pass runloop around
         let (rl_tx, rl_rx) = unbounded();
 
-        let thread_handle = thread::Builder::new().name("notify-rs fsevents".to_string()).spawn(move || {
-            let stream = stream.0;
+        let thread_handle = thread::Builder::new()
+            .name("notify-rs fsevents".to_string())
+            .spawn(move || {
+                let stream = stream.0;
 
-            unsafe {
-                let cur_runloop = cf::CFRunLoopGetCurrent();
+                unsafe {
+                    let cur_runloop = cf::CFRunLoopGetCurrent();
 
-                fs::FSEventStreamScheduleWithRunLoop(
-                    stream,
-                    cur_runloop,
-                    cf::kCFRunLoopDefaultMode,
-                );
-                fs::FSEventStreamStart(stream);
+                    fs::FSEventStreamScheduleWithRunLoop(
+                        stream,
+                        cur_runloop,
+                        cf::kCFRunLoopDefaultMode,
+                    );
+                    fs::FSEventStreamStart(stream);
 
-                // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
-                rl_tx
-                    .send(CFSendWrapper(cur_runloop))
-                    .expect("Unable to send runloop to watcher");
+                    // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
+                    rl_tx
+                        .send(CFSendWrapper(cur_runloop))
+                        .expect("Unable to send runloop to watcher");
 
-                cf::CFRunLoopRun();
-                fs::FSEventStreamStop(stream);
-                fs::FSEventStreamInvalidate(stream);
-                fs::FSEventStreamRelease(stream);
-            }
-        });
+                    cf::CFRunLoopRun();
+                    fs::FSEventStreamStop(stream);
+                    fs::FSEventStreamInvalidate(stream);
+                    fs::FSEventStreamRelease(stream);
+                }
+            });
         // block until runloop has been sent
         self.runloop = Some((rl_rx.recv().unwrap().0, thread_handle));
 
