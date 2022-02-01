@@ -76,7 +76,7 @@ impl EventLoop {
 
     // Run the event loop.
     pub fn run(self) {
-        thread::Builder::new()
+        let _ = thread::Builder::new()
             .name("notify-rs kqueue".to_string())
             .spawn(|| self.event_loop_thread());
     }

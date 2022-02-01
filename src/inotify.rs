@@ -128,7 +128,7 @@ impl EventLoop {
 
     // Run the event loop.
     pub fn run(self) {
-        thread::Builder::new()
+        let _ = thread::Builder::new()
             .name("notify-rs inotify".to_string())
             .spawn(|| self.event_loop_thread());
     }
@@ -420,7 +420,7 @@ impl EventLoop {
                             let event_loop_tx = self.event_loop_tx.clone();
                             let waker = self.event_loop_waker.clone();
                             let cookie = rename_event.tracker().unwrap(); // unwrap is safe because rename_event is always set with some cookie
-                            thread::Builder::new()
+                            let _ = thread::Builder::new()
                                 .name("notify-rs inotify rename".to_string())
                                 .spawn(move || {
                                     thread::sleep(Duration::from_millis(10)); // wait up to 10 ms for a subsequent event
