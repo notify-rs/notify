@@ -432,7 +432,7 @@ impl FsEventWatcher {
         // channel to pass runloop around
         let (rl_tx, rl_rx) = unbounded();
 
-        let thread_handle = thread::spawn(move || {
+        let thread_handle = thread::Builder::new().name("notify-rs fsevents".to_string()).spawn(move || {
             let stream = stream.0;
 
             unsafe {
