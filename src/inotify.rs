@@ -128,7 +128,9 @@ impl EventLoop {
 
     // Run the event loop.
     pub fn run(self) {
-        thread::Builder::new().name("notify-rs inotify".to_string()).spawn(|| self.event_loop_thread());
+        thread::Builder::new()
+            .name("notify-rs inotify".to_string())
+            .spawn(|| self.event_loop_thread());
     }
 
     fn event_loop_thread(mut self) {
@@ -418,14 +420,16 @@ impl EventLoop {
                             let event_loop_tx = self.event_loop_tx.clone();
                             let waker = self.event_loop_waker.clone();
                             let cookie = rename_event.tracker().unwrap(); // unwrap is safe because rename_event is always set with some cookie
-                            thread::Builder::new().name("notify-rs inotify rename".to_string()).spawn(move || {
-                                thread::sleep(Duration::from_millis(10)); // wait up to 10 ms for a subsequent event
+                            thread::Builder::new()
+                                .name("notify-rs inotify rename".to_string())
+                                .spawn(move || {
+                                    thread::sleep(Duration::from_millis(10)); // wait up to 10 ms for a subsequent event
 
-                                // An error here means the other end of the channel was closed, a thing that can
-                                // happen normally.
-                                let _ = event_loop_tx.send(EventLoopMsg::RenameTimeout(cookie));
-                                let _ = waker.wake();
-                            });
+                                    // An error here means the other end of the channel was closed, a thing that can
+                                    // happen normally.
+                                    let _ = event_loop_tx.send(EventLoopMsg::RenameTimeout(cookie));
+                                    let _ = waker.wake();
+                                });
                         }
                     }
                     Err(e) => {
