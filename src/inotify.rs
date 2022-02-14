@@ -129,7 +129,7 @@ impl EventLoop {
     // Run the event loop.
     pub fn run(self) {
         let _ = thread::Builder::new()
-            .name("notify-rs inotify".to_string())
+            .name("notify-rs inotify loop".to_string())
             .spawn(|| self.event_loop_thread());
     }
 

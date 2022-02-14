@@ -433,7 +433,7 @@ impl FsEventWatcher {
         let (rl_tx, rl_rx) = unbounded();
 
         let thread_handle = thread::Builder::new()
-            .name("notify-rs fsevents".to_string())
+            .name("notify-rs fsevents loop".to_string())
             .spawn(move || {
                 let stream = stream.0;
 

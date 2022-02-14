@@ -77,7 +77,7 @@ impl PollWatcher {
         let event_handler = move |res| emit_event(&event_handler, res);
 
         let _ = thread::Builder::new()
-            .name("notify-rs poll".to_string())
+            .name("notify-rs poll loop".to_string())
             .spawn(move || {
                 // In order of priority:
                 // TODO: handle metadata events
