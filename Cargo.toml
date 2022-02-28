@@ -31,19 +31,19 @@ walkdir = "2.0.1"
 
 [target.'cfg(target_os="linux")'.dependencies]
 inotify = { version = "0.9", default-features = false }
-mio = { version = "0.7.7", features = ["os-ext"] }
+mio = { version = "0.8", features = ["os-ext"] }
 
 [target.'cfg(target_os="macos")'.dependencies]
 fsevent-sys = { version = "4", optional = true }
 kqueue = { version = "1.0", optional = true }
-mio = { version = "0.7.7", features = ["os-ext"], optional = true }
+mio = { version = "0.8", features = ["os-ext"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.8", features = ["fileapi", "handleapi", "ioapiset", "minwinbase", "synchapi", "winbase", "winnt"] }
 
 [target.'cfg(any(target_os="freebsd", target_os="openbsd", target_os = "netbsd", target_os = "dragonflybsd"))'.dependencies]
 kqueue = "^1.0.4" # fix for #344
-mio = { version = "0.7.7", features = ["os-ext"] }
+mio = { version = "0.8", features = ["os-ext"] }
 
 [dev-dependencies]
 futures = "0.3"
