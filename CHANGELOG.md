@@ -21,6 +21,34 @@
 
 ## unreleased
 
+## 5.0.0-pre.14 (2022-03-13)
+
+- CHANGE: upgrade mio to 0.8 [#386]
+- CHANGE: PollWatcher: unify signature of new and with_delay  [#360]
+- CHANGE: emit EventKind::Modify on kqueue write event [#370]
+- CHANGE: use RenameMode::Any for renaming events [#371]
+- CHANGE: name all threads spawned by notify [#383]
+- FEATURE: Add Watcher::kind() [#364]
+- FEATURE: Add more Debug/Copy trait impls [#377] [#378]
+- FIX: Fix selection of RecommendedWatcher for macos_kqueue feature  [#362]
+- FIX: Turn possible panic into an error in FSEvents backend when file is deleted rapidly [#369]
+- FIX: lqueue: emit Create Events and watch all files in a directory [#372]
+- FIX: inotify: don't panic on shutdown [#373]
+
+[#386]: https://github.com/notify-rs/notify/pull/386
+[#360]: https://github.com/notify-rs/notify/pull/360
+[#370]: https://github.com/notify-rs/notify/pull/370
+[#371]: https://github.com/notify-rs/notify/pull/371
+[#383]: https://github.com/notify-rs/notify/pull/383
+[#364]: https://github.com/notify-rs/notify/pull/364
+[#377]: https://github.com/notify-rs/notify/pull/377
+[#378]: https://github.com/notify-rs/notify/pull/378
+[#362]: https://github.com/notify-rs/notify/pull/362
+[#369]: https://github.com/notify-rs/notify/pull/369
+[#372]: https://github.com/notify-rs/notify/pull/372
+[#373]: https://github.com/notify-rs/notify/pull/373
+
+
 ## 5.0.0-pre.13 (2021-09-07)
 
 - Fix: Add path information to inotify and kqueue watch/unwatch errors  [#354]
