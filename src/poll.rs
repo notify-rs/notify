@@ -6,9 +6,13 @@
 use super::event::*;
 use super::{Error, EventHandler, RecursiveMode, Result, Watcher};
 use filetime::FileTime;
+use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::fs;
+use std::fs::Metadata;
+use std::hash::BuildHasher;
+use std::hash::Hasher;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -16,11 +20,13 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant};
+use std::{fs, io};
 use walkdir::WalkDir;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct PathData {
     mtime: i64,
+    hash: Option<u64>,
     last_check: Instant,
 }
 
@@ -36,6 +42,33 @@ pub struct PollWatcher {
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
     open: Arc<AtomicBool>,
     delay: Duration,
+    compare_contents: bool,
+}
+
+/// General purpose configuration for [`PollWatcher`] specifically.  Can be used to tune
+/// this watcher differently than the other platform specific ones.
+#[derive(Debug, Clone)]
+pub struct PollWatcherConfig {
+    /// Interval between each rescan attempt.  This can be extremely expensive for large
+    /// file trees so it is recommended to measure and tune accordingly.
+    pub poll_interval: Duration,
+
+    /// Optional feature that will evaluate the contents of changed files to determine if
+    /// they have indeed changed using a fast hashing algorithm.  This is especially important
+    /// for pseudo filesystems like those on Linux under /sys and /proc which are not obligated
+    /// to respect any other filesystem norms such as modification timestamps, file sizes, etc.
+    /// By enabling this feature, performance will be significantly impacted as all files will
+    /// need to be read and hashed at each `poll_interval`.
+    pub compare_contents: bool,
+}
+
+impl Default for PollWatcherConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_secs(30),
+            compare_contents: false,
+        }
+    }
 }
 
 impl Debug for PollWatcher {
@@ -45,6 +78,7 @@ impl Debug for PollWatcher {
             .field("watches", &self.watches)
             .field("open", &self.open)
             .field("delay", &self.delay)
+            .field("compare_contents", &self.compare_contents)
             .finish()
     }
 }
@@ -56,14 +90,70 @@ fn emit_event(event_handler: &Mutex<dyn EventHandler>, res: Result<Event>) {
     }
 }
 
+impl PathData {
+    pub fn collect<BH: BuildHasher>(
+        path: &Path,
+        metadata: &Metadata,
+        build_hasher: Option<&BH>,
+        last_check: Instant,
+    ) -> Self {
+        let mtime = FileTime::from_last_modification_time(metadata).seconds();
+        let hash = metadata
+            .is_file()
+            .then(|| build_hasher.and_then(|bh| Self::hash_file(path, bh).ok()))
+            .flatten();
+        Self {
+            mtime,
+            hash,
+            last_check,
+        }
+    }
+
+    fn hash_file<P: AsRef<Path>, BH: BuildHasher>(path: P, build_hasher: &BH) -> io::Result<u64> {
+        let mut hasher = build_hasher.build_hasher();
+        let mut file = fs::File::open(path)?;
+        let mut buf = [0; 512];
+        while file.read(&mut buf)? > 0 {
+            hasher.write(&buf);
+        }
+        Ok(hasher.finish())
+    }
+
+    pub fn detect_change(&self, other: &PathData) -> Option<EventKind> {
+        if self.mtime > other.mtime {
+            Some(EventKind::Modify(ModifyKind::Metadata(MetadataKind::WriteTime)))
+        } else if self.hash != other.hash {
+            Some(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
+        } else {
+            None
+        }
+    }
+}
+
 impl PollWatcher {
     /// Create a new [PollWatcher] and set the poll frequency to `delay`.
+    #[deprecated(note = "Prefer with_config instead")]
     pub fn with_delay<F: EventHandler>(event_handler: F, delay: Duration) -> Result<PollWatcher> {
+        Self::with_config(
+            event_handler,
+            PollWatcherConfig {
+                poll_interval: delay,
+                compare_contents: false,
+            },
+        )
+    }
+
+    /// Create a new [PollWatcher], configured as needed.
+    pub fn with_config<F: EventHandler>(
+        event_handler: F,
+        config: PollWatcherConfig,
+    ) -> Result<PollWatcher> {
         let mut p = PollWatcher {
             event_handler: Arc::new(Mutex::new(event_handler)),
             watches: Arc::new(Mutex::new(HashMap::new())),
             open: Arc::new(AtomicBool::new(true)),
-            delay,
+            delay: config.poll_interval,
+            compare_contents: config.compare_contents,
         };
         p.run();
         Ok(p)
@@ -73,6 +163,7 @@ impl PollWatcher {
         let watches = self.watches.clone();
         let open = self.open.clone();
         let delay = self.delay;
+        let build_hasher = self.compare_contents.then(RandomState::default);
         let event_handler = self.event_handler.clone();
         let event_handler = move |res| emit_event(&event_handler, res);
 
@@ -108,26 +199,18 @@ impl PollWatcher {
                                 }
                                 Ok(metadata) => {
                                     if !metadata.is_dir() {
-                                        let mtime =
-                                            FileTime::from_last_modification_time(&metadata)
-                                                .seconds();
-                                        match paths.insert(
-                                            watch.clone(),
-                                            PathData {
-                                                mtime,
-                                                last_check: current_time,
-                                            },
-                                        ) {
+                                        let path_data = PathData::collect(
+                                            watch,
+                                            &metadata,
+                                            build_hasher.as_ref(),
+                                            current_time,
+                                        );
+                                        match paths.insert(watch.clone(), path_data.clone()) {
                                             None => {
                                                 unreachable!();
                                             }
-                                            Some(PathData {
-                                                mtime: old_mtime, ..
-                                            }) => {
-                                                if mtime > old_mtime {
-                                                    let kind = MetadataKind::WriteTime;
-                                                    let meta = ModifyKind::Metadata(kind);
-                                                    let kind = EventKind::Modify(meta);
+                                            Some(old_path_data) => {
+                                                if let Some(kind) = path_data.detect_change(&old_path_data) {
                                                     let ev =
                                                         Event::new(kind).add_path(watch.clone());
                                                     event_handler(Ok(ev));
@@ -144,7 +227,6 @@ impl PollWatcher {
                                             .filter_map(|e| e.ok())
                                         {
                                             let path = entry.path();
-
                                             match entry.metadata() {
                                                 Err(e) => {
                                                     let err = Error::io(e.into())
@@ -152,15 +234,16 @@ impl PollWatcher {
                                                     event_handler(Err(err));
                                                 }
                                                 Ok(m) => {
-                                                    let mtime =
-                                                        FileTime::from_last_modification_time(&m)
-                                                            .seconds();
+                                                    let path_data = PathData::collect(
+                                                        path,
+                                                        &m,
+                                                        build_hasher.as_ref(),
+                                                        current_time,
+                                                    );
+                                                    println!("{path:?}: {path_data:?}...");
                                                     match paths.insert(
                                                         path.to_path_buf(),
-                                                        PathData {
-                                                            mtime,
-                                                            last_check: current_time,
-                                                        },
+                                                        path_data.clone(),
                                                     ) {
                                                         None => {
                                                             let kind =
@@ -169,14 +252,8 @@ impl PollWatcher {
                                                                 .add_path(path.to_path_buf());
                                                             event_handler(Ok(ev));
                                                         }
-                                                        Some(PathData {
-                                                            mtime: old_mtime, ..
-                                                        }) => {
-                                                            if mtime > old_mtime {
-                                                                let kind = MetadataKind::WriteTime;
-                                                                let meta =
-                                                                    ModifyKind::Metadata(kind);
-                                                                let kind = EventKind::Modify(meta);
+                                                        Some(old_path_data) => {
+                                                            if let Some(kind) = path_data.detect_change(&old_path_data) {
                                                                 // TODO add new mtime as attr
                                                                 let ev = Event::new(kind)
                                                                     .add_path(path.to_path_buf());
@@ -214,6 +291,8 @@ impl PollWatcher {
     }
 
     fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        let build_hasher = self.compare_contents.then(RandomState::default);
+
         if let Ok(mut watches) = self.watches.lock() {
             let current_time = Instant::now();
 
@@ -228,14 +307,9 @@ impl PollWatcher {
                     let mut paths = HashMap::new();
 
                     if !metadata.is_dir() {
-                        let mtime = FileTime::from_last_modification_time(&metadata).seconds();
-                        paths.insert(
-                            watch.clone(),
-                            PathData {
-                                mtime,
-                                last_check: current_time,
-                            },
-                        );
+                        let path_data =
+                            PathData::collect(path, &metadata, build_hasher.as_ref(), current_time);
+                        paths.insert(watch.clone(), path_data);
                     } else {
                         let depth = if recursive_mode.is_recursive() {
                             usize::max_value()
@@ -256,14 +330,13 @@ impl PollWatcher {
                                     emit_event(&self.event_handler, Err(err));
                                 }
                                 Ok(m) => {
-                                    let mtime = FileTime::from_last_modification_time(&m).seconds();
-                                    paths.insert(
-                                        path.to_path_buf(),
-                                        PathData {
-                                            mtime,
-                                            last_check: current_time,
-                                        },
+                                    let path_data = PathData::collect(
+                                        path,
+                                        &m,
+                                        build_hasher.as_ref(),
+                                        current_time,
                                     );
+                                    paths.insert(path.to_path_buf(), path_data);
                                 }
                             }
                         }
@@ -297,8 +370,7 @@ impl Watcher for PollWatcher {
     /// The default poll frequency is 30 seconds.
     /// Use [with_delay] to manually set the poll frequency.
     fn new<F: EventHandler>(event_handler: F) -> Result<Self> {
-        let delay = Duration::from_secs(30);
-        Self::with_delay(event_handler, delay)
+        Self::with_config(event_handler, PollWatcherConfig::default())
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {

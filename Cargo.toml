@@ -49,6 +49,7 @@ mio = { version = "0.8", features = ["os-ext"] }
 futures = "0.3"
 serde_json = "1.0.39"
 tempfile = "3.2.0"
+nix = "0.23.1"
 
 [features]
 default = ["macos_fsevent"]
