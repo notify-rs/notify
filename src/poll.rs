@@ -121,7 +121,9 @@ impl PathData {
 
     pub fn detect_change(&self, other: &PathData) -> Option<EventKind> {
         if self.mtime > other.mtime {
-            Some(EventKind::Modify(ModifyKind::Metadata(MetadataKind::WriteTime)))
+            Some(EventKind::Modify(ModifyKind::Metadata(
+                MetadataKind::WriteTime,
+            )))
         } else if self.hash != other.hash {
             Some(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
         } else {
@@ -210,7 +212,9 @@ impl PollWatcher {
                                                 unreachable!();
                                             }
                                             Some(old_path_data) => {
-                                                if let Some(kind) = path_data.detect_change(&old_path_data) {
+                                                if let Some(kind) =
+                                                    path_data.detect_change(&old_path_data)
+                                                {
                                                     let ev =
                                                         Event::new(kind).add_path(watch.clone());
                                                     event_handler(Ok(ev));
@@ -253,7 +257,9 @@ impl PollWatcher {
                                                             event_handler(Ok(ev));
                                                         }
                                                         Some(old_path_data) => {
-                                                            if let Some(kind) = path_data.detect_change(&old_path_data) {
+                                                            if let Some(kind) = path_data
+                                                                .detect_change(&old_path_data)
+                                                            {
                                                                 // TODO add new mtime as attr
                                                                 let ev = Event::new(kind)
                                                                     .add_path(path.to_path_buf());
