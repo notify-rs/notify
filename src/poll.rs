@@ -139,18 +139,6 @@ impl PathData {
 }
 
 impl PollWatcher {
-    /// Create a new [PollWatcher] and set the poll frequency to `delay`.
-    #[deprecated(note = "Prefer with_config instead")]
-    pub fn with_delay<F: EventHandler>(event_handler: F, delay: Duration) -> Result<PollWatcher> {
-        Self::with_config(
-            event_handler,
-            PollWatcherConfig {
-                poll_interval: delay,
-                compare_contents: false,
-            },
-        )
-    }
-
     /// Create a new [PollWatcher], configured as needed.
     pub fn with_config<F: EventHandler>(
         event_handler: F,
