@@ -61,7 +61,6 @@ impl TestHarness {
         let (tx, rx) = sync::mpsc::channel();
         let watcher = PollWatcher::with_config(
             move |event: notify::Result<Event>| {
-                println!("event={event:?}");
                 tx.send(event).unwrap();
             },
             config,
