@@ -244,7 +244,6 @@ impl PollWatcher {
                                                         build_hasher.as_ref(),
                                                         current_time,
                                                     );
-                                                    println!("{path:?}: {path_data:?}...");
                                                     match paths.insert(
                                                         path.to_path_buf(),
                                                         path_data.clone(),
