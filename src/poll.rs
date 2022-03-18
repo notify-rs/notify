@@ -12,7 +12,7 @@ use std::fmt::Debug;
 use std::fs::Metadata;
 use std::hash::BuildHasher;
 use std::hash::Hasher;
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -113,8 +113,14 @@ impl PathData {
         let mut hasher = build_hasher.build_hasher();
         let mut file = fs::File::open(path)?;
         let mut buf = [0; 512];
-        while file.read(&mut buf)? > 0 {
-            hasher.write(&buf);
+        loop {
+            let n = match file.read(&mut buf) {
+                Ok(0) => break,
+                Ok(len) => len,
+                Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            };
+            hasher.write(&buf[..n]);
         }
         Ok(hasher.finish())
     }
