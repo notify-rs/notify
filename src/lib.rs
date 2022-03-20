@@ -301,4 +301,35 @@ mod tests {
     fn test_object_safe() {
         let _watcher: &dyn Watcher = &NullWatcher;
     }
+
+    #[test]
+    fn test_debug_impl() {
+        macro_rules! assert_debug_impl {
+            ($t:ty) => {{
+                trait NeedsDebug: std::fmt::Debug {}
+                impl NeedsDebug for $t {}
+            }};
+        }
+
+        assert_debug_impl!(Config);
+        assert_debug_impl!(Error);
+        assert_debug_impl!(ErrorKind);
+        assert_debug_impl!(event::AccessKind);
+        assert_debug_impl!(event::AccessMode);
+        assert_debug_impl!(event::CreateKind);
+        assert_debug_impl!(event::DataChange);
+        assert_debug_impl!(event::EventAttributes);
+        assert_debug_impl!(event::Flag);
+        assert_debug_impl!(event::MetadataKind);
+        assert_debug_impl!(event::ModifyKind);
+        assert_debug_impl!(event::RemoveKind);
+        assert_debug_impl!(event::RenameMode);
+        assert_debug_impl!(Event);
+        assert_debug_impl!(EventKind);
+        assert_debug_impl!(NullWatcher);
+        assert_debug_impl!(PollWatcher);
+        assert_debug_impl!(RecommendedWatcher);
+        assert_debug_impl!(RecursiveMode);
+        assert_debug_impl!(WatcherKind);
+    }
 }
