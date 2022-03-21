@@ -1,3 +1,4 @@
+#![cfg(not(target_os = "windows"))]
 use nix::sys::stat::futimens;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
