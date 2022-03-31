@@ -1,11 +1,10 @@
-#![cfg(not(target_os = "windows"))]
-
 use std::path::Path;
 use std::time::Duration;
 use notify::poll::PollWatcherConfig;
 use notify::{PollWatcher, RecursiveMode, Watcher};
 
-fn main() -> notify::Result<()> {
+#[cfg(not(target_os = "windows"))]
+fn not_windows_main() -> notify::Result<()> {
   let mut paths: Vec<_> = std::env::args().skip(1)
       .map(|arg| Path::new(&arg).to_path_buf())
       .collect();
@@ -39,4 +38,11 @@ fn main() -> notify::Result<()> {
   }
 
   Ok(())
+}
+
+fn main() -> notify::Result<()> {
+  #[cfg(not(target_os = "windows"))]
+  {
+    not_windows_main()
+  }
 }
