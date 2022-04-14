@@ -111,6 +111,9 @@ pub use crate::fsevent::FsEventWatcher;
 pub use crate::inotify::INotifyWatcher;
 #[cfg(any(
     target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonflybsd",
     all(target_os = "macos", feature = "macos_kqueue")
 ))]
 pub use crate::kqueue::KqueueWatcher;
@@ -269,6 +272,9 @@ pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
 /// The recommended `Watcher` implementation for the current platform
 #[cfg(any(
     target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonflybsd",
     all(target_os = "macos", feature = "macos_kqueue")
 ))]
 pub type RecommendedWatcher = KqueueWatcher;
@@ -277,7 +283,10 @@ pub type RecommendedWatcher = KqueueWatcher;
     target_os = "linux",
     target_os = "macos",
     target_os = "windows",
-    target_os = "freebsd"
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonflybsd"
 )))]
 pub type RecommendedWatcher = PollWatcher;
 
