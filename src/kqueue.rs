@@ -263,6 +263,10 @@ impl EventLoop {
                             remove_watches.push(path.clone());
                             Ok(Event::new(EventKind::Remove(RemoveKind::Any)).add_path(path))
                         }
+
+                        // On different BSD variants, different extra events may be present
+                        #[allow(unreachable_patterns)]
+                        _ => Ok(Event::new(EventKind::Other)),
                     };
                     self.event_handler.handle_event(event);
                 }
