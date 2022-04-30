@@ -435,6 +435,7 @@ impl FsEventWatcher {
         let thread_handle = thread::Builder::new()
             .name("notify-rs fsevents loop".to_string())
             .spawn(move || {
+                let _ = &stream;
                 let stream = stream.0;
 
                 unsafe {
