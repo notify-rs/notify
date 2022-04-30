@@ -21,6 +21,16 @@
 
 ## unreleased
 
+## 5.0.0-pre.15 (2022-04-30)
+
+- CHANGE: raise MSRV to 1.56! [#396][#402]
+- FEATURE: add support for pseudo filesystems like sysfs/procfs [#396]
+- FIX: Fix builds on (Free)BSD due to changes in kqueue fix release [#399]
+
+[#396]: https://github.com/notify-rs/notify/pull/396
+[#399]: https://github.com/notify-rs/notify/pull/399
+[#402]: https://github.com/notify-rs/notify/pull/402
+
 ## 5.0.0-pre.14 (2022-03-13)
 
 - CHANGE: upgrade mio to 0.8 [#386]
