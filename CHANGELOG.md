@@ -23,7 +23,7 @@
 
 ## 5.0.0-pre.15 (2022-04-30)
 
-- CHANGE: raise MSRV to 1.56! [#396][#402]
+- CHANGE: raise MSRV to 1.56! [#396] and [#402]
 - FEATURE: add support for pseudo filesystems like sysfs/procfs [#396]
 - FIX: Fix builds on (Free)BSD due to changes in kqueue fix release [#399]
 
