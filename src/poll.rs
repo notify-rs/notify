@@ -194,6 +194,7 @@ impl PollWatcher {
                                     continue;
                                 }
                                 Ok(metadata) => {
+                                    // this is a file type watching point
                                     if !metadata.is_dir() {
                                         let path_data = PathData::collect(
                                             watch,
@@ -201,10 +202,20 @@ impl PollWatcher {
                                             build_hasher.as_ref(),
                                             current_time,
                                         );
+
+                                        // Update `path_data` for this watching point. In file
+                                        // type watching point, only has single one path need
+                                        // to update.
                                         match paths.insert(watch.clone(), path_data.clone()) {
+                                            // `old_path_data` not exists, this is a new path
                                             None => {
-                                                unreachable!();
+                                                let kind = EventKind::Create(CreateKind::Any);
+                                                let ev = Event::new(kind).add_path(watch.clone());
+                                                event_handler(Ok(ev));
                                             }
+
+                                            // path already exists, need further check to see
+                                            // what's the difference.
                                             Some(old_path_data) => {
                                                 if let Some(kind) =
                                                     path_data.detect_change(&old_path_data)
@@ -215,6 +226,8 @@ impl PollWatcher {
                                                 }
                                             }
                                         }
+
+                                    // this is a dir type watching point
                                     } else {
                                         let depth =
                                             if is_recursive { usize::max_value() } else { 1 };
@@ -225,6 +238,8 @@ impl PollWatcher {
                                             .filter_map(|e| e.ok())
                                         {
                                             let path = entry.path();
+
+                                            // TODO: duplicate logic, considering refactor following lines to a function.
                                             match entry.metadata() {
                                                 Err(e) => {
                                                     let err = Error::io(e.into())
@@ -268,7 +283,9 @@ impl PollWatcher {
                             }
                         }
 
+                        // clear out all paths which not updated by this round.
                         for (_, &mut WatchData { ref mut paths, .. }) in watches.iter_mut() {
+                            // find which paths should be removed in this watching point.
                             let mut removed = Vec::new();
                             for (path, &PathData { last_check, .. }) in paths.iter() {
                                 if last_check < current_time {
@@ -278,6 +295,8 @@ impl PollWatcher {
                                     removed.push(path.clone());
                                 }
                             }
+
+                            // remove actually.
                             for path in removed {
                                 (*paths).remove(&path);
                             }
