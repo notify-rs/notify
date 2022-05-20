@@ -386,7 +386,7 @@ impl Watcher for PollWatcher {
     /// Create a new [PollWatcher].
     ///
     /// The default poll frequency is 30 seconds.
-    /// Use [with_delay] to manually set the poll frequency.
+    /// Use [with_config] to manually set the poll frequency.
     fn new<F: EventHandler>(event_handler: F) -> Result<Self> {
         Self::with_config(event_handler, PollWatcherConfig::default())
     }
