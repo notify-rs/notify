@@ -42,9 +42,13 @@ jobs:
         if: matrix.version != 'stable' && matrix.os != 'macos-latest'
         run: cargo check --features=serde --examples
 
-      - name: check build hot reload tide
+      - name: check build example
         if: matrix.version != 'stable'
-        run: cargo check -p hot_reload_tide
+        run: cargo check -p watcher_kind
+
+      - name: test hot_reload_tide
+        if: matrix.version != 'stable'
+        run: cargo test -p hot_reload_tide
 
       - name: test
         if: matrix.version == 'stable'

@@ -1,4 +1,4 @@
-use announcer::messages::*;
+use hot_reload_tide::messages::{Config, load_config};
 
 #[test]
 fn load_config_from_file() {
