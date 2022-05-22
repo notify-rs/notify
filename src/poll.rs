@@ -23,13 +23,13 @@ mod data {
     };
     use filetime::FileTime;
     use std::{
+        cell::RefCell,
         collections::{hash_map::RandomState, HashMap},
         fmt::{self, Debug},
         fs::{self, File, Metadata},
         hash::{BuildHasher, Hasher},
         io::{self, Read},
         path::{Path, PathBuf},
-        sync::{Arc, Mutex},
         time::Instant,
     };
     use walkdir::WalkDir;
@@ -360,21 +360,23 @@ mod data {
     }
 
     /// Thin wrapper for outer event handler, for easy to use.
-    struct EventEmitter(Arc<Mutex<dyn EventHandler>>);
+    struct EventEmitter(
+        // Use `RefCell` to make sure `emit()` only need shared borrow of self (&self).
+        // Use `Box` to make sure EventEmitter is Sized.
+        Box<RefCell<dyn EventHandler>>,
+    );
 
     impl EventEmitter {
         fn new<F: EventHandler>(event_handler: F) -> Self {
-            Self(Arc::new(Mutex::new(event_handler)))
+            Self(Box::new(RefCell::new(event_handler)))
         }
 
         /// Emit single event.
         fn emit(&self, event: crate::Result<Event>) {
-            // FIXME: inconsistent: some place mutex poison cause panic, some place just ignore.
-            if let Ok(mut guard) = self.0.lock() {
-                guard.handle_event(event);
-            }
+            self.0.borrow_mut().handle_event(event);
         }
 
+        /// Emit event.
         fn emit_ok(&self, event: Event) {
             self.emit(Ok(event))
         }
