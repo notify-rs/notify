@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         version:
-          - 1.26.1 # MSRV
+          - 1.31.1 # MSRV
           - stable
           - nightly
         os: [ubuntu-latest, macos-latest, windows-latest]
@@ -22,7 +22,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: setup toolchain
         # `--no-self-update` is needed due to a permission issue on the GHA env.
@@ -32,14 +32,14 @@ jobs:
           rustup override set ${{ matrix.version }}
 
       - name: MSRV check
-        if: matrix.version == '1.26.1'
+        if: matrix.version == '1.31.1'
         shell: bash
         run: |
           mv Cargo.lock.min Cargo.lock
           cargo build
 
       - name: check build
-        if: matrix.version != '1.26.1'
+        if: matrix.version != '1.31.1'
         run: |
           cargo test --no-fail-fast
 
@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: install cargo-audit
         run: |
