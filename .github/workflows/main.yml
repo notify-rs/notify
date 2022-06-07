@@ -25,7 +25,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: setup toolchain
         # `--no-self-update` is needed due to a permission issue on the GHA env.
@@ -42,9 +42,13 @@ jobs:
         if: matrix.version != 'stable' && matrix.os != 'macos-latest'
         run: cargo check --features=serde --examples
 
-      - name: check build hot reload tide
+      - name: check build example
         if: matrix.version != 'stable'
-        run: cargo check -p hot_reload_tide
+        run: cargo check -p watcher_kind
+
+      - name: test hot_reload_tide
+        if: matrix.version != 'stable'
+        run: cargo test -p hot_reload_tide
 
       - name: test
         if: matrix.version == 'stable'
@@ -61,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: setup toolchain
         # `--no-self-update` is needed due to a permission issue on the GHA env.
@@ -79,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: install cargo-audit
         run: |
