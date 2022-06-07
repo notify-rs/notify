@@ -14,7 +14,7 @@ _Cross-platform filesystem notification library for Rust._
 
 - [API Documentation][docs]
 - [Crate page][crate]
-- Earliest supported Rust version: **1.26.1**
+- Earliest supported Rust version: **1.31.1**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
 [mdBook], [pax], [rdiff], [timetrack], [watchexec], [xi-editor], and others.
