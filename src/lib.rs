@@ -90,6 +90,8 @@
 
 #![deny(missing_docs)]
 
+#[cfg(target_os = "linux")]
+extern crate crossbeam_channel;
 #[macro_use]
 extern crate bitflags;
 extern crate filetime;
@@ -98,8 +100,6 @@ extern crate fsevent_sys;
 extern crate libc;
 #[cfg(target_os = "linux")]
 extern crate mio;
-#[cfg(target_os = "linux")]
-extern crate mio_extras;
 #[cfg(target_os = "windows")]
 extern crate winapi;
 
@@ -524,7 +524,7 @@ impl From<io::Error> for Error {
         #[cfg(target_os = "linux")]
         {
             if err.raw_os_error() == Some(28) {
-                return Error::Generic(String::from("Can't watch (more) files, limit on the total number of inotify watches reached"))
+                return Error::Generic(String::from("Can't watch (more) files, limit on the total number of inotify watches reached"));
             }
         }
         Error::Io(err)
