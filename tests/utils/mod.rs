@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_macros)]
+
 use std::{
     fs,
     io::Write,
@@ -11,8 +13,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crossbeam_channel::{Receiver, RecvTimeoutError};
-use notify::*;
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
+use notify::{*, poll::PollWatcherConfig};
 use tempfile::TempDir;
 
 #[cfg(not(target_os = "windows"))]
@@ -86,6 +88,13 @@ pub fn extract_cookies(events: &[(PathBuf, EventKind, Option<usize>)]) -> Vec<us
         }
     }
     cookies
+}
+
+pub fn poll_with_delay_ms(tx: Sender<Result<Event>>, delay_ms: u64) -> Result<PollWatcher> {
+    PollWatcher::with_config(tx, PollWatcherConfig {
+        poll_interval: Duration::from_millis(delay_ms),
+        compare_contents: false,
+})
 }
 
 // Sleep for `duration` in milliseconds
