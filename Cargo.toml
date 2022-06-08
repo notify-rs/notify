@@ -55,6 +55,7 @@ nix = "0.23.1"
 default = ["macos_fsevent"]
 timing_tests = []
 manual_tests = []
+network_tests = []
 macos_kqueue = ["kqueue", "mio"]
 macos_fsevent = ["fsevent-sys"]
 
