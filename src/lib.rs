@@ -104,7 +104,6 @@ pub use config::{Config, RecursiveMode};
 pub use debouncer::new_debouncer;
 pub use error::{Error, ErrorKind, Result};
 pub use event::{Event, EventKind};
-use std::convert::AsRef;
 use std::path::Path;
 
 #[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
