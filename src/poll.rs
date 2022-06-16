@@ -53,7 +53,7 @@ mod data {
         {
             Self {
                 emitter: EventEmitter::new(event_handler),
-                build_hasher: compare_content.then(|| RandomState::default()),
+                build_hasher: compare_content.then(RandomState::default),
                 now: Instant::now(),
             }
         }
@@ -187,11 +187,11 @@ mod data {
         /// # Side Effect
         ///
         /// This function may emit some IO Error events by `data_builder.emitter`.
-        fn scan_all_path_data<'a>(
-            data_builder: &'a DataBuilder,
+        fn scan_all_path_data(
+            data_builder: &'_ DataBuilder,
             root: PathBuf,
             is_recursive: bool,
-        ) -> impl Iterator<Item = (PathBuf, PathData)> + 'a {
+        ) -> impl Iterator<Item = (PathBuf, PathData)> + '_ {
             // WalkDir return only one entry if root is a file (not a folder),
             // so we can use single logic to do the both file & dir's jobs.
             //
@@ -263,7 +263,7 @@ mod data {
             let metadata = meta_path.metadata();
 
             PathData {
-                mtime: FileTime::from_last_modification_time(&metadata).seconds(),
+                mtime: FileTime::from_last_modification_time(metadata).seconds(),
                 hash: data_builder
                     .build_hasher
                     .as_ref()
@@ -470,7 +470,9 @@ impl PollWatcher {
                     {
                         data_builder.update_timestamp();
 
-                        for watch_data in watches.values_mut() {
+
+                        let vals = watches.values_mut();
+                        for watch_data in vals {
                             watch_data.rescan(&mut data_builder);
                         }
                     }
@@ -523,7 +525,7 @@ impl PollWatcher {
             .unwrap()
             .remove(path)
             .map(|_| ())
-            .ok_or_else(|| crate::Error::watch_not_found())
+            .ok_or_else(crate::Error::watch_not_found)
     }
 }
 
