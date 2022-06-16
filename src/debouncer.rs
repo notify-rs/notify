@@ -4,13 +4,13 @@ use std::{
     path::PathBuf,
     sync::{
         mpsc::{self, Receiver},
-        Arc, Mutex, MutexGuard,
+        Arc, Mutex,
     },
     time::{Duration, Instant},
 };
 
 use crate::{
-    event::{MetadataKind, ModifyKind},
+    event::ModifyKind,
     Error, ErrorKind, Event, EventKind, RecommendedWatcher, Watcher,
 };
 
@@ -28,8 +28,6 @@ struct EventData {
 /// See also https://github.com/notify-rs/notify/wiki/The-Event-Guide#platform-specific-behaviour for more information.
 #[derive(Eq, PartialEq, Clone)]
 pub enum DebouncedEvent {
-    // NoticeWrite(PathBuf),
-    // NoticeRemove(PathBuf),
     /// When precise events are disabled for files
     Any,
     /// Access performed
@@ -44,9 +42,6 @@ pub enum DebouncedEvent {
     Metadata,
     /// File deleted
     Remove,
-    // Rename(PathBuf, PathBuf),
-    // Rescan,
-    // Error(Error, Option<PathBuf>),
 }
 
 impl From<DebouncedEvent> for EventData {
@@ -219,7 +214,7 @@ pub fn new_debouncer(
         }
     });
 
-    let watcher = RecommendedWatcher::new_immediate(move |e: Result<Event, Error>| {
+    let watcher = RecommendedWatcher::new(move |e: Result<Event, Error>| {
         if let Ok(e) = e {
             let mut lock = data.lock().expect("Can't lock debouncer data!");
             lock.add_event(e);
