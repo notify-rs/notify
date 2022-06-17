@@ -21,7 +21,10 @@ jobs:
           - 1.56.0 # MSRV
           - stable
           - nightly
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -35,19 +38,27 @@ jobs:
           rustup override set ${{ matrix.version }}
 
       - name: check build
-        if: matrix.version != 'stable' && matrix.os == 'macos-latest'
+        if: matrix.version != '1.56.0' && matrix.os == 'macos-latest'
         run: cargo check --features=serde,macos_kqueue --examples
 
       - name: check build
-        if: matrix.version != 'stable' && matrix.os != 'macos-latest'
+        if: matrix.version == '1.56.0' && matrix.os == 'macos-latest'
+        run: cargo check --features=serde,macos_kqueue
+
+      - name: check build
+        if: matrix.version != '1.56.0' && matrix.os != 'macos-latest'
         run: cargo check --features=serde --examples
 
+      - name: check build
+        if: matrix.version == '1.56.0' && matrix.os != 'macos-latest'
+        run: cargo check --features=serde
+
       - name: check build example
-        if: matrix.version != 'stable'
+        if: matrix.version == 'stable'
         run: cargo check -p watcher_kind
 
       - name: test hot_reload_tide
-        if: matrix.version != 'stable'
+        if: matrix.version == 'stable'
         run: cargo test -p hot_reload_tide
 
       - name: test
@@ -61,7 +72,6 @@ jobs:
         target:
           - x86_64-unknown-netbsd
           - x86_64-unknown-freebsd
-          - x86_64-apple-darwin
     runs-on: ubuntu-latest
 
     steps:
@@ -72,12 +82,12 @@ jobs:
         run: |
           rustup set profile minimal
           rustup toolchain install stable --no-self-update
-          rustup target add ${{ matrix.target}}
+          rustup target add ${{ matrix.target }}
 
       - name: check build
         run: |
-          rustc --version && cargo --version  
-          cargo build --target ${{ matrix.target}}
+          rustc --version && cargo --version
+          cargo build --target ${{ matrix.target }}
 
   audit:
     runs-on: ubuntu-latest
