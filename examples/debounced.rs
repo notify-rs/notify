@@ -12,7 +12,7 @@ fn main() {
         }
     });
 
-    let (rx, mut watcher) = new_debouncer(Duration::from_secs(2)).unwrap();
+    let (rx, mut watcher) = new_debouncer(Duration::from_secs(2), None).unwrap();
 
     watcher
         .watch(Path::new("."), RecursiveMode::Recursive)
