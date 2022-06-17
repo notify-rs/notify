@@ -31,7 +31,7 @@ impl EventData {
     }
 }
 
-type DebounceChannelType = Result<Vec<DebouncedEvent>,Vec<Error>>;
+type DebounceChannelType = Result<Vec<DebouncedEvent>, Vec<Error>>;
 
 /// A debounced event kind.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -79,8 +79,10 @@ impl DebounceDataInner {
         // TODO: perfect fit for drain_filter https://github.com/rust-lang/rust/issues/59618
         for (k, v) in self.d.drain() {
             if v.update.elapsed() >= self.timeout {
+                println!("normal timeout");
                 events_expired.push(DebouncedEvent::new(k, DebouncedEventKind::Any));
             } else if v.insert.elapsed() >= self.timeout {
+                println!("continuous");
                 data_back.insert(k.clone(), v);
                 events_expired.push(DebouncedEvent::new(k, DebouncedEventKind::AnyContinuous));
             } else {
@@ -116,24 +118,45 @@ impl DebounceDataInner {
     }
 }
 
-/// Creates a new debounced watcher
+/// Creates a new debounced watcher.
+/// 
+/// Timeout is the amount of time after which a debounced event is emitted or a Continuous event is send, if there still are events incoming for the specific path.
+/// 
+/// If tick_rate is None, notify will select a tick rate that is less than the provided timeout.
 pub fn new_debouncer(
     timeout: Duration,
+    tick_rate: Option<Duration>,
 ) -> Result<(Receiver<DebounceChannelType>, RecommendedWatcher), Error> {
     let data = DebounceData::default();
+
+    let tick_div = 4;
+    let tick = match tick_rate {
+        Some(v) => {
+            if v > timeout {
+                return Err(Error::new(ErrorKind::Generic(format!(
+                    "Invalid tick_rate, tick rate {:?} > {:?} timeout!",
+                    v, timeout
+                ))));
+            }
+            v
+        }
+        None => timeout.checked_div(tick_div).ok_or_else(|| {
+            Error::new(ErrorKind::Generic(format!(
+                "Failed to calculate tick as {:?}/{}!",
+                timeout, tick_div
+            )))
+        })?,
+    };
+
+    {
+        let mut data_w = data.lock().unwrap();
+        data_w.timeout = timeout;
+    }
 
     let (tx, rx) = mpsc::channel();
 
     let data_c = data.clone();
-    // TODO: do we want to add some ticking option ?
-    let tick_div = 4;
-    // TODO: use proper error kind (like InvalidConfig that requires passing a Config)
-    let tick = timeout.checked_div(tick_div).ok_or_else(|| {
-        Error::new(ErrorKind::Generic(format!(
-            "Failed to calculate tick as {:?}/{}!",
-            timeout, tick_div
-        )))
-    })?;
+
     std::thread::Builder::new()
         .name("notify-rs debouncer loop".to_string())
         .spawn(move || {
