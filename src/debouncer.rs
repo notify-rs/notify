@@ -1,4 +1,6 @@
 //! Debouncer & access code
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -9,49 +11,52 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{
-    event::ModifyKind,
-    Error, ErrorKind, Event, EventKind, RecommendedWatcher, Watcher,
-};
+use crate::{Error, ErrorKind, Event, RecommendedWatcher, Watcher};
 
 /// Deduplicate event data entry
 struct EventData {
-    /// Deduplicated event
-    kind: DebouncedEvent,
     /// Insertion Time
     insert: Instant,
     /// Last Update
     update: Instant,
 }
 
-/// A debounced event. Do note that any precise events are heavily platform dependent and only Any is gauranteed to work in all cases.
-/// See also https://github.com/notify-rs/notify/wiki/The-Event-Guide#platform-specific-behaviour for more information.
-#[derive(Eq, PartialEq, Clone)]
-pub enum DebouncedEvent {
-    /// When precise events are disabled for files
-    Any,
-    /// Access performed
-    Access,
-    /// File created
-    Create,
-    /// Write performed
-    Write,
-    /// Write performed but debounce timed out (continuous writes)
-    ContinuousWrite,
-    /// Metadata change like permissions
-    Metadata,
-    /// File deleted
-    Remove,
+impl EventData {
+    fn new_any() -> Self {
+        let time = Instant::now();
+        Self {
+            insert: time.clone(),
+            update: time,
+        }
+    }
 }
 
-impl From<DebouncedEvent> for EventData {
-    fn from(e: DebouncedEvent) -> Self {
-        let start = Instant::now();
-        EventData {
-            kind: e,
-            insert: start.clone(),
-            update: start,
-        }
+/// A debounced event kind.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[non_exhaustive]
+pub enum DebouncedEventKind {
+    /// When precise events are disabled for files
+    Any,
+    /// Event but debounce timed out (for example continuous writes)
+    AnyContinuous,
+}
+
+/// A debounced event.
+///
+/// Does not emit any specific event type on purpose, only distinguishes between an any event and a continuous any event.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct DebouncedEvent {
+    /// Event path
+    pub path: PathBuf,
+    /// Event kind
+    pub kind: DebouncedEventKind,
+}
+
+impl DebouncedEvent {
+    fn new(path: PathBuf, kind: DebouncedEventKind) -> Self {
+        Self { path, kind }
     }
 }
 
@@ -65,17 +70,16 @@ struct DebounceDataInner {
 
 impl DebounceDataInner {
     /// Retrieve a vec of debounced events, removing them if not continuous
-    pub fn debounced_events(&mut self) -> HashMap<PathBuf, DebouncedEvent> {
-        let mut events_expired = HashMap::new();
-        let mut data_back = HashMap::new();
+    pub fn debounced_events(&mut self) -> Vec<DebouncedEvent> {
+        let mut events_expired = Vec::with_capacity(self.d.len());
+        let mut data_back = HashMap::with_capacity(self.d.len());
         // TODO: perfect fit for drain_filter https://github.com/rust-lang/rust/issues/59618
         for (k, v) in self.d.drain() {
             if v.update.elapsed() >= self.timeout {
-                events_expired.insert(k, v.kind);
-            } else if v.kind == DebouncedEvent::Write && v.insert.elapsed() >= self.timeout {
-                // TODO: allow config for continuous writes reports
+                events_expired.push(DebouncedEvent::new(k, DebouncedEventKind::Any));
+            } else if v.insert.elapsed() >= self.timeout {
                 data_back.insert(k.clone(), v);
-                events_expired.insert(k, DebouncedEvent::ContinuousWrite);
+                events_expired.push(DebouncedEvent::new(k, DebouncedEventKind::AnyContinuous));
             } else {
                 data_back.insert(k, v);
             }
@@ -84,90 +88,13 @@ impl DebounceDataInner {
         events_expired
     }
 
-    /// Helper to insert or update EventData
-    fn _insert_event(&mut self, path: PathBuf, kind: DebouncedEvent) {
-        if let Some(v) = self.d.get_mut(&path) {
-            // TODO: is it more efficient to take a &EventKind, compare v.kind == kind and only
-            // update the v.update Instant, trading a .clone() with a compare ?
-            v.update = Instant::now();
-            v.kind = kind;
-        } else {
-            self.d.insert(path, kind.into());
-        }
-    }
-
     /// Add new event to debouncer cache
     pub fn add_event(&mut self, e: Event) {
-        // TODO: handle renaming of backup files as in https://docs.rs/notify/4.0.15/notify/trait.Watcher.html#advantages
-        match &e.kind {
-            EventKind::Any | EventKind::Other => {
-                for p in e.paths.into_iter() {
-                    if let Some(existing) = self.d.get(&p) {
-                        match existing.kind {
-                            DebouncedEvent::Any => (),
-                            _ => continue,
-                        }
-                    }
-                    self._insert_event(p, DebouncedEvent::Any);
-                }
-            }
-            EventKind::Access(_t) => {
-                for p in e.paths.into_iter() {
-                    if let Some(existing) = self.d.get(&p) {
-                        match existing.kind {
-                            DebouncedEvent::Any | DebouncedEvent::Access => (),
-                            _ => continue,
-                        }
-                    }
-                    self._insert_event(p, DebouncedEvent::Access);
-                }
-            }
-            EventKind::Modify(mod_kind) => {
-                let target_event = match mod_kind {
-                    // ignore
-                    ModifyKind::Any | ModifyKind::Other => return,
-                    ModifyKind::Data(_) => DebouncedEvent::Write,
-                    ModifyKind::Metadata(_) => DebouncedEvent::Metadata,
-                    // TODO: handle renames
-                    ModifyKind::Name(_) => return,
-                };
-                for p in e.paths.into_iter() {
-                    if let Some(existing) = self.d.get(&p) {
-                        // TODO: consider EventKind::Any on invalid configurations
-                        match existing.kind {
-                            DebouncedEvent::Access
-                            | DebouncedEvent::Any
-                            | DebouncedEvent::Metadata => (),
-                            DebouncedEvent::Write => {
-                                // don't overwrite Write with Metadata event
-                                if target_event != DebouncedEvent::Write {
-                                    continue;
-                                }
-                            }
-                            _ => continue,
-                        }
-                    }
-                    self._insert_event(p, target_event.clone());
-                }
-            }
-            EventKind::Remove(_) => {
-                // ignore previous events, override
-                for p in e.paths.into_iter() {
-                    self._insert_event(p, DebouncedEvent::Remove);
-                }
-            }
-            EventKind::Create(_) => {
-                // override anything except for previous Remove events
-                for p in e.paths.into_iter() {
-                    if let Some(e) = self.d.get(&p) {
-                        if e.kind == DebouncedEvent::Remove {
-                            // change to write
-                            self._insert_event(p, DebouncedEvent::Write);
-                            continue;
-                        }
-                    }
-                    self._insert_event(p, DebouncedEvent::Create);
-                }
+        for path in e.paths.into_iter() {
+            if let Some(v) = self.d.get_mut(&path) {
+                v.update = Instant::now();
+            } else {
+                self.d.insert(path, EventData::new_any());
             }
         }
     }
@@ -176,13 +103,7 @@ impl DebounceDataInner {
 /// Creates a new debounced watcher
 pub fn new_debouncer(
     timeout: Duration,
-) -> Result<
-    (
-        Receiver<HashMap<PathBuf, DebouncedEvent>>,
-        RecommendedWatcher,
-    ),
-    Error,
-> {
+) -> Result<(Receiver<Vec<DebouncedEvent>>, RecommendedWatcher), Error> {
     let data = DebounceData::default();
 
     let (tx, rx) = mpsc::channel();
