@@ -461,15 +461,15 @@ impl PollWatcher {
                         break;
                     }
 
-                    // HINT: Make sure always lock in the same order to avoid deadlock.
-                    //
-                    // FIXME: inconsistent: some place mutex poison cause panic,
-                    // some place just ignore.
-                    if let (Ok(mut watches), Ok(mut data_builder)) =
-                        (watches.lock(), data_builder.lock())
+                    // Make sure release lock before thread sleep.
                     {
-                        data_builder.update_timestamp();
+                        // HINT: Make sure always lock in the same order to avoid deadlock.
+                        let (mut watches, mut data_builder) = (
+                            watches.lock().expect("no panic in event handler"),
+                            data_builder.lock().expect("no panic in event handler"),
+                        );
 
+                        data_builder.update_timestamp();
 
                         let vals = watches.values_mut();
                         for watch_data in vals {
@@ -498,20 +498,19 @@ impl PollWatcher {
     /// Please also consider the IO Error event problem.
     fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) {
         // HINT: Make sure always lock in the same order to avoid deadlock.
-        //
-        // FIXME: inconsistent: some place mutex poison cause panic, some place just ignore.
-        if let (Ok(mut watches), Ok(mut data_builder)) =
-            (self.watches.lock(), self.data_builder.lock())
-        {
-            data_builder.update_timestamp();
+        let (mut watches, mut data_builder) = (
+            self.watches.lock().expect("no panic in event handler"),
+            self.data_builder.lock().expect("no panic in event handler"),
+        );
 
-            let watch_data =
-                data_builder.build_watch_data(path.to_path_buf(), recursive_mode.is_recursive());
+        data_builder.update_timestamp();
 
-            // if create watch_data successful, add it to watching list.
-            if let Some(watch_data) = watch_data {
-                watches.insert(path.to_path_buf(), watch_data);
-            }
+        let watch_data =
+            data_builder.build_watch_data(path.to_path_buf(), recursive_mode.is_recursive());
+
+        // if create watch_data successful, add it to watching list.
+        if let Some(watch_data) = watch_data {
+            watches.insert(path.to_path_buf(), watch_data);
         }
     }
 
@@ -519,10 +518,9 @@ impl PollWatcher {
     ///
     /// Return `Err(_)` if given path has't be monitored.
     fn unwatch_inner(&mut self, path: &Path) -> crate::Result<()> {
-        // FIXME: inconsistent: some place mutex poison cause panic, some place just ignore.
         self.watches
             .lock()
-            .unwrap()
+            .expect("no panic in event handler")
             .remove(path)
             .map(|_| ())
             .ok_or_else(crate::Error::watch_not_found)
