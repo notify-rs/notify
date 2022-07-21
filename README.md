@@ -26,7 +26,8 @@ You likely want either [the latest 4.0 release] or [5.0.0-pre.15].
 - Earliest supported Rust version: **1.47.0**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax],
-[rdiff], [rust-analyzer], [timetrack], [watchexec], [xi-editor], and others.
+[rdiff], [rust-analyzer], [timetrack], [watchexec], [xi-editor], [watchfiles],
+and others.
 
 ## Installation
 
@@ -213,3 +214,4 @@ Written by [Félix Saparelli] and awesome [contributors].
 [watchexec]: https://github.com/mattgreen/watchexec
 [wiki]: https://github.com/notify-rs/notify/wiki
 [xi-editor]: https://xi-editor.io/
+[watchfiles]: https://watchfiles.helpmanual.io/
