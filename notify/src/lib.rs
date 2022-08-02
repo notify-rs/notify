@@ -101,7 +101,6 @@
 #![deny(missing_docs)]
 
 pub use config::{Config, RecursiveMode};
-pub use debouncer::new_debouncer;
 pub use error::{Error, ErrorKind, Result};
 pub use event::{Event, EventKind};
 use std::path::Path;
@@ -143,7 +142,6 @@ pub mod null;
 pub mod poll;
 
 mod config;
-mod debouncer;
 mod error;
 
 /// The set of requirements for watcher event handling functions.

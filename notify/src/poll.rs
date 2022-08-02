@@ -470,7 +470,6 @@ impl PollWatcher {
                     {
                         data_builder.update_timestamp();
 
-
                         let vals = watches.values_mut();
                         for watch_data in vals {
                             watch_data.rescan(&mut data_builder);

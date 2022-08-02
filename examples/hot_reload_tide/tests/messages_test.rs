@@ -1,4 +1,4 @@
-use hot_reload_tide::messages::{Config, load_config};
+use hot_reload_tide::messages::{load_config, Config};
 
 #[test]
 fn load_config_from_file() {

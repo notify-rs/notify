@@ -12,4 +12,5 @@ fn main() {
     } else {
         Box::new(RecommendedWatcher::new(tx).unwrap())
     };
+    // use _watcher here
 }
