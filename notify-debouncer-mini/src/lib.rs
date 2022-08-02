@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{Error, ErrorKind, Event, RecommendedWatcher, Watcher};
+use notify::{Error, ErrorKind, Event, RecommendedWatcher, Watcher};
 
 /// Deduplicate event data entry
 struct EventData {

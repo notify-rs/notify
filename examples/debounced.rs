@@ -1,6 +1,7 @@
 use std::{path::Path, time::Duration};
 
-use notify::{new_debouncer, RecursiveMode, Watcher};
+use notify::{RecursiveMode, Watcher};
+use notify_debouncer_mini::new_debouncer;
 
 fn main() {
     std::thread::spawn(|| {

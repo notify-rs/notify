@@ -1,0 +1,35 @@
+[package]
+name = "examples"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[dev-dependencies]
+notify = { version = "5.0.0-pre.15" }
+notify-debouncer-mini = { version = "0.1" }
+futures = "0.3"
+
+[[example]]
+name = "async_monitor"
+path = "async_monitor.rs"
+
+[[example]]
+name = "monitor_raw"
+path = "monitor_raw.rs"
+
+[[example]]
+name = "debounced"
+path = "debounced.rs"
+
+[[example]]
+name = "poll_sysfs"
+path = "poll_sysfs.rs"
+
+[[example]]
+name = "watcher_kind"
+path = "watcher_kind.rs"
+
+# specifically in its own sub folder
+# to prevent audit from complaining
+#[[example]]
+#name = "hot_reload_tide"
