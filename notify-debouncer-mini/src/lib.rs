@@ -5,13 +5,58 @@ use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{
-        mpsc::{self, Receiver},
+        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant},
 };
 
 use notify::{Error, ErrorKind, Event, RecommendedWatcher, Watcher};
+
+/// The set of requirements for watcher debounce event handling functions.
+///
+/// # Example implementation
+///
+/// ```no_run
+/// use notify::{Event, Result, EventHandler};
+///
+/// /// Prints received events
+/// struct EventPrinter;
+///
+/// impl EventHandler for EventPrinter {
+///     fn handle_event(&mut self, event: Result<Event>) {
+///         if let Ok(event) = event {
+///             println!("Event: {:?}", event);
+///         }
+///     }
+/// }
+/// ```
+pub trait DebounceEventHandler: Send + 'static {
+    /// Handles an event.
+    fn handle_event(&mut self, event: DebouncedEvents);
+}
+
+impl<F> DebounceEventHandler for F
+where
+    F: FnMut(DebouncedEvents) + Send + 'static,
+{
+    fn handle_event(&mut self, event: DebouncedEvents) {
+        (self)(event);
+    }
+}
+
+#[cfg(feature = "crossbeam")]
+impl DebounceEventHandler for crossbeam_channel::Sender<DebouncedEvents> {
+    fn handle_event(&mut self, event: DebouncedEvents) {
+        let _ = self.send(event);
+    }
+}
+
+impl DebounceEventHandler for std::sync::mpsc::Sender<DebouncedEvents> {
+    fn handle_event(&mut self, event: DebouncedEvents) {
+        let _ = self.send(event);
+    }
+}
 
 /// Deduplicate event data entry
 struct EventData {
@@ -31,7 +76,7 @@ impl EventData {
     }
 }
 
-type DebounceChannelType = Result<Vec<DebouncedEvent>, Vec<Error>>;
+type DebouncedEvents = Result<Vec<DebouncedEvent>, Vec<Error>>;
 
 /// A debounced event kind.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -118,16 +163,58 @@ impl DebounceDataInner {
     }
 }
 
-/// Creates a new debounced watcher.
-/// 
+/// Debouncer guard, stops the debouncer on drop
+pub struct Debouncer<T: Watcher> {
+    stop: Arc<AtomicBool>,
+    watcher: T,
+    debouncer_thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl<T: Watcher> Debouncer<T> {
+    /// Stop the debouncer, waits for the event thread to finish.
+    /// May block for the duration of one tick_rate.
+    pub fn stop(mut self) {
+        self.set_stop();
+        if let Some(t) = self.debouncer_thread.take() {
+            let _ = t.join();
+        }
+    }
+
+    /// Stop the debouncer, does not wait for the event thread to finish.
+    pub fn stop_nonblocking(self) {
+        self.set_stop();
+    }
+
+    fn set_stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+
+    /// Access to the internally used notify Watcher backend
+    pub fn watcher(&mut self) -> &mut dyn Watcher {
+        &mut self.watcher
+    }
+}
+
+impl<T: Watcher> Drop for Debouncer<T> {
+    fn drop(&mut self) {
+        // don't imitate c++ async futures and block on drop
+        self.set_stop();
+    }
+}
+
+/// Creates a new debounced watcher with custom configuration.
+///
 /// Timeout is the amount of time after which a debounced event is emitted or a Continuous event is send, if there still are events incoming for the specific path.
-/// 
+///
 /// If tick_rate is None, notify will select a tick rate that is less than the provided timeout.
-pub fn new_debouncer(
+pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher>(
     timeout: Duration,
     tick_rate: Option<Duration>,
-) -> Result<(Receiver<DebounceChannelType>, RecommendedWatcher), Error> {
+    mut event_handler: F,
+) -> Result<Debouncer<T>, Error> {
     let data = DebounceData::default();
+
+    let stop = Arc::new(AtomicBool::new(false));
 
     let tick_div = 4;
     let tick = match tick_rate {
@@ -153,38 +240,31 @@ pub fn new_debouncer(
         data_w.timeout = timeout;
     }
 
-    let (tx, rx) = mpsc::channel();
-
     let data_c = data.clone();
-
-    std::thread::Builder::new()
+    let stop_c = stop.clone();
+    let thread = std::thread::Builder::new()
         .name("notify-rs debouncer loop".to_string())
-        .spawn(move || {
-            loop {
-                std::thread::sleep(tick);
-                let send_data;
-                let errors: Vec<crate::Error>;
-                {
-                    let mut lock = data_c.lock().expect("Can't lock debouncer data!");
-                    send_data = lock.debounced_events();
-                    errors = lock.errors();
-                }
-                if send_data.len() > 0 {
-                    // channel shut down
-                    if tx.send(Ok(send_data)).is_err() {
-                        break;
-                    }
-                }
-                if errors.len() > 0 {
-                    // channel shut down
-                    if tx.send(Err(errors)).is_err() {
-                        break;
-                    }
-                }
+        .spawn(move || loop {
+            if stop_c.load(Ordering::Acquire) {
+                break;
+            }
+            std::thread::sleep(tick);
+            let send_data;
+            let errors: Vec<crate::Error>;
+            {
+                let mut lock = data_c.lock().expect("Can't lock debouncer data!");
+                send_data = lock.debounced_events();
+                errors = lock.errors();
+            }
+            if send_data.len() > 0 {
+                event_handler.handle_event(Ok(send_data));
+            }
+            if errors.len() > 0 {
+                event_handler.handle_event(Err(errors));
             }
         })?;
 
-    let watcher = RecommendedWatcher::new(move |e: Result<Event, Error>| {
+    let watcher = T::new(move |e: Result<Event, Error>| {
         let mut lock = data.lock().expect("Can't lock debouncer data!");
 
         match e {
@@ -194,5 +274,24 @@ pub fn new_debouncer(
         }
     })?;
 
-    Ok((rx, watcher))
+    let guard = Debouncer {
+        watcher,
+        debouncer_thread: Some(thread),
+        stop,
+    };
+
+    Ok(guard)
+}
+
+/// Short function to create a new debounced watcher with the recommended debouncer.
+///
+/// Timeout is the amount of time after which a debounced event is emitted or a Continuous event is send, if there still are events incoming for the specific path.
+///
+/// If tick_rate is None, notify will select a tick rate that is less than the provided timeout.
+pub fn new_debouncer<F: DebounceEventHandler>(
+    timeout: Duration,
+    tick_rate: Option<Duration>,
+    event_handler: F,
+) -> Result<Debouncer<RecommendedWatcher>, Error> {
+    new_debouncer_opt::<F, RecommendedWatcher>(timeout, tick_rate, event_handler)
 }
