@@ -3,6 +3,7 @@ use std::{path::Path, time::Duration};
 use notify::{RecursiveMode, Watcher};
 use notify_debouncer_mini::new_debouncer;
 
+/// Debouncer with custom backend and waiting for exit
 fn main() {
     std::thread::spawn(|| {
         let path = Path::new("test.txt");
@@ -15,7 +16,7 @@ fn main() {
 
     let (tx, rx) = std::sync::mpsc::channel();
 
-    let mut debouncer = new_debouncer(Duration::from_secs(2), None, tx).unwrap();
+    let mut debouncer = new_debouncer_opt::<_,notify::PollWatcher>(Duration::from_secs(2), None, tx).unwrap();
 
     debouncer
         .watcher()
