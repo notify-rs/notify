@@ -1,4 +1,43 @@
-//! Debouncer & access code
+//! Debouncer for notify
+//! 
+//! # Installation
+//!
+//! ```toml
+//! [dependencies]
+//! notify = "5.0.0-pre.15"
+//! notify-debouncer-mini = "0.1"
+//! ```
+//!  
+//! # Examples
+//!
+//! ```rust,no_run
+//! # use std::path::Path;
+//! # use std::time::Duration;
+//! use notify::{Watcher, RecursiveMode, Result};
+//! use notify_debouncer_mini::{new_debouncer,DebounceEventResult};
+//!
+//! # fn main() {
+//!     // Select recommended watcher for debouncer.
+//!     // Using a callback here, could also be a channel.
+//!     let mut debouncer = new_debouncer(Duration::from_secs(2), None, |res: DebounceEventResult| {
+//!         match res {
+//!             Ok(events) => events.iter().for_each(|e|println!("Event {:?} for {:?}",e.kind,e.path)),
+//!             Err(errors) => errors.iter().for_each(|e|println!("Error {:?}",e)),
+//!         }
+//!     }).unwrap();
+//!
+//!     // Add a path to be watched. All files and directories at that path and
+//!     // below will be monitored for changes.
+//!     debouncer.watcher().watch(Path::new("."), RecursiveMode::Recursive).unwrap();
+//! # }
+//! ```
+//! 
+//! # Features
+//! 
+//! The following feature can be turned on or off.
+//! 
+//! - `crossbeam-channel` enabled by default, adds DebounceEventHandler support for crossbeam channels.
+//! - `serde` enabled serde support for events.
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::{
@@ -17,43 +56,50 @@ use notify::{Error, ErrorKind, Event, RecommendedWatcher, Watcher};
 ///
 /// # Example implementation
 ///
-/// ```no_run
-/// use notify::{Event, Result, EventHandler};
+/// ```rust,no_run
+/// # use notify::{Event, Result, EventHandler};
+/// # use notify_debouncer_mini::{DebounceEventHandler,DebounceEventResult};
 ///
 /// /// Prints received events
 /// struct EventPrinter;
 ///
-/// impl EventHandler for EventPrinter {
-///     fn handle_event(&mut self, event: Result<Event>) {
-///         if let Ok(event) = event {
-///             println!("Event: {:?}", event);
+/// impl DebounceEventHandler for EventPrinter {
+///     fn handle_event(&mut self, event: DebounceEventResult) {
+///         match event {
+///             Ok(events) => {
+///                 for event in events {
+///                     println!("Event {:?} for path {:?}",event.kind,event.path);
+///                 }
+///             },
+///             // errors are batched, so you get either events or errors, probably both per debounce tick (two calls)
+///             Err(errors) => errors.iter().for_each(|e|println!("Got error {:?}",e)),
 ///         }
 ///     }
 /// }
 /// ```
 pub trait DebounceEventHandler: Send + 'static {
     /// Handles an event.
-    fn handle_event(&mut self, event: DebouncedEvents);
+    fn handle_event(&mut self, event: DebounceEventResult);
 }
 
 impl<F> DebounceEventHandler for F
 where
-    F: FnMut(DebouncedEvents) + Send + 'static,
+    F: FnMut(DebounceEventResult) + Send + 'static,
 {
-    fn handle_event(&mut self, event: DebouncedEvents) {
+    fn handle_event(&mut self, event: DebounceEventResult) {
         (self)(event);
     }
 }
 
 #[cfg(feature = "crossbeam")]
-impl DebounceEventHandler for crossbeam_channel::Sender<DebouncedEvents> {
-    fn handle_event(&mut self, event: DebouncedEvents) {
+impl DebounceEventHandler for crossbeam_channel::Sender<DebounceEventResult> {
+    fn handle_event(&mut self, event: DebounceEventResult) {
         let _ = self.send(event);
     }
 }
 
-impl DebounceEventHandler for std::sync::mpsc::Sender<DebouncedEvents> {
-    fn handle_event(&mut self, event: DebouncedEvents) {
+impl DebounceEventHandler for std::sync::mpsc::Sender<DebounceEventResult> {
+    fn handle_event(&mut self, event: DebounceEventResult) {
         let _ = self.send(event);
     }
 }
@@ -76,14 +122,16 @@ impl EventData {
     }
 }
 
-type DebouncedEvents = Result<Vec<DebouncedEvent>, Vec<Error>>;
+/// A result of debounced events.
+/// Comes with either a vec of events or vec of errors.
+pub type DebounceEventResult = Result<Vec<DebouncedEvent>, Vec<Error>>;
 
 /// A debounced event kind.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[non_exhaustive]
 pub enum DebouncedEventKind {
-    /// When precise events are disabled for files
+    /// No precise events
     Any,
     /// Event but debounce timed out (for example continuous writes)
     AnyContinuous,
@@ -204,7 +252,7 @@ impl<T: Watcher> Drop for Debouncer<T> {
 
 /// Creates a new debounced watcher with custom configuration.
 ///
-/// Timeout is the amount of time after which a debounced event is emitted or a Continuous event is send, if there still are events incoming for the specific path.
+/// Timeout is the amount of time after which a debounced event is emitted or a continuous event is send, if there still are events incoming for the specific path.
 ///
 /// If tick_rate is None, notify will select a tick rate that is less than the provided timeout.
 pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher>(
@@ -285,7 +333,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher>(
 
 /// Short function to create a new debounced watcher with the recommended debouncer.
 ///
-/// Timeout is the amount of time after which a debounced event is emitted or a Continuous event is send, if there still are events incoming for the specific path.
+/// Timeout is the amount of time after which a debounced event is emitted or a continuous event is send, if there still are events incoming for the specific path.
 ///
 /// If tick_rate is None, notify will select a tick rate that is less than the provided timeout.
 pub fn new_debouncer<F: DebounceEventHandler>(
