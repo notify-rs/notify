@@ -37,21 +37,31 @@ jobs:
           rustup toolchain install ${{ matrix.version }} --no-self-update
           rustup override set ${{ matrix.version }}
 
-      - name: check build
+      - name: check build serde,macos_kqueue for examples
         if: matrix.version != '1.56.0' && matrix.os == 'macos-latest'
-        run: cargo check --features=serde,macos_kqueue --examples
+        run: cargo check -p notify --features=serde,macos_kqueue --examples
 
-      - name: check build
+      - name: check build serde,macos_kqueue
         if: matrix.version == '1.56.0' && matrix.os == 'macos-latest'
-        run: cargo check --features=serde,macos_kqueue
+        run: cargo check -p notify --features=serde,macos_kqueue
 
-      - name: check build
+      - name: check build serde for examples
         if: matrix.version != '1.56.0' && matrix.os != 'macos-latest'
-        run: cargo check --features=serde --examples
+        run: cargo check -p notify --features=serde --examples
 
-      - name: check build
+      - name: check build serde
         if: matrix.version == '1.56.0' && matrix.os != 'macos-latest'
         run: cargo check --features=serde
+
+      - name: check build without crossbeam/default features
+        if: matrix.version == 'stable'
+        run: cargo check -p notify --no-default-features --features=macos_fsevent
+        # -p notify required for feature selection!
+
+      - name: check build without crossbeam/default features on macos with kqueue
+        if: matrix.version == 'stable' && matrix.os == 'macos-latest'
+        run: cargo check -p notify --no-default-features --features=macos_kqueue
+        # -p notify required for feature selection!
 
       - name: check build examples
         if: matrix.version == 'stable'
@@ -89,6 +99,9 @@ jobs:
         run: |
           rustc --version && cargo --version
           cargo build --target ${{ matrix.target }}
+
+      - name: check build without crossbeam/default features
+        run: cargo build -p notify --no-default-features --target ${{ matrix.target }}
 
   audit:
     runs-on: ubuntu-latest

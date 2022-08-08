@@ -17,7 +17,7 @@ use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
 use crate::{event::*, WatcherKind};
 use crate::{Config, Error, EventHandler, RecursiveMode, Result, Watcher};
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
+use crate::{unbounded, bounded, Sender, Receiver, BoundSender};
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
@@ -51,7 +51,7 @@ enum Action {
     Watch(PathBuf, RecursiveMode),
     Unwatch(PathBuf),
     Stop,
-    Configure(Config, Sender<Result<bool>>),
+    Configure(Config, BoundSender<Result<bool>>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -228,7 +228,7 @@ impl ReadDirectoryChangesServer {
         }
     }
 
-    fn configure_raw_mode(&mut self, _config: Config, tx: Sender<Result<bool>>) {
+    fn configure_raw_mode(&mut self, _config: Config, tx: BoundSender<Result<bool>>) {
         tx.send(Ok(false))
             .expect("configuration channel disconnect");
     }

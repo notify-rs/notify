@@ -131,14 +131,27 @@ impl From<io::Error> for Error {
     }
 }
 
+#[cfg(feature = "crossbeam-channel")]
 impl<T> From<crossbeam_channel::SendError<T>> for Error {
     fn from(err: crossbeam_channel::SendError<T>) -> Self {
         Error::generic(&format!("internal channel disconnect: {:?}", err))
     }
 }
-
+#[cfg(not(feature = "crossbeam-channel"))]
+impl<T> From<std::sync::mpsc::SendError<T>> for Error {
+    fn from(err: std::sync::mpsc::SendError<T>) -> Self {
+        Error::generic(&format!("internal channel disconnect: {:?}", err))
+    }
+}
+#[cfg(feature = "crossbeam-channel")]
 impl From<crossbeam_channel::RecvError> for Error {
     fn from(err: crossbeam_channel::RecvError) -> Self {
+        Error::generic(&format!("internal channel disconnect: {:?}", err))
+    }
+}
+#[cfg(not(feature = "crossbeam-channel"))]
+impl From<std::sync::mpsc::RecvError> for Error {
+    fn from(err: std::sync::mpsc::RecvError) -> Self {
         Error::generic(&format!("internal channel disconnect: {:?}", err))
     }
 }

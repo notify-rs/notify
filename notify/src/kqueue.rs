@@ -6,7 +6,7 @@
 
 use super::event::*;
 use super::{Error, EventHandler, RecursiveMode, Result, Watcher};
-use crossbeam_channel::{unbounded, Sender};
+use crate::{unbounded, Sender, Receiver};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
 use std::collections::HashMap;
 use std::env;
@@ -29,8 +29,8 @@ struct EventLoop {
     running: bool,
     poll: mio::Poll,
     event_loop_waker: Arc<mio::Waker>,
-    event_loop_tx: crossbeam_channel::Sender<EventLoopMsg>,
-    event_loop_rx: crossbeam_channel::Receiver<EventLoopMsg>,
+    event_loop_tx: Sender<EventLoopMsg>,
+    event_loop_rx: Receiver<EventLoopMsg>,
     kqueue: kqueue::Watcher,
     event_handler: Box<dyn EventHandler>,
     watches: HashMap<PathBuf, bool>,
@@ -39,7 +39,7 @@ struct EventLoop {
 /// Watcher implementation based on inotify
 #[derive(Debug)]
 pub struct KqueueWatcher {
-    channel: crossbeam_channel::Sender<EventLoopMsg>,
+    channel: Sender<EventLoopMsg>,
     waker: Arc<mio::Waker>,
 }
 
@@ -51,7 +51,7 @@ enum EventLoopMsg {
 
 impl EventLoop {
     pub fn new(kqueue: kqueue::Watcher, event_handler: Box<dyn EventHandler>) -> Result<Self> {
-        let (event_loop_tx, event_loop_rx) = crossbeam_channel::unbounded::<EventLoopMsg>();
+        let (event_loop_tx, event_loop_rx) = unbounded::<EventLoopMsg>();
         let poll = mio::Poll::new()?;
 
         let event_loop_waker = Arc::new(mio::Waker::new(poll.registry(), MESSAGE)?);

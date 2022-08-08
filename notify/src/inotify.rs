@@ -6,7 +6,7 @@
 
 use super::event::*;
 use super::{Config, Error, ErrorKind, EventHandler, RecursiveMode, Result, Watcher};
-use crossbeam_channel::{bounded, unbounded, Sender};
+use crate::{unbounded, bounded, Sender, BoundSender, Receiver};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use std::collections::HashMap;
@@ -32,8 +32,8 @@ struct EventLoop {
     running: bool,
     poll: mio::Poll,
     event_loop_waker: Arc<mio::Waker>,
-    event_loop_tx: crossbeam_channel::Sender<EventLoopMsg>,
-    event_loop_rx: crossbeam_channel::Receiver<EventLoopMsg>,
+    event_loop_tx: Sender<EventLoopMsg>,
+    event_loop_rx: Receiver<EventLoopMsg>,
     inotify: Option<Inotify>,
     event_handler: Box<dyn EventHandler>,
     watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool)>,
@@ -44,7 +44,7 @@ struct EventLoop {
 /// Watcher implementation based on inotify
 #[derive(Debug)]
 pub struct INotifyWatcher {
-    channel: crossbeam_channel::Sender<EventLoopMsg>,
+    channel: Sender<EventLoopMsg>,
     waker: Arc<mio::Waker>,
 }
 
@@ -53,7 +53,7 @@ enum EventLoopMsg {
     RemoveWatch(PathBuf, Sender<Result<()>>),
     Shutdown,
     RenameTimeout(usize),
-    Configure(Config, Sender<Result<bool>>),
+    Configure(Config, BoundSender<Result<bool>>),
 }
 
 #[inline]
@@ -101,7 +101,7 @@ fn remove_watch_by_event(
 
 impl EventLoop {
     pub fn new(inotify: Inotify, event_handler: Box<dyn EventHandler>) -> Result<Self> {
-        let (event_loop_tx, event_loop_rx) = crossbeam_channel::unbounded::<EventLoopMsg>();
+        let (event_loop_tx, event_loop_rx) = unbounded::<EventLoopMsg>();
         let poll = mio::Poll::new()?;
 
         let event_loop_waker = Arc::new(mio::Waker::new(poll.registry(), MESSAGE)?);
@@ -204,7 +204,7 @@ impl EventLoop {
         }
     }
 
-    fn configure_raw_mode(&mut self, _config: Config, tx: Sender<Result<bool>>) {
+    fn configure_raw_mode(&mut self, _config: Config, tx: BoundSender<Result<bool>>) {
         tx.send(Ok(false))
             .expect("configuration channel disconnected");
     }

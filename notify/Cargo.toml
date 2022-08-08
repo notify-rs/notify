@@ -19,7 +19,7 @@ edition = "2021"
 
 [dependencies]
 bitflags = "1.0.4"
-crossbeam-channel = "0.5.0"
+crossbeam-channel = { version = "0.5.0", optional = true }
 filetime = "0.2.6"
 libc = "0.2.4"
 serde = { version = "1.0.89", features = ["derive"], optional = true }
@@ -47,7 +47,7 @@ tempfile = "3.2.0"
 nix = "0.23.1"
 
 [features]
-default = ["macos_fsevent"]
+default = ["macos_fsevent","crossbeam-channel"]
 timing_tests = []
 manual_tests = []
 macos_kqueue = ["kqueue", "mio"]
