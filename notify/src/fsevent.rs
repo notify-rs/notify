@@ -15,8 +15,7 @@
 #![allow(non_upper_case_globals, dead_code)]
 
 use crate::event::*;
-use crate::{Config, Error, EventHandler, RecursiveMode, Result, Watcher};
-use crossbeam_channel::{unbounded, Sender};
+use crate::{Config, Error, EventHandler, RecursiveMode, Result, Watcher, unbounded, Sender};
 use fsevent_sys as fs;
 use fsevent_sys::core_foundation as cf;
 use std::collections::HashMap;

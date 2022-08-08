@@ -105,6 +105,46 @@ pub use error::{Error, ErrorKind, Result};
 pub use event::{Event, EventKind};
 use std::path::Path;
 
+#[allow(dead_code)]
+#[cfg(feature = "crossbeam-channel")]
+pub(crate) type Receiver<T> = crossbeam_channel::Receiver<T>;
+#[allow(dead_code)]
+#[cfg(not(feature = "crossbeam-channel"))]
+pub(crate) type Receiver<T> = std::sync::mpsc::Receiver<T>;
+
+#[allow(dead_code)]
+#[cfg(feature = "crossbeam-channel")]
+pub(crate) type Sender<T> = crossbeam_channel::Sender<T>;
+#[allow(dead_code)]
+#[cfg(not(feature = "crossbeam-channel"))]
+pub(crate) type Sender<T> = std::sync::mpsc::Sender<T>;
+
+// std limitation
+#[allow(dead_code)]
+#[cfg(feature = "crossbeam-channel")]
+pub(crate) type BoundSender<T> = crossbeam_channel::Sender<T>;
+#[allow(dead_code)]
+#[cfg(not(feature = "crossbeam-channel"))]
+pub(crate) type BoundSender<T> = std::sync::mpsc::SyncSender<T>;
+
+#[allow(dead_code)]
+#[inline]
+pub(crate) fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
+    #[cfg(feature = "crossbeam-channel")]
+    return crossbeam_channel::unbounded();
+    #[cfg(not(feature = "crossbeam-channel"))]
+    return std::sync::mpsc::channel();
+}
+
+#[allow(dead_code)]
+#[inline]
+pub(crate) fn bounded<T>(cap: usize) -> (BoundSender<T>, Receiver<T>) {
+    #[cfg(feature = "crossbeam-channel")]
+    return crossbeam_channel::bounded(cap);
+    #[cfg(not(feature = "crossbeam-channel"))]
+    return std::sync::mpsc::sync_channel(cap);
+}
+
 #[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
 pub use crate::fsevent::FsEventWatcher;
 #[cfg(target_os = "linux")]
@@ -176,6 +216,7 @@ where
     }
 }
 
+#[cfg(feature = "crossbeam-channel")]
 impl EventHandler for crossbeam_channel::Sender<Result<Event>> {
     fn handle_event(&mut self, event: Result<Event>) {
         let _ = self.send(event);
