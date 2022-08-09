@@ -15,9 +15,9 @@ use winapi::um::synchapi;
 use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
+use crate::{bounded, unbounded, BoundSender, Receiver, Sender};
 use crate::{event::*, WatcherKind};
 use crate::{Config, Error, EventHandler, RecursiveMode, Result, Watcher};
-use crate::{unbounded, bounded, Sender, Receiver, BoundSender};
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;

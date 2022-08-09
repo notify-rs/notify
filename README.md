@@ -9,38 +9,32 @@
 
 _Cross-platform filesystem notification library for Rust._
 
-**Caution! This is unstable code!**
-
-You likely want either [the latest 4.0 release] or [5.0.0-pre.15].
-
-[the latest 4.0 release]: https://github.com/notify-rs/notify/tree/v4.0.16#notify
-[5.0.0-pre.15]: https://github.com/notify-rs/notify/tree/5.0.0-pre.15#notify
-
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
 [alert-after]!)
 
-- **incomplete [Guides and in-depth docs][wiki]**
 - [API Documentation][docs]
+- [Debouncer Documentation][debouncer]
+- [Examples][examples]
 - [Crate page][crate]
 - [Changelog][changelog]
-- Earliest supported Rust version: **1.47.0**
+- [Upgrading from v5](UPGRADING_V4_TO_V5.md)
+- Earliest supported Rust version: **1.56**
+- **incomplete [Guides and in-depth docs][wiki]**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax],
 [rdiff], [rust-analyzer], [timetrack], [watchexec], [xi-editor], [watchfiles],
 and others.
 
-## Installation
+## Base Installation
 
 ```toml
 [dependencies]
-crossbeam-channel = "0.4.0"
 notify = "5.0.0-pre.15"
 ```
 
 ## Usage
 
-The examples below are aspirational only, to preview what the final release may
-have looked like. They may not work. Refer to [the API documentation][docs] instead.
+A basic example 
 
 ```rust
 use notify::{RecommendedWatcher, RecursiveMode, Result, watcher};
@@ -68,92 +62,10 @@ fn main() -> Result<()> {
 }
 ```
 
-### With a channel
-
-To get a channel for advanced or flexible cases, use:
-
-```rust
-let rx = watcher.channel();
-
-loop {
-    match rx.recv() {
-        // ...
-    }
-}
-```
-
-To pass in a channel manually:
-
-```rust
-let (tx, rx) = crossbeam_channel::unbounded();
-let mut watcher: RecommendedWatcher = Watcher::with_channel(tx, Duration::from_secs(2))?;
-
-for event in rx.iter() {
-    // ...
-}
-```
-
-### With precise events
-
-By default, Notify issues generic events that carry little additional
-information beyond what path was affected. On some platforms, more is
-available; stay aware though that how exactly that manifests varies. To enable
-precise events, use:
-
-```rust
-use notify::Config;
-watcher.configure(Config::PreciseEvents(true));
-```
-
-### With notice events
-
-Sometimes you want to respond to some events straight away, but not give up the
-advantages of debouncing. Notice events appear once immediately when the occur
-during a debouncing period, and then a second time as usual at the end of the
-debouncing period:
-
-```rust
-use notify::Config;
-watcher.configure(Config::NoticeEvents(true));
-```
-
-### With ongoing events
-
-Sometimes frequent writes may be missed or not noticed often enough. Ongoing
-write events can be enabled to emit more events even while debouncing:
-
-```rust
-use notify::Config;
-watcher.configure(Config::OngoingEvents(Some(Duration::from_millis(500))));
-```
-
-### Without debouncing
-
-To receive events as they are emitted, without debouncing at all:
-
-```rust
-let mut watcher = immediate_watcher()?;
-```
-
-With a channel:
-
-```rust
-let (tx, rx) = unbounded();
-let mut watcher: RecommendedWatcher = Watcher::immediate_with_channel(tx)?;
-```
-
-### Serde
-
-Events can be serialisable via [serde]. To enable the feature:
-
-```toml
-notify = { version = "5.0.0-pre.15", features = ["serde"] }
-```
-
 ## Platforms
 
 - Linux / Android: inotify
-- macOS: FSEvents
+- macOS: FSEvents or kqueue, see features
 - Windows: ReadDirectoryChangesW
 - FreeBSD / NetBSD / OpenBSD / DragonflyBSD: kqueue
 - All platforms: polling
@@ -161,7 +73,7 @@ notify = { version = "5.0.0-pre.15", features = ["serde"] }
 ### FSEvents
 
 Due to the inner security model of FSEvents (see [FileSystemEventSecurity]),
-some event cannot be observed easily when trying to follow files that do not
+some events cannot be observed easily when trying to follow files that do not
 belong to you. In this case, reverting to the pollwatcher can fix the issue,
 with a slight performance cost.
 
@@ -183,10 +95,11 @@ Inspired by Go's [fsnotify] and Node.js's [Chokidar], born out of need for
 [cargo watch], and general frustration at the non-existence of C/Rust
 cross-platform notify libraries.
 
-Written by [Félix Saparelli] and awesome [contributors].
+Originally created by [Félix Saparelli] and awesome [contributors].
 
 [Chokidar]: https://github.com/paulmillr/chokidar
 [FileSystemEventSecurity]: https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html
+[debouncer]: https://github.com/notify-rs/notify/tree/main/notify-debouncer-mini
 [Félix Saparelli]: https://passcod.name
 [alacritty]: https://github.com/jwilm/alacritty
 [alert-after]: https://github.com/frewsxcv/alert-after
@@ -215,3 +128,4 @@ Written by [Félix Saparelli] and awesome [contributors].
 [wiki]: https://github.com/notify-rs/notify/wiki
 [xi-editor]: https://xi-editor.io/
 [watchfiles]: https://watchfiles.helpmanual.io/
+[examples]: examples/

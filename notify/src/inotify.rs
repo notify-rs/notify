@@ -6,7 +6,7 @@
 
 use super::event::*;
 use super::{Config, Error, ErrorKind, EventHandler, RecursiveMode, Result, Watcher};
-use crate::{unbounded, bounded, Sender, BoundSender, Receiver};
+use crate::{bounded, unbounded, BoundSender, Receiver, Sender};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use std::collections::HashMap;

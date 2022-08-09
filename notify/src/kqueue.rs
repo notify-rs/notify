@@ -6,7 +6,7 @@
 
 use super::event::*;
 use super::{Error, EventHandler, RecursiveMode, Result, Watcher};
-use crate::{unbounded, Sender, Receiver};
+use crate::{unbounded, Receiver, Sender};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
 use std::collections::HashMap;
 use std::env;

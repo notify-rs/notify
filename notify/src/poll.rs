@@ -392,7 +392,12 @@ mod data {
     }
 }
 
-/// Polling based `Watcher` implementation
+/// Polling based `Watcher` implementation.
+/// 
+/// By default scans through all files and checks for changed entries based on their change date.
+/// Can also be changed to perform file content change checks.
+/// 
+/// See [PollWatcherConfig] for more details.
 #[derive(Debug)]
 pub struct PollWatcher {
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
@@ -532,7 +537,7 @@ impl Watcher for PollWatcher {
     /// Create a new [PollWatcher].
     ///
     /// The default poll frequency is 30 seconds.
-    /// Use [with_config] to manually set the poll frequency.
+    /// Use [PollWatcher::with_config] to manually set the poll frequency.
     fn new<F: EventHandler>(event_handler: F) -> crate::Result<Self> {
         Self::with_config(event_handler, PollWatcherConfig::default())
     }

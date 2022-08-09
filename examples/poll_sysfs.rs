@@ -1,10 +1,13 @@
-use notify::poll::PollWatcherConfig;
-use notify::{PollWatcher, RecursiveMode, Watcher};
-use std::path::Path;
-use std::time::Duration;
-
+/// Example for watching kernel internal filesystems like `/sys` and `/proc`
+/// These can't be watched by the default backend or unconfigured pollwatcher
+/// This example can't be demonstrated under windows, it might be relevant for network shares
 #[cfg(not(target_os = "windows"))]
 fn not_windows_main() -> notify::Result<()> {
+    use notify::poll::PollWatcherConfig;
+    use notify::{PollWatcher, RecursiveMode, Watcher};
+    use std::path::Path;
+    use std::time::Duration;
+
     let mut paths: Vec<_> = std::env::args()
         .skip(1)
         .map(|arg| Path::new(&arg).to_path_buf())
@@ -23,17 +26,19 @@ fn not_windows_main() -> notify::Result<()> {
     }
 
     println!("watching {:?}...", paths);
-
+    // configure pollwatcher backend
     let config = PollWatcherConfig {
-        compare_contents: true,
+        compare_contents: true, // crucial part for pseudo filesystems 
         poll_interval: Duration::from_secs(2),
     };
     let (tx, rx) = std::sync::mpsc::channel();
+    // create pollwatcher backend
     let mut watcher = PollWatcher::with_config(tx, config)?;
     for path in paths {
+        // watch all paths
         watcher.watch(&path, RecursiveMode::Recursive)?;
     }
-
+    // print all events, never returns
     for res in rx {
         match res {
             Ok(event) => println!("changed: {:?}", event),

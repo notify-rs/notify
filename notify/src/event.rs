@@ -238,8 +238,7 @@ pub enum EventKind {
 
     /// An event not fitting in any of the above four categories.
     ///
-    /// This may be used for meta-events about the watch itself. In "imprecise" mode, it is, along
-    /// with `Any`, the only other event generated.
+    /// This may be used for meta-events about the watch itself.
     Other,
 }
 
