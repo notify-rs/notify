@@ -1,5 +1,5 @@
 //! Debouncer for notify
-//! 
+//!
 //! # Installation
 //!
 //! ```toml
@@ -31,11 +31,11 @@
 //!     debouncer.watcher().watch(Path::new("."), RecursiveMode::Recursive).unwrap();
 //! # }
 //! ```
-//! 
+//!
 //! # Features
-//! 
+//!
 //! The following feature can be turned on or off.
-//! 
+//!
 //! - `crossbeam-channel` enabled by default, adds DebounceEventHandler support for crossbeam channels.
 //! - `serde` enabled serde support for events.
 #[cfg(feature = "serde")]

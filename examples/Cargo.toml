@@ -30,6 +30,6 @@ name = "watcher_kind"
 path = "watcher_kind.rs"
 
 # specifically in its own sub folder
-# to prevent audit from complaining
+# to prevent cargo audit from complaining
 #[[example]]
 #name = "hot_reload_tide"
