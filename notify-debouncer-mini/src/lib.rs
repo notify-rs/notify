@@ -4,7 +4,6 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify = "5.0.0-pre.15"
 //! notify-debouncer-mini = "0.1"
 //! ```
 //!  
@@ -13,10 +12,12 @@
 //! ```rust,no_run
 //! # use std::path::Path;
 //! # use std::time::Duration;
-//! use notify::{Watcher, RecursiveMode, Result};
-//! use notify_debouncer_mini::{new_debouncer,DebounceEventResult};
+//! use notify_debouncer_mini::{notify::*,new_debouncer,DebounceEventResult};
 //!
 //! # fn main() {
+//!     // setup initial watcher backend config
+//!     let config = Config::default();
+//! 
 //!     // Select recommended watcher for debouncer.
 //!     // Using a callback here, could also be a channel.
 //!     let mut debouncer = new_debouncer(Duration::from_secs(2), None, |res: DebounceEventResult| {
@@ -50,6 +51,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub use notify;
 use notify::{Error, ErrorKind, Event, RecommendedWatcher, Watcher};
 
 /// The set of requirements for watcher debounce event handling functions.
@@ -259,6 +261,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher>(
     timeout: Duration,
     tick_rate: Option<Duration>,
     mut event_handler: F,
+    config: notify::Config
 ) -> Result<Debouncer<T>, Error> {
     let data = DebounceData::default();
 
@@ -320,7 +323,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher>(
             // can't have multiple TX, so we need to pipe that through our debouncer
             Err(e) => lock.add_error(e),
         }
-    })?;
+    }, config)?;
 
     let guard = Debouncer {
         watcher,
@@ -339,7 +342,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher>(
 pub fn new_debouncer<F: DebounceEventHandler>(
     timeout: Duration,
     tick_rate: Option<Duration>,
-    event_handler: F,
+    event_handler: F
 ) -> Result<Debouncer<RecommendedWatcher>, Error> {
-    new_debouncer_opt::<F, RecommendedWatcher>(timeout, tick_rate, event_handler)
+    new_debouncer_opt::<F, RecommendedWatcher>(timeout, tick_rate, event_handler, notify::Config::default())
 }

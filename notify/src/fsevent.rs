@@ -543,7 +543,7 @@ unsafe fn callback_impl(
 
 impl Watcher for FsEventWatcher {
     /// Create a new watcher.
-    fn new<F: EventHandler>(event_handler: F) -> Result<Self> {
+    fn new<F: EventHandler>(event_handler: F, _config: Config) -> Result<Self> {
         Self::from_event_handler(Arc::new(Mutex::new(event_handler)))
     }
 

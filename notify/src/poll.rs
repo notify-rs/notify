@@ -3,7 +3,7 @@
 //! Checks the `watch`ed paths periodically to detect changes. This implementation only uses
 //! Rust stdlib APIs and should work on all of the platforms it supports.
 
-use crate::{EventHandler, RecursiveMode, Watcher};
+use crate::{EventHandler, RecursiveMode, Watcher, Config};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -406,45 +406,19 @@ pub struct PollWatcher {
     delay: Duration,
 }
 
-/// General purpose configuration for [`PollWatcher`] specifically.  Can be used to tune
-/// this watcher differently than the other platform specific ones.
-#[derive(Debug, Clone)]
-pub struct PollWatcherConfig {
-    /// Interval between each rescan attempt.  This can be extremely expensive for large
-    /// file trees so it is recommended to measure and tune accordingly.
-    pub poll_interval: Duration,
-
-    /// Optional feature that will evaluate the contents of changed files to determine if
-    /// they have indeed changed using a fast hashing algorithm.  This is especially important
-    /// for pseudo filesystems like those on Linux under /sys and /proc which are not obligated
-    /// to respect any other filesystem norms such as modification timestamps, file sizes, etc.
-    /// By enabling this feature, performance will be significantly impacted as all files will
-    /// need to be read and hashed at each `poll_interval`.
-    pub compare_contents: bool,
-}
-
-impl Default for PollWatcherConfig {
-    fn default() -> Self {
-        Self {
-            poll_interval: Duration::from_secs(30),
-            compare_contents: false,
-        }
-    }
-}
-
 impl PollWatcher {
     /// Create a new [PollWatcher], configured as needed.
-    pub fn with_config<F: EventHandler>(
+    pub fn new<F: EventHandler>(
         event_handler: F,
-        config: PollWatcherConfig,
+        config: Config,
     ) -> crate::Result<PollWatcher> {
-        let data_builder = DataBuilder::new(event_handler, config.compare_contents);
+        let data_builder = DataBuilder::new(event_handler, config.compare_contents());
 
         let poll_watcher = PollWatcher {
             watches: Default::default(),
             data_builder: Arc::new(Mutex::new(data_builder)),
             want_to_stop: Arc::new(AtomicBool::new(false)),
-            delay: config.poll_interval,
+            delay: config.poll_interval(),
         };
 
         poll_watcher.run();
@@ -535,11 +509,8 @@ impl PollWatcher {
 
 impl Watcher for PollWatcher {
     /// Create a new [PollWatcher].
-    ///
-    /// The default poll frequency is 30 seconds.
-    /// Use [PollWatcher::with_config] to manually set the poll frequency.
-    fn new<F: EventHandler>(event_handler: F) -> crate::Result<Self> {
-        Self::with_config(event_handler, PollWatcherConfig::default())
+    fn new<F: EventHandler>(event_handler: F, config: Config) -> crate::Result<Self> {
+        Self::new(event_handler, config)
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> crate::Result<()> {

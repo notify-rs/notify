@@ -5,7 +5,7 @@
 //! pieces of kernel code termed filters.
 
 use super::event::*;
-use super::{Error, EventHandler, RecursiveMode, Result, Watcher};
+use super::{Error, EventHandler, RecursiveMode, Result, Watcher, Config};
 use crate::{unbounded, Receiver, Sender};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
 use std::collections::HashMap;
@@ -405,7 +405,7 @@ impl KqueueWatcher {
 
 impl Watcher for KqueueWatcher {
     /// Create a new watcher.
-    fn new<F: EventHandler>(event_handler: F) -> Result<Self> {
+    fn new<F: EventHandler>(event_handler: F, _config: Config) -> Result<Self> {
         Self::from_event_handler(Box::new(event_handler))
     }
 

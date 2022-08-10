@@ -15,9 +15,9 @@ use winapi::um::synchapi;
 use winapi::um::winbase::{self, INFINITE, WAIT_OBJECT_0};
 use winapi::um::winnt::{self, FILE_NOTIFY_INFORMATION, HANDLE};
 
-use crate::{bounded, unbounded, BoundSender, Receiver, Sender};
+use crate::{bounded, unbounded, BoundSender, Receiver, Sender, Config};
 use crate::{event::*, WatcherKind};
-use crate::{Config, Error, EventHandler, RecursiveMode, Result, Watcher};
+use crate::{Error, EventHandler, RecursiveMode, Result, Watcher};
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
@@ -498,7 +498,7 @@ impl ReadDirectoryChangesWatcher {
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
-    fn new<F: EventHandler>(event_handler: F) -> Result<Self> {
+    fn new<F: EventHandler>(event_handler: F, config: Config) -> Result<Self> {
         // create dummy channel for meta event
         // TODO: determine the original purpose of this - can we remove it?
         let (meta_tx, _) = unbounded();

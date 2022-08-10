@@ -25,43 +25,6 @@ As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax],
 [rdiff], [rust-analyzer], [timetrack], [watchexec], [xi-editor], [watchfiles],
 and others.
 
-## Base Installation
-
-```toml
-[dependencies]
-notify = "5.0.0-pre.15"
-```
-
-## Usage
-
-A basic example 
-
-```rust
-use notify::{RecommendedWatcher, RecursiveMode, Result, watcher};
-use std::time::Duration;
-
-fn main() -> Result<()> {
-    // Automatically select the best implementation for your platform.
-    // You can also access each implementation directly e.g. INotifyWatcher.
-    let mut watcher = watcher(Duration::from_secs(2))?;
-
-    // Add a path to be watched. All files and directories at that path and
-    // below will be monitored for changes.
-    watcher.watch("/home/test/notify", RecursiveMode::Recursive)?;
-
-    // This is a simple loop, but you may want to use more complex logic here,
-    // for example to handle I/O.
-    for event in &watcher {
-        match event {
-            Ok(event) => println!("changed: {:?}", event.path),
-            Err(err) => println!("watch error: {:?}", err),
-        };
-    }
-
-    Ok(())
-}
-```
-
 ## Platforms
 
 - Linux / Android: inotify

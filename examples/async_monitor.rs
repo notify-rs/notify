@@ -2,7 +2,7 @@ use futures::{
     channel::mpsc::{channel, Receiver},
     SinkExt, StreamExt,
 };
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher, Config};
 use std::path::Path;
 
 /// Async, futures channel based event watching
@@ -28,7 +28,7 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
         futures::executor::block_on(async {
             tx.send(res).await.unwrap();
         })
-    })?;
+    }, Config::default())?;
 
     Ok((watcher, rx))
 }

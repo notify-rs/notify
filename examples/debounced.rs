@@ -1,6 +1,6 @@
 use std::{path::Path, time::Duration};
 
-use notify::{RecursiveMode, Watcher};
+use notify::{RecursiveMode};
 use notify_debouncer_mini::new_debouncer;
 
 /// Example for debouncer

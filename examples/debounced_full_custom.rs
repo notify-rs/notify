@@ -1,7 +1,7 @@
 use std::{path::Path, time::Duration};
 
-use notify::{RecursiveMode, Watcher};
-use notify_debouncer_mini::new_debouncer;
+use notify::{RecursiveMode, Config};
+use notify_debouncer_mini::new_debouncer_opt;
 
 /// Debouncer with custom backend and waiting for exit
 fn main() {
@@ -18,7 +18,7 @@ fn main() {
     // setup debouncer
     let (tx, rx) = std::sync::mpsc::channel();
     // select backend via fish operator, here PollWatcher backend
-    let mut debouncer = new_debouncer_opt::<_,notify::PollWatcher>(Duration::from_secs(2), None, tx).unwrap();
+    let mut debouncer = new_debouncer_opt::<_,notify::PollWatcher>(Duration::from_secs(2), None, tx, Config::default()).unwrap();
 
     debouncer
         .watcher()
