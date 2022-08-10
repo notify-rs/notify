@@ -3,8 +3,7 @@
 /// This example can't be demonstrated under windows, it might be relevant for network shares
 #[cfg(not(target_os = "windows"))]
 fn not_windows_main() -> notify::Result<()> {
-    use notify::poll::PollWatcherConfig;
-    use notify::{PollWatcher, RecursiveMode, Watcher};
+    use notify::{PollWatcher, RecursiveMode, Watcher, Config};
     use std::path::Path;
     use std::time::Duration;
 
@@ -27,13 +26,12 @@ fn not_windows_main() -> notify::Result<()> {
 
     println!("watching {:?}...", paths);
     // configure pollwatcher backend
-    let config = PollWatcherConfig {
-        compare_contents: true, // crucial part for pseudo filesystems 
-        poll_interval: Duration::from_secs(2),
-    };
+    let config = Config::default()
+        .with_compare_contents(true) // crucial part for pseudo filesystems 
+        .with_poll_interval(Duration::from_secs(2));
     let (tx, rx) = std::sync::mpsc::channel();
     // create pollwatcher backend
-    let mut watcher = PollWatcher::with_config(tx, config)?;
+    let mut watcher = PollWatcher::new(tx, config)?;
     for path in paths {
         // watch all paths
         watcher.watch(&path, RecursiveMode::Recursive)?;

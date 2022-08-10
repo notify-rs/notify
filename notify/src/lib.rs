@@ -290,8 +290,8 @@ pub enum WatcherKind {
 /// In addition to such event driven implementations, a polling implementation is also provided
 /// that should work on any platform.
 pub trait Watcher {
-    /// Create a new watcher.
-    fn new<F: EventHandler>(event_handler: F) -> Result<Self>
+    /// Create a new watcher with an initial Config.
+    fn new<F: EventHandler>(event_handler: F, config: config::Config) -> Result<Self>
     where
         Self: Sized;
     /// Begin watching a new path.
@@ -377,7 +377,7 @@ where
     F: EventHandler,
 {
     // All recommended watchers currently implement `new`, so just call that.
-    RecommendedWatcher::new(event_handler)
+    RecommendedWatcher::new(event_handler, Config::default())
 }
 
 #[cfg(test)]

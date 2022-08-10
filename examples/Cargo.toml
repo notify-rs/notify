@@ -22,6 +22,10 @@ name = "debounced"
 path = "debounced.rs"
 
 [[example]]
+name = "debounced_custom"
+path = "debounced_full_custom.rs"
+
+[[example]]
 name = "poll_sysfs"
 path = "poll_sysfs.rs"
 

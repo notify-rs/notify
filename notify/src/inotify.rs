@@ -617,7 +617,7 @@ impl INotifyWatcher {
 
 impl Watcher for INotifyWatcher {
     /// Create a new watcher.
-    fn new<F: EventHandler>(event_handler: F) -> Result<Self> {
+    fn new<F: EventHandler>(event_handler: F, _config: Config) -> Result<Self> {
         Self::from_event_handler(Box::new(event_handler))
     }
 

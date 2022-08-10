@@ -2,6 +2,8 @@
 
 #![allow(unused_variables)]
 
+use crate::Config;
+
 use super::{RecursiveMode, Result, Watcher};
 use std::path::Path;
 
@@ -20,11 +22,15 @@ impl Watcher for NullWatcher {
         Ok(())
     }
 
-    fn new<F: crate::EventHandler>(event_handler: F) -> Result<Self>
+    fn new<F: crate::EventHandler>(event_handler: F, config: Config) -> Result<Self>
     where
         Self: Sized,
     {
         Ok(NullWatcher)
+    }
+
+    fn configure(&mut self, config: Config) -> Result<bool> {
+        Ok(false)
     }
 
     fn kind() -> crate::WatcherKind {

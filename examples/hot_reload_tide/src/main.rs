@@ -38,7 +38,7 @@ async fn main() -> tide::Result<()> {
                     Err(error) => println!("Error reloading config: {:?}", error),
                 }
             }
-        })?;
+        },notify::Config::default())?;
 
     watcher.watch(Path::new(CONFIG_PATH), RecursiveMode::Recursive)?;
 
