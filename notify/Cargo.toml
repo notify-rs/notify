@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "5.0.0-pre.15"
+version = "5.0.0-pre.16"
 rust-version = "1.56"
 description = "Cross-platform filesystem notification library"
 documentation = "https://docs.rs/notify"
