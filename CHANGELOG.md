@@ -1,25 +1,22 @@
 # Changelog
 
-## 5.0.0 (future)
+## 5.0.0-pre.16 (2022-08-12)
 
-- CHANGE: Rewrite event debouncing.
-- CHANGE: Remove `Op` and `DebouncedEvent` event classification. [#187]
-- CHANGE: Make it opt-in to receive information about event kind. [#187]
-- CHANGE: Make `Notice` events opt-in.
-- CHANGE: Remove `Sender`s from watcher API in favour of `EventFn` [#214]
-- META: The project maintainers have changed from @passcod to notify-rs.
-- CHANGE: Avoid stating the watched path for non-recursive watches with inotify [#256]
-- FIX: Report events promptly on Linux, even when many occur in rapid succession. [#268]
-- FIX: Remove `anymap`, and replace event attributes with an opaque type. [#306]
-- CHANGE: Hide `fsevent::{CFRunLoopIsWaiting,callback}`, fix clippy lint warnings [#312]
-- CHANGE: Add more trait impls for public types, in particular `Debug` [#377]
+- CHANGE: require config for watcher creation and unify config [#426]
+- CHANGE: fsevent: use RenameMode::Any for renaming events [#371]
+- FEATURE: re-add debouncer as new crate and fixup CI [#286]
+- FEATURE: allow disabling crossbeam-channel dependency [#425]
+- FIX: PollWatcher panic after delete-and-recreate [#406]
+- MISC: rework pollwatcher internally [#409]
+- DOCS: cleanup all docs towards v5 [#395]
 
-[#268]: https://github.com/notify-rs/notify/pull/268
-[#306]: https://github.com/notify-rs/notify/pull/306
-[#312]: https://github.com/notify-rs/notify/pull/312
-[#377]: https://github.com/notify-rs/notify/pull/377
-
-## unreleased
+[#395]: https://github.com/notify-rs/notify/pull/395
+[#406]: https://github.com/notify-rs/notify/pull/406
+[#409]: https://github.com/notify-rs/notify/pull/409
+[#425]: https://github.com/notify-rs/notify/pull/425
+[#286]: https://github.com/notify-rs/notify/pull/286
+[#426]: https://github.com/notify-rs/notify/pull/426
+[#371]: https://github.com/notify-rs/notify/pull/371
 
 ## 5.0.0-pre.15 (2022-04-30)
 
