@@ -1,10 +1,10 @@
 [package]
 name = "notify-debouncer-mini"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.56"
 description = "notify mini debouncer for events"
-documentation = "https://docs.rs/notify_debouncer_mini"
+documentation = "https://docs.rs/notify-debouncer-mini"
 homepage = "https://github.com/notify-rs/notify"
 repository = "https://github.com/notify-rs/notify.git"
 authors = ["Aron Heinecke <Ox0p54r36@t-online.de>"]
