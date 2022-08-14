@@ -397,7 +397,7 @@ mod data {
 /// By default scans through all files and checks for changed entries based on their change date.
 /// Can also be changed to perform file content change checks.
 /// 
-/// See [PollWatcherConfig] for more details.
+/// See [Config] for more details.
 #[derive(Debug)]
 pub struct PollWatcher {
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
