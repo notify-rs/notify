@@ -6,6 +6,13 @@
 //! [dependencies]
 //! notify-debouncer-mini = "0.1"
 //! ```
+//! In case you want to select specific features of notify,
+//! specify notify as dependency explicitely in your dependencies.
+//! Otherwise you can just use the re-export of notify from debouncer-mini.
+//! ```toml
+//! notify-debouncer-mini = "0.1"
+//! notify = { version = "..", features = [".."] }
+//! ```
 //!  
 //! # Examples
 //!
@@ -174,10 +181,8 @@ impl DebounceDataInner {
         // TODO: perfect fit for drain_filter https://github.com/rust-lang/rust/issues/59618
         for (k, v) in self.d.drain() {
             if v.update.elapsed() >= self.timeout {
-                println!("normal timeout");
                 events_expired.push(DebouncedEvent::new(k, DebouncedEventKind::Any));
             } else if v.insert.elapsed() >= self.timeout {
-                println!("continuous");
                 data_back.insert(k.clone(), v);
                 events_expired.push(DebouncedEvent::new(k, DebouncedEventKind::AnyContinuous));
             } else {
@@ -205,7 +210,6 @@ impl DebounceDataInner {
         for path in e.paths.into_iter() {
             if let Some(v) = self.d.get_mut(&path) {
                 v.update = Instant::now();
-                println!("Exists");
             } else {
                 self.d.insert(path, EventData::new_any());
             }
