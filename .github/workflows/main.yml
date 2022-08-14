@@ -63,6 +63,11 @@ jobs:
         run: cargo check -p notify --no-default-features --features=macos_kqueue
         # -p notify required for feature selection!
 
+      - name: check notify debouncer mini features
+        if: matrix.version == 'stable'
+        run: cargo check -p notify-debouncer-mini --no-default-features
+        # -p required for feature selection to actually work!
+
       - name: check build examples
         if: matrix.version == 'stable'
         run: cargo check --package examples --examples

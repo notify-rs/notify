@@ -1,6 +1,6 @@
 [package]
 name = "notify-debouncer-mini"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.56"
 description = "notify mini debouncer for events"
@@ -19,7 +19,9 @@ name = "notify_debouncer_mini"
 path = "src/lib.rs"
 
 [features]
-default = ["crossbeam-channel"]
+default = ["crossbeam"]
+# can't use dep:crossbeam-channel and feature name crossbeam-channel below rust 1.60
+crossbeam = ["crossbeam-channel","notify/crossbeam-channel"]
 
 [dependencies]
 notify = "5.0.0-pre.16"
