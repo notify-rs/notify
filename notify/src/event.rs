@@ -276,6 +276,9 @@ impl Default for EventKind {
 }
 
 /// Notify event.
+///
+/// You might want to check [`Event::need_rescan`] to make sure no event was missed before you
+/// received this one.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Event {
@@ -505,6 +508,13 @@ pub enum Flag {
 }
 
 impl Event {
+    /// Returns whether some events may have been missed. If true, you should assume any file or
+    /// folder might have been modified.
+    ///
+    /// See [`Flag::Rescan`] for more information.
+    pub fn need_rescan(&self) -> bool {
+        matches!(self.flag(), Some(Flag::Rescan))
+    }
     /// Retrieves the tracker ID for an event directly, if present.
     pub fn tracker(&self) -> Option<usize> {
         self.attrs.tracker()
