@@ -1,5 +1,7 @@
 # Changelog
 
+v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
+
 ## 5.0.0-pre.16 (2022-08-12)
 
 - CHANGE: require config for watcher creation and unify config [#426]
@@ -112,6 +114,12 @@
 [#320]: https://github.com/notify-rs/notify/pull/320
 [#322]: https://github.com/notify-rs/notify/pull/322
 
+## 4.0.17 (2021-05-13)
+
+- FIX: Don't crash on macos when creating & deleting folders in rapid succession [#303]
+
+[#303]: https://github.com/notify-rs/notify/pull/303
+
 ## 5.0.0-pre.8 (2021-05-12)
 
 - HOTFIX: Fix breaking change in fsevent-sys in minor version destroying builds [#316]
@@ -160,6 +168,16 @@
 
 [#242]: https://github.com/notify-rs/notify/pull/242
 
+## 4.0.16 (2021-04-14)
+
+- FIX: Report events promptly on Linux, even when many occur in rapid succession. [#268]
+- FIX: Fix leaks on Windows and debounce module. [#288]
+- FIX: Display proper error message when reaching inotify limits on linux. [#290]
+
+[#268]: https://github.com/notify-rs/notify/pull/268
+[#288]: https://github.com/notify-rs/notify/pull/288
+[#290]: https://github.com/notify-rs/notify/pull/290
+
 ## 5.0.0-pre.2 (2020-01-07)
 
 - (Temporary): Remove event debouncing.
@@ -172,6 +190,14 @@
 
 [#214]: https://github.com/notify-rs/notify/pull/214
 [#234]: https://github.com/notify-rs/notify/pull/234
+
+## 4.0.15 (2020-01-07)
+
+- DEPS: Update inotify to 0.7.
+- DEPS(DEV): Replace tempdir with tempfile since tempdir is deprecated.
+- DEPS: Update winapi to 0.3 and remove kernel32-sys. [#232]
+
+[#232]: https://github.com/notify-rs/notify/pull/232
 
 ## 5.0.0-pre.1 (2019-06-30)
 
