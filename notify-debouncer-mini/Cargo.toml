@@ -24,6 +24,6 @@ default = ["crossbeam"]
 crossbeam = ["crossbeam-channel","notify/crossbeam-channel"]
 
 [dependencies]
-notify = "5.0.0-pre.16"
+notify = "5.0.0"
 crossbeam-channel = { version = "0.5", optional = true }
 serde = { version = "1.0.89", features = ["derive"], optional = true }
