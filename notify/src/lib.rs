@@ -72,7 +72,7 @@
 //! ### Linux: Bad File Descriptor / No space left on device
 //! 
 //! This may be the case of running into the max-files watched limits of your user or system.
-//! (Files also includes folders.) Note that for recusive watched folder each file and folder inside counts towards the limit.
+//! (Files also includes folders.) Note that for recursive watched folders each file and folder inside counts towards the limit.
 //! 
 //! You may increase this limit in linux via
 //! ```sh
