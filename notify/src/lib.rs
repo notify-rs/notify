@@ -282,6 +282,8 @@ pub enum WatcherKind {
     ReadDirectoryChangesWatcher,
     /// Fake watcher for testing
     NullWatcher,
+    /// If invoked on [WatcherFallback] created via [recommended_watcher_fallback]
+    UnknownFallback,
 }
 
 /// Type that can deliver file activity notifications
@@ -371,13 +373,111 @@ pub type RecommendedWatcher = PollWatcher;
 /// Convenience method for creating the `RecommendedWatcher` for the current platform in
 /// _immediate_ mode.
 ///
-/// See [`Watcher::new_immediate`](trait.Watcher.html#tymethod.new_immediate).
+/// See [`Watcher::new`](trait.Watcher.html#tymethod.new).
 pub fn recommended_watcher<F>(event_handler: F) -> Result<RecommendedWatcher>
 where
     F: EventHandler,
 {
     // All recommended watchers currently implement `new`, so just call that.
     RecommendedWatcher::new(event_handler, Config::default())
+}
+
+/// Method for creating the `RecommendedWatcher` for the current platform
+/// and falling back if the recommended API is not available.
+/// 
+/// Example use case is [#423] where Docker on M1 in qemu does not expose the inotify OS API.
+///
+/// See also [`Watcher::new`](trait.Watcher.html#tymethod.new).
+pub fn recommended_watcher_fallback<F>(event_handler: F, config: Config) -> Result<WatcherFallback>
+where
+    F: EventHandler + Copy,
+{
+    // All recommended watchers currently implement `new`, so just call that.
+    match RecommendedWatcher::new(event_handler, config.clone()) {
+        Ok(v) => Ok(WatcherFallback::Native(v)),
+        Err(e) => {
+            match &e.kind {
+                #[allow(unused)]
+                ErrorKind::Io(io_error) => {
+                    #[cfg(target_os = "linux")]
+                    if io_error.raw_os_error() == Some(38) {
+                        return Ok(WatcherFallback::Fallback(PollWatcher::new(event_handler, config)?));
+                    }
+                },
+                _ => (),
+            }
+            return Err(e);
+        },
+    }
+}
+
+/// Wrapper for a fallback initialized watcher.
+/// 
+/// See [`recommended_watcher_fallback`](recommended_watcher_fallback)
+#[derive(Debug)]
+pub enum WatcherFallback {
+    /// Native watcher, no error occured
+    Native(RecommendedWatcher),
+    /// Fallback watcher, known platform issue occured
+    /// 
+    /// For example the Docker with Linux on MacOS M1 bug
+    Fallback(PollWatcher)
+}
+
+impl WatcherFallback {
+    /// Returns the watcher inside
+    pub fn take_boxed(self) -> Box<dyn Watcher>{
+        match self {
+            WatcherFallback::Native(v) => Box::new(v),
+            WatcherFallback::Fallback(v) => Box::new(v),
+        }
+    }
+
+    /// Get watcher mutable
+    pub fn get_mut(&mut self) -> &mut dyn Watcher {
+        match self {
+            WatcherFallback::Native(v) => v,
+            WatcherFallback::Fallback(v) => v,
+        }
+    }
+
+    /// Get watcher
+    pub fn get(&self) -> &dyn Watcher {
+        match self {
+            WatcherFallback::Native(v) => v,
+            WatcherFallback::Fallback(v) => v,
+        }
+    }
+
+    // is this even possible without &self?!
+    /*pub fn kind(&self) -> WatcherKind {
+        Watcher::kind(&self.get())
+    }*/
+}
+
+impl Watcher for WatcherFallback {
+    fn new<F: EventHandler>(event_handler: F, config: config::Config) -> Result<Self>
+    where
+        Self: Sized {
+        //recommended_watcher_fallback(event_handler, config)
+        // impossible due to missing Copy on EventHandler
+        unimplemented!()
+    }
+
+    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.get_mut().watch(path, recursive_mode)
+    }
+
+    fn unwatch(&mut self, path: &Path) -> Result<()> {
+        self.get_mut().unwatch(path)
+    }
+
+    // todo: this is awkward
+    fn kind() -> WatcherKind
+    where
+        Self: Sized {
+        WatcherKind::UnknownFallback
+    }
 }
 
 #[cfg(test)]
