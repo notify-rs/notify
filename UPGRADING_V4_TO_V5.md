@@ -24,8 +24,8 @@ Notify v5 by default uses `crossbeam-channel` internally. You can disable this a
 
 For macOS the kqueue backend can now be used alternatively by using the `macos_kqueue` feature.
 
-## Plattforms
+## Platforms
 
-Plattform support in v5 now includes BSD and kqueue on macos in addition to fsevent.
+Platform support in v5 now includes BSD and kqueue on macos in addition to fsevent.
 
 [notify-debouncer-mini]: https://crates.io/crates/notify-debouncer-mini
