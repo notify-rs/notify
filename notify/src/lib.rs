@@ -432,7 +432,7 @@ impl WatcherFallback {
             WatcherFallback::Fallback(v) => Box::new(v),
         }
     }
-
+/*
     /// Get watcher mutable
     pub fn get_mut(&mut self) -> &mut dyn Watcher {
         match self {
@@ -448,35 +448,35 @@ impl WatcherFallback {
             WatcherFallback::Fallback(v) => v,
         }
     }
-
-    // is this even possible without &self?!
-    /*pub fn kind(&self) -> WatcherKind {
-        Watcher::kind(&self.get())
-    }*/
+ */
+    /// Returns the kind of watcher used
+    pub fn kind(&self) -> WatcherKind {
+        match self {
+            WatcherFallback::Native(_) => {
+                <RecommendedWatcher as Watcher>::kind()
+            },
+            WatcherFallback::Fallback(_) => WatcherKind::PollWatcher,
+        }
+    }
 }
 
-impl Watcher for WatcherFallback {
-    fn new<F: EventHandler>(event_handler: F, config: config::Config) -> Result<Self>
-    where
-        Self: Sized {
-        //recommended_watcher_fallback(event_handler, config)
-        // impossible due to missing Copy on EventHandler
-        unimplemented!()
-    }
+impl std::ops::Deref for WatcherFallback {
+    type Target = dyn Watcher;
 
-    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        self.get_mut().watch(path, recursive_mode)
+    fn deref(&self) -> &Self::Target {
+        match self {
+            WatcherFallback::Native(v) => v,
+            WatcherFallback::Fallback(v) => v,
+        }
     }
+}
 
-    fn unwatch(&mut self, path: &Path) -> Result<()> {
-        self.get_mut().unwatch(path)
-    }
-
-    // todo: this is awkward
-    fn kind() -> WatcherKind
-    where
-        Self: Sized {
-        WatcherKind::UnknownFallback
+impl std::ops::DerefMut for WatcherFallback {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            WatcherFallback::Native(v) => v,
+            WatcherFallback::Fallback(v) => v,
+        }
     }
 }
 

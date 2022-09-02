@@ -24,9 +24,9 @@ fn fallback_init() -> Result<()> {
         }
     }
 
-    let mut watcher1 = notify::recommended_watcher_fallback(event_fn, Config::default())?.take_boxed();
+    let mut watcher1 = notify::recommended_watcher_fallback(event_fn, Config::default())?;
     // we will just use the same watcher kind again here
-    let mut watcher2 = notify::recommended_watcher_fallback(event_fn, Config::default())?.take_boxed();
+    let mut watcher2 = notify::recommended_watcher_fallback(event_fn, Config::default())?;
     watcher1.watch(Path::new("."), RecursiveMode::Recursive)?;
     watcher2.watch(Path::new("."), RecursiveMode::Recursive)?;
     Ok(())
