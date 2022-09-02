@@ -46,6 +46,8 @@
 //! Docker on macos M1 [throws](https://github.com/notify-rs/notify/issues/423) `Function not implemented (os error 38)`.
 //! You have to manually use the [PollWatcher], as the native backend isn't available inside the emulation.
 //! 
+//! [recommended_watcher_fallback] works around this issue automatically.
+//! 
 //! ### MacOS, FSEvents and unowned files
 //! 
 //! Due to the inner security model of FSEvents (see [FileSystemEventSecurity](https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html)),
@@ -341,15 +343,23 @@ pub trait Watcher {
 }
 
 /// The recommended `Watcher` implementation for the current platform
+/// 
+/// Please use [recommended_watcher_fallback] if you want to be failsafe
 #[cfg(target_os = "linux")]
 pub type RecommendedWatcher = INotifyWatcher;
 /// The recommended `Watcher` implementation for the current platform
+/// 
+/// Please use [recommended_watcher_fallback] if you want to be failsafe
 #[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
 pub type RecommendedWatcher = FsEventWatcher;
 /// The recommended `Watcher` implementation for the current platform
+/// 
+/// Please use [recommended_watcher_fallback] if you want to be failsafe
 #[cfg(target_os = "windows")]
 pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
 /// The recommended `Watcher` implementation for the current platform
+/// 
+/// Please use [recommended_watcher_fallback] if you want to be failsafe
 #[cfg(any(
     target_os = "freebsd",
     target_os = "openbsd",
@@ -359,6 +369,8 @@ pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
 ))]
 pub type RecommendedWatcher = KqueueWatcher;
 /// The recommended `Watcher` implementation for the current platform
+/// 
+/// Please use [recommended_watcher_fallback] if you want to be failsafe
 #[cfg(not(any(
     target_os = "linux",
     target_os = "macos",
@@ -372,20 +384,27 @@ pub type RecommendedWatcher = PollWatcher;
 
 /// Convenience method for creating the `RecommendedWatcher` for the current platform in
 /// _immediate_ mode.
+/// 
+/// Please note that unlike [recommended_watcher_fallback] this does not guard against unavailable APIs.
+///
+/// It is not more than calling `RecommendedWatcher::new`
 ///
 /// See [`Watcher::new`](trait.Watcher.html#tymethod.new).
+#[deprecated = "See recommended_watcher_fallback, does not guard against unavailable APIs"]
 pub fn recommended_watcher<F>(event_handler: F) -> Result<RecommendedWatcher>
 where
     F: EventHandler,
 {
     // All recommended watchers currently implement `new`, so just call that.
+    // TODO: v6 implement fallback, using recommended_watcher_fallback
     RecommendedWatcher::new(event_handler, Config::default())
 }
 
-/// Method for creating the `RecommendedWatcher` for the current platform
-/// and falling back if the recommended API is not available.
+/// Method for creating the `RecommendedWatcher` for the current platform or falling back.
 /// 
-/// Example use case is [#423] where Docker on M1 in qemu does not expose the inotify OS API.
+/// Unlike [recommended_watcher] and [RecommendedWatcher] this falls back if the recommended API is not available.
+/// 
+/// Example use case is [#423](https://github.com/notify-rs/notify/issues/423) where Docker with QEMU on M1 chips does not expose the inotify OS API.
 ///
 /// See also [`Watcher::new`](trait.Watcher.html#tymethod.new).
 pub fn recommended_watcher_fallback<F>(event_handler: F, config: Config) -> Result<WatcherFallback>
@@ -413,6 +432,8 @@ where
 
 /// Wrapper for a fallback initialized watcher.
 /// 
+/// Can be used like a Watcher.
+/// 
 /// See [`recommended_watcher_fallback`](recommended_watcher_fallback)
 #[derive(Debug)]
 pub enum WatcherFallback {
@@ -425,33 +446,18 @@ pub enum WatcherFallback {
 }
 
 impl WatcherFallback {
-    /// Returns the watcher inside
+    /// Returns the watcher inside boxed
     pub fn take_boxed(self) -> Box<dyn Watcher>{
         match self {
             WatcherFallback::Native(v) => Box::new(v),
             WatcherFallback::Fallback(v) => Box::new(v),
         }
     }
-/*
-    /// Get watcher mutable
-    pub fn get_mut(&mut self) -> &mut dyn Watcher {
-        match self {
-            WatcherFallback::Native(v) => v,
-            WatcherFallback::Fallback(v) => v,
-        }
-    }
 
-    /// Get watcher
-    pub fn get(&self) -> &dyn Watcher {
-        match self {
-            WatcherFallback::Native(v) => v,
-            WatcherFallback::Fallback(v) => v,
-        }
-    }
- */
-    /// Returns the kind of watcher used
+    /// Returns the [WatcherKind] used
     pub fn kind(&self) -> WatcherKind {
         match self {
+            // we can assume these kinds due to the way we initialize it
             WatcherFallback::Native(_) => {
                 <RecommendedWatcher as Watcher>::kind()
             },

@@ -498,7 +498,7 @@ impl ReadDirectoryChangesWatcher {
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
-    fn new<F: EventHandler>(event_handler: F, config: Config) -> Result<Self> {
+    fn new<F: EventHandler>(event_handler: F, _config: Config) -> Result<Self> {
         // create dummy channel for meta event
         // TODO: determine the original purpose of this - can we remove it?
         let (meta_tx, _) = unbounded();

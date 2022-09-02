@@ -41,3 +41,8 @@ path = "multiple_backends.rs"
 # to prevent cargo audit from complaining
 #[[example]]
 #name = "hot_reload_tide"
+
+# fix invalid rust-analyzer warnings
+# when changing notify but not updating the crates version
+[patch.crates-io]
+notify = { path = "../notify/" }
