@@ -42,10 +42,11 @@
 //!
 //! # Features
 //!
-//! The following feature can be turned on or off.
+//! The following crate features can be turned on or off in your cargo dependency config:
 //!
-//! - `crossbeam-channel` enabled by default, adds DebounceEventHandler support for crossbeam channels.
-//! - `serde` enabled serde support for events.
+//! - `crossbeam` enabled by default, adds [`DebounceEventHandler`](DebounceEventHandler) support for crossbeam channels.
+//!   Also enables crossbeam-channel in the re-exported notify. You may want to disable this when using the tokio async runtime.
+//! - `serde` enables serde support for events.
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::{
