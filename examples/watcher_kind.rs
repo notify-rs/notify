@@ -1,7 +1,7 @@
 use std::{path::Path, time::Duration};
 use notify::*;
 
-// exampale of detecting the recommended watcher kind
+// example of detecting the recommended watcher kind
 fn main() {
     let (tx, rx) = std::sync::mpsc::channel();
     // This example is a little bit misleading as you can just create one Config and use it for all watchers.
