@@ -288,13 +288,15 @@ impl EventLoop {
         // If the watch is not recursive, or if we determine (by stat'ing the path to get its
         // metadata) that the watched path is not a directory, add a single path watch.
         if !is_recursive || !metadata(&path).map_err(Error::io)?.is_dir() {
-            return self.add_single_watch(path, false);
+            self.add_single_watch(path, false)?;
+        } else {
+            for entry in WalkDir::new(path).follow_links(true).into_iter() {
+                let entry = entry.map_err(map_walkdir_error)?;
+                self.add_single_watch(entry.path().to_path_buf(), is_recursive)?;
+            }
         }
 
-        for entry in WalkDir::new(path).follow_links(true).into_iter() {
-            let entry = entry.map_err(map_walkdir_error)?;
-            self.add_single_watch(entry.path().to_path_buf(), is_recursive)?;
-        }
+        // Only make a single `kevent` syscall to add all the watches.
         self.kqueue.watch()?;
 
         Ok(())
@@ -314,7 +316,7 @@ impl EventLoop {
             .add_filename(&path, event_filter, filter_flags)
             .map_err(|e| Error::io(e).add_path(path.clone()))?;
         self.watches.insert(path, is_recursive);
-        self.kqueue.watch()?;
+
         Ok(())
     }
 
