@@ -5,7 +5,7 @@
 //! pieces of kernel code termed filters.
 
 use super::event::*;
-use super::{Error, EventHandler, RecursiveMode, Result, Watcher, Config};
+use super::{Config, Error, EventHandler, RecursiveMode, Result, Watcher};
 use crate::{unbounded, Receiver, Sender};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
 use std::collections::HashMap;
