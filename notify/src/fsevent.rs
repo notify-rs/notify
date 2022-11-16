@@ -585,7 +585,7 @@ fn test_fsevent_watcher_drop() {
     let (tx, rx) = std::sync::mpsc::channel();
 
     {
-        let mut watcher = FsEventWatcher::new(tx).unwrap();
+        let mut watcher = FsEventWatcher::new(tx, Default::default()).unwrap();
         watcher.watch(dir.path(), RecursiveMode::Recursive).unwrap();
         thread::sleep(Duration::from_millis(2000));
         println!("is running -> {}", watcher.is_running());
