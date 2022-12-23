@@ -6,7 +6,7 @@ members = [
   
   # internal
   "examples"
-  #"examples/hot_reload_tide" untill https://github.com/rustsec/rustsec/issues/501 is resolved
+  #"examples/hot_reload_tide" until https://github.com/rustsec/rustsec/issues/501 is resolved
 ]
 
 exclude = ["examples/hot_reload_tide"]
