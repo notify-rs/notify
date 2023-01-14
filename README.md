@@ -76,7 +76,7 @@ Originally created by [Félix Saparelli] and awesome [contributors].
 [contributors]: https://github.com/notify-rs/notify/graphs/contributors
 [crate]: https://crates.io/crates/notify
 [docket]: https://iwillspeak.github.io/docket/
-[docs]: https://docs.rs/notify/5.0.0/notify/
+[docs]: https://docs.rs/notify/5.1.0/notify/
 [fsnotify]: https://github.com/go-fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
 [hotwatch]: https://github.com/francesca64/hotwatch
