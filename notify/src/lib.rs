@@ -184,7 +184,7 @@ pub(crate) fn bounded<T>(cap: usize) -> (BoundSender<T>, Receiver<T>) {
 
 #[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
 pub use crate::fsevent::FsEventWatcher;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub use crate::inotify::INotifyWatcher;
 #[cfg(any(
     target_os = "freebsd",
@@ -201,7 +201,7 @@ pub use windows::ReadDirectoryChangesWatcher;
 
 #[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
 pub mod fsevent;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub mod inotify;
 #[cfg(any(
     target_os = "freebsd",
@@ -339,7 +339,7 @@ pub trait Watcher {
 }
 
 /// The recommended `Watcher` implementation for the current platform
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub type RecommendedWatcher = INotifyWatcher;
 /// The recommended `Watcher` implementation for the current platform
 #[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
@@ -359,6 +359,7 @@ pub type RecommendedWatcher = KqueueWatcher;
 /// The recommended `Watcher` implementation for the current platform
 #[cfg(not(any(
     target_os = "linux",
+    target_os = "android",
     target_os = "macos",
     target_os = "windows",
     target_os = "freebsd",
