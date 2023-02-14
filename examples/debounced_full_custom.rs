@@ -25,9 +25,11 @@ fn main() {
         .watch(Path::new("."), RecursiveMode::Recursive)
         .unwrap();
     // print all events, non returning
-    for events in rx {
-        for e in events {
-            println!("{:?}", e);
+    for inner in rx {
+        if let Ok(events) = inner {
+            for event in events {
+                println!("{:?}", event);
+            }
         }
     }
 }
