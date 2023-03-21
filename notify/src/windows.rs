@@ -20,6 +20,11 @@ use std::slice;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+/// We do our own minimal bindings to the win32 API here with only the things we
+/// need. This means we can avoid a dependency on the `windows-sys` crate and its
+/// version churn, and the `winapi` due to its maintenance status.
+///
+/// These APIs will never change, though they may be supplanted in the future.
 #[allow(non_camel_case_types, non_snake_case)]
 mod bindings {
     pub const INFINITE: u32 = 4294967295;
