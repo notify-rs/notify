@@ -56,6 +56,10 @@ jobs:
       - name: check build without crossbeam/default features
         if: matrix.version == 'stable'
         run: cargo check -p notify --no-default-features --features=macos_fsevent
+
+      - name: check build without windows-sys and with internal bindings
+        if: matrix.os == 'windows-latest'
+        run: cargo check -p notify --no-default-features --features=slim_windows
         # -p notify required for feature selection!
 
       - name: check build without crossbeam/default features on macos with kqueue
