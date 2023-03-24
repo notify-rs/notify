@@ -20,7 +20,10 @@ use std::slice;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-#[cfg(all(feature = "windows-sys", not(feature = "slim_windows")))]
+#[cfg(all(not(feature = "windows-sys"), not(feature = "slim_windows")))]
+compile_error!("You must enable either the `windows-sys` or slim_windows` features");
+
+#[cfg(not(feature = "slim_windows"))]
 mod sys {
     pub use windows_sys::Win32::Foundation::{
         CloseHandle, ERROR_OPERATION_ABORTED, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
@@ -40,12 +43,12 @@ mod sys {
     pub use windows_sys::Win32::System::WindowsProgramming::INFINITE;
     pub use windows_sys::Win32::System::IO::{CancelIo, OVERLAPPED};
 }
-#[cfg(all(feature = "windows-sys", not(feature = "slim_windows")))]
+#[cfg(not(feature = "slim_windows"))]
 use sys::*;
 
-#[cfg(any(not(feature = "windows-sys"), feature = "slim_windows"))]
+#[cfg(feature = "slim_windows")]
 mod bindings;
-#[cfg(any(not(feature = "windows-sys"), feature = "slim_windows"))]
+#[cfg(feature = "slim_windows")]
 use bindings::*;
 
 const BUF_SIZE: u32 = 16384;
