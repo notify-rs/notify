@@ -4,7 +4,7 @@ on:
   push:
     branches:
       # test branches
-      - 'try-**'
+      - "try-**"
 
       # main branches
       - main
@@ -55,7 +55,7 @@ jobs:
 
       - name: check build without crossbeam/default features
         if: matrix.version == 'stable'
-        run: cargo check -p notify --no-default-features --features=macos_fsevent
+        run: cargo check -p notify --no-default-features --features=macos_fsevent,windows-sys
 
       - name: check build without windows-sys and with internal bindings
         if: matrix.os == 'windows-latest'
