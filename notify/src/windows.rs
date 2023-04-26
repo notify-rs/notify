@@ -32,9 +32,8 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows_sys::Win32::System::Threading::{
-    CreateSemaphoreW, ReleaseSemaphore, WaitForSingleObjectEx,
+    CreateSemaphoreW, ReleaseSemaphore, WaitForSingleObjectEx, INFINITE,
 };
-use windows_sys::Win32::System::WindowsProgramming::INFINITE;
 use windows_sys::Win32::System::IO::{CancelIo, OVERLAPPED};
 
 const BUF_SIZE: u32 = 16384;
