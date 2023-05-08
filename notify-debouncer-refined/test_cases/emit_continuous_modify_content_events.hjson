@@ -1,0 +1,49 @@
+{
+    state: {
+        timeout: 5
+    }
+    events: [
+        { kind: "modify-data-content", paths: ["/watch/file"], ts: 1 }
+        { kind: "modify-data-content", paths: ["/watch/file"], ts: 2 }
+        { kind: "modify-data-content", paths: ["/watch/file"], ts: 3 }
+    ]
+    expected: {
+        queues: {
+            /watch/file: {
+                events: [
+                    { kind: "modify-data-content", paths: ["*"], ts: 1 }
+                    { kind: "modify-data-content", paths: ["*"], ts: 2 }
+                    { kind: "modify-data-content", paths: ["*"], ts: 3 }
+                ]
+            }
+        }
+        events: {
+            1: []
+            2: []
+            3: []
+            4: []
+            5: []
+            6: [
+                { kind: "modify-data-content", paths: ["/watch/file"] }
+            ]
+            7: [
+                { kind: "modify-data-content", paths: ["/watch/file"] }
+            ]
+            8: [
+                { kind: "modify-data-content", paths: ["/watch/file"] }
+            ]
+            9: [
+                { kind: "modify-data-content", paths: ["/watch/file"] }
+            ]
+            10: [
+                { kind: "modify-data-content", paths: ["/watch/file"] }
+            ]
+            100: [
+                { kind: "modify-data-content", paths: ["/watch/file"] }
+            ]
+            1000: [
+                { kind: "modify-data-content", paths: ["/watch/file"] }
+            ]
+        }
+    }
+}

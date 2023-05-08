@@ -1,0 +1,45 @@
+{
+    state: {
+        timeout: 5
+    }
+    events: [
+        { kind: "modify-data-content", paths: ["/watch/file-a"], ts: 1 }
+        { kind: "modify-data-content", paths: ["/watch/file-b"], ts: 3 }
+        { kind: "modify-data-content", paths: ["/watch/file-c"], ts: 4 }
+        { kind: "modify-metadata-write-time", paths: ["/watch/file-b"], ts: 7 }
+        { kind: "modify-metadata-write-time", paths: ["/watch/file-c"], ts: 8 }
+        { kind: "modify-metadata-write-time", paths: ["/watch/file-a"], ts: 9 }
+    ]
+    expected: {
+        queues: {
+            /watch/file-a: {
+                events: [
+                    { kind: "modify-data-content", paths: ["*"], ts: 1 }
+                    { kind: "modify-metadata-write-time", paths: ["*"], ts: 9 }
+                ]
+            }
+            /watch/file-b: {
+                events: [
+                    { kind: "modify-data-content", paths: ["*"], ts: 3 }
+                    { kind: "modify-metadata-write-time", paths: ["*"], ts: 7 }
+                ]
+            }
+            /watch/file-c: {
+                events: [
+                    { kind: "modify-data-content", paths: ["*"], ts: 4 }
+                    { kind: "modify-metadata-write-time", paths: ["*"], ts: 8 }
+                ]
+            }
+        }
+        events: {
+            long: [
+                { kind: "modify-data-content", paths: ["/watch/file-a"] }
+                { kind: "modify-data-content", paths: ["/watch/file-b"] }
+                { kind: "modify-data-content", paths: ["/watch/file-c"] }
+                { kind: "modify-metadata-write-time", paths: ["/watch/file-b"] }
+                { kind: "modify-metadata-write-time", paths: ["/watch/file-c"] }
+                { kind: "modify-metadata-write-time", paths: ["/watch/file-a"] }
+            ]
+        }
+    }
+}
