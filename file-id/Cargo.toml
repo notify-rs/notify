@@ -15,10 +15,10 @@ authors = ["Daniel Faust <hessijames@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-serde = { version = "1.0.89", features = ["derive"], optional = true }
+serde = { workspace = true, optional = true }
 
-[target.'cfg(windows)'.dependencies.winapi-util]
-version = "0.1.5"
+[target.'cfg(windows)'.dependencies]
+winapi-util = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.2.0"
+tempfile = { workspace = true }
