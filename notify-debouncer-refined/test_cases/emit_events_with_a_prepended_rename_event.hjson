@@ -1,0 +1,36 @@
+{
+    state: {
+        timeout: 5
+    }
+    events: [
+        { kind: "modify-data-content", paths: ["/watch/source"], ts: 1 }
+        { kind: "modify-data-content", paths: ["/watch/source"], ts: 4 }
+        { kind: "rename-from", paths: ["/watch/source"], tracker: 1, ts: 7 }
+        { kind: "rename-to", paths: ["/watch/target"], tracker: 1, ts: 8 }
+        { kind: "modify-metadata-write-time", paths: ["/watch/target"], ts: 9 }
+    ]
+    expected: {
+        queues: {
+            /watch/target: {
+                events: [
+                    { kind: "rename-both", paths: ["/watch/source", "/watch/target"], tracker: 1, ts: 7 }
+                    { kind: "modify-data-content", paths: ["*"], ts: 1 }
+                    { kind: "modify-data-content", paths: ["*"], ts: 4 }
+                    { kind: "modify-metadata-write-time", paths: ["*"], ts: 9 }
+                ]
+            }
+        }
+        events: {
+            11: []
+            12: [
+                { kind: "rename-both", paths: ["/watch/source", "/watch/target"], tracker: 1, ts: 7 }
+                { kind: "modify-data-content", paths: ["/watch/target"], ts: 1 }
+            ]
+            14: [
+                { kind: "rename-both", paths: ["/watch/source", "/watch/target"], tracker: 1, ts: 7 }
+                { kind: "modify-data-content", paths: ["/watch/target"], ts: 1 }
+                { kind: "modify-metadata-write-time", paths: ["/watch/target"], ts: 9 }
+            ]
+        }
+    }
+}
