@@ -146,7 +146,7 @@ pub enum RenameMode {
 }
 
 /// An event describing mutation of content, name, or metadata.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "kind", content = "mode"))]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
@@ -192,7 +192,7 @@ pub enum RemoveKind {
 /// This is arguably the most important classification for events. All subkinds below this one
 /// represent details that may or may not be available for any particular backend, but most tools
 /// and Notify systems will only care about which of these four general kinds an event is about.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum EventKind {

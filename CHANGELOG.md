@@ -2,6 +2,10 @@
 
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
+## notify 5.2.0
+
+- CHANGE: implement `Copy` for `EventKind` and `ModifyKind` [#458]
+
 ## notify 5.1.0 (2023-01-15)
 
 - CHANGE: switch from winapi to windows-sys [#457]
