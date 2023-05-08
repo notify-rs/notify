@@ -2,6 +2,20 @@
 
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
+## notify 6.0.0
+
+- CHANGE: files and directories moved into a watch folder on Linux will now be reported as `rename to` events instead of `create` events
+- CHANGE: on Linux `rename from` events will be emitted immediately without starting a new thread
+
+## debouncer-refined 0.1.0
+
+- FEATURE: only emit a single `rename` event if the rename `From` and `To` events can be matched
+- FEATURE: merge multiple `rename` events
+- FEATURE: keep track of the file system IDs all files and stiches rename events together (FSevents, Windows)
+- FEATURE: emit only one `remove` event when deleting a directory (inotify)
+- FEATURE: don't emit duplicate create events
+- FEATURE: don't emit `Modify` events after a `Create` event
+
 ## notify 5.2.0
 
 - CHANGE: implement `Copy` for `EventKind` and `ModifyKind` [#458]
