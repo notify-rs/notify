@@ -208,7 +208,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
                         })
                     }
 
-                    kind_index.insert(event.kind.clone(), events_expired.len());
+                    kind_index.insert(event.kind, events_expired.len());
 
                     events_expired.push((ts, event));
                 } else {
@@ -345,7 +345,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
         if trackers_match || file_ids_match {
             // connect rename
-            let (instant, mut rename_event, _) = self.rename_event.take().unwrap(); // unwrap is safe because `rename_event` must be set
+            let (instant, mut rename_event, _) = self.rename_event.take().unwrap(); // unwrap is safe because `rename_event` must be set at this point
             let path = rename_event.paths.remove(0);
             self.push_rename_event(instant, path, event);
         } else {
