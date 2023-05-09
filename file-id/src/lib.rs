@@ -10,9 +10,9 @@
 /// ```rust
 /// # let file = tempfile::NamedTempFile::new().unwrap();
 /// # let path = file.path();
-/// 
+///
 /// let file_id = file_id::get_file_id(path).unwrap();
-/// 
+///
 /// println!("{file_id:?}");
 /// ```
 use std::{fs, io, path::Path};
@@ -28,12 +28,12 @@ pub struct FileId {
     pub device: u64,
 
     /// Inode number or file index
-    pub inode: u64,
+    pub file: u64,
 }
 
 impl FileId {
-    pub fn new(device: u64, inode: u64) -> Self {
-        Self { device, inode }
+    pub fn new(device: u64, file: u64) -> Self {
+        Self { device, file }
     }
 }
 
@@ -46,7 +46,7 @@ pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
 
     Ok(FileId {
         device: metadata.dev(),
-        inode: metadata.ino(),
+        file: metadata.ino(),
     })
 }
 
@@ -60,6 +60,6 @@ pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
 
     Ok(FileId {
         device: info.volume_serial_number(),
-        inode: info.file_index(),
+        file: info.file_index(),
     })
 }
