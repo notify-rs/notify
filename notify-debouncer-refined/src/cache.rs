@@ -8,26 +8,26 @@ use notify::RecursiveMode;
 use walkdir::WalkDir;
 
 /// The interface of a file ID cache.
-/// 
+///
 /// This trait can be implemented for an existing cache, if it already holds `FileId`s.
 pub trait FileIdCache {
     /// Get a `FileId` from the cache for a given `path`.
-    /// 
+    ///
     /// If the path is not cached, `None` should be returned and there should not be any attempt to read the file ID from disk.
     fn cached_file_id(&self, path: &Path) -> Option<&FileId>;
 
     /// Add a new path to the cache or update its value.
-    /// 
+    ///
     /// This will be called if a new file or directory is created or if an existing file is overridden.
     fn add_path(&mut self, path: &Path);
 
     /// Remove a path from the cache.
-    /// 
+    ///
     /// This will be called if a file or directory is deleted.
     fn remove_path(&mut self, path: &Path);
 
     /// Re-scan all paths.
-    /// 
+    ///
     /// This will be called if the notification back-end has dropped events.
     fn rescan(&mut self);
 }
@@ -49,7 +49,7 @@ impl FileIdMap {
     }
 
     /// Add a path to the cache.
-    /// 
+    ///
     /// If `recursive_mode` is `Recursive`, all children will be added to the cache as well
     /// and all paths will be kept up-to-date in case of changes like new files being added,
     /// files being removed or renamed.
@@ -62,7 +62,7 @@ impl FileIdMap {
     }
 
     /// Remove a path form the cache.
-    /// 
+    ///
     /// If the path was added with `Recursive` mode, all children will also be removed from the cache.
     pub fn remove_root(&mut self, path: impl AsRef<Path>) {
         self.roots.retain(|(root, _)| !root.starts_with(&path));

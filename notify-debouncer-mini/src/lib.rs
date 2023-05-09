@@ -24,7 +24,7 @@
 //! # fn main() {
 //!     // setup initial watcher backend config
 //!     let config = Config::default();
-//! 
+//!
 //!     // Select recommended watcher for debouncer.
 //!     // Using a callback here, could also be a channel.
 //!     let mut debouncer = new_debouncer(Duration::from_secs(2), None, |res: DebounceEventResult| {
@@ -266,7 +266,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher>(
     timeout: Duration,
     tick_rate: Option<Duration>,
     mut event_handler: F,
-    config: notify::Config
+    config: notify::Config,
 ) -> Result<Debouncer<T>, Error> {
     let data = DebounceData::default();
 
@@ -320,15 +320,18 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher>(
             }
         })?;
 
-    let watcher = T::new(move |e: Result<Event, Error>| {
-        let mut lock = data.lock().expect("Can't lock debouncer data!");
+    let watcher = T::new(
+        move |e: Result<Event, Error>| {
+            let mut lock = data.lock().expect("Can't lock debouncer data!");
 
-        match e {
-            Ok(e) => lock.add_event(e),
-            // can't have multiple TX, so we need to pipe that through our debouncer
-            Err(e) => lock.add_error(e),
-        }
-    }, config)?;
+            match e {
+                Ok(e) => lock.add_event(e),
+                // can't have multiple TX, so we need to pipe that through our debouncer
+                Err(e) => lock.add_error(e),
+            }
+        },
+        config,
+    )?;
 
     let guard = Debouncer {
         watcher,
@@ -347,7 +350,12 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher>(
 pub fn new_debouncer<F: DebounceEventHandler>(
     timeout: Duration,
     tick_rate: Option<Duration>,
-    event_handler: F
+    event_handler: F,
 ) -> Result<Debouncer<RecommendedWatcher>, Error> {
-    new_debouncer_opt::<F, RecommendedWatcher>(timeout, tick_rate, event_handler, notify::Config::default())
+    new_debouncer_opt::<F, RecommendedWatcher>(
+        timeout,
+        tick_rate,
+        event_handler,
+        notify::Config::default(),
+    )
 }
