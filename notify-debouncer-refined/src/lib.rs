@@ -1,16 +1,25 @@
-//! Debouncer for notify
+//! A debouncer for [notify] that is optimized for ease of use.
+//!
+//! * Only emits a single `Rename` event if the rename `From` and `To` events can be matched
+//! * Merges multiple `Rename` events
+//! * Optionally keeps track of the file system IDs all files and stiches rename events together (FSevents, Windows)
+//! * Emits only one `Remove` event when deleting a directory (inotify)
+//! * Doesn't emit duplicate create events
+//! * Doesn't emit `Modify` events after a `Create` event
 //!
 //! # Installation
 //!
 //! ```toml
 //! [dependencies]
-//! notify-debouncer-easy = "0.2.0"
+//! notify-debouncer-refined = "0.1.0"
 //! ```
+//!
 //! In case you want to select specific features of notify,
 //! specify notify as dependency explicitely in your dependencies.
 //! Otherwise you can just use the re-export of notify from debouncer-easy.
+//!
 //! ```toml
-//! notify-debouncer-easy = "0.2.0"
+//! notify-debouncer-refined = "0.1.0"
 //! notify = { version = "..", features = [".."] }
 //! ```
 //!  
@@ -21,20 +30,23 @@
 //! # use std::time::Duration;
 //! use notify_debouncer_refined::{notify::*, new_debouncer, DebounceEventResult};
 //!
-//! # fn main() {
-//!     // Select recommended watcher for debouncer.
-//!     // Using a callback here, could also be a channel.
-//!     let mut debouncer = new_debouncer(Duration::from_secs(2), None, |result: DebounceEventResult| {
-//!         match result {
-//!             Ok(events) => events.iter().for_each(|event| println!("{event:?}")),
-//!             Err(errors) => errors.iter().for_each(|error| println!("{error:?}")),
-//!         }
-//!     }).unwrap();
+//! // Select recommended watcher for debouncer.
+//! // Using a callback here, could also be a channel.
+//! let mut debouncer = new_debouncer(Duration::from_secs(2), None, |result: DebounceEventResult| {
+//!     match result {
+//!         Ok(events) => events.iter().for_each(|event| println!("{event:?}")),
+//!         Err(errors) => errors.iter().for_each(|error| println!("{error:?}")),
+//!     }
+//! }).unwrap();
 //!
-//!     // Add a path to be watched. All files and directories at that path and
-//!     // below will be monitored for changes.
-//!     debouncer.watcher().watch(Path::new("."), RecursiveMode::Recursive).unwrap();
-//! # }
+//! // Add a path to be watched. All files and directories at that path and
+//! // below will be monitored for changes.
+//! debouncer.watcher().watch(Path::new("."), RecursiveMode::Recursive).unwrap();
+//!
+//! // Add the same path to the file ID cache. The cache uses unique file IDs
+//! // provided by the file system and is used to stich together rename events
+//! // in case the notification back-end doesn't emit rename cookies.
+//! debouncer.cache().add_root(Path::new("."), RecursiveMode::Recursive);
 //! ```
 //!
 //! # Features
@@ -59,7 +71,7 @@ use std::{
     time::Duration,
 };
 
-pub use cache::{FileIdCache, PathCache};
+pub use cache::{FileIdCache, FileIdMap, NoCache};
 
 pub use file_id;
 pub use notify;
@@ -166,7 +178,6 @@ impl Queue {
     }
 }
 
-#[derive(Default)]
 pub(crate) struct DebounceDataInner<T> {
     queues: HashMap<PathBuf, Queue>,
     cache: T,
@@ -177,6 +188,17 @@ pub(crate) struct DebounceDataInner<T> {
 }
 
 impl<T: FileIdCache> DebounceDataInner<T> {
+    pub(crate) fn new(cache: T, timeout: Duration) -> Self {
+        Self {
+            queues: HashMap::new(),
+            cache,
+            rename_event: None,
+            rescan_event: None,
+            errors: Vec::new(),
+            timeout,
+        }
+    }
+
     /// Retrieve a vec of debounced events, removing them if not continuous
     pub fn debounced_events(&mut self) -> Vec<DebouncedEvent> {
         let now = Instant::now();
@@ -458,14 +480,6 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         let path = &event.paths[0];
 
         if let Some(queue) = self.queues.get_mut(path) {
-            // if matches!(
-            //     event.kind,
-            //     EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Metadata(_))
-            //         | EventKind::Access(_)
-            // ) {
-            //     queue.events.retain(|(_, e)| e.kind != event.kind);
-            // }
-
             // skip duplicate create events and modifications right after creation
             if match event.kind {
                 EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Metadata(_))
@@ -485,7 +499,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     }
 }
 
-/// Debouncer guard, stops the debouncer on drop
+/// Debouncer guard, stops the debouncer on drop.
 pub struct Debouncer<T: Watcher, C: FileIdCache> {
     watcher: T,
     debouncer_thread: Option<std::thread::JoinHandle<()>>,
@@ -531,21 +545,17 @@ impl<T: Watcher, C: FileIdCache> Drop for Debouncer<T, C> {
 
 /// Creates a new debounced watcher with custom configuration.
 ///
-/// Timeout is the amount of time after which a debounced event is emitted or a continuous event is send, if there still are events incoming for the specific path.
+/// Timeout is the amount of time after which a debounced event is emitted.
 ///
-/// If tick_rate is None, notify will select a tick rate that is less than the provided timeout.
-pub fn new_debouncer_opt<
-    F: DebounceEventHandler,
-    T: Watcher,
-    C: FileIdCache + Default + Send + 'static,
->(
+/// If tick_rate is None, notify will select a tick rate that is 1/4 of the provided timeout.
+pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + Send + 'static>(
     timeout: Duration,
     tick_rate: Option<Duration>,
     mut event_handler: F,
+    file_id_cache: C,
     config: notify::Config,
 ) -> Result<Debouncer<T, C>, Error> {
-    let data = DebounceData::<C>::default();
-
+    let data = Arc::new(Mutex::new(DebounceDataInner::new(file_id_cache, timeout)));
     let stop = Arc::new(AtomicBool::new(false));
 
     let tick_div = 4;
@@ -566,11 +576,6 @@ pub fn new_debouncer_opt<
             )))
         })?,
     };
-
-    {
-        let mut data_w = data.lock();
-        data_w.timeout = timeout;
-    }
 
     let data_c = data.clone();
     let stop_c = stop.clone();
@@ -620,20 +625,21 @@ pub fn new_debouncer_opt<
     Ok(guard)
 }
 
-/// Short function to create a new debounced watcher with the recommended debouncer.
+/// Short function to create a new debounced watcher with the recommended debouncer and the built-in file ID cache.
 ///
-/// Timeout is the amount of time after which a debounced event is emitted or a continuous event is send, if there still are events incoming for the specific path.
+/// Timeout is the amount of time after which a debounced event is emitted.
 ///
-/// If tick_rate is None, notify will select a tick rate that is less than the provided timeout.
+/// If tick_rate is None, notify will select a tick rate that is 1/4 of the provided timeout.
 pub fn new_debouncer<F: DebounceEventHandler>(
     timeout: Duration,
     tick_rate: Option<Duration>,
     event_handler: F,
-) -> Result<Debouncer<RecommendedWatcher, PathCache>, Error> {
-    new_debouncer_opt::<F, RecommendedWatcher, PathCache>(
+) -> Result<Debouncer<RecommendedWatcher, FileIdMap>, Error> {
+    new_debouncer_opt::<F, RecommendedWatcher, FileIdMap>(
         timeout,
         tick_rate,
         event_handler,
+        FileIdMap::new(),
         notify::Config::default(),
     )
 }
