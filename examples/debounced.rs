@@ -1,6 +1,6 @@
 use std::{path::Path, time::Duration};
 
-use notify::{RecursiveMode};
+use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
 
 /// Example for debouncer
@@ -27,9 +27,10 @@ fn main() {
         .unwrap();
 
     // print all events, non returning
-    for events in rx {
-        for e in events {
-            println!("{:?}", e);
+    for result in rx {
+        match result {
+            Ok(events) => events.iter().for_each(|event| println!("{event:?}")),
+            Err(errors) => errors.iter().for_each(|error| println!("{error:?}")),
         }
     }
 }
