@@ -5,11 +5,11 @@ publish = false
 edition = "2021"
 
 [dev-dependencies]
-notify = { workspace = true }
-notify-debouncer-mini = { workspace = true }
-notify-debouncer-refined = { workspace = true }
-futures = { workspace = true }
-tempfile = { workspace = true }
+notify = { version = "5.1.0" }
+notify-debouncer-mini = { version = "0.2.0" }
+notify-debouncer-refined = { version = "0.1.0" }
+futures = "0.3"
+tempfile = "3.5.0"
 
 [[example]]
 name = "async_monitor"
