@@ -11,9 +11,3 @@ members = [
 ]
 
 exclude = ["examples/hot_reload_tide"]
-
-[patch.crates-io]
-notify = { path = "notify/" }
-notify-debouncer-mini = { path = "notify-debouncer-mini/" }
-notify-debouncer-refined = { path = "notify-debouncer-refined/" }
-file-id = { path = "file-id/" }
