@@ -593,10 +593,10 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
                 send_data = lock.debounced_events();
                 errors = lock.errors();
             }
-            if send_data.len() > 0 {
+            if !send_data.is_empty() {
                 event_handler.handle_event(Ok(send_data));
             }
-            if errors.len() > 0 {
+            if !errors.is_empty() {
                 event_handler.handle_event(Err(errors));
             }
         })?;
