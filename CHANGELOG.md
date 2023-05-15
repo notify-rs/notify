@@ -6,6 +6,7 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 - CHANGE: files and directories moved into a watch folder on Linux will now be reported as `rename to` events instead of `create` events
 - CHANGE: on Linux `rename from` events will be emitted immediately without starting a new thread
+- CHANGE: raise MSRV to 1.60
 
 ## debouncer-full 0.1.0
 
