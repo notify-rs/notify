@@ -18,7 +18,7 @@ _Cross-platform filesystem notification library for Rust._
 - [Crate page][crate]
 - [Changelog][changelog]
 - [Upgrading from v4](UPGRADING_V4_TO_V5.md)
-- Earliest supported Rust version: **1.56**
+- Earliest supported Rust version: **1.60**
 - **incomplete [Guides and in-depth docs][wiki]**
 
 As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax],

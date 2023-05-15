@@ -2,7 +2,7 @@
 name = "notify-debouncer-mini"
 version = "0.2.1"
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.60"
 description = "notify mini debouncer for events"
 documentation = "https://docs.rs/notify-debouncer-mini"
 homepage = "https://github.com/notify-rs/notify"
