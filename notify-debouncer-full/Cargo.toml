@@ -1,10 +1,10 @@
 [package]
-name = "notify-debouncer-refined"
+name = "notify-debouncer-full"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.56"
 description = "notify event debouncer optimized for ease of use"
-documentation = "https://docs.rs/notify-debouncer-refined"
+documentation = "https://docs.rs/notify-debouncer-full"
 homepage = "https://github.com/notify-rs/notify"
 repository = "https://github.com/notify-rs/notify.git"
 authors = ["Daniel Faust <hessijames@gmail.com>"]
@@ -15,7 +15,7 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "notify_debouncer_refined"
+name = "notify_debouncer_full"
 path = "src/lib.rs"
 
 [features]

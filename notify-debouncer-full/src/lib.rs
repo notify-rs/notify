@@ -11,7 +11,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify-debouncer-refined = "0.1.0"
+//! notify-debouncer-full = "0.1.0"
 //! ```
 //!
 //! In case you want to select specific features of notify,
@@ -19,7 +19,7 @@
 //! Otherwise you can just use the re-export of notify from debouncer-easy.
 //!
 //! ```toml
-//! notify-debouncer-refined = "0.1.0"
+//! notify-debouncer-full = "0.1.0"
 //! notify = { version = "..", features = [".."] }
 //! ```
 //!  
@@ -28,7 +28,7 @@
 //! ```rust,no_run
 //! # use std::path::Path;
 //! # use std::time::Duration;
-//! use notify_debouncer_refined::{notify::*, new_debouncer, DebounceEventResult};
+//! use notify_debouncer_full::{notify::*, new_debouncer, DebounceEventResult};
 //!
 //! // Select recommended watcher for debouncer.
 //! // Using a callback here, could also be a channel.
@@ -98,7 +98,7 @@ use std::time::Instant;
 ///
 /// ```rust,no_run
 /// # use notify::{Event, Result, EventHandler};
-/// # use notify_debouncer_refined::{DebounceEventHandler, DebounceEventResult};
+/// # use notify_debouncer_full::{DebounceEventHandler, DebounceEventResult};
 ///
 /// /// Prints received events
 /// struct EventPrinter;

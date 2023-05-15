@@ -1,7 +1,7 @@
 use std::{fs, thread, time::Duration};
 
 use notify::{RecursiveMode, Watcher};
-use notify_debouncer_refined::new_debouncer;
+use notify_debouncer_full::new_debouncer;
 use tempfile::tempdir;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
