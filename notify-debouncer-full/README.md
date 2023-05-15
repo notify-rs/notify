@@ -1,4 +1,4 @@
-# Notify Debouncer Refined
+# Notify Debouncer Full
 
 [![» Docs](https://flat.badgen.net/badge/api/docs.rs/df3600)][docs]
 
@@ -19,12 +19,12 @@ A debouncer for [notify] that is optimized for ease of use.
   Use someting like the following to disable it.
   
   ```toml
-  notify-debouncer-refined = { version = "*", default-features = false }
+  notify-debouncer-full = { version = "*", default-features = false }
   ```
   
   This also passes through to notify as `crossbeam-channel` feature.
 
 - `serde` for serde support of event types, off by default
 
-[docs]: https://docs.rs/notify-debouncer-refined
+[docs]: https://docs.rs/notify-debouncer-full
 [notify]: https://crates.io/crates/notify

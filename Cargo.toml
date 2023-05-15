@@ -3,7 +3,7 @@
 members = [
   "notify",
   "notify-debouncer-mini",
-  "notify-debouncer-refined",
+  "notify-debouncer-full",
   "file-id",
   # internal
   "examples"

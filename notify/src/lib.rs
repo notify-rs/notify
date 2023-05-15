@@ -8,7 +8,7 @@
 //! ```
 //! 
 //! If you want debounced events, see [notify-debouncer-mini](https://github.com/notify-rs/notify/tree/main/notify-debouncer-mini)
-//! or [notify-debouncer-refined](https://github.com/notify-rs/notify/tree/main/notify-debouncer-refined).
+//! or [notify-debouncer-full](https://github.com/notify-rs/notify/tree/main/notify-debouncer-full).
 //! 
 //! ## Features
 //! 
