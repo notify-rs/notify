@@ -1,14 +1,21 @@
 # Changelog
 
+v5 maintenance branch is on `v5_maintenance` after `5.2.0`  
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
-## notify 6.0.0
+## notify 6.0.0 (2023-05-17)
 
-- CHANGE: files and directories moved into a watch folder on Linux will now be reported as `rename to` events instead of `create` events
-- CHANGE: on Linux `rename from` events will be emitted immediately without starting a new thread
-- CHANGE: raise MSRV to 1.60
+- CHANGE: files and directories moved into a watch folder on Linux will now be reported as `rename to` events instead of `create` events [#480]
+- CHANGE: on Linux `rename from` events will be emitted immediately without starting a new thread [#480]
+- CHANGE: raise MSRV to 1.60 [#480]
 
-## debouncer-full 0.1.0
+## debouncer-mini 0.3.0 (2023-05-17)
+
+- CHANGE: upgrade to notify 6.0.0, pushing MSRV to 1.60 [#480]
+
+## debouncer-full 0.1.0 (2023-05-17)
+
+Newly introduced alternative debouncer with more features. [#480]
 
 - FEATURE: only emit a single `rename` event if the rename `From` and `To` events can be matched
 - FEATURE: merge multiple `rename` events
@@ -17,9 +24,13 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 - FEATURE: don't emit duplicate create events
 - FEATURE: don't emit `Modify` events after a `Create` event
 
-## notify 5.2.0
+[#480]: https://github.com/notify-rs/notify/pull/480
 
-- CHANGE: implement `Copy` for `EventKind` and `ModifyKind` [#458]
+## notify 5.2.0 (2023-05-17)
+
+- CHANGE: implement `Copy` for `EventKind` and `ModifyKind` [#481]
+
+[#481]: https://github.com/notify-rs/notify/pull/481
 
 ## notify 5.1.0 (2023-01-15)
 

@@ -68,6 +68,11 @@ jobs:
         run: cargo check -p notify-debouncer-mini --no-default-features
         # -p required for feature selection to actually work!
 
+      - name: check notify debouncer full features
+        if: matrix.version == 'stable'
+        run: cargo check -p notify-debouncer-full --no-default-features
+        # -p required for feature selection to actually work!
+
       - name: check build examples
         if: matrix.version == 'stable'
         run: cargo check --package examples --examples

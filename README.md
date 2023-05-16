@@ -13,7 +13,8 @@ _Cross-platform filesystem notification library for Rust._
 [alert-after]!)
 
 - [API Documentation][docs]
-- [Debouncer Documentation][debouncer]
+- [Mini Debouncer Documentation][debouncer-full]
+- [Full Debouncer Documentation][debouncer-mini]
 - [Examples][examples]
 - [Crate page][crate]
 - [Changelog][changelog]
@@ -62,7 +63,8 @@ Originally created by [Félix Saparelli] and awesome [contributors].
 
 [Chokidar]: https://github.com/paulmillr/chokidar
 [FileSystemEventSecurity]: https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html
-[debouncer]: https://github.com/notify-rs/notify/tree/main/notify-debouncer-mini
+[debouncer-full]: https://github.com/notify-rs/notify/tree/main/notify-debouncer-full
+[debouncer-mini]: https://github.com/notify-rs/notify/tree/main/notify-debouncer-mini
 [Félix Saparelli]: https://passcod.name
 [alacritty]: https://github.com/jwilm/alacritty
 [alert-after]: https://github.com/frewsxcv/alert-after
