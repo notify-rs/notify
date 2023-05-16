@@ -2,9 +2,11 @@
 
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
-## notify 5.2.0
+## notify 5.2.0 (2023-05-17)
 
-- CHANGE: implement `Copy` for `EventKind` and `ModifyKind` [#458]
+- CHANGE: implement `Copy` for `EventKind` and `ModifyKind` [#481]
+
+[#481]: https://github.com/notify-rs/notify/pull/481
 
 ## notify 5.1.0 (2023-01-15)
 
