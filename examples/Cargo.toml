@@ -6,7 +6,7 @@ edition = "2021"
 
 [dev-dependencies]
 notify = { version = "6.0.0", path = "../notify" }
-notify-debouncer-mini = { version = "0.2.0", path = "../notify-debouncer-mini" }
+notify-debouncer-mini = { version = "0.3.0", path = "../notify-debouncer-mini" }
 notify-debouncer-full = { version = "0.1.0", path = "../notify-debouncer-full" }
 futures = "0.3"
 tempfile = "3.5.0"
