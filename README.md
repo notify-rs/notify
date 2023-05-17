@@ -13,8 +13,8 @@ _Cross-platform filesystem notification library for Rust._
 [alert-after]!)
 
 - [API Documentation][docs]
-- [Mini Debouncer Documentation][debouncer-full]
-- [Full Debouncer Documentation][debouncer-mini]
+- [Mini Debouncer Documentation][debouncer-mini]
+- [Full Debouncer Documentation][debouncer-full]
 - [Examples][examples]
 - [Crate page][crate]
 - [Changelog][changelog]
