@@ -532,6 +532,8 @@ unsafe fn callback_impl(
             continue;
         }
 
+        log::trace!("FSEvent: path = `{}`, flag = {:?}", path.display(), flag);
+
         for ev in translate_flags(flag, true).into_iter() {
             // TODO: precise
             let ev = ev.add_path(path.clone());

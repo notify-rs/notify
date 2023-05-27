@@ -202,6 +202,8 @@ impl EventLoop {
                     Ok(events) => {
                         let mut num_events = 0;
                         for event in events {
+                            log::trace!("inotify event: {event:?}");
+
                             num_events += 1;
                             if event.mask.contains(EventMask::Q_OVERFLOW) {
                                 let ev = Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan));
@@ -407,6 +409,8 @@ impl EventLoop {
         }
 
         if let Some(ref mut inotify) = self.inotify {
+            log::trace!("adding inotify watch: {}", path.display());
+
             match inotify.add_watch(&path, watchmask) {
                 Err(e) => {
                     Err(if e.raw_os_error() == Some(libc::ENOSPC) {
@@ -435,6 +439,8 @@ impl EventLoop {
             None => return Err(Error::watch_not_found().add_path(path)),
             Some((w, _, is_recursive)) => {
                 if let Some(ref mut inotify) = self.inotify {
+                    log::trace!("removing inotify watch: {}", path.display());
+
                     inotify
                         .rm_watch(w.clone())
                         .map_err(|e| Error::io(e).add_path(path.clone()))?;

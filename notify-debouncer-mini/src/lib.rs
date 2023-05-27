@@ -182,8 +182,10 @@ impl DebounceDataInner {
         // TODO: perfect fit for drain_filter https://github.com/rust-lang/rust/issues/59618
         for (k, v) in self.d.drain() {
             if v.update.elapsed() >= self.timeout {
+                log::trace!("debounced event: {:?}", DebouncedEventKind::Any);
                 events_expired.push(DebouncedEvent::new(k, DebouncedEventKind::Any));
             } else if v.insert.elapsed() >= self.timeout {
+                log::trace!("debounced event: {:?}", DebouncedEventKind::AnyContinuous);
                 data_back.insert(k.clone(), v);
                 events_expired.push(DebouncedEvent::new(k, DebouncedEventKind::AnyContinuous));
             } else {
@@ -208,6 +210,8 @@ impl DebounceDataInner {
 
     /// Add new event to debouncer cache
     pub fn add_event(&mut self, e: Event) {
+        log::trace!("raw event: {e:?}");
+
         for path in e.paths.into_iter() {
             if let Some(v) = self.d.get_mut(&path) {
                 v.update = Instant::now();

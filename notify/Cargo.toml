@@ -21,6 +21,7 @@ edition = "2021"
 crossbeam-channel = { version = "0.5.0", optional = true }
 filetime = "0.2.6"
 libc = "0.2.4"
+log = "0.4.17"
 serde = { version = "1.0.89", features = ["derive"], optional = true }
 walkdir = "2.2.2"
 
