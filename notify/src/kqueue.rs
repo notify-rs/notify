@@ -143,6 +143,8 @@ impl EventLoop {
         let mut remove_watches = Vec::new();
 
         while let Some(event) = self.kqueue.poll(None) {
+            log::trace!("kqueue event: {event:?}");
+
             match event {
                 kqueue::Event {
                     data: EventData::Vnode(data),
@@ -315,6 +317,8 @@ impl EventLoop {
             | FilterFlag::NOTE_RENAME
             | FilterFlag::NOTE_REVOKE;
 
+        log::trace!("adding kqueue watch: {}", path.display());
+
         self.kqueue
             .add_filename(&path, event_filter, filter_flags)
             .map_err(|e| Error::io(e).add_path(path.clone()))?;
@@ -324,6 +328,8 @@ impl EventLoop {
     }
 
     fn remove_watch(&mut self, path: PathBuf, remove_recursive: bool) -> Result<()> {
+        log::trace!("removing kqueue watch: {}", path.display());
+
         match self.watches.remove(&path) {
             None => return Err(Error::watch_not_found()),
             Some(is_recursive) => {

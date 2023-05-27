@@ -204,6 +204,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
         if let Some(event) = self.rescan_event.take() {
             if now.saturating_duration_since(event.time) >= self.timeout {
+                log::trace!("debounced event: {event:?}");
                 events_expired.push(event);
             } else {
                 self.rescan_event = Some(event);
@@ -270,6 +271,8 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
     /// Add new event to debouncer cache
     pub fn add_event(&mut self, event: Event) {
+        log::trace!("raw event: {event:?}");
+
         if event.need_rescan() {
             self.cache.rescan();
             self.rescan_event = Some(event.into());

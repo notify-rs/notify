@@ -353,6 +353,8 @@ unsafe extern "system" fn handle_event(
         };
 
         if !skip {
+            log::trace!("Event: path = `{}`, action = {:?}", path.display(), (*cur_entry).Action);
+
             let newe = Event::new(EventKind::Any).add_path(path);
 
             fn emit_event(event_handler: &Mutex<dyn EventHandler>, res: Result<Event>) {
