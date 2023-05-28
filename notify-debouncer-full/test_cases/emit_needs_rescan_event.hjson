@@ -3,12 +3,12 @@
         queues: {
             /watch/file-a: {
                 events: [
-                    { kind: "create-any", paths: ["*"], ts: 1 }
+                    { kind: "create-any", paths: ["*"], time: 1 }
                 ]
             }
             /watch/file-b: {
                 events: [
-                    { kind: "create-any", paths: ["*"], ts: 2 }
+                    { kind: "create-any", paths: ["*"], time: 2 }
                 ]
             }
         }
@@ -23,22 +23,22 @@
         }
     }
     events: [
-        { kind: "other", flags: ["rescan"], ts: 3 }
+        { kind: "other", flags: ["rescan"], time: 3 }
     ]
     expected: {
         queues: {
             /watch/file-a: {
                 events: [
-                    { kind: "create-any", paths: ["*"], ts: 1 }
+                    { kind: "create-any", paths: ["*"], time: 1 }
                 ]
             }
             /watch/file-b: {
                 events: [
-                    { kind: "create-any", paths: ["*"], ts: 2 }
+                    { kind: "create-any", paths: ["*"], time: 2 }
                 ]
             }
         }
-        rescan_event: { kind: "other", flags: ["rescan"], ts: 3 }
+        rescan_event: { kind: "other", flags: ["rescan"], time: 3 }
         cache: {
             /watch/file-a: 1
             /watch/file-b: 2
@@ -47,9 +47,9 @@
         events: {
             short: []
             long: [
-                { kind: "create-any", paths: ["/watch/file-a"], ts: 1 }
-                { kind: "create-any", paths: ["/watch/file-b"], ts: 2 }
-                { kind: "other", flags: ["rescan"], ts: 3 }
+                { kind: "create-any", paths: ["/watch/file-a"], time: 1 }
+                { kind: "create-any", paths: ["/watch/file-b"], time: 2 }
+                { kind: "other", flags: ["rescan"], time: 3 }
             ]
         }
     }

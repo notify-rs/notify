@@ -6,6 +6,7 @@ A debouncer for [notify] that is optimized for ease of use.
 
 * Only emits a single `Rename` event if the rename `From` and `To` events can be matched
 * Merges multiple `Rename` events
+* Takes `Rename` events into account and updates paths for events that occurred before the rename event, but which haven't been emitted, yet
 * Optionally keeps track of the file system IDs all files and stiches rename events together (FSevents, Windows)
 * Emits only one `Remove` event when deleting a directory (inotify)
 * Doesn't emit duplicate create events
@@ -23,8 +24,6 @@ A debouncer for [notify] that is optimized for ease of use.
   ```
   
   This also passes through to notify as `crossbeam-channel` feature.
-
-- `serde` for serde support of event types, off by default
 
 [docs]: https://docs.rs/notify-debouncer-full
 [notify]: https://crates.io/crates/notify

@@ -14,7 +14,7 @@ use notify::{
     Error, ErrorKind, Event, EventKind,
 };
 
-use crate::{DebounceDataInner, FileIdCache, Queue};
+use crate::{DebounceDataInner, DebouncedEvent, FileIdCache, Queue};
 
 pub(crate) use schema::TestCase;
 
@@ -37,7 +37,7 @@ mod schema {
     pub(crate) struct Event {
         /// The timestamp the event occurred
         #[serde(default)]
-        pub ts: u64,
+        pub time: u64,
 
         /// The event kind is parsed by `into_notify_event`
         pub kind: String,
@@ -141,7 +141,7 @@ impl schema::Error {
 
 impl schema::Event {
     #[rustfmt::skip]
-    pub fn into_notify_event(self, time: Instant, path: Option<&str>) -> (Instant, Event) {
+    pub fn into_debounced_event(self, time: Instant, path: Option<&str>) -> DebouncedEvent {
         let kind = match &*self.kind {
             "any" => EventKind::Any,
             "other" => EventKind::Other,
@@ -213,7 +213,7 @@ impl schema::Event {
             event = event.set_flag(flag);
         }
 
-        (time + Duration::from_millis(self.ts), event)
+        DebouncedEvent { event, time: time + Duration::from_millis(self.time) }
     }
 }
 
@@ -227,7 +227,7 @@ impl schema::State {
                     events: queue
                         .events
                         .into_iter()
-                        .map(|event| event.into_notify_event(time, Some(&path)))
+                        .map(|event| event.into_debounced_event(time, Some(&path)))
                         .collect::<VecDeque<_>>(),
                 };
                 (path.into(), queue)
@@ -258,11 +258,13 @@ impl schema::State {
 
         let rename_event = self.rename_event.map(|e| {
             let file_id = e.file_id.map(|id| FileId::new(id, id));
-            let (ts, event) = e.into_notify_event(time, None);
-            (ts, event, file_id)
+            let event = e.into_debounced_event(time, None);
+            (event, file_id)
         });
 
-        let rescan_event = self.rescan_event.map(|e| e.into_notify_event(time, None));
+        let rescan_event = self
+            .rescan_event
+            .map(|e| e.into_debounced_event(time, None));
 
         DebounceDataInner {
             queues,
