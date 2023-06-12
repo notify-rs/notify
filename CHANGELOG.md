@@ -3,6 +3,14 @@
 v5 maintenance branch is on `v5_maintenance` after `5.2.0`  
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
+## file-id 0.2.0
+
+- CHANGE: switch from winapi to windows-sys [#494]
+- CHANGE: turn FileId struct into an enum [#494]
+- FEATURE: support for high resolution file ids on Windows using GetFileInformationByHandleEx [#494]
+
+[#494]: https://github.com/notify-rs/notify/pull/494
+
 ## notify 6.0.1 (2023-06-16)
 
 - DOCS: fix swapped debouncer-full / -mini links in the readme/crates.io [4be6bde]
@@ -35,6 +43,10 @@ Newly introduced alternative debouncer with more features. [#480]
 - FEATURE: emit only one `remove` event when deleting a directory (inotify)
 - FEATURE: don't emit duplicate create events
 - FEATURE: don't emit `Modify` events after a `Create` event
+
+## file-id 0.1.0 (2023-05-17)
+
+Utility for reading inode numbers (Linux, MacOS) and file IDs (Windows). [#480]
 
 [#480]: https://github.com/notify-rs/notify/pull/480
 
