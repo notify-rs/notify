@@ -7,6 +7,8 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 - CHANGE: emit events as `DebouncedEvent`s, each containing the original notify event and the time at which it occurred [#488]
 
+[#488]: https://github.com/notify-rs/notify/pull/488
+
 ## notify 6.0.0 (2023-05-17)
 
 - CHANGE: files and directories moved into a watch folder on Linux will now be reported as `rename to` events instead of `create` events [#480]
