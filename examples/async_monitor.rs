@@ -2,7 +2,7 @@ use futures::{
     channel::mpsc::{channel, Receiver},
     SinkExt, StreamExt,
 };
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher, Config};
+use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
 
 /// Async, futures channel based event watching
@@ -24,11 +24,14 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
 
     // Automatically select the best implementation for your platform.
     // You can also access each implementation directly e.g. INotifyWatcher.
-    let watcher = RecommendedWatcher::new(move |res| {
-        futures::executor::block_on(async {
-            tx.send(res).await.unwrap();
-        })
-    }, Config::default())?;
+    let watcher = RecommendedWatcher::new(
+        move |res| {
+            futures::executor::block_on(async {
+                tx.send(res).await.unwrap();
+            })
+        },
+        Config::default(),
+    )?;
 
     Ok((watcher, rx))
 }
