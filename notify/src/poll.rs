@@ -3,7 +3,7 @@
 //! Checks the `watch`ed paths periodically to detect changes. This implementation only uses
 //! Rust stdlib APIs and should work on all of the platforms it supports.
 
-use crate::{EventHandler, RecursiveMode, Watcher, Config};
+use crate::{Config, EventHandler, RecursiveMode, Watcher};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -393,10 +393,10 @@ mod data {
 }
 
 /// Polling based `Watcher` implementation.
-/// 
+///
 /// By default scans through all files and checks for changed entries based on their change date.
 /// Can also be changed to perform file content change checks.
-/// 
+///
 /// See [Config] for more details.
 #[derive(Debug)]
 pub struct PollWatcher {
@@ -408,10 +408,7 @@ pub struct PollWatcher {
 
 impl PollWatcher {
     /// Create a new [PollWatcher], configured as needed.
-    pub fn new<F: EventHandler>(
-        event_handler: F,
-        config: Config,
-    ) -> crate::Result<PollWatcher> {
+    pub fn new<F: EventHandler>(event_handler: F, config: Config) -> crate::Result<PollWatcher> {
         let data_builder = DataBuilder::new(event_handler, config.compare_contents());
 
         let poll_watcher = PollWatcher {

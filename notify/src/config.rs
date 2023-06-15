@@ -22,10 +22,10 @@ impl RecursiveMode {
 }
 
 /// Watcher Backend configuration
-/// 
+///
 /// This contains multiple settings that may relate to only one specific backend,
 /// such as to correctly configure each backend regardless of what is selected during runtime.
-/// 
+///
 /// ```rust
 /// # use std::time::Duration;
 /// # use notify::Config;
@@ -33,7 +33,7 @@ impl RecursiveMode {
 ///     .with_poll_interval(Duration::from_secs(2))
 ///     .with_compare_contents(true);
 /// ```
-/// 
+///
 /// Some options can be changed during runtime, others have to be set when creating the watcher backend.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct Config {
@@ -46,10 +46,10 @@ pub struct Config {
 
 impl Config {
     /// For [crate::PollWatcher]
-    /// 
+    ///
     /// Interval between each rescan attempt. This can be extremely expensive for large
     /// file trees so it is recommended to measure and tune accordingly.
-    /// 
+    ///
     /// The default poll frequency is 30 seconds.
     pub fn with_poll_interval(mut self, dur: Duration) -> Self {
         self.poll_interval = dur;
@@ -62,14 +62,14 @@ impl Config {
     }
 
     /// For [crate::PollWatcher]
-    /// 
+    ///
     /// Optional feature that will evaluate the contents of changed files to determine if
     /// they have indeed changed using a fast hashing algorithm.  This is especially important
     /// for pseudo filesystems like those on Linux under /sys and /proc which are not obligated
     /// to respect any other filesystem norms such as modification timestamps, file sizes, etc.
     /// By enabling this feature, performance will be significantly impacted as all files will
     /// need to be read and hashed at each `poll_interval`.
-    /// 
+    ///
     /// This can't be changed during runtime. Off by default.
     pub fn with_compare_contents(mut self, compare_contents: bool) -> Self {
         self.compare_contents = compare_contents;
@@ -84,9 +84,9 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { 
+        Self {
             poll_interval: Duration::from_secs(30),
-            compare_contents: false
+            compare_contents: false,
         }
     }
 }
