@@ -8,3 +8,4 @@ Specifically the notify version.
 - update notify/cargo.toml examples/Cargo.toml examples/hot_reload_tide/Cargo.toml
   - bump version number on the root Cargo.toml and examples
 - maybe update notify-debouncer-mini/Cargo.toml
+- maybe update notify-debouncer-full/Cargo.toml
