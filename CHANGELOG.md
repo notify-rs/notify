@@ -3,7 +3,13 @@
 v5 maintenance branch is on `v5_maintenance` after `5.2.0`  
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
-## debouncer-full 0.2.0
+## notify 6.0.1 (2023-06-16)
+
+- DOCS: fix swapped debouncer-full / -mini links in the readme/crates.io [4be6bde]
+
+[4be6bde]: https://github.com/notify-rs/notify/commit/4be6bdef4fa7b260a3a56a11212ac074f8e39b39
+
+## debouncer-full 0.2.0 (2023-06-16)
 
 - CHANGE: emit events as `DebouncedEvent`s, each containing the original notify event and the time at which it occurred [#488]
 
