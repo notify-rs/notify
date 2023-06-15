@@ -14,7 +14,7 @@
 //!
 //! println!("{file_id:?}");
 //! ```
-use std::{fs, io, path::Path};
+use std::{io, path::Path};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -39,6 +39,7 @@ impl FileId {
 /// Get the `FileId` for the file at `path`
 #[cfg(target_family = "unix")]
 pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
+    use std::fs;
     use std::os::unix::fs::MetadataExt;
 
     let metadata = fs::metadata(path.as_ref())?;
