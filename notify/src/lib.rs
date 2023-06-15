@@ -4,7 +4,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify = "6.0.0"
+//! notify = "6.0.1"
 //! ```
 //!
 //! If you want debounced events, see [notify-debouncer-mini](https://github.com/notify-rs/notify/tree/main/notify-debouncer-mini)
@@ -24,7 +24,7 @@
 //! Events are serialisable via [serde](https://serde.rs) if the `serde` feature is enabled:
 //!
 //! ```toml
-//! notify = { version = "6.0.0", features = ["serde"] }
+//! notify = { version = "6.0.1", features = ["serde"] }
 //! ```
 //!
 //! ### Crossbeam-Channel & Tokio
@@ -35,7 +35,7 @@
 //! You can disable crossbeam-channel, letting notify fallback to std channels via
 //!
 //! ```toml
-//! notify = { version = "6.0.0", default-features = false, features = ["macos_kqueue"] }
+//! notify = { version = "6.0.1", default-features = false, features = ["macos_kqueue"] }
 //! // Alternatively macos_fsevent instead of macos_kqueue
 //! ```
 //! Note the `macos_kqueue` requirement here, otherwise no backend is available on macos.
