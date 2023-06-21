@@ -10,6 +10,8 @@ notify-debouncer-mini = { version = "0.3.0", path = "../notify-debouncer-mini" }
 notify-debouncer-full = { version = "0.2.0", path = "../notify-debouncer-full" }
 futures = "0.3"
 tempfile = "3.5.0"
+log = "0.4.17"
+env_logger = "0.10.0"
 
 [[example]]
 name = "async_monitor"
