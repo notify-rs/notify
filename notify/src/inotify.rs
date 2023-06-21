@@ -254,14 +254,8 @@ impl EventLoop {
                                         .add_some_path(rename_event.paths.first().cloned())
                                         .add_some_path(path.clone()),
                                     );
-                                } else {
-                                    add_watch_by_event(
-                                        &path,
-                                        &event,
-                                        &self.watches,
-                                        &mut add_watches,
-                                    );
                                 }
+                                add_watch_by_event(&path, &event, &self.watches, &mut add_watches);
                             }
                             if event.mask.contains(EventMask::MOVE_SELF) {
                                 evs.push(
