@@ -22,6 +22,10 @@ name = "monitor_raw"
 path = "monitor_raw.rs"
 
 [[example]]
+name = "monitor_debounced"
+path = "monitor_debounced.rs"
+
+[[example]]
 name = "debouncer_mini"
 path = "debouncer_mini.rs"
 
