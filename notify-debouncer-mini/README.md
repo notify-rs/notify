@@ -8,7 +8,7 @@ Tiny debouncer for [notify]. Filters incoming events and emits only one event pe
 
 - `crossbeam` enabled by default, for crossbeam channel support.  
 This may create problems used in tokio environments. See [#380](https://github.com/notify-rs/notify/issues/380).  
-Use someting like the following to disable it.
+Use something like the following to disable it.
 ```toml
 notify-debouncer-mini = { version = "*", default-features = false }
 ```
