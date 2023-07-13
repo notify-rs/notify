@@ -45,6 +45,10 @@ path = "poll_sysfs.rs"
 name = "watcher_kind"
 path = "watcher_kind.rs"
 
+[[example]]
+name = "pollwatcher_scan"
+path = "pollwatcher_scan.rs"
+
 # specifically in its own sub folder
 # to prevent cargo audit from complaining
 #[[example]]
