@@ -29,6 +29,7 @@ use std::thread;
 
 bitflags::bitflags! {
   #[repr(C)]
+  #[derive(Debug)]
   struct StreamFlags: u32 {
     const NONE = fs::kFSEventStreamEventFlagNone;
     const MUST_SCAN_SUBDIRS = fs::kFSEventStreamEventFlagMustScanSubDirs;
