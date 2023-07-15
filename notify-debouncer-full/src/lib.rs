@@ -175,6 +175,7 @@ impl Queue {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct DebounceDataInner<T> {
     queues: HashMap<PathBuf, Queue>,
     cache: T,
@@ -504,6 +505,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 }
 
 /// Debouncer guard, stops the debouncer on drop.
+#[derive(Debug)]
 pub struct Debouncer<T: Watcher, C: FileIdCache> {
     watcher: T,
     debouncer_thread: Option<std::thread::JoinHandle<()>>,
