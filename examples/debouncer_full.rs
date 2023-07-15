@@ -4,6 +4,7 @@ use notify::{RecursiveMode, Watcher};
 use notify_debouncer_full::new_debouncer;
 use tempfile::tempdir;
 
+/// Advanced example of the notify-debouncer-full, accessing the internal file ID cache
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
     let dir_path = dir.path().to_path_buf();
