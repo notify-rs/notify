@@ -2,6 +2,7 @@ use notify::{RecursiveMode, Watcher};
 use notify_debouncer_full::new_debouncer;
 use std::{path::Path, time::Duration};
 
+/// Example for notify-debouncer-full
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
