@@ -329,6 +329,7 @@ impl DebounceDataInner {
 }
 
 /// Debouncer guard, stops the debouncer on drop
+#[derive(Debug)]
 pub struct Debouncer<T: Watcher> {
     watcher: T,
     stop_channel: Sender<InnerEvent>,
