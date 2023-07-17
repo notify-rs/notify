@@ -7,8 +7,8 @@
 //! notify = "6.0.1"
 //! ```
 //!
-//! If you want debounced events, see [notify-debouncer-mini](https://github.com/notify-rs/notify/tree/main/notify-debouncer-mini)
-//! or [notify-debouncer-full](https://github.com/notify-rs/notify/tree/main/notify-debouncer-full).
+//! If you want debounced events (or don't need them in-order), see [notify-debouncer-mini](https://docs.rs/notify-debouncer-mini/latest/notify_debouncer_mini/)
+//! or [notify-debouncer-full](https://docs.rs/notify-debouncer-full/latest/notify_debouncer_full/).
 //!
 //! ## Features
 //!
