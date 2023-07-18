@@ -16,7 +16,7 @@ edition = "2021"
 
 [[bin]]
 name = "bsd-test"
-path = "bin/nsd_test.rs"
+path = "bin/bsd_test.rs"
 
 [dependencies]
 serde = { version = "1.0.89", features = ["derive"], optional = true }
