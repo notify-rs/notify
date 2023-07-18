@@ -239,7 +239,7 @@ impl schema::State {
             .into_iter()
             .map(|(path, id)| {
                 let path = PathBuf::from(path);
-                let id = FileId::new(id, id);
+                let id = FileId::new_inode(id, id);
                 (path, id)
             })
             .collect::<HashMap<_, _>>();
@@ -249,7 +249,7 @@ impl schema::State {
             .into_iter()
             .map(|(path, id)| {
                 let path = PathBuf::from(path);
-                let id = FileId::new(id, id);
+                let id = FileId::new_inode(id, id);
                 (path, id)
             })
             .collect::<HashMap<_, _>>();
@@ -257,7 +257,7 @@ impl schema::State {
         let cache = TestCache::new(cache, file_system);
 
         let rename_event = self.rename_event.map(|e| {
-            let file_id = e.file_id.map(|id| FileId::new(id, id));
+            let file_id = e.file_id.map(|id| FileId::new_inode(id, id));
             let event = e.into_debounced_event(time, None);
             (event, file_id)
         });
