@@ -278,7 +278,7 @@ fn start_read(rd: &ReadData, event_handler: Arc<Mutex<dyn EventHandler>>, handle
     };
 
     unsafe {
-        let mut overlapped: Box<OVERLAPPED> = Box::new(mem::zeroed());
+        let mut overlapped: Box<OVERLAPPED> = std::mem::ManuallyDrop::new(Box::new(mem::zeroed()));
         // When using callback based async requests, we are allowed to use the hEvent member
         // for our own purposes
 
@@ -305,9 +305,6 @@ fn start_read(rd: &ReadData, event_handler: Arc<Mutex<dyn EventHandler>>, handle
             let request: Box<ReadDirectoryRequest> = mem::transmute(request_p);
 
             ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
-        } else {
-            // read ok. forget overlapped to let the completion routine handle memory
-            mem::forget(overlapped);
         }
     }
 }
