@@ -303,10 +303,8 @@ fn start_read(rd: &ReadData, event_handler: Arc<Mutex<dyn EventHandler>>, handle
             // error reading. retransmute request memory to allow drop.
             // allow overlapped to drop by omitting drop()
             let request: Box<ReadDirectoryRequest> = mem::transmute(request_p);
-
             ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
-        } else {
-            // read ok. drop overlapped to let the completion routine handle memory
+            
             std::mem::ManuallyDrop::drop(&mut overlapped);
         }
     }
