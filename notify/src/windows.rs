@@ -307,8 +307,6 @@ fn start_read(rd: &ReadData, event_handler: Arc<Mutex<dyn EventHandler>>, handle
             let _overlapped_alloc = ManuallyDrop::into_inner(overlapped);
             let request: Box<ReadDirectoryRequest> = mem::transmute(request_p);
             ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
-            
-            std::mem::ManuallyDrop::drop(&mut overlapped);
         }
     }
 }
