@@ -304,7 +304,7 @@ fn start_read(rd: &ReadData, event_handler: Arc<Mutex<dyn EventHandler>>, handle
             // Because of the error, ownership of the `overlapped` alloc was not passed
             // over to `ReadDirectoryChangesW`.
             // So we can claim ownership back.
-            let _overlapped_alloc = ManuallyDrop::into_inner(overlapped);
+            let _overlapped_alloc = std::mem::ManuallyDrop::into_inner(overlapped);
             let request: Box<ReadDirectoryRequest> = mem::transmute(request_p);
             ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
         }
