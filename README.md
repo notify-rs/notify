@@ -35,7 +35,10 @@ and others.
 
 ## License
 
-Notify is licensed under the [CC Zero 1.0][cc0].
+Notify is licensed under the [CC Zero 1.0][cc0].  
+notify-debouncer-mini is licensed under the [MIT] or [Apache-2.0][apache] license.  
+notify-debouncer-full is licensed under the [MIT] or [Apache-2.0][apache] license.  
+file-id is licensed under the [MIT] or [Apache-2.0][apache] license.
 
 ## Origins
 
@@ -56,6 +59,8 @@ Originally created by [Félix Saparelli] and awesome [contributors].
 [build]: https://github.com/notify-rs/notify/actions
 [cargo watch]: https://github.com/passcod/cargo-watch
 [cc0]: ./LICENSE
+[MIT]: ./file-id/LICENSE-MIT
+[apache]: ./file-id/LICENSE-APACHE
 [changelog]: ./CHANGELOG.md
 [cobalt]: https://github.com/cobalt-org/cobalt.rs
 [coc]: http://contributor-covenant.org/version/1/4/
