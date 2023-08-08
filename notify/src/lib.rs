@@ -88,7 +88,7 @@
 //!
 //! For more examples visit the [examples folder](https://github.com/notify-rs/notify/tree/main/examples) in the repository.
 //!
-//! ```rust,no_exec
+//! ```rust
 //! # use std::path::Path;
 //! use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
 //!
@@ -103,7 +103,14 @@
 //!
 //!     // Add a path to be watched. All files and directories at that path and
 //!     // below will be monitored for changes.
+//! #     #[cfg(not(any(
+//! #     target_os = "freebsd",
+//! #     target_os = "openbsd",
+//! #     target_os = "dragonflybsd",
+//! #     target_os = "netbsd")))]
+//! #     { // "." doesn't exist on BSD for some reason in CI
 //!     watcher.watch(Path::new("."), RecursiveMode::Recursive)?;
+//! #     }
 //!
 //!     Ok(())
 //! }
@@ -114,7 +121,7 @@
 //! It is possible to create several watchers with different configurations or implementations that
 //! all call the same event function. This can accommodate advanced behaviour or work around limits.
 //!
-//! ```
+//! ```rust
 //! # use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
 //! # use std::path::Path;
 //! #
@@ -129,8 +136,16 @@
 //!       let mut watcher1 = notify::recommended_watcher(event_fn)?;
 //!       // we will just use the same watcher kind again here
 //!       let mut watcher2 = notify::recommended_watcher(event_fn)?;
+//! #     #[cfg(not(any(
+//! #     target_os = "freebsd",
+//! #     target_os = "openbsd",
+//! #     target_os = "dragonflybsd",
+//! #     target_os = "netbsd")))]
+//! #     { // "." doesn't exist on BSD for some reason in CI
 //! #     watcher1.watch(Path::new("."), RecursiveMode::Recursive)?;
 //! #     watcher2.watch(Path::new("."), RecursiveMode::Recursive)?;
+//! #     }
+//!       // dropping the watcher1/2 here (no loop etc) will end the program
 //! #
 //! #     Ok(())
 //! # }
