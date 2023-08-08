@@ -106,9 +106,11 @@ jobs:
           rustup target add ${{ matrix.target }}
 
       - name: check build
+      # we can't cargo build here due to missing OS libraries
+      # see .cirrus.yml for full netbsd builds
         run: |
           rustc --version && cargo --version
-          cargo build --target ${{ matrix.target }}
+          cargo check --target ${{ matrix.target }}
 
       - name: check build without crossbeam/default features
         run: cargo build -p notify --no-default-features --target ${{ matrix.target }}

@@ -1,0 +1,16 @@
+# adopted from https://github.com/tokio-rs/tokio/blob/master/.cirrus.yml
+freebsd_instance:
+  image_family: freebsd-13-2
+task:
+  name: FreeBSD 64-bit
+  setup_script:
+    - pkg install -y bash
+    - curl https://sh.rustup.rs -sSf --output rustup.sh
+    - sh rustup.sh -y --profile minimal --default-toolchain stable
+    - . $HOME/.cargo/env
+    - |
+      echo "~~~~ rustc --version ~~~~"
+      rustc --version
+  test_script:
+    - . $HOME/.cargo/env
+    - cargo test --all --all-features
