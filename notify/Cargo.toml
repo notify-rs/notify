@@ -7,12 +7,13 @@ documentation = "https://docs.rs/notify"
 homepage = "https://github.com/notify-rs/notify"
 repository = "https://github.com/notify-rs/notify.git"
 readme = "../README.md"
-license = "CC0-1.0 OR Artistic-2.0"
+license = "CC0-1.0"
 keywords = ["events", "filesystem", "notify", "watch"]
 categories = ["filesystem"]
 authors = [
   "Félix Saparelli <me@passcod.name>",
-  "Daniel Faust <hessijames@gmail.com>"
+  "Daniel Faust <hessijames@gmail.com>",
+  "Aron Heinecke <Ox0p54r36@t-online.de>"
 ]
 
 edition = "2021"
