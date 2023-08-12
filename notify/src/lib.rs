@@ -21,7 +21,7 @@
 //!
 //! ### Serde
 //!
-//! Events are serialisable via [serde](https://serde.rs) if the `serde` feature is enabled:
+//! Events are serializable via [serde](https://serde.rs) if the `serde` feature is enabled:
 //!
 //! ```toml
 //! notify = { version = "6.0.1", features = ["serde"] }
@@ -29,7 +29,7 @@
 //!
 //! ### Crossbeam-Channel & Tokio
 //!
-//! By default crossbeam-channel is used internally by notify.
+//! By default crossbeam-channel is used internally by notify. Which also allows the [Watcher] to be sync.
 //! This can [cause issues](https://github.com/notify-rs/notify/issues/380) when used inside tokio.
 //!
 //! You can disable crossbeam-channel, letting notify fallback to std channels via
@@ -38,9 +38,16 @@
 //! notify = { version = "6.0.1", default-features = false, features = ["macos_kqueue"] }
 //! // Alternatively macos_fsevent instead of macos_kqueue
 //! ```
-//! Note the `macos_kqueue` requirement here, otherwise no backend is available on macos.
+//! Note the `macos_kqueue` requirement here, otherwise no native backend is available on macos.
 //!
 //! # Known Problems
+//! 
+//! ### Network filesystems
+//! 
+//! Network mounted filesystems like NFS may not emit any events for notify to listen to.
+//! This applies especially to WSL programs watching windows paths ([issue #254](https://github.com/notify-rs/notify/issues/254)).
+//! 
+//! A workaround is the [PollWatcher] backend.
 //!
 //! ### Docker with Linux on MacOS M1
 //!
@@ -65,7 +72,7 @@
 //! If you want to receive an event for a deletion of folder `b` for the path `/a/b/..`, you will have to watch its parent `/a`.
 //! See [here](https://github.com/notify-rs/notify/issues/403) for more details.
 //!
-//! ### Pseudo Filesystems like /proc,/sys
+//! ### Pseudo Filesystems like /proc, /sys
 //!
 //! Some filesystems like `/proc` and `/sys` on *nix do not emit change events or use correct file change dates.
 //! To circumvent that problem you can use the [PollWatcher] with the `compare_contents` option.
@@ -84,6 +91,11 @@
 //!
 //! Note that the [PollWatcher] is not restricted by this limitation, so it may be an alternative if your users can't increase the limit.
 //!
+//! ### Watching large directories
+//! 
+//! When watching a very large amount of files, notify may fail to receive all events.
+//! For example the linux backend is documented to not be a 100% reliable source. See also issue [#412](https://github.com/notify-rs/notify/issues/412).
+//! 
 //! # Examples
 //!
 //! For more examples visit the [examples folder](https://github.com/notify-rs/notify/tree/main/examples) in the repository.
