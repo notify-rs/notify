@@ -2,7 +2,7 @@ Examples for notify and the debouncers.
 
 ### Notify
 
-- **minitor_raw** basic example for using notify
+- **monitor_raw** basic example for using notify
 - **async_monitor** example for using `futures::channel` to receive events in async code
 - **poll_sysfs** example for observing linux `/sys` events using PollWatcher and the hasing mode
 - **watcher_kind** example for detecting the kind of watcher used and running specific configurations
