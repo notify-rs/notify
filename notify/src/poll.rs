@@ -3,7 +3,7 @@
 //! Checks the `watch`ed paths periodically to detect changes. This implementation only uses
 //! Rust stdlib APIs and should work on all of the platforms it supports.
 
-use crate::{Config, EventHandler, RecursiveMode, Watcher};
+use crate::{unbounded, Config, Error, EventHandler, Receiver, RecursiveMode, Sender, Watcher};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -22,7 +22,6 @@ pub type ScanEvent = crate::Result<PathBuf>;
 /// Very much the same as [EventHandler], but including the Result.
 ///
 /// See the full example for more information.
-/// ```
 pub trait ScanEventHandler: Send + 'static {
     /// Handles an event.
     fn handle_event(&mut self, event: ScanEvent);
@@ -477,13 +476,24 @@ pub struct PollWatcher {
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
     data_builder: Arc<Mutex<DataBuilder>>,
     want_to_stop: Arc<AtomicBool>,
-    delay: Duration,
+    /// channel to the poll loop  
+    /// currently used only for manual polling
+    message_channel: Sender<()>,
+    delay: Option<Duration>,
 }
 
 impl PollWatcher {
     /// Create a new [PollWatcher], configured as needed.
     pub fn new<F: EventHandler>(event_handler: F, config: Config) -> crate::Result<PollWatcher> {
         Self::with_opt::<_, ()>(event_handler, config, None)
+    }
+
+    /// Actively poll for changes. Can be combined with a timeout of 0 to perform only manual polling.
+    pub fn poll(&self) -> crate::Result<()> {
+        self.message_channel
+            .send(())
+            .map_err(|_| Error::generic("failed to send poll message"))?;
+        Ok(())
     }
 
     /// Create a new [PollWatcher] with an scan event handler.
@@ -497,7 +507,7 @@ impl PollWatcher {
         Self::with_opt(event_handler, config, Some(scan_callback))
     }
 
-    /// create a new pollwatcher with all options
+    /// create a new PollWatcher with all options
     fn with_opt<F: EventHandler, G: ScanEventHandler>(
         event_handler: F,
         config: Config,
@@ -506,19 +516,22 @@ impl PollWatcher {
         let data_builder =
             DataBuilder::new(event_handler, config.compare_contents(), scan_callback);
 
+        let (tx, rx) = unbounded();
+
         let poll_watcher = PollWatcher {
             watches: Default::default(),
             data_builder: Arc::new(Mutex::new(data_builder)),
             want_to_stop: Arc::new(AtomicBool::new(false)),
-            delay: config.poll_interval(),
+            delay: config.poll_interval_v2(),
+            message_channel: tx,
         };
 
-        poll_watcher.run();
+        poll_watcher.run(rx);
 
         Ok(poll_watcher)
     }
 
-    fn run(&self) {
+    fn run(&self, rx: Receiver<()>) {
         let watches = Arc::clone(&self.watches);
         let data_builder = Arc::clone(&self.data_builder);
         let want_to_stop = Arc::clone(&self.want_to_stop);
@@ -546,18 +559,12 @@ impl PollWatcher {
                             watch_data.rescan(&mut data_builder);
                         }
                     }
-
-                    // QUESTION: `actual_delay == process_time + delay`. Is it intended to?
-                    //
-                    // If not, consider fix it to:
-                    //
-                    // ```rust
-                    // let still_need_to_delay = delay.checked_sub(data_builder.now.elapsed());
-                    // if let Some(delay) = still_need_to_delay {
-                    //     thread::sleep(delay);
-                    // }
-                    // ```
-                    thread::sleep(delay);
+                    // TODO: v7.0 use delay - (Instant::now().saturating_duration_since(start))
+                    if let Some(delay) = delay {
+                        let _ = rx.recv_timeout(delay);
+                    } else {
+                        let _ = rx.recv();
+                    }
                 }
             });
     }

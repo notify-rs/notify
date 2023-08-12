@@ -4,10 +4,11 @@ Examples for notify and the debouncers.
 
 - **monitor_raw** basic example for using notify
 - **async_monitor** example for using `futures::channel` to receive events in async code
-- **poll_sysfs** example for observing linux `/sys` events using PollWatcher and the hasing mode
+- **poll_sysfs** example for observing linux `/sys` events using PollWatcher and the hashing mode
 - **watcher_kind** example for detecting the kind of watcher used and running specific configurations
 - **hot_reload_tide** large example for async notify using the crates tide and async-std
 - **pollwatcher_scan** example using `PollWatcher::with_initial_scan` to listen for files found during initial scanning
+- **pollwatcher_manual** example using `PollWatcher::poll` without automatic polling for manual triggered polling
 
 ### Notify Debouncer Full (debouncer)
 
