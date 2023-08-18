@@ -3,13 +3,60 @@
 v5 maintenance branch is on `v5_maintenance` after `5.2.0`  
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
-## file-id 0.2.0
+## debouncer-full 0.3.0 (2023-08-18)
 
+- CHANGE: opt-out of the serde binary experiment by restricting it to < 1.0.171 [#528]
+- CHANGE: license changed to dual-license of MIT OR Apache-2.0 [#520]
+- CHANGE: upgrade to file-id 0.2.0 for high resolution file IDs [#494]
+- FEATURE: derive debug for the debouncer struct [#510]
+
+## debouncer-mini 0.4.0 (2023-08-18)
+
+- CHANGE: opt-out of the serde binary experiment by restricting it to < 1.0.171 [#528]
+- CHANGE: license changed to dual-license of MIT OR Apache-2.0 [#520]
+- CHANGE: replace active polling with passive loop, removing empty ticks [#467]
+- FEATURE: derive debug for the debouncer struct [#510]
+
+[#467]: https://github.com/notify-rs/notify/pull/467
+[#510]: https://github.com/notify-rs/notify/pull/510
+
+## notify 6.1.0 (2023-08-18)
+
+- CHANGE: opt-out of the serde binary experiment by restricting it to < 1.0.171 [#528]
+- CHANGE: license changed to only CC0-1.0 [#520]
+- CHANGE: use logging [#499]
+- CHANGE: upgrade windows-sys to 0.48 [#479]
+- CHANGE: bump filetime to 0.2.22 [#521]
+- FEATURE: support manual polling of PollWatcher and disabling automatic polling [#524]
+- FEATURE: support listening to the initial pollwatcher file scan [#507]
+- FIX: fix moved folders not being watched on linux [#498]
+- FIX: fixup potential future double free on windows [#517]
+- FIX: require bitflags only on macos and upgrade the crate [#505]
+- DOCS: add more known issues, typos and cleanup examples [#523] [#502] [#522]
+
+[#524]: https://github.com/notify-rs/notify/pull/524
+[#523]: https://github.com/notify-rs/notify/pull/523
+[#502]: https://github.com/notify-rs/notify/pull/502
+[#522]: https://github.com/notify-rs/notify/pull/522
+[#479]: https://github.com/notify-rs/notify/pull/479
+[#521]: https://github.com/notify-rs/notify/pull/521
+[#517]: https://github.com/notify-rs/notify/pull/517
+[#507]: https://github.com/notify-rs/notify/pull/507
+[#499]: https://github.com/notify-rs/notify/pull/499
+[#505]: https://github.com/notify-rs/notify/pull/505
+[#498]: https://github.com/notify-rs/notify/pull/498
+
+## file-id 0.2.0 (2023-08-18)
+
+- CHANGE: opt-out of the serde binary experiment by restricting it to < 1.0.171 [#528]
+- CHANGE: license changed to dual-license of MIT OR Apache-2.0 [#520]
 - CHANGE: switch from winapi to windows-sys [#494]
 - CHANGE: turn FileId struct into an enum [#494]
 - FEATURE: support for high resolution file ids on Windows using GetFileInformationByHandleEx [#494]
 
 [#494]: https://github.com/notify-rs/notify/pull/494
+[#520]: https://github.com/notify-rs/notify/pull/520
+[#528]: https://github.com/notify-rs/notify/pull/528
 
 ## notify 6.0.1 (2023-06-16)
 

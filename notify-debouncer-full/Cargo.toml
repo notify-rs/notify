@@ -1,6 +1,6 @@
 [package]
 name = "notify-debouncer-full"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.60"
 description = "notify event debouncer optimized for ease of use"
@@ -24,9 +24,9 @@ default = ["crossbeam"]
 crossbeam = ["crossbeam-channel","notify/crossbeam-channel"]
 
 [dependencies]
-notify = { version = "6.0.1", path = "../notify" }
+notify = { version = "6.1.0", path = "../notify" }
 crossbeam-channel = { version = "0.5", optional = true }
-file-id = { version = "0.1.0", path = "../file-id" }
+file-id = { version = "0.2.0", path = "../file-id" }
 walkdir = "2.2.2"
 parking_lot = "0.12.1"
 log = "0.4.17"
