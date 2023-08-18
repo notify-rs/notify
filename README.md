@@ -58,7 +58,7 @@ Originally created by [Félix Saparelli] and awesome [contributors].
 [artistic]: ./LICENSE.ARTISTIC
 [build]: https://github.com/notify-rs/notify/actions
 [cargo watch]: https://github.com/passcod/cargo-watch
-[cc0]: ./LICENSE
+[cc0]: ./notify/LICENSE-CC0
 [MIT]: ./file-id/LICENSE-MIT
 [apache]: ./file-id/LICENSE-APACHE
 [changelog]: ./CHANGELOG.md
