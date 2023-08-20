@@ -26,5 +26,5 @@ crossbeam = ["crossbeam-channel","notify/crossbeam-channel"]
 [dependencies]
 notify = { version = "6.0.1", path = "../notify" }
 crossbeam-channel = { version = "0.5", optional = true }
-serde = { version = "1.0.89", features = ["derive"], optional = true }
+serde = { version = "1.0.89, < 1.0.172", features = ["derive"], optional = true }
 log = "0.4.17"
