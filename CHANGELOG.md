@@ -5,14 +5,14 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 ## debouncer-full 0.3.0 (2023-08-18)
 
-- CHANGE: opt-out of the serde binary experiment by restricting it to < 1.0.171 [#528]
+- CHANGE: opt-out of the serde binary experiment by restricting it to < 1.0.172 [#528]
 - CHANGE: license changed to dual-license of MIT OR Apache-2.0 [#520]
 - CHANGE: upgrade to file-id 0.2.0 for high resolution file IDs [#494]
 - FEATURE: derive debug for the debouncer struct [#510]
 
 ## debouncer-mini 0.4.0 (2023-08-18)
 
-- CHANGE: opt-out of the serde binary experiment by restricting it to < 1.0.171 [#528]
+- CHANGE: opt-out of the serde binary experiment by restricting it to < 1.0.172 [#528]
 - CHANGE: license changed to dual-license of MIT OR Apache-2.0 [#520]
 - CHANGE: replace active polling with passive loop, removing empty ticks [#467]
 - FEATURE: derive debug for the debouncer struct [#510]
@@ -22,7 +22,7 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 ## notify 6.1.0 (2023-08-18)
 
-- CHANGE: opt-out of the serde binary experiment by restricting it to < 1.0.171 [#528]
+- CHANGE: opt-out of the serde binary experiment by restricting it to < 1.0.172 [#528]
 - CHANGE: license changed to only CC0-1.0 [#520]
 - CHANGE: use logging [#499]
 - CHANGE: upgrade windows-sys to 0.48 [#479]
@@ -48,7 +48,7 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 ## file-id 0.2.0 (2023-08-18)
 
-- CHANGE: opt-out of the serde binary experiment by restricting it to < 1.0.171 [#528]
+- CHANGE: opt-out of the serde binary experiment by restricting it to < 1.0.172 [#528]
 - CHANGE: license changed to dual-license of MIT OR Apache-2.0 [#520]
 - CHANGE: switch from winapi to windows-sys [#494]
 - CHANGE: turn FileId struct into an enum [#494]
