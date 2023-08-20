@@ -18,8 +18,8 @@ _Cross-platform filesystem notification library for Rust._
 - [Upgrading notify from v4](UPGRADING_V4_TO_V5.md)
 - Earliest supported Rust version: **1.60**
 
-As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], [pax],
-[rdiff], [rust-analyzer], [timetrack], [watchexec], [xi-editor], [watchfiles],
+As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], 
+[rust-analyzer], [watchexec], [xi-editor], [watchfiles],
 and others.
 
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
@@ -72,11 +72,8 @@ Originally created by [Félix Saparelli] and awesome [contributors].
 [hotwatch]: https://github.com/francesca64/hotwatch
 [mdBook]: https://github.com/rust-lang-nursery/mdBook
 [notify-rust]: https://github.com/hoodie/notify-rust
-[pax]: https://pax.js.org/
-[rdiff]: https://github.com/dyule/rdiff
 [rust-analyzer]: https://github.com/rust-analyzer/rust-analyzer
 [serde]: https://serde.rs/
-[timetrack]: https://github.com/joshmcguigan/timetrack
 [watchexec]: https://github.com/mattgreen/watchexec
 [wiki]: https://github.com/notify-rs/notify/wiki
 [xi-editor]: https://xi-editor.io/
