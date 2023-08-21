@@ -5,9 +5,9 @@ publish = false
 edition = "2021"
 
 [dev-dependencies]
-notify = { version = "6.1.0", path = "../notify" }
-notify-debouncer-mini = { version = "0.4.0", path = "../notify-debouncer-mini" }
-notify-debouncer-full = { version = "0.3.0", path = "../notify-debouncer-full" }
+notify = { version = "6.1.1", path = "../notify" }
+notify-debouncer-mini = { version = "0.4.1", path = "../notify-debouncer-mini" }
+notify-debouncer-full = { version = "0.3.1", path = "../notify-debouncer-full" }
 futures = "0.3"
 tempfile = "3.5.0"
 log = "0.4.17"

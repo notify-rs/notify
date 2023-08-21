@@ -3,6 +3,24 @@
 v5 maintenance branch is on `v5_maintenance` after `5.2.0`  
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
+## debouncer-full 0.3.1 (2023-08-21)
+
+- CHANGE: remove serde binary experiment opt-out after it got removed [#530]
+
+## debouncer-mini 0.4.1 (2023-08-21)
+
+- CHANGE: remove serde binary experiment opt-out after it got removed [#530]
+
+## notify 6.1.1 (2023-08-21)
+
+- CHANGE: remove serde binary experiment opt-out after it got removed [#530]
+
+## file-id 0.2.1 (2023-08-21)
+
+- CHANGE: remove serde binary experiment opt-out after it got removed [#530]
+
+[#530]: https://github.com/notify-rs/notify/pull/530
+
 ## debouncer-full 0.3.0 (2023-08-18)
 
 - CHANGE: opt-out of the serde binary experiment by restricting it to < 1.0.172 [#528]
