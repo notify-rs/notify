@@ -13,7 +13,7 @@ Examples for notify and the debouncers.
 ### Notify Debouncer Full (debouncer)
 
 - **monitor_debounced** basic usage example for the debouncer
-- **monitor_full** advanced usage accessing the internal file ID cache
+- **debouncer_full** advanced usage accessing the internal file ID cache
 
 ### Debouncer Mini (mini debouncer)
 
