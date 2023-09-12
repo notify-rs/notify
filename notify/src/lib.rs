@@ -219,6 +219,7 @@ pub use crate::inotify::INotifyWatcher;
     target_os = "openbsd",
     target_os = "netbsd",
     target_os = "dragonflybsd",
+    target_os = "ios",
     all(target_os = "macos", feature = "macos_kqueue")
 ))]
 pub use crate::kqueue::KqueueWatcher;
@@ -236,6 +237,7 @@ pub mod inotify;
     target_os = "openbsd",
     target_os = "dragonflybsd",
     target_os = "netbsd",
+    target_os = "ios",
     all(target_os = "macos", feature = "macos_kqueue")
 ))]
 pub mod kqueue;
@@ -381,6 +383,7 @@ pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
     target_os = "openbsd",
     target_os = "netbsd",
     target_os = "dragonflybsd",
+    target_os = "ios",
     all(target_os = "macos", feature = "macos_kqueue")
 ))]
 pub type RecommendedWatcher = KqueueWatcher;
@@ -393,7 +396,8 @@ pub type RecommendedWatcher = KqueueWatcher;
     target_os = "freebsd",
     target_os = "openbsd",
     target_os = "netbsd",
-    target_os = "dragonflybsd"
+    target_os = "dragonflybsd",
+    target_os = "ios"
 )))]
 pub type RecommendedWatcher = PollWatcher;
 
