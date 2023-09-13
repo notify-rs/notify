@@ -349,7 +349,7 @@ pub trait Watcher {
 
     /// Configure the watcher at runtime.
     ///
-    /// See the [`Config`](config/enum.Config.html) enum for all configuration options.
+    /// See the [`Config`](config/struct.Config.html) struct for all configuration options.
     ///
     /// # Returns
     ///
