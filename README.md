@@ -30,7 +30,7 @@ and others.
 - Linux / Android: inotify
 - macOS: FSEvents or kqueue, see features
 - Windows: ReadDirectoryChangesW
-- FreeBSD / NetBSD / OpenBSD / DragonflyBSD: kqueue
+- iOS / FreeBSD / NetBSD / OpenBSD / DragonflyBSD: kqueue
 - All platforms: polling
 
 ## License
