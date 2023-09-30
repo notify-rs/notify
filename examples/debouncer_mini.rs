@@ -1,11 +1,14 @@
-use std::{io::Write, path::Path, time::Duration};
+use std::{path::Path, time::Duration};
 
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
 
 /// Example for debouncer mini
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debouncer_mini=trace")).init();
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("debouncer_mini=trace"),
+    )
+    .init();
     // emit some events by changing a file
     std::thread::spawn(|| {
         let path = Path::new("test.txt");
@@ -40,7 +43,9 @@ fn main() {
     // print all events, non returning
     for result in rx {
         match result {
-            Ok(events) => events.iter().for_each(|event| log::info!("Event {event:?}")),
+            Ok(events) => events
+                .iter()
+                .for_each(|event| log::info!("Event {event:?}")),
             Err(error) => log::info!("Error {error:?}"),
         }
     }
