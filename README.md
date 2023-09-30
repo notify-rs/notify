@@ -67,7 +67,7 @@ Originally created by [Félix Saparelli] and awesome [contributors].
 [crate]: https://crates.io/crates/notify
 [docket]: https://iwillspeak.github.io/docket/
 [notify-docs]: https://docs.rs/notify/latest/notify/
-[fsnotify]: https://github.com/go-fsnotify/fsnotify
+[fsnotify]: https://github.com/fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
 [hotwatch]: https://github.com/francesca64/hotwatch
 [mdBook]: https://github.com/rust-lang-nursery/mdBook
