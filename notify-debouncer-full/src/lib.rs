@@ -57,9 +57,9 @@
 //! - `crossbeam` enabled by default, adds [`DebounceEventHandler`](DebounceEventHandler) support for crossbeam channels.
 //!   Also enables crossbeam-channel in the re-exported notify. You may want to disable this when using the tokio async runtime.
 //! - `serde` enables serde support for events.
-//! 
+//!
 //! # Caveats
-//! 
+//!
 //! As all file events are sourced from notify, the [known problems](https://docs.rs/notify/latest/notify/#known-problems) section applies here too.
 
 mod cache;

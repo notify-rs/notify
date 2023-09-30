@@ -35,7 +35,7 @@
 //!   // Add a path to be watched. All files and directories at that path and
 //!   // below will be monitored for changes.
 //!   debouncer.watcher().watch(Path::new("."), RecursiveMode::Recursive).unwrap();
-//! 
+//!
 //!   // note that dropping the debouncer (as will happen here) also ends the debouncer
 //!   // thus this demo would need an endless loop to keep running
 //! # }
@@ -48,9 +48,9 @@
 //! - `crossbeam` enabled by default, adds [`DebounceEventHandler`](DebounceEventHandler) support for crossbeam channels.
 //!   Also enables crossbeam-channel in the re-exported notify. You may want to disable this when using the tokio async runtime.
 //! - `serde` enables serde support for events.
-//! 
+//!
 //! # Caveats
-//! 
+//!
 //! As all file events are sourced from notify, the [known problems](https://docs.rs/notify/latest/notify/#known-problems) section applies here too.
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

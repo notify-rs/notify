@@ -20,13 +20,11 @@ fn main() {
     // notify backend configuration
     let backend_config = notify::Config::default().with_poll_interval(Duration::from_secs(1));
     // debouncer configuration
-    let debouncer_config = Config::default().with_timeout(Duration::from_millis(1000)).with_notify_config(backend_config);
+    let debouncer_config = Config::default()
+        .with_timeout(Duration::from_millis(1000))
+        .with_notify_config(backend_config);
     // select backend via fish operator, here PollWatcher backend
-    let mut debouncer = new_debouncer_opt::<_, notify::PollWatcher>(
-        debouncer_config,
-        tx,
-    )
-    .unwrap();
+    let mut debouncer = new_debouncer_opt::<_, notify::PollWatcher>(debouncer_config, tx).unwrap();
 
     debouncer
         .watcher()
