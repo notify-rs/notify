@@ -20,22 +20,21 @@ fn main() {
 fn watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
     let (tx, rx) = std::sync::mpsc::channel();
     // use the PollWatcher and disable automatic polling
-    let mut watcher = PollWatcher::new(
-        tx,
-        Config::default().with_manual_polling(),
-    )?;
+    let mut watcher = PollWatcher::new(tx, Config::default().with_manual_polling())?;
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
     watcher.watch(path.as_ref(), RecursiveMode::Recursive)?;
 
     // run event receiver on a different thread, we want this one for user input
-    std::thread::spawn(move ||{for res in rx {
-        match res {
-            Ok(event) => println!("changed: {:?}", event),
-            Err(e) => println!("watch error: {:?}", e),
+    std::thread::spawn(move || {
+        for res in rx {
+            match res {
+                Ok(event) => println!("changed: {:?}", event),
+                Err(e) => println!("watch error: {:?}", e),
+            }
         }
-    }});
+    });
 
     // wait for any input and poll
     loop {

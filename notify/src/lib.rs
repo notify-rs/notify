@@ -41,12 +41,12 @@
 //! Note the `macos_kqueue` requirement here, otherwise no native backend is available on macos.
 //!
 //! # Known Problems
-//! 
+//!
 //! ### Network filesystems
-//! 
+//!
 //! Network mounted filesystems like NFS may not emit any events for notify to listen to.
 //! This applies especially to WSL programs watching windows paths ([issue #254](https://github.com/notify-rs/notify/issues/254)).
-//! 
+//!
 //! A workaround is the [PollWatcher] backend.
 //!
 //! ### Docker with Linux on MacOS M1
@@ -92,10 +92,10 @@
 //! Note that the [PollWatcher] is not restricted by this limitation, so it may be an alternative if your users can't increase the limit.
 //!
 //! ### Watching large directories
-//! 
+//!
 //! When watching a very large amount of files, notify may fail to receive all events.
 //! For example the linux backend is documented to not be a 100% reliable source. See also issue [#412](https://github.com/notify-rs/notify/issues/412).
-//! 
+//!
 //! # Examples
 //!
 //! For more examples visit the [examples folder](https://github.com/notify-rs/notify/tree/main/examples) in the repository.
