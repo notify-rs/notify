@@ -211,9 +211,7 @@ impl EventLoop {
                             }
 
                             let path = match event.name {
-                                Some(name) => {
-                                    self.paths.get(&event.wd).map(|root| root.join(&name))
-                                }
+                                Some(name) => self.paths.get(&event.wd).map(|root| root.join(name)),
                                 None => self.paths.get(&event.wd).cloned(),
                             };
 
