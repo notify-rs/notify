@@ -22,6 +22,6 @@ fn print_file_id(path: &str) {
 fn print_result(result: io::Result<FileId>) {
     match result {
         Ok(file_id) => println!("{file_id:?}"),
-        Err(error) => println!("Error: {error}"),
+        Err(error) => eprintln!("Error: {error}"),
     }
 }
