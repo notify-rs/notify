@@ -14,18 +14,21 @@
 
 #![allow(non_upper_case_globals, dead_code)]
 
-use crate::event::*;
-use crate::{unbounded, Config, Error, EventHandler, RecursiveMode, Result, Sender, Watcher};
+use crate::{
+    event::*, unbounded, Config, Error, EventHandler, RecursiveMode, Result, Sender, Watcher,
+};
 use fsevent_sys as fs;
 use fsevent_sys::core_foundation as cf;
-use std::collections::HashMap;
-use std::ffi::CStr;
-use std::fmt;
-use std::os::raw;
-use std::path::{Path, PathBuf};
-use std::ptr;
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::{
+    collections::HashMap,
+    ffi::CStr,
+    fmt,
+    os::raw,
+    path::{Path, PathBuf},
+    ptr,
+    sync::{Arc, Mutex},
+    thread,
+};
 
 bitflags::bitflags! {
   #[repr(C)]

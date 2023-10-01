@@ -5,20 +5,24 @@
 //!
 //! [ref]: https://msdn.microsoft.com/en-us/library/windows/desktop/aa363950(v=vs.85).aspx
 
-use crate::{bounded, unbounded, BoundSender, Config, Receiver, Sender};
-use crate::{event::*, WatcherKind};
-use crate::{Error, EventHandler, RecursiveMode, Result, Watcher};
-use std::collections::HashMap;
-use std::env;
-use std::ffi::OsString;
-use std::mem;
-use std::os::raw::c_void;
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::path::{Path, PathBuf};
-use std::ptr;
-use std::slice;
-use std::sync::{Arc, Mutex};
-use std::thread;
+use crate::{
+    bounded, event::*, unbounded, BoundSender, Config, Error, EventHandler, Receiver,
+    RecursiveMode, Result, Sender, Watcher, WatcherKind,
+};
+use std::{
+    collections::HashMap,
+    env,
+    ffi::OsString,
+    mem,
+    os::{
+        raw::c_void,
+        windows::ffi::{OsStrExt, OsStringExt},
+    },
+    path::{Path, PathBuf},
+    ptr, slice,
+    sync::{Arc, Mutex},
+    thread,
+};
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_OPERATION_ABORTED, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };

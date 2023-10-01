@@ -4,17 +4,19 @@
 //! when an event happens or a condition holds, based on the results of small
 //! pieces of kernel code termed filters.
 
-use super::event::*;
-use super::{Config, Error, EventHandler, RecursiveMode, Result, Watcher};
+use super::{event::*, Config, Error, EventHandler, RecursiveMode, Result, Watcher};
 use crate::{unbounded, Receiver, Sender};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
-use std::collections::HashMap;
-use std::env;
-use std::fs::metadata;
-use std::os::unix::io::AsRawFd;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::thread;
+use std::{
+    collections::HashMap,
+    env,
+    fs::metadata,
+    os::unix::io::AsRawFd,
+    path::{Path, PathBuf},
+    sync::Arc,
+    sync::Arc,
+    thread,
+};
 use walkdir::WalkDir;
 
 const KQUEUE: mio::Token = mio::Token(0);
