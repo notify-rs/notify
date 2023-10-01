@@ -14,7 +14,6 @@ use std::{
     os::unix::io::AsRawFd,
     path::{Path, PathBuf},
     sync::Arc,
-    sync::Arc,
     thread,
 };
 use walkdir::WalkDir;
