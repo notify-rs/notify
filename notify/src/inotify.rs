@@ -99,7 +99,7 @@ impl EventLoop {
         poll.registry()
             .register(&mut evented_inotify, INOTIFY, mio::Interest::READABLE)?;
 
-        let event_loop = EventLoop {
+        let event_loop = Self {
             running: true,
             poll,
             event_loop_waker,
@@ -498,7 +498,7 @@ impl INotifyWatcher {
         let channel = event_loop.event_loop_tx.clone();
         let waker = event_loop.event_loop_waker.clone();
         event_loop.run();
-        Ok(INotifyWatcher { channel, waker })
+        Ok(Self { channel, waker })
     }
 
     fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {

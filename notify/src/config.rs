@@ -15,8 +15,8 @@ pub enum RecursiveMode {
 impl RecursiveMode {
     pub(crate) fn is_recursive(&self) -> bool {
         match *self {
-            RecursiveMode::Recursive => true,
-            RecursiveMode::NonRecursive => false,
+            Self::Recursive => true,
+            Self::NonRecursive => false,
         }
     }
 }

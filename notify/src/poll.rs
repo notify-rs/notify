@@ -18,7 +18,7 @@ use std::{
 /// Event send for registered handler on initial directory scans
 pub type ScanEvent = crate::Result<PathBuf>;
 
-/// Handler trait for receivers of ScanEvent.  
+/// Handler trait for receivers of ScanEvent.
 /// Very much the same as [EventHandler], but including the Result.
 ///
 /// See the full example for more information.
@@ -332,10 +332,10 @@ mod data {
 
     impl PathData {
         /// Create a new `PathData`.
-        fn new(data_builder: &DataBuilder, meta_path: &MetaPath) -> PathData {
+        fn new(data_builder: &DataBuilder, meta_path: &MetaPath) -> Self {
             let metadata = meta_path.metadata();
 
-            PathData {
+            Self {
                 mtime: FileTime::from_last_modification_time(metadata).seconds(),
                 hash: data_builder
                     .build_hasher
@@ -476,7 +476,7 @@ pub struct PollWatcher {
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
     data_builder: Arc<Mutex<DataBuilder>>,
     want_to_stop: Arc<AtomicBool>,
-    /// channel to the poll loop  
+    /// channel to the poll loop
     /// currently used only for manual polling
     message_channel: Sender<()>,
     delay: Option<Duration>,
@@ -484,7 +484,7 @@ pub struct PollWatcher {
 
 impl PollWatcher {
     /// Create a new [PollWatcher], configured as needed.
-    pub fn new<F: EventHandler>(event_handler: F, config: Config) -> crate::Result<PollWatcher> {
+    pub fn new<F: EventHandler>(event_handler: F, config: Config) -> crate::Result<Self> {
         Self::with_opt::<_, ()>(event_handler, config, None)
     }
 
@@ -503,7 +503,7 @@ impl PollWatcher {
         event_handler: F,
         config: Config,
         scan_callback: G,
-    ) -> crate::Result<PollWatcher> {
+    ) -> crate::Result<Self> {
         Self::with_opt(event_handler, config, Some(scan_callback))
     }
 
@@ -512,13 +512,13 @@ impl PollWatcher {
         event_handler: F,
         config: Config,
         scan_callback: Option<G>,
-    ) -> crate::Result<PollWatcher> {
+    ) -> crate::Result<Self> {
         let data_builder =
             DataBuilder::new(event_handler, config.compare_contents(), scan_callback);
 
         let (tx, rx) = unbounded();
 
-        let poll_watcher = PollWatcher {
+        let poll_watcher = Self {
             watches: Default::default(),
             data_builder: Arc::new(Mutex::new(data_builder)),
             want_to_stop: Arc::new(AtomicBool::new(false)),

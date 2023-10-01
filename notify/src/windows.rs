@@ -94,7 +94,7 @@ impl ReadDirectoryChangesServer {
             .name("notify-rs windows loop".to_string())
             .spawn(move || {
                 let wakeup_sem = sem_temp as HANDLE;
-                let server = ReadDirectoryChangesServer {
+                let server = Self {
                     rx: action_rx,
                     event_handler,
                     meta_tx,

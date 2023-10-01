@@ -61,7 +61,7 @@ impl EventLoop {
         poll.registry()
             .register(&mut evented_kqueue, KQUEUE, mio::Interest::READABLE)?;
 
-        let event_loop = EventLoop {
+        let event_loop = Self {
             running: true,
             poll,
             event_loop_waker,
@@ -368,7 +368,7 @@ impl KqueueWatcher {
         let channel = event_loop.event_loop_tx.clone();
         let waker = event_loop.event_loop_waker.clone();
         event_loop.run();
-        Ok(KqueueWatcher { channel, waker })
+        Ok(Self { channel, waker })
     }
 
     fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
