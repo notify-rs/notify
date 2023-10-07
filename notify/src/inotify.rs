@@ -37,6 +37,7 @@ struct EventLoop {
     inotify: Option<Inotify>,
     event_handler: Box<dyn EventHandler>,
     // PathBuf -> (WatchDescriptor, WatchMask, is_recursive, is_dir)
+    /// PathBuf -> (WatchDescriptor, WatchMask, is_recursive, is_dir)
     watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool)>,
     paths: HashMap<WatchDescriptor, PathBuf>,
     rename_event: Option<Event>,
