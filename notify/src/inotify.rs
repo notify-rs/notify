@@ -27,8 +27,7 @@ const MESSAGE: mio::Token = mio::Token(1);
 // -  messages telling it what to do
 //
 // -  events telling it that something has happened on one of the watched files.
-//
-// - watches HashMap Value  tuple (WatchDescriptor, WatchMask, is_recursive, is_dir)
+
 struct EventLoop {
     running: bool,
     poll: mio::Poll,
@@ -37,6 +36,7 @@ struct EventLoop {
     event_loop_rx: Receiver<EventLoopMsg>,
     inotify: Option<Inotify>,
     event_handler: Box<dyn EventHandler>,
+    // PathBuf -> (WatchDescriptor, WatchMask, is_recursive, is_dir)
     watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool)>,
     paths: HashMap<WatchDescriptor, PathBuf>,
     rename_event: Option<Event>,
