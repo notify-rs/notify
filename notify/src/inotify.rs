@@ -298,19 +298,17 @@ impl EventLoop {
                                 remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                             }
                             if event.mask.contains(EventMask::DELETE_SELF) {
-                                let remove_kind: RemoveKind;
-
-                                if path.is_none() {
-                                    remove_kind = RemoveKind::Other
-                                } else {
-                                    let watched_path = path.clone().unwrap();
-                                    let current_watch = self.watches.get(&watched_path);
-                                    remove_kind = match current_watch {
-                                        Some(&(_, _, _, true)) => RemoveKind::Folder,
-                                        Some(&(_, _, _, false)) => RemoveKind::File,
-                                        None => RemoveKind::Other,
+                                let remove_kind = match path.clone() {
+                                    Some(watched_path) => {
+                                        let current_watch = self.watches.get(&watched_path);
+                                        match current_watch {
+                                            Some(&(_, _, _, true)) => RemoveKind::Folder,
+                                            Some(&(_, _, _, false)) => RemoveKind::File,
+                                            None => RemoveKind::Other,
+                                        }
                                     }
-                                }
+                                    None => RemoveKind::Other,
+                                };
                                 evs.push(
                                     Event::new(EventKind::Remove(remove_kind))
                                         .add_some_path(path.clone()),
