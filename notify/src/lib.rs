@@ -102,16 +102,17 @@
 //!
 //! ```rust
 //! # use std::path::Path;
-//! use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
+//! use notify::{recommended_watcher, Event, RecursiveMode, Result, Watcher};
+//! use std::sync::mpsc;
 //!
 //! fn main() -> Result<()> {
-//!     // Automatically select the best implementation for your platform.
-//!     let mut watcher = notify::recommended_watcher(|res| {
-//!         match res {
-//!            Ok(event) => println!("event: {:?}", event),
-//!            Err(e) => println!("watch error: {:?}", e),
-//!         }
-//!     })?;
+//!     let (tx, rx) = mpsc::channel::<Result<Event>>();
+//!
+//!     // Use recommended_watcher() to automatically select the best implementation
+//!     // for your platform. The `EventHandler` passed to this constructor can be a
+//!     // closure, a `std::sync::mpsc::Sender`, a `crossbeam_channel::Sender`, or
+//!     // another type the trait is implemented for.
+//!     let mut watcher = notify::recommended_watcher(tx)?;
 //!
 //!     // Add a path to be watched. All files and directories at that path and
 //!     // below will be monitored for changes.
@@ -122,6 +123,16 @@
 //! #     target_os = "netbsd")))]
 //! #     { // "." doesn't exist on BSD for some reason in CI
 //!     watcher.watch(Path::new("."), RecursiveMode::Recursive)?;
+//! #     }
+//! #     #[cfg(any())]
+//! #     { // don't run this in doctests, it blocks forever
+//!     // Block forever, printing out events as they come in
+//!     for res in rx {
+//!         match res {
+//!             Ok(event) => println!("event: {:?}", event),
+//!             Err(e) => println!("watch error: {:?}", e),
+//!         }
+//!     }
 //! #     }
 //!
 //!     Ok(())
