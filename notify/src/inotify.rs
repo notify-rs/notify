@@ -27,6 +27,7 @@ const MESSAGE: mio::Token = mio::Token(1);
 // -  messages telling it what to do
 //
 // -  events telling it that something has happened on one of the watched files.
+
 struct EventLoop {
     running: bool,
     poll: mio::Poll,
@@ -35,7 +36,8 @@ struct EventLoop {
     event_loop_rx: Receiver<EventLoopMsg>,
     inotify: Option<Inotify>,
     event_handler: Box<dyn EventHandler>,
-    watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool)>,
+    /// PathBuf -> (WatchDescriptor, WatchMask, is_recursive, is_dir)
+    watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool)>,
     paths: HashMap<WatchDescriptor, PathBuf>,
     rename_event: Option<Event>,
 }
@@ -58,13 +60,13 @@ enum EventLoopMsg {
 fn add_watch_by_event(
     path: &Option<PathBuf>,
     event: &inotify_sys::Event<&OsStr>,
-    watches: &HashMap<PathBuf, (WatchDescriptor, WatchMask, bool)>,
+    watches: &HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool)>,
     add_watches: &mut Vec<PathBuf>,
 ) {
     if let Some(ref path) = *path {
         if event.mask.contains(EventMask::ISDIR) {
             if let Some(parent_path) = path.parent() {
-                if let Some(&(_, _, is_recursive)) = watches.get(parent_path) {
+                if let Some(&(_, _, is_recursive, _)) = watches.get(parent_path) {
                     if is_recursive {
                         add_watches.push(path.to_owned());
                     }
@@ -77,7 +79,7 @@ fn add_watch_by_event(
 #[inline]
 fn remove_watch_by_event(
     path: &Option<PathBuf>,
-    watches: &HashMap<PathBuf, (WatchDescriptor, WatchMask, bool)>,
+    watches: &HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool)>,
     remove_watches: &mut Vec<PathBuf>,
 ) {
     if let Some(ref path) = *path {
@@ -281,9 +283,7 @@ impl EventLoop {
                                 );
                                 add_watch_by_event(&path, &event, &self.watches, &mut add_watches);
                             }
-                            if event.mask.contains(EventMask::DELETE_SELF)
-                                || event.mask.contains(EventMask::DELETE)
-                            {
+                            if event.mask.contains(EventMask::DELETE) {
                                 evs.push(
                                     Event::new(EventKind::Remove(
                                         if event.mask.contains(EventMask::ISDIR) {
@@ -293,6 +293,27 @@ impl EventLoop {
                                         },
                                     ))
                                     .add_some_path(path.clone()),
+                                );
+                                remove_watch_by_event(&path, &self.watches, &mut remove_watches);
+                            }
+                            if event.mask.contains(EventMask::DELETE_SELF) {
+                                let remove_kind = match &path {
+                                    Some(watched_path) => {
+                                        let current_watch = self.watches.get(watched_path);
+                                        match current_watch {
+                                            Some(&(_, _, _, true)) => RemoveKind::Folder,
+                                            Some(&(_, _, _, false)) => RemoveKind::File,
+                                            None => RemoveKind::Other,
+                                        }
+                                    }
+                                    None => {
+                                        log::trace!("No patch for DELETE_SELF event, may be a bug?");
+                                        RemoveKind::Other
+                                    },
+                                };
+                                evs.push(
+                                    Event::new(EventKind::Remove(remove_kind))
+                                        .add_some_path(path.clone()),
                                 );
                                 remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                             }
@@ -401,7 +422,7 @@ impl EventLoop {
             watchmask.insert(WatchMask::MOVE_SELF);
         }
 
-        if let Some(&(_, old_watchmask, _)) = self.watches.get(&path) {
+        if let Some(&(_, old_watchmask, _, _)) = self.watches.get(&path) {
             watchmask.insert(old_watchmask);
             watchmask.insert(WatchMask::MASK_ADD);
         }
@@ -421,8 +442,9 @@ impl EventLoop {
                 }
                 Ok(w) => {
                     watchmask.remove(WatchMask::MASK_ADD);
+                    let is_dir = metadata(&path).map_err(Error::io)?.is_dir();
                     self.watches
-                        .insert(path.clone(), (w.clone(), watchmask, is_recursive));
+                        .insert(path.clone(), (w.clone(), watchmask, is_recursive, is_dir));
                     self.paths.insert(w, path);
                     Ok(())
                 }
@@ -435,7 +457,7 @@ impl EventLoop {
     fn remove_watch(&mut self, path: PathBuf, remove_recursive: bool) -> Result<()> {
         match self.watches.remove(&path) {
             None => return Err(Error::watch_not_found().add_path(path)),
-            Some((w, _, is_recursive)) => {
+            Some((w, _, is_recursive, _)) => {
                 if let Some(ref mut inotify) = self.inotify {
                     log::trace!("removing inotify watch: {}", path.display());
 
