@@ -297,9 +297,9 @@ impl EventLoop {
                                 remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                             }
                             if event.mask.contains(EventMask::DELETE_SELF) {
-                                let remove_kind = match path.clone() {
+                                let remove_kind = match &path {
                                     Some(watched_path) => {
-                                        let current_watch = self.watches.get(&watched_path);
+                                        let current_watch = self.watches.get(watched_path);
                                         match current_watch {
                                             Some(&(_, _, _, true)) => RemoveKind::Folder,
                                             Some(&(_, _, _, false)) => RemoveKind::File,
