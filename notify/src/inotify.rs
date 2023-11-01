@@ -306,13 +306,16 @@ impl EventLoop {
                                             None => RemoveKind::Other,
                                         }
                                     }
-                                    None => RemoveKind::Other,
+                                    None => {
+                                        log::trace!("No patch for DELETE_SELF event, may be a bug?");
+                                        RemoveKind::Other
+                                    },
                                 };
                                 evs.push(
                                     Event::new(EventKind::Remove(remove_kind))
                                         .add_some_path(path.clone()),
                                 );
-                                remove_watch_by_event(&path, &self.watches, &mut remove_watches)
+                                remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                             }
                             if event.mask.contains(EventMask::MODIFY) {
                                 evs.push(
