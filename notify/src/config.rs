@@ -60,18 +60,8 @@ impl Config {
     }
 
     /// Returns current setting
-    #[deprecated(
-        since = "6.1.0",
-        note = "use poll_interval_v2 to account for disabled automatic polling"
-    )]
-    pub fn poll_interval(&self) -> Duration {
-        // TODO: v7.0 break signature to option
-        self.poll_interval.unwrap_or_default()
-    }
-
-    /// Returns current setting
-    pub fn poll_interval_v2(&self) -> Option<Duration> {
-        // TODO: v7.0 break signature to option
+    pub fn poll_interval(&self) -> Option<Duration> {
+        // Changed Signature to Option
         self.poll_interval
     }
 
