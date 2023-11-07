@@ -18,7 +18,7 @@ use std::{
 /// Event send for registered handler on initial directory scans
 pub type ScanEvent = crate::Result<PathBuf>;
 
-/// Handler trait for receivers of ScanEvent.  
+/// Handler trait for receivers of ScanEvent.
 /// Very much the same as [EventHandler], but including the Result.
 ///
 /// See the full example for more information.
@@ -476,7 +476,7 @@ pub struct PollWatcher {
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
     data_builder: Arc<Mutex<DataBuilder>>,
     want_to_stop: Arc<AtomicBool>,
-    /// channel to the poll loop  
+    /// channel to the poll loop
     /// currently used only for manual polling
     message_channel: Sender<()>,
     delay: Option<Duration>,
@@ -522,7 +522,7 @@ impl PollWatcher {
             watches: Default::default(),
             data_builder: Arc::new(Mutex::new(data_builder)),
             want_to_stop: Arc::new(AtomicBool::new(false)),
-            delay: config.poll_interval_v2(),
+            delay: config.poll_interval(),
             message_channel: tx,
         };
 
