@@ -2,7 +2,7 @@
 name = "notify-debouncer-full"
 version = "0.3.1"
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.63"
 description = "notify event debouncer optimized for ease of use"
 documentation = "https://docs.rs/notify-debouncer-full"
 homepage = "https://github.com/notify-rs/notify"

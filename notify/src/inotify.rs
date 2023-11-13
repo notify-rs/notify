@@ -307,9 +307,11 @@ impl EventLoop {
                                         }
                                     }
                                     None => {
-                                        log::trace!("No patch for DELETE_SELF event, may be a bug?");
+                                        log::trace!(
+                                            "No patch for DELETE_SELF event, may be a bug?"
+                                        );
                                         RemoveKind::Other
-                                    },
+                                    }
                                 };
                                 evs.push(
                                     Event::new(EventKind::Remove(remove_kind))
@@ -430,7 +432,7 @@ impl EventLoop {
         if let Some(ref mut inotify) = self.inotify {
             log::trace!("adding inotify watch: {}", path.display());
 
-            match inotify.add_watch(&path, watchmask) {
+            match inotify.watches().add(&path, watchmask) {
                 Err(e) => {
                     Err(if e.raw_os_error() == Some(libc::ENOSPC) {
                         // do not report inotify limits as "no more space" on linux #266
@@ -462,7 +464,8 @@ impl EventLoop {
                     log::trace!("removing inotify watch: {}", path.display());
 
                     inotify
-                        .rm_watch(w.clone())
+                        .watches()
+                        .remove(w.clone())
                         .map_err(|e| Error::io(e).add_path(path.clone()))?;
                     self.paths.remove(&w);
 
@@ -471,7 +474,8 @@ impl EventLoop {
                         for (w, p) in &self.paths {
                             if p.starts_with(&path) {
                                 inotify
-                                    .rm_watch(w.clone())
+                                    .watches()
+                                    .remove(w.clone())
                                     .map_err(|e| Error::io(e).add_path(p.into()))?;
                                 self.watches.remove(p);
                                 remove_list.push(w.clone());
@@ -491,7 +495,8 @@ impl EventLoop {
         if let Some(ref mut inotify) = self.inotify {
             for (w, p) in &self.paths {
                 inotify
-                    .rm_watch(w.clone())
+                    .watches()
+                    .remove(w.clone())
                     .map_err(|e| Error::io(e).add_path(p.into()))?;
             }
             self.watches.clear();
