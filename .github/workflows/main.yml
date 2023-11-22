@@ -63,14 +63,24 @@ jobs:
         run: cargo check -p notify --no-default-features --features=macos_kqueue
         # -p notify required for feature selection!
 
-      - name: check notify debouncer mini features
+      - name: check notify debouncer mini without crossbeam/default features
         if: matrix.version == 'stable'
-        run: cargo check -p notify-debouncer-mini --no-default-features
+        run: cargo check -p notify-debouncer-mini --no-default-features --features=macos_fsevent
         # -p required for feature selection to actually work!
 
-      - name: check notify debouncer full features
+      - name: check notify debouncer mini without crossbeam/default features on macos with kqueue
+        if: matrix.version == 'stable' && matrix.os == 'macos-latest'
+        run: cargo check -p notify-debouncer-mini --no-default-features --features=macos_kqueue
+        # -p required for feature selection to actually work!
+
+      - name: check notify debouncer full without crossbeam/default features
         if: matrix.version == 'stable'
-        run: cargo check -p notify-debouncer-full --no-default-features
+        run: cargo check -p notify-debouncer-full --no-default-features --features=macos_fsevent
+        # -p required for feature selection to actually work!
+
+      - name: check notify debouncer full without crossbeam/default features on macos with kqueue
+        if: matrix.version == 'stable' && matrix.os == 'macos-latest'
+        run: cargo check -p notify-debouncer-full --no-default-features --features=macos_kqueue
         # -p required for feature selection to actually work!
 
       - name: check build examples

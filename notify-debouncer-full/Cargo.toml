@@ -19,12 +19,14 @@ name = "notify_debouncer_full"
 path = "src/lib.rs"
 
 [features]
-default = ["crossbeam"]
+default = ["crossbeam","macos_fsevent"]
 # can't use dep:crossbeam-channel and feature name crossbeam-channel below rust 1.60
 crossbeam = ["crossbeam-channel","notify/crossbeam-channel"]
+macos_fsevent = ["notify/macos_fsevent"]
+macos_kqueue = ["notify/macos_kqueue"]
 
 [dependencies]
-notify = { version = "6.1.1", path = "../notify" }
+notify = { version = "6.1.1", path = "../notify", default-features = false }
 crossbeam-channel = { version = "0.5", optional = true }
 file-id = { version = "0.2.1", path = "../file-id" }
 walkdir = "2.2.2"
