@@ -17,13 +17,24 @@ A debouncer for [notify] that is optimized for ease of use.
 - `crossbeam` enabled by default, for crossbeam channel support.
 
   This may create problems used in tokio environments. See [#380](https://github.com/notify-rs/notify/issues/380).  
-  Use someting like the following to disable it.
+  Use something like the following to disable it.
   
   ```toml
   notify-debouncer-full = { version = "*", default-features = false }
   ```
   
   This also passes through to notify as `crossbeam-channel` feature.
+
+  On MacOS, when disabling default features, enable either the `macos_fsevent` feature
+  or, on latest MacOS, the `macos_kqueue` feature to be passed through to notify.
+
+  ```toml
+  # Using FSEvents
+  notify-debouncer-full = { version = "*", default-features = false, features = ["macos_fsevent"] }
+
+  # Using Kernel Queues
+  notify-debouncer-full = { version = "*", default-features = false, features = ["macos_kqueue"] }
+  ```
 
 [docs]: https://docs.rs/notify-debouncer-full
 [notify]: https://crates.io/crates/notify
