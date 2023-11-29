@@ -370,6 +370,10 @@ impl EventLoop {
                             break;
                         }
                     }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        // No events read. Break out.
+                        break;
+                    }
                     Err(e) => {
                         self.event_handler.handle_event(Err(Error::io(e)));
                     }
