@@ -465,10 +465,10 @@ impl EventLoop {
             None => return Err(Error::watch_not_found().add_path(path)),
             Some((w, _, is_recursive, _)) => {
                 if let Some(ref mut inotify) = self.inotify {
+                    let mut inotify_watches = inotify.watches();
                     log::trace!("removing inotify watch: {}", path.display());
 
-                    inotify
-                        .watches()
+                    inotify_watches
                         .remove(w.clone())
                         .map_err(|e| Error::io(e).add_path(path.clone()))?;
                     self.paths.remove(&w);
@@ -477,8 +477,7 @@ impl EventLoop {
                         let mut remove_list = Vec::new();
                         for (w, p) in &self.paths {
                             if p.starts_with(&path) {
-                                inotify
-                                    .watches()
+                                inotify_watches
                                     .remove(w.clone())
                                     .map_err(|e| Error::io(e).add_path(p.into()))?;
                                 self.watches.remove(p);
@@ -497,9 +496,9 @@ impl EventLoop {
 
     fn remove_all_watches(&mut self) -> Result<()> {
         if let Some(ref mut inotify) = self.inotify {
+            let mut inotify_watches = inotify.watches();
             for (w, p) in &self.paths {
-                inotify
-                    .watches()
+                inotify_watches
                     .remove(w.clone())
                     .map_err(|e| Error::io(e).add_path(p.into()))?;
             }
