@@ -100,7 +100,7 @@ impl Config {
 
     /// For the [INotifyWatcher](crate::INotifyWatcher) backend.
     ///
-    /// This flag sets whether inotify should fail when the user has no permissions for a subfolder.
+    /// This flag sets whether inotify should fail when the user has no permissions on a subfolder.
     ///
     /// On by default.
     pub fn with_fail_on_no_permissions(mut self, fail_on_no_permissions: bool) -> Self {
