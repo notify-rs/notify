@@ -10,13 +10,13 @@ use crate::{bounded, unbounded, BoundSender, Receiver, Sender};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use std::collections::HashMap;
-use std::env;
 use std::ffi::OsStr;
 use std::fs::metadata;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
+use std::{env, io};
 use walkdir::WalkDir;
 
 const INOTIFY: mio::Token = mio::Token(0);
@@ -40,6 +40,7 @@ struct EventLoop {
     watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool)>,
     paths: HashMap<WatchDescriptor, PathBuf>,
     rename_event: Option<Event>,
+    fail_on_no_permissions: bool,
 }
 
 /// Watcher implementation based on inotify
@@ -90,7 +91,11 @@ fn remove_watch_by_event(
 }
 
 impl EventLoop {
-    pub fn new(inotify: Inotify, event_handler: Box<dyn EventHandler>) -> Result<Self> {
+    pub fn new(
+        inotify: Inotify,
+        event_handler: Box<dyn EventHandler>,
+        fail_on_no_permissions: bool,
+    ) -> Result<Self> {
         let (event_loop_tx, event_loop_rx) = unbounded::<EventLoopMsg>();
         let poll = mio::Poll::new()?;
 
@@ -112,6 +117,7 @@ impl EventLoop {
             watches: HashMap::new(),
             paths: HashMap::new(),
             rename_event: None,
+            fail_on_no_permissions,
         };
         Ok(event_loop)
     }
@@ -307,9 +313,11 @@ impl EventLoop {
                                         }
                                     }
                                     None => {
-                                        log::trace!("No patch for DELETE_SELF event, may be a bug?");
+                                        log::trace!(
+                                            "No patch for DELETE_SELF event, may be a bug?"
+                                        );
                                         RemoveKind::Other
-                                    },
+                                    }
                                 };
                                 evs.push(
                                     Event::new(EventKind::Remove(remove_kind))
@@ -396,7 +404,20 @@ impl EventLoop {
             .into_iter()
             .filter_map(filter_dir)
         {
-            self.add_single_watch(entry.path().to_path_buf(), is_recursive, watch_self)?;
+            if let Err(e) =
+                self.add_single_watch(entry.path().to_path_buf(), is_recursive, watch_self)
+            {
+                match &e.kind {
+                    ErrorKind::Io(io) if io.kind() == io::ErrorKind::PermissionDenied => {
+                        // If this is the root folder we want to fail on permission error even if
+                        // fail_on_permissions_for_subfolders flag is not set
+                        if watch_self || self.fail_on_no_permissions {
+                            return Err(e);
+                        }
+                    }
+                    _ => return Err(e),
+                }
+            }
             watch_self = false;
         }
 
@@ -514,9 +535,12 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 }
 
 impl INotifyWatcher {
-    fn from_event_handler(event_handler: Box<dyn EventHandler>) -> Result<Self> {
+    fn from_event_handler(
+        event_handler: Box<dyn EventHandler>,
+        fail_on_no_permissions: bool,
+    ) -> Result<Self> {
         let inotify = Inotify::init()?;
-        let event_loop = EventLoop::new(inotify, event_handler)?;
+        let event_loop = EventLoop::new(inotify, event_handler, fail_on_no_permissions)?;
         let channel = event_loop.event_loop_tx.clone();
         let waker = event_loop.event_loop_waker.clone();
         event_loop.run();
@@ -558,8 +582,8 @@ impl INotifyWatcher {
 
 impl Watcher for INotifyWatcher {
     /// Create a new watcher.
-    fn new<F: EventHandler>(event_handler: F, _config: Config) -> Result<Self> {
-        Self::from_event_handler(Box::new(event_handler))
+    fn new<F: EventHandler>(event_handler: F, config: Config) -> Result<Self> {
+        Self::from_event_handler(Box::new(event_handler), config.fail_on_no_permissions())
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
