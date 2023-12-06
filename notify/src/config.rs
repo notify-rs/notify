@@ -42,6 +42,9 @@ pub struct Config {
 
     /// See [BackendConfig::with_compare_contents]
     compare_contents: bool,
+
+    /// See [BackendConfig::with_fail_on_no_permissions]
+    fail_on_no_permissions: bool,
 }
 
 impl Config {
@@ -94,6 +97,21 @@ impl Config {
     pub fn compare_contents(&self) -> bool {
         self.compare_contents
     }
+
+    /// For the [INotifyWatcher](crate::INotifyWatcher) backend.
+    ///
+    /// This fail sets whether inotify should fail when the user has no permissions for a subfolder.
+    ///
+    /// On by default.
+    pub fn with_fail_on_no_permissions(mut self, fail_on_no_permissions: bool) -> Self {
+        self.fail_on_no_permissions = fail_on_no_permissions;
+        self
+    }
+
+    /// Returns current setting
+    pub fn fail_on_no_permissions(&self) -> bool {
+        self.fail_on_no_permissions
+    }
 }
 
 impl Default for Config {
@@ -101,6 +119,7 @@ impl Default for Config {
         Self {
             poll_interval: Some(Duration::from_secs(30)),
             compare_contents: false,
+            fail_on_no_permissions: true,
         }
     }
 }
