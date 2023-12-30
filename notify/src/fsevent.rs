@@ -455,6 +455,13 @@ impl FsEventWatcher {
 
                     cf::CFRunLoopRun();
                     fs::FSEventStreamStop(stream);
+                    // There are edge-cases, when many events are pending,
+                    // despite the stream being stopped, that the stream's
+                    // associated callback will be invoked. Purging events
+                    // is intended to prevent this.
+                    let event_id = fs::FSEventsGetCurrentEventId();
+                    let device = fs::FSEventStreamGetDeviceBeingWatched(stream);
+                    fs::FSEventsPurgeEventsForDeviceUpToEventId(device, event_id);
                     fs::FSEventStreamInvalidate(stream);
                     fs::FSEventStreamRelease(stream);
                 }
