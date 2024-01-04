@@ -16,9 +16,9 @@ _Cross-platform filesystem notification library for Rust._
 - [Examples][examples]
 - [Changelog][changelog]
 - [Upgrading notify from v4](UPGRADING_V4_TO_V5.md)
-- Earliest supported Rust version: **1.60**
+- Earliest supported Rust version: **1.63**
 
-As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook], 
+As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook],
 [rust-analyzer], [watchexec], [xi-editor], [watchfiles],
 and others.
 
@@ -35,9 +35,9 @@ and others.
 
 ## License
 
-Notify is licensed under the [CC Zero 1.0][cc0].  
-notify-debouncer-mini is licensed under the [MIT] or [Apache-2.0][apache] license.  
-notify-debouncer-full is licensed under the [MIT] or [Apache-2.0][apache] license.  
+Notify is licensed under the [CC Zero 1.0][cc0].
+notify-debouncer-mini is licensed under the [MIT] or [Apache-2.0][apache] license.
+notify-debouncer-full is licensed under the [MIT] or [Apache-2.0][apache] license.
 file-id is licensed under the [MIT] or [Apache-2.0][apache] license.
 
 ## Origins
