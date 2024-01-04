@@ -35,9 +35,9 @@ and others.
 
 ## License
 
-Notify is licensed under the [CC Zero 1.0][cc0].
-notify-debouncer-mini is licensed under the [MIT] or [Apache-2.0][apache] license.
-notify-debouncer-full is licensed under the [MIT] or [Apache-2.0][apache] license.
+Notify is licensed under the [CC Zero 1.0][cc0].  
+notify-debouncer-mini is licensed under the [MIT] or [Apache-2.0][apache] license.  
+notify-debouncer-full is licensed under the [MIT] or [Apache-2.0][apache] license.  
 file-id is licensed under the [MIT] or [Apache-2.0][apache] license.
 
 ## Origins
