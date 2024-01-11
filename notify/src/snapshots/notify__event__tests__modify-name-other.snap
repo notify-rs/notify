@@ -2,4 +2,4 @@
 source: notify/src/event.rs
 expression: json
 ---
-{"type":{"modify":{"kind":"rename","mode":"other"}},"paths":[],"attrs":{}}
+{"type":"modify","kind":"rename","mode":"other","paths":[],"attrs":{}}
