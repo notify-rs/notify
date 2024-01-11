@@ -621,3 +621,62 @@ impl Hash for Event {
         self.source().hash(state);
     }
 }
+
+#[cfg(all(test, feature = "serde"))]
+mod tests {
+    use super::*;
+
+    use insta::assert_snapshot;
+    use rstest::rstest;
+
+    #[rustfmt::skip]
+    #[rstest]
+    #[case("any", EventKind::Any)]
+    #[case("access-any", EventKind::Access(AccessKind::Any))]
+    #[case("access-read", EventKind::Access(AccessKind::Read))]
+    #[case("access-open-any", EventKind::Access(AccessKind::Open(AccessMode::Any)))]
+    #[case("access-open-execute", EventKind::Access(AccessKind::Open(AccessMode::Execute)))]
+    #[case("access-open-read", EventKind::Access(AccessKind::Open(AccessMode::Read)))]
+    #[case("access-open-write", EventKind::Access(AccessKind::Open(AccessMode::Write)))]
+    #[case("access-open-other", EventKind::Access(AccessKind::Open(AccessMode::Other)))]
+    #[case("access-close-any", EventKind::Access(AccessKind::Close(AccessMode::Any)))]
+    #[case("access-close-execute", EventKind::Access(AccessKind::Close(AccessMode::Execute)))]
+    #[case("access-close-read", EventKind::Access(AccessKind::Close(AccessMode::Read)))]
+    #[case("access-close-write", EventKind::Access(AccessKind::Close(AccessMode::Write)))]
+    #[case("access-close-other", EventKind::Access(AccessKind::Close(AccessMode::Other)))]
+    #[case("access-other", EventKind::Access(AccessKind::Other))]
+    #[case("create-any", EventKind::Create(CreateKind::Any))]
+    #[case("create-file", EventKind::Create(CreateKind::File))]
+    #[case("create-folder", EventKind::Create(CreateKind::Folder))]
+    #[case("create-other", EventKind::Create(CreateKind::Other))]
+    #[case("modify-any", EventKind::Modify(ModifyKind::Any))]
+    #[case("modify-data-any", EventKind::Modify(ModifyKind::Data(DataChange::Any)))]
+    #[case("modify-data-size", EventKind::Modify(ModifyKind::Data(DataChange::Size)))]
+    #[case("modify-data-content", EventKind::Modify(ModifyKind::Data(DataChange::Content)))]
+    #[case("modify-data-other", EventKind::Modify(ModifyKind::Data(DataChange::Other)))]
+    #[case("modify-metadata-any", EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)))]
+    #[case("modify-metadata-accesstime", EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime)))]
+    #[case("modify-metadata-writetime", EventKind::Modify(ModifyKind::Metadata(MetadataKind::WriteTime)))]
+    #[case("modify-metadata-permissions", EventKind::Modify(ModifyKind::Metadata(MetadataKind::Permissions)))]
+    #[case("modify-metadata-ownership", EventKind::Modify(ModifyKind::Metadata(MetadataKind::Ownership)))]
+    #[case("modify-metadata-extended", EventKind::Modify(ModifyKind::Metadata(MetadataKind::Extended)))]
+    #[case("modify-metadata-other", EventKind::Modify(ModifyKind::Metadata(MetadataKind::Other)))]
+    #[case("modify-name-any", EventKind::Modify(ModifyKind::Name(RenameMode::Any)))]
+    #[case("modify-name-to", EventKind::Modify(ModifyKind::Name(RenameMode::To)))]
+    #[case("modify-name-from", EventKind::Modify(ModifyKind::Name(RenameMode::From)))]
+    #[case("modify-name-both", EventKind::Modify(ModifyKind::Name(RenameMode::Both)))]
+    #[case("modify-name-other", EventKind::Modify(ModifyKind::Name(RenameMode::Other)))]
+    #[case("modify-other", EventKind::Modify(ModifyKind::Other))]
+    #[case("remove-any", EventKind::Remove(RemoveKind::Any))]
+    #[case("remove-file", EventKind::Remove(RemoveKind::File))]
+    #[case("remove-folder", EventKind::Remove(RemoveKind::Folder))]
+    #[case("remove-other", EventKind::Remove(RemoveKind::Other))]
+    #[case("other", EventKind::Other)]
+    fn serialize_event_kind(
+        #[case] name: &str,
+        #[case] event_kind: EventKind,
+    ) {
+        let json = serde_json::to_string(&event_kind).unwrap();
+        assert_snapshot!(name, json);
+    }
+}
