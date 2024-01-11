@@ -676,7 +676,8 @@ mod tests {
         #[case] name: &str,
         #[case] event_kind: EventKind,
     ) {
-        let json = serde_json::to_string(&event_kind).unwrap();
+        let event = Event::new(event_kind);
+        let json = serde_json::to_string(&event).unwrap();
         assert_snapshot!(name, json);
     }
 }

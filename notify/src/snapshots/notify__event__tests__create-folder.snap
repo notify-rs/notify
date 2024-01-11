@@ -2,4 +2,4 @@
 source: notify/src/event.rs
 expression: json
 ---
-{"create":{"kind":"folder"}}
+{"type":{"create":{"kind":"folder"}},"paths":[],"attrs":{}}

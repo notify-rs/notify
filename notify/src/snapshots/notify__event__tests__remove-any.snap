@@ -2,4 +2,4 @@
 source: notify/src/event.rs
 expression: json
 ---
-{"remove":{"kind":"any"}}
+{"type":{"remove":{"kind":"any"}},"paths":[],"attrs":{}}

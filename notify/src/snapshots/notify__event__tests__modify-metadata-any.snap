@@ -2,4 +2,4 @@
 source: notify/src/event.rs
 expression: json
 ---
-{"modify":{"kind":"metadata","mode":"any"}}
+{"type":{"modify":{"kind":"metadata","mode":"any"}},"paths":[],"attrs":{}}

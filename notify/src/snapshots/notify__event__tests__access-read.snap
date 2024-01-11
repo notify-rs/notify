@@ -2,4 +2,4 @@
 source: notify/src/event.rs
 expression: json
 ---
-{"access":{"kind":"read"}}
+{"type":{"access":{"kind":"read"}},"paths":[],"attrs":{}}

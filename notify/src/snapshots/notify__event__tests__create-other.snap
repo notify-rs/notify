@@ -2,4 +2,4 @@
 source: notify/src/event.rs
 expression: json
 ---
-{"create":{"kind":"other"}}
+{"type":{"create":{"kind":"other"}},"paths":[],"attrs":{}}
