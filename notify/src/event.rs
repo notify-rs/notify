@@ -484,6 +484,7 @@ impl EventAttributes {
 /// particular ways.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 pub enum Flag {
     /// Rescan notices are emitted by some platforms (and may also be emitted by Notify itself).
     /// They indicate either a lapse in the events or a change in the filesystem such that events

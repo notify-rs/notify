@@ -1,5 +1,6 @@
 ---
 source: notify/src/event.rs
+assertion_line: 694
 expression: json
 ---
-{"type":"any","paths":[],"attrs":{"tracker":123,"flag":"Rescan","info":"test event"}}
+{"type":"any","paths":[],"attrs":{"tracker":123,"flag":"rescan","info":"test event"}}
