@@ -681,4 +681,15 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         assert_snapshot!(name, json);
     }
+
+    #[test]
+    fn serialize_event_with_attrs() {
+        let event = Event::new(EventKind::Any)
+            .set_tracker(123)
+            .set_flag(Flag::Rescan)
+            .set_info("test event")
+            .set_process_id(0);
+        let json = serde_json::to_string(&event).unwrap();
+        assert_snapshot!(json);
+    }
 }
