@@ -1,7 +1,26 @@
 # Changelog
 
-v5 maintenance branch is on `v5_maintenance` after `5.2.0`  
+v5 maintenance branch is on `v5_maintenance` after `5.2.0`
+
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
+
+## debouncer-full 0.4.0
+
+- CHANGE: Manage root folder paths for the file ID cache automatically. **breaking**
+
+  ```rust
+  debouncer.watcher().watch(path, RecursiveMode::Recursive)?;
+  debouncer.cache().add_root(path, RecursiveMode::Recursive);
+  ```
+
+  becomes:
+
+  ```rust
+  debouncer.watch(path, RecursiveMode::Recursive)?;
+  ```
+
+- CHANGE: Add `RecommendedCache`, which automatically enables the file ID cache on Windows and MacOS
+  and disables it on Linux, where it is not needed.
 
 ## debouncer-full 0.3.1 (2023-08-21)
 
