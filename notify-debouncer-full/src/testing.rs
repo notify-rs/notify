@@ -268,6 +268,7 @@ impl schema::State {
 
         DebounceDataInner {
             queues,
+            roots: Vec::new(),
             cache,
             rename_event,
             rescan_event,
@@ -290,27 +291,21 @@ impl TestCache {
 }
 
 impl FileIdCache for TestCache {
-    fn add_root(&mut self, _path: impl Into<PathBuf>, _recursive_mode: RecursiveMode) {}
-
-    fn remove_root(&mut self, _path: impl AsRef<Path>) {}
-
     fn cached_file_id(&self, path: &Path) -> Option<&FileId> {
         self.paths.get(path)
     }
 
-    fn add_path(&mut self, path: &Path) {
-        for (p, file_id) in &self.file_system {
-            if p.starts_with(path) {
-                self.paths.insert(p.clone(), file_id.clone());
+    fn add_path(&mut self, path: &Path, recursive_mode: RecursiveMode) {
+        for (file_path, file_id) in &self.file_system {
+            if file_path == path
+                || (file_path.starts_with(path) && recursive_mode == RecursiveMode::Recursive)
+            {
+                self.paths.insert(file_path.clone(), file_id.clone());
             }
         }
     }
 
     fn remove_path(&mut self, path: &Path) {
         self.paths.remove(path);
-    }
-
-    fn rescan(&mut self) {
-        self.add_path(Path::new("/"))
     }
 }
