@@ -177,6 +177,7 @@ impl Queue {
 #[derive(Debug)]
 pub(crate) struct DebounceDataInner<T> {
     queues: HashMap<PathBuf, Queue>,
+    roots: Vec<(PathBuf, RecursiveMode)>,
     cache: T,
     rename_event: Option<(DebouncedEvent, Option<FileId>)>,
     rescan_event: Option<DebouncedEvent>,
@@ -188,6 +189,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     pub(crate) fn new(cache: T, timeout: Duration) -> Self {
         Self {
             queues: HashMap::new(),
+            roots: Vec::new(),
             cache,
             rename_event: None,
             rescan_event: None,
@@ -274,7 +276,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         log::trace!("raw event: {event:?}");
 
         if event.need_rescan() {
-            self.cache.rescan();
+            self.cache.rescan(&self.roots);
             self.rescan_event = Some(event.into());
             return;
         }
@@ -283,7 +285,9 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
         match &event.kind {
             EventKind::Create(_) => {
-                self.cache.add_path(path);
+                let recursive_mode = self.recursive_mode(path);
+
+                self.cache.add_path(path, recursive_mode);
 
                 self.push_event(event, Instant::now());
             }
@@ -318,12 +322,27 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             }
             _ => {
                 if self.cache.cached_file_id(path).is_none() {
-                    self.cache.add_path(path);
+                    let recursive_mode = self.recursive_mode(path);
+
+                    self.cache.add_path(path, recursive_mode);
                 }
 
                 self.push_event(event, Instant::now());
             }
         }
+    }
+
+    fn recursive_mode(&mut self, path: &Path) -> RecursiveMode {
+        self.roots
+            .iter()
+            .find_map(|(root, recursive_mode)| {
+                if path.starts_with(root) {
+                    Some(*recursive_mode)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(RecursiveMode::NonRecursive)
     }
 
     fn handle_rename_from(&mut self, event: Event) {
@@ -340,7 +359,9 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     }
 
     fn handle_rename_to(&mut self, event: Event) {
-        self.cache.add_path(&event.paths[0]);
+        let recursive_mode = self.recursive_mode(&event.paths[0]);
+
+        self.cache.add_path(&event.paths[0], recursive_mode);
 
         let trackers_match = self
             .rename_event
@@ -541,15 +562,40 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         MutexGuard::map(self.data.lock(), |data| &mut data.cache)
     }
 
+    fn add_root(&mut self, path: impl Into<PathBuf>, recursive_mode: RecursiveMode) {
+        let path = path.into();
+
+        let mut data = self.data.lock();
+
+        // skip, if the root has already been added
+        if data.roots.iter().any(|(p, _)| p == &path) {
+            return;
+        }
+
+        data.roots.push((path.clone(), recursive_mode));
+
+        data.cache.add_path(&path, recursive_mode);
+    }
+
+    fn remove_root(&mut self, path: impl AsRef<Path>) {
+        let mut data = self.data.lock();
+
+        data.roots.retain(|(root, _)| !root.starts_with(&path));
+
+        data.cache.remove_path(path.as_ref());
+    }
+
     pub fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> notify::Result<()> {
         self.watcher.watch(path, recursive_mode)?;
-        self.data.lock().cache.add_root(path, recursive_mode);
+        self.add_root(path, recursive_mode);
+        // self.data.lock().cache.add_root(path, recursive_mode);
         Ok(())
     }
 
     pub fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
         self.watcher.unwatch(path)?;
-        self.data.lock().cache.remove_root(path);
+        self.remove_root(path);
+        // self.data.lock().cache.remove_root(path);
         Ok(())
     }
 
@@ -733,6 +779,7 @@ mod tests {
         let time = Instant::now();
 
         let mut state = test_case.state.into_debounce_data_inner(time);
+        state.roots = vec![(PathBuf::from("/"), RecursiveMode::Recursive)];
 
         for event in test_case.events {
             let event = event.into_debounced_event(time, None);
@@ -741,8 +788,8 @@ mod tests {
         }
 
         for error in test_case.errors {
-            let e = error.into_notify_error();
-            state.add_error(e);
+            let error = error.into_notify_error();
+            state.add_error(error);
         }
 
         let expected_errors = std::mem::take(&mut test_case.expected.errors);
