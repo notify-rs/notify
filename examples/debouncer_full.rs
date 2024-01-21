@@ -1,6 +1,6 @@
 use std::{fs, thread, time::Duration};
 
-use notify::{RecursiveMode, Watcher};
+use notify::RecursiveMode;
 use notify_debouncer_full::new_debouncer;
 use tempfile::tempdir;
 
@@ -31,13 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // no specific tickrate, max debounce time 2 seconds
     let mut debouncer = new_debouncer(Duration::from_secs(2), None, tx)?;
 
-    debouncer
-        .watcher()
-        .watch(dir.path(), RecursiveMode::Recursive)?;
-
-    debouncer
-        .cache()
-        .add_root(dir.path(), RecursiveMode::Recursive);
+    debouncer.watch(dir.path(), RecursiveMode::Recursive)?;
 
     // print all events and errors
     for result in rx {

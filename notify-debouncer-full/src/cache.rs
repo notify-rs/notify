@@ -11,6 +11,18 @@ use walkdir::WalkDir;
 ///
 /// This trait can be implemented for an existing cache, if it already holds `FileId`s.
 pub trait FileIdCache {
+    /// Add a path to the cache.
+    ///
+    /// If `recursive_mode` is `Recursive`, all children will be added to the cache as well
+    /// and all paths will be kept up-to-date in case of changes like new files being added,
+    /// files being removed or renamed.
+    fn add_root(&mut self, path: impl Into<PathBuf>, recursive_mode: RecursiveMode);
+
+    /// Remove a path form the cache.
+    ///
+    /// If the path was added with `Recursive` mode, all children will also be removed from the cache.
+    fn remove_root(&mut self, path: impl AsRef<Path>);
+
     /// Get a `FileId` from the cache for a given `path`.
     ///
     /// If the path is not cached, `None` should be returned and there should not be any attempt to read the file ID from disk.
@@ -48,28 +60,6 @@ impl FileIdMap {
         Default::default()
     }
 
-    /// Add a path to the cache.
-    ///
-    /// If `recursive_mode` is `Recursive`, all children will be added to the cache as well
-    /// and all paths will be kept up-to-date in case of changes like new files being added,
-    /// files being removed or renamed.
-    pub fn add_root(&mut self, path: impl Into<PathBuf>, recursive_mode: RecursiveMode) {
-        let path = path.into();
-
-        self.roots.push((path.clone(), recursive_mode));
-
-        self.add_path(&path);
-    }
-
-    /// Remove a path form the cache.
-    ///
-    /// If the path was added with `Recursive` mode, all children will also be removed from the cache.
-    pub fn remove_root(&mut self, path: impl AsRef<Path>) {
-        self.roots.retain(|(root, _)| !root.starts_with(&path));
-
-        self.remove_path(path.as_ref());
-    }
-
     fn dir_scan_depth(is_recursive: bool) -> usize {
         if is_recursive {
             usize::max_value()
@@ -80,6 +70,25 @@ impl FileIdMap {
 }
 
 impl FileIdCache for FileIdMap {
+    fn add_root(&mut self, path: impl Into<PathBuf>, recursive_mode: RecursiveMode) {
+        let path = path.into();
+
+        // skip, if the root has already been added
+        if self.roots.iter().any(|(p, _)| p == &path) {
+            return;
+        }
+
+        self.roots.push((path.clone(), recursive_mode));
+
+        self.add_path(&path);
+    }
+
+    fn remove_root(&mut self, path: impl AsRef<Path>) {
+        self.roots.retain(|(root, _)| !root.starts_with(&path));
+
+        self.remove_path(path.as_ref());
+    }
+
     fn cached_file_id(&self, path: &Path) -> Option<&FileId> {
         self.paths.get(path)
     }
@@ -125,9 +134,21 @@ impl FileIdCache for FileIdMap {
 /// An implementation of the `FileIdCache` trait that doesn't hold any data.
 ///
 /// This pseudo cache can be used to disable the file tracking using file system IDs.
+#[derive(Debug, Clone, Default)]
 pub struct NoCache;
 
+impl NoCache {
+    /// Construct an empty cache.
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
+
 impl FileIdCache for NoCache {
+    fn add_root(&mut self, _path: impl Into<PathBuf>, _recursive_mode: RecursiveMode) {}
+
+    fn remove_root(&mut self, _path: impl AsRef<Path>) {}
+
     fn cached_file_id(&self, _path: &Path) -> Option<&FileId> {
         None
     }
@@ -138,3 +159,10 @@ impl FileIdCache for NoCache {
 
     fn rescan(&mut self) {}
 }
+
+/// The recommended file ID cache implementation for the current platform
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub type RecommendedCache = NoCache;
+/// The recommended file ID cache implementation for the current platform
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+pub type RecommendedCache = FileIdMap;

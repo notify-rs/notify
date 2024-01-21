@@ -23,7 +23,7 @@
 //! notify-debouncer-full = "0.3.1"
 //! notify = { version = "..", features = [".."] }
 //! ```
-//!  
+//!
 //! # Examples
 //!
 //! ```rust,no_run
@@ -42,12 +42,7 @@
 //!
 //! // Add a path to be watched. All files and directories at that path and
 //! // below will be monitored for changes.
-//! debouncer.watcher().watch(Path::new("."), RecursiveMode::Recursive).unwrap();
-//!
-//! // Add the same path to the file ID cache. The cache uses unique file IDs
-//! // provided by the file system and is used to stich together rename events
-//! // in case the notification back-end doesn't emit rename cookies.
-//! debouncer.cache().add_root(Path::new("."), RecursiveMode::Recursive);
+//! debouncer.watch(Path::new("."), RecursiveMode::Recursive).unwrap();
 //! ```
 //!
 //! # Features
@@ -70,7 +65,7 @@ mod testing;
 
 use std::{
     collections::{HashMap, VecDeque},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -78,7 +73,7 @@ use std::{
     time::Duration,
 };
 
-pub use cache::{FileIdCache, FileIdMap, NoCache};
+pub use cache::{FileIdCache, FileIdMap, NoCache, RecommendedCache};
 pub use debounced_event::DebouncedEvent;
 
 pub use file_id;
@@ -87,7 +82,7 @@ pub use notify;
 use file_id::FileId;
 use notify::{
     event::{ModifyKind, RemoveKind, RenameMode},
-    Error, ErrorKind, Event, EventKind, RecommendedWatcher, Watcher,
+    Error, ErrorKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher, WatcherKind,
 };
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 
@@ -545,6 +540,29 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     pub fn cache(&mut self) -> MappedMutexGuard<C> {
         MutexGuard::map(self.data.lock(), |data| &mut data.cache)
     }
+
+    pub fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> notify::Result<()> {
+        self.watcher.watch(path, recursive_mode)?;
+        self.data.lock().cache.add_root(path, recursive_mode);
+        Ok(())
+    }
+
+    pub fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
+        self.watcher.unwatch(path)?;
+        self.data.lock().cache.remove_root(path);
+        Ok(())
+    }
+
+    pub fn configure(&mut self, option: notify::Config) -> notify::Result<bool> {
+        self.watcher.configure(option)
+    }
+
+    pub fn kind() -> WatcherKind
+    where
+        Self: Sized,
+    {
+        T::kind()
+    }
 }
 
 impl<T: Watcher, C: FileIdCache> Drop for Debouncer<T, C> {
@@ -644,12 +662,12 @@ pub fn new_debouncer<F: DebounceEventHandler>(
     timeout: Duration,
     tick_rate: Option<Duration>,
     event_handler: F,
-) -> Result<Debouncer<RecommendedWatcher, FileIdMap>, Error> {
-    new_debouncer_opt::<F, RecommendedWatcher, FileIdMap>(
+) -> Result<Debouncer<RecommendedWatcher, RecommendedCache>, Error> {
+    new_debouncer_opt::<F, RecommendedWatcher, RecommendedCache>(
         timeout,
         tick_rate,
         event_handler,
-        FileIdMap::new(),
+        RecommendedCache::new(),
         notify::Config::default(),
     )
 }

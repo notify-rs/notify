@@ -11,7 +11,7 @@ use notify::{
         AccessKind, AccessMode, CreateKind, DataChange, Flag, MetadataKind, ModifyKind, RemoveKind,
         RenameMode,
     },
-    Error, ErrorKind, Event, EventKind,
+    Error, ErrorKind, Event, EventKind, RecursiveMode,
 };
 
 use crate::{DebounceDataInner, DebouncedEvent, FileIdCache, Queue};
@@ -290,6 +290,10 @@ impl TestCache {
 }
 
 impl FileIdCache for TestCache {
+    fn add_root(&mut self, _path: impl Into<PathBuf>, _recursive_mode: RecursiveMode) {}
+
+    fn remove_root(&mut self, _path: impl AsRef<Path>) {}
+
     fn cached_file_id(&self, path: &Path) -> Option<&FileId> {
         self.paths.get(path)
     }
@@ -307,6 +311,6 @@ impl FileIdCache for TestCache {
     }
 
     fn rescan(&mut self) {
-        self.add_path(&Path::new("/"))
+        self.add_path(Path::new("/"))
     }
 }
