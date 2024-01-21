@@ -30,7 +30,6 @@ notify = { version = "6.1.1", path = "../notify", default-features = false }
 crossbeam-channel = { version = "0.5", optional = true }
 file-id = { version = "0.2.1", path = "../file-id" }
 walkdir = "2.2.2"
-parking_lot = "0.12.1"
 log = "0.4.17"
 
 [dev-dependencies]

@@ -42,7 +42,7 @@
 //!
 //! // Add a path to be watched. All files and directories at that path and
 //! // below will be monitored for changes.
-//! debouncer.watch(Path::new("."), RecursiveMode::Recursive).unwrap();
+//! debouncer.watch(".", RecursiveMode::Recursive).unwrap();
 //! ```
 //!
 //! # Features
@@ -68,7 +68,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -84,7 +84,6 @@ use notify::{
     event::{ModifyKind, RemoveKind, RenameMode},
     Error, ErrorKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher, WatcherKind,
 };
-use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 
 #[cfg(test)]
 use mock_instant::Instant;
@@ -552,20 +551,16 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         self.stop.store(true, Ordering::Relaxed);
     }
 
-    /// Access to the internally used notify Watcher backend
-    pub fn watcher(&mut self) -> &mut T {
-        &mut self.watcher
-    }
+    #[deprecated = "`Debouncer` provides all methods from `Watcher` itself now. Remove `.watcher()` and use those methods directly."]
+    pub fn watcher(&mut self) {}
 
-    /// Access to the internally used notify Watcher backend
-    pub fn cache(&mut self) -> MappedMutexGuard<C> {
-        MutexGuard::map(self.data.lock(), |data| &mut data.cache)
-    }
+    #[deprecated = "`Debouncer` now manages root paths automatically. Remove all calls to `add_root` and `remove_root`."]
+    pub fn cache(&mut self) {}
 
     fn add_root(&mut self, path: impl Into<PathBuf>, recursive_mode: RecursiveMode) {
         let path = path.into();
 
-        let mut data = self.data.lock();
+        let mut data = self.data.lock().unwrap();
 
         // skip, if the root has already been added
         if data.roots.iter().any(|(p, _)| p == &path) {
@@ -578,24 +573,26 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     }
 
     fn remove_root(&mut self, path: impl AsRef<Path>) {
-        let mut data = self.data.lock();
+        let mut data = self.data.lock().unwrap();
 
         data.roots.retain(|(root, _)| !root.starts_with(&path));
 
         data.cache.remove_path(path.as_ref());
     }
 
-    pub fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> notify::Result<()> {
-        self.watcher.watch(path, recursive_mode)?;
-        self.add_root(path, recursive_mode);
-        // self.data.lock().cache.add_root(path, recursive_mode);
+    pub fn watch(
+        &mut self,
+        path: impl AsRef<Path>,
+        recursive_mode: RecursiveMode,
+    ) -> notify::Result<()> {
+        self.watcher.watch(path.as_ref(), recursive_mode)?;
+        self.add_root(path.as_ref(), recursive_mode);
         Ok(())
     }
 
-    pub fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
-        self.watcher.unwatch(path)?;
+    pub fn unwatch(&mut self, path: impl AsRef<Path>) -> notify::Result<()> {
+        self.watcher.unwatch(path.as_ref())?;
         self.remove_root(path);
-        // self.data.lock().cache.remove_root(path);
         Ok(())
     }
 
@@ -663,7 +660,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
             let send_data;
             let errors;
             {
-                let mut lock = data_c.lock();
+                let mut lock = data_c.lock().unwrap();
                 send_data = lock.debounced_events();
                 errors = lock.errors();
             }
@@ -678,7 +675,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
     let data_c = data.clone();
     let watcher = T::new(
         move |e: Result<Event, Error>| {
-            let mut lock = data_c.lock();
+            let mut lock = data_c.lock().unwrap();
 
             match e {
                 Ok(e) => lock.add_event(e),
