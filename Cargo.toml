@@ -2,6 +2,7 @@
 
 members = [
   "notify",
+  "notify-types",
   "notify-debouncer-mini",
   "notify-debouncer-full",
   "file-id",
