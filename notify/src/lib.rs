@@ -178,7 +178,7 @@
 
 pub use config::{Config, RecursiveMode};
 pub use error::{Error, ErrorKind, Result};
-pub use event::{Event, EventKind};
+pub use notify_types::event::{self, Event, EventKind};
 use std::path::Path;
 
 #[allow(dead_code)]
@@ -255,7 +255,6 @@ pub mod kqueue;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
-pub mod event;
 pub mod null;
 pub mod poll;
 
@@ -445,18 +444,6 @@ mod tests {
         assert_debug_impl!(Config);
         assert_debug_impl!(Error);
         assert_debug_impl!(ErrorKind);
-        assert_debug_impl!(event::AccessKind);
-        assert_debug_impl!(event::AccessMode);
-        assert_debug_impl!(event::CreateKind);
-        assert_debug_impl!(event::DataChange);
-        assert_debug_impl!(event::EventAttributes);
-        assert_debug_impl!(event::Flag);
-        assert_debug_impl!(event::MetadataKind);
-        assert_debug_impl!(event::ModifyKind);
-        assert_debug_impl!(event::RemoveKind);
-        assert_debug_impl!(event::RenameMode);
-        assert_debug_impl!(Event);
-        assert_debug_impl!(EventKind);
         assert_debug_impl!(NullWatcher);
         assert_debug_impl!(PollWatcher);
         assert_debug_impl!(RecommendedWatcher);

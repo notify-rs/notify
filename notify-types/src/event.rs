@@ -192,7 +192,7 @@ pub enum RemoveKind {
 /// This is arguably the most important classification for events. All subkinds below this one
 /// represent details that may or may not be available for any particular backend, but most tools
 /// and Notify systems will only care about which of these four general kinds an event is about.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
@@ -204,6 +204,7 @@ pub enum EventKind {
     /// gain bugs due to not matching new unknown event types.
     ///
     /// This variant is also the default variant used when Notify is in "imprecise" mode.
+    #[default]
     Any,
 
     /// An event describing non-mutating access operations on files.
@@ -267,12 +268,6 @@ impl EventKind {
     /// Indicates whether an event is an Other variant.
     pub fn is_other(&self) -> bool {
         matches!(self, EventKind::Other)
-    }
-}
-
-impl Default for EventKind {
-    fn default() -> Self {
-        EventKind::Any
     }
 }
 
@@ -473,8 +468,7 @@ impl EventAttributes {
     }
 
     fn inner_mut(&mut self) -> &mut EventAttributesInner {
-        self.inner
-            .get_or_insert_with(|| Box::new(Default::default()))
+        self.inner.get_or_insert_with(Box::default)
     }
 }
 
