@@ -58,7 +58,6 @@
 //! As all file events are sourced from notify, the [known problems](https://docs.rs/notify/latest/notify/#known-problems) section applies here too.
 
 mod cache;
-mod debounced_event;
 
 #[cfg(test)]
 mod testing;
@@ -74,10 +73,10 @@ use std::{
 };
 
 pub use cache::{FileIdCache, FileIdMap, NoCache, RecommendedCache};
-pub use debounced_event::DebouncedEvent;
 
 pub use file_id;
 pub use notify;
+pub use notify_types::debouncer_full::DebouncedEvent;
 
 use file_id::FileId;
 use notify::{
@@ -85,10 +84,10 @@ use notify::{
     Error, ErrorKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher, WatcherKind,
 };
 
-#[cfg(test)]
+#[cfg(feature = "mock_instant")]
 use mock_instant::Instant;
 
-#[cfg(not(test))]
+#[cfg(not(feature = "mock_instant"))]
 use std::time::Instant;
 
 /// The set of requirements for watcher debounce event handling functions.
