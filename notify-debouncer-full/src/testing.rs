@@ -300,7 +300,7 @@ impl FileIdCache for TestCache {
             if file_path == path
                 || (file_path.starts_with(path) && recursive_mode == RecursiveMode::Recursive)
             {
-                self.paths.insert(file_path.clone(), file_id.clone());
+                self.paths.insert(file_path.clone(), *file_id);
             }
         }
     }

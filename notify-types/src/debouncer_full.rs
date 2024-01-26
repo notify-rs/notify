@@ -1,12 +1,12 @@
 use std::ops::{Deref, DerefMut};
 
-#[cfg(test)]
+#[cfg(feature = "mock_instant")]
 use mock_instant::Instant;
 
-#[cfg(not(test))]
+#[cfg(not(feature = "mock_instant"))]
 use std::time::Instant;
 
-use notify::Event;
+use crate::event::Event;
 
 /// A debounced event is emitted after a short delay.
 #[derive(Debug, Clone, PartialEq, Eq)]

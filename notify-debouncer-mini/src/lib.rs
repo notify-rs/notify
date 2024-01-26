@@ -13,7 +13,7 @@
 //! notify-debouncer-mini = "0.4.1"
 //! notify = { version = "..", features = [".."] }
 //! ```
-//!  
+//!
 //! # Examples
 //! See also the full configuration example [here](https://github.com/notify-rs/notify/blob/main/examples/debouncer_mini_custom.rs).
 //!
@@ -52,8 +52,6 @@
 //! # Caveats
 //!
 //! As all file events are sourced from notify, the [known problems](https://docs.rs/notify/latest/notify/#known-problems) section applies here too.
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -62,6 +60,8 @@ use std::{
 };
 
 pub use notify;
+pub use notify_types::debouncer_mini::{DebouncedEvent, DebouncedEventKind};
+
 use notify::{Error, Event, RecommendedWatcher, Watcher};
 
 /// The set of requirements for watcher debounce event handling functions.
@@ -188,36 +188,6 @@ impl EventData {
 /// Comes with either a vec of events or an immediate error.
 pub type DebounceEventResult = Result<Vec<DebouncedEvent>, Error>;
 
-/// A debounced event kind.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[non_exhaustive]
-pub enum DebouncedEventKind {
-    /// No precise events
-    Any,
-    /// Event but debounce timed out (for example continuous writes)
-    AnyContinuous,
-}
-
-/// A debounced event.
-///
-/// Does not emit any specific event type on purpose, only distinguishes between an any event and a continuous any event.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct DebouncedEvent {
-    /// Event path
-    pub path: PathBuf,
-    /// Event kind
-    pub kind: DebouncedEventKind,
-}
-
-impl DebouncedEvent {
-    #[inline(always)]
-    fn new(path: PathBuf, kind: DebouncedEventKind) -> Self {
-        Self { path, kind }
-    }
-}
-
 enum InnerEvent {
     NotifyEvent(Result<Event, Error>),
     Shutdown,
@@ -293,7 +263,7 @@ impl DebounceDataInner {
 
     /// Updates the deadline if none is set or when batch mode is disabled and the current deadline would miss the next event.
     /// The new deadline is calculated based on the last event update time and the debounce timeout.
-    ///  
+    ///
     /// can't sub-function this due to event_map.drain() holding &mut self
     fn check_deadline(
         batch_mode: bool,
