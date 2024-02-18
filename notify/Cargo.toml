@@ -19,7 +19,7 @@ authors = [
 edition = "2021"
 
 [dependencies]
-notify-types = { verison = "1.0.0", path = "../notify-types" }
+notify-types = { version = "1.0.0", path = "../notify-types" }
 crossbeam-channel = { version = "0.5.0", optional = true }
 filetime = "0.2.22"
 libc = "0.2.4"
