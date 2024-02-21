@@ -1,16 +1,16 @@
 [package]
 name = "notify-debouncer-full"
 version = "0.4.0"
-edition = "2021"
-rust-version = "1.65"
 description = "notify event debouncer optimized for ease of use"
 documentation = "https://docs.rs/notify-debouncer-full"
-homepage = "https://github.com/notify-rs/notify"
-repository = "https://github.com/notify-rs/notify.git"
 authors = ["Daniel Faust <hessijames@gmail.com>"]
 keywords = ["events", "filesystem", "notify", "watch"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
+rust-version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -29,18 +29,18 @@ macos_fsevent = ["notify/macos_fsevent"]
 macos_kqueue = ["notify/macos_kqueue"]
 
 [dependencies]
-notify = { version = "6.1.1", path = "../notify", default-features = false }
-notify-types = { version = "1.0.0", path = "../notify-types" }
-crossbeam-channel = { version = "0.5", optional = true }
-file-id = { version = "0.2.1", path = "../file-id" }
-walkdir = "2.2.2"
-log = "0.4.17"
-mock_instant = { version = "0.3.0", optional = true }
+notify = { workspace = true, default-features = false }
+notify-types = { workspace = true }
+crossbeam-channel = { workspace = true, optional = true }
+file-id = { workspace = true }
+walkdir = { workspace = true }
+log = { workspace = true }
+mock_instant = { workspace = true, optional = true }
 
 [dev-dependencies]
-notify-debouncer-full = { path = ".", features = ["mock_instant"] }
-pretty_assertions = "1.3.0"
-rstest = "0.17.0"
-serde = { version = "1.0.89", features = ["derive"] }
-deser-hjson = "1.1.1"
-rand = "0.8.5"
+notify-debouncer-full = { workspace = true, features = ["mock_instant"] }
+pretty_assertions = { workspace = true }
+rstest = { workspace = true }
+serde = { workspace = true }
+deser-hjson = { workspace = true }
+rand = { workspace = true }
