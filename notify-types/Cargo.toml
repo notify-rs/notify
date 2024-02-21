@@ -18,6 +18,7 @@ edition = "2021"
 serialization-compat-6 = []
 
 [dependencies]
+instant = "0.1.12"
 serde = { version = "1.0.89", features = ["derive"], optional = true }
 mock_instant = { version = "0.3.0", optional = true }
 
