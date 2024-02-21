@@ -4,6 +4,10 @@ v5 maintenance branch is on `v5_maintenance` after `5.2.0`
 
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
+## notify 7.0.0
+
+- CHANGE: Raise MSRV to 1.65
+
 ## debouncer-full 0.4.0
 
 - CHANGE: Manage root folder paths for the file ID cache automatically. **breaking**
