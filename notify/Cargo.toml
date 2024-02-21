@@ -17,6 +17,12 @@ edition = { workspace = true }
 homepage = { workspace = true }
 repository = { workspace = true }
 
+[features]
+default = ["macos_fsevent"]
+serde = ["notify-types/serde"]
+macos_kqueue = ["kqueue", "mio"]
+macos_fsevent = ["fsevent-sys"]
+
 [dependencies]
 notify-types = { workspace = true }
 crossbeam-channel = { workspace = true, optional = true }
@@ -48,11 +54,3 @@ tempfile = { workspace = true }
 nix = { workspace = true }
 insta = { workspace = true }
 rstest = { workspace = true }
-
-[features]
-default = ["macos_fsevent","crossbeam-channel"]
-serde = ["notify-types/serde"]
-timing_tests = []
-manual_tests = []
-macos_kqueue = ["kqueue", "mio"]
-macos_fsevent = ["fsevent-sys"]

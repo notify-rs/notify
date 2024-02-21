@@ -12,23 +12,16 @@ edition = { workspace = true }
 homepage = { workspace = true }
 repository = { workspace = true }
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[lib]
-name = "notify_debouncer_full"
-path = "src/lib.rs"
-
 [features]
-default = ["crossbeam","macos_fsevent"]
+default = ["macos_fsevent"]
 serde = ["notify-types/serde"]
-mock_instant = ["dep:mock_instant","notify-types/mock_instant"]
-# can't use dep:crossbeam-channel and feature name crossbeam-channel below rust 1.60
-crossbeam = ["crossbeam-channel","notify/crossbeam-channel"]
+mock_instant = ["dep:mock_instant", "notify-types/mock_instant"]
+crossbeam-channel = ["dep:crossbeam-channel", "notify/crossbeam-channel"]
 macos_fsevent = ["notify/macos_fsevent"]
 macos_kqueue = ["notify/macos_kqueue"]
 
 [dependencies]
-notify = { workspace = true, default-features = false }
+notify = { workspace = true }
 notify-types = { workspace = true }
 crossbeam-channel = { workspace = true, optional = true }
 file-id = { workspace = true }

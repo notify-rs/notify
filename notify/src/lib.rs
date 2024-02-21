@@ -17,7 +17,7 @@
 //! - `serde` for serialization of events
 //! - `macos_fsevent` enabled by default, for fsevent backend on macos
 //! - `macos_kqueue` for kqueue backend on macos
-//! - `crossbeam-channel` enabled by default, see below
+//! - `crossbeam-channel` see below
 //!
 //! ### Serde
 //!
