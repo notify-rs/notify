@@ -18,6 +18,7 @@
 //! - `macos_fsevent` enabled by default, for fsevent backend on macos
 //! - `macos_kqueue` for kqueue backend on macos
 //! - `crossbeam-channel` enabled by default, see below
+//! - `serialization-compat-6` restores the serialization behavior of notify 6, off by default
 //!
 //! ### Serde
 //!
