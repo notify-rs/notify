@@ -4,6 +4,10 @@ v5 maintenance branch is on `v5_maintenance` after `5.2.0`
 
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
+## notify 7.0.0
+
+- CHANGE: Raise MSRV to 1.65
+
 ## notify-types 1.0.0
 
 New crate containing public type definitions for the notify and debouncer crates.

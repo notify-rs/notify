@@ -1,7 +1,7 @@
 [package]
 name = "notify-types"
 version = "1.0.0"
-rust-version = "1.63"
+rust-version = "1.65"
 description = "Types used by the notify crate"
 documentation = "https://docs.rs/notify-types"
 homepage = "https://github.com/notify-rs/notify"

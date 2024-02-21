@@ -6,8 +6,8 @@ members = [
   "notify-debouncer-mini",
   "notify-debouncer-full",
   "file-id",
-  # internal
-  "examples"
-  #"examples/hot_reload_tide" until https://github.com/rustsec/rustsec/issues/501 is resolved
+  "examples",
 ]
-exclude = ["examples/hot_reload_tide"]
+exclude = [
+  "examples/hot_reload_tide", # excluded until https://github.com/rustsec/rustsec/issues/501 is resolved
+]
