@@ -13,7 +13,7 @@ exclude = [
 ]
 
 [workspace.package]
-rust-version = "1.65"
+rust-version = "1.72"
 homepage = "https://github.com/notify-rs/notify"
 repository = "https://github.com/notify-rs/notify.git"
 edition = "2021"

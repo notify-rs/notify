@@ -6,7 +6,7 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 ## notify 7.0.0
 
-- CHANGE: Raise MSRV to 1.65
+- CHANGE: Raise MSRV to 1.72
 
 ## debouncer-full 0.4.0
 
