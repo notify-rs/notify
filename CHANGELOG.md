@@ -6,11 +6,12 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 ## notify 7.0.0
 
-- CHANGE: Raise MSRV to 1.72
+- CHANGE: raise MSRV to 1.72
+- CHANGE: remove internal use of crossbeam-channels
 
 ## debouncer-full 0.4.0
 
-- CHANGE: Manage root folder paths for the file ID cache automatically. **breaking**
+- CHANGE: manage root folder paths for the file ID cache automatically **breaking**
 
   ```rust
   debouncer.watcher().watch(path, RecursiveMode::Recursive)?;
@@ -23,8 +24,8 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
   debouncer.watch(path, RecursiveMode::Recursive)?;
   ```
 
-- CHANGE: Add `RecommendedCache`, which automatically enables the file ID cache on Windows and MacOS
-  and disables it on Linux, where it is not needed.
+- CHANGE: add `RecommendedCache`, which automatically enables the file ID cache on Windows and MacOS
+  and disables it on Linux, where it is not needed
 
 ## debouncer-full 0.3.1 (2023-08-21)
 
