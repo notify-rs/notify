@@ -411,10 +411,7 @@ pub type RecommendedWatcher = KqueueWatcher;
 )))]
 pub type RecommendedWatcher = PollWatcher;
 
-/// Convenience method for creating the `RecommendedWatcher` for the current platform in
-/// _immediate_ mode.
-///
-/// See [`Watcher::new_immediate`](trait.Watcher.html#tymethod.new_immediate).
+/// Convenience method for creating the `RecommendedWatcher` for the current platform.
 pub fn recommended_watcher<F>(event_handler: F) -> Result<RecommendedWatcher>
 where
     F: EventHandler,
