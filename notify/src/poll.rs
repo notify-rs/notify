@@ -132,8 +132,8 @@ mod data {
         }
 
         /// Create [`PathData`].
-        fn build_path_data(&self, meta_path: &MetaPath) -> PathData {
-            PathData::new(self, meta_path)
+        fn build_path_data(&self, meta_path: &MetaPath, file_type: &fs::FileType) -> PathData {
+            PathData::new(self, meta_path, file_type)
         }
     }
 
@@ -283,6 +283,7 @@ mod data {
                 })
                 .filter_map(move |entry| match entry.metadata() {
                     Ok(metadata) => {
+                        let file_type = entry.file_type();
                         let path = entry.into_path();
                         if is_initial {
                             // emit initial scans
@@ -290,8 +291,9 @@ mod data {
                                 emitter.borrow_mut().handle_event(Ok(path.clone()));
                             }
                         }
+                        
                         let meta_path = MetaPath::from_parts_unchecked(path, metadata);
-                        let data_path = data_builder.build_path_data(&meta_path);
+                        let data_path = data_builder.build_path_data(&meta_path, &file_type);
 
                         Some((meta_path.into_path(), data_path))
                     }
@@ -328,11 +330,14 @@ mod data {
 
         /// Checked time.
         last_check: Instant,
+
+        // Type of object
+        path_type: fs::FileType,
     }
 
     impl PathData {
         /// Create a new `PathData`.
-        fn new(data_builder: &DataBuilder, meta_path: &MetaPath) -> PathData {
+        fn new(data_builder: &DataBuilder, meta_path: &MetaPath, file_type: &fs::FileType) -> PathData {
             let metadata = meta_path.metadata();
 
             PathData {
@@ -346,6 +351,7 @@ mod data {
                     }),
 
                 last_check: data_builder.now,
+                path_type: file_type.clone(),
             }
         }
 
@@ -390,8 +396,30 @@ mod data {
                         None
                     }
                 }
-                (None, Some(_new)) => Some(EventKind::Create(CreateKind::Any)),
-                (Some(_old), None) => Some(EventKind::Remove(RemoveKind::Any)),
+                (None, Some(_new)) => {
+
+                    if _new.path_type.is_dir() {
+                        Some(EventKind::Create(CreateKind::Folder))
+                    }
+                    else if _new.path_type.is_dir() {
+                        Some(EventKind::Create(CreateKind::File))
+                    }
+                    else {
+                        Some(EventKind::Create(CreateKind::Any))
+                    }
+                },
+                (Some(_old), None) => {
+
+                    if _old.path_type.is_dir() {
+                        Some(EventKind::Remove(RemoveKind::Folder))
+                    }
+                    else if _old.path_type.is_dir() {
+                        Some(EventKind::Remove(RemoveKind::File))
+                    }
+                    else {
+                        Some(EventKind::Remove(RemoveKind::Any))
+                    }
+                },
                 (None, None) => None,
             }
             .map(|event_kind| Event::new(event_kind).add_path(path.into()))
