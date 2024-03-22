@@ -401,7 +401,7 @@ mod data {
                     if _new.path_type.is_dir() {
                         Some(EventKind::Create(CreateKind::Folder))
                     }
-                    else if _new.path_type.is_dir() {
+                    else if _new.path_type.is_file() {
                         Some(EventKind::Create(CreateKind::File))
                     }
                     else {
@@ -413,7 +413,7 @@ mod data {
                     if _old.path_type.is_dir() {
                         Some(EventKind::Remove(RemoveKind::Folder))
                     }
-                    else if _old.path_type.is_dir() {
+                    else if _old.path_type.is_file() {
                         Some(EventKind::Remove(RemoveKind::File))
                     }
                     else {
