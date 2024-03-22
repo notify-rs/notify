@@ -351,7 +351,7 @@ mod data {
                     }),
 
                 last_check: data_builder.now,
-                path_type: file_type.clone(),
+                path_type: *file_type,
             }
         }
 
