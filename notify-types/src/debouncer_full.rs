@@ -4,7 +4,7 @@ use std::ops::{Deref, DerefMut};
 use mock_instant::Instant;
 
 #[cfg(not(feature = "mock_instant"))]
-use std::time::Instant;
+use instant::Instant;
 
 use crate::event::Event;
 
