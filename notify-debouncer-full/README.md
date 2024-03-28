@@ -36,5 +36,7 @@ A debouncer for [notify] that is optimized for ease of use.
   notify-debouncer-full = { version = "*", default-features = false, features = ["macos_kqueue"] }
   ```
 
+- `serialization-compat-6` passed down to notify, off by default
+
 [docs]: https://docs.rs/notify-debouncer-full
 [notify]: https://crates.io/crates/notify

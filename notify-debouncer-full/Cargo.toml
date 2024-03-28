@@ -24,6 +24,7 @@ serde = ["notify-types/serde"]
 mock_instant = ["dep:mock_instant","notify-types/mock_instant"]
 # can't use dep:crossbeam-channel and feature name crossbeam-channel below rust 1.60
 crossbeam = ["crossbeam-channel","notify/crossbeam-channel"]
+serialization-compat-6 = ["notify/serialization-compat-6"]
 macos_fsevent = ["notify/macos_fsevent"]
 macos_kqueue = ["notify/macos_kqueue"]
 
