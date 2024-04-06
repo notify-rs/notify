@@ -18,6 +18,7 @@
 //! - `macos_fsevent` enabled by default, for fsevent backend on macos
 //! - `macos_kqueue` for kqueue backend on macos
 //! - `crossbeam-channel` enabled by default, see below
+//! - `serialization-compat-6` restores the serialization behavior of notify 6, off by default
 //!
 //! ### Serde
 //!
@@ -411,10 +412,7 @@ pub type RecommendedWatcher = KqueueWatcher;
 )))]
 pub type RecommendedWatcher = PollWatcher;
 
-/// Convenience method for creating the `RecommendedWatcher` for the current platform in
-/// _immediate_ mode.
-///
-/// See [`Watcher::new_immediate`](trait.Watcher.html#tymethod.new_immediate).
+/// Convenience method for creating the `RecommendedWatcher` for the current platform.
 pub fn recommended_watcher<F>(event_handler: F) -> Result<RecommendedWatcher>
 where
     F: EventHandler,
