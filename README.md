@@ -18,8 +18,8 @@ _Cross-platform filesystem notification library for Rust._
 - [Upgrading notify from v4](UPGRADING_V4_TO_V5.md)
 - Earliest supported Rust version: **1.63**
 
-As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook],
-[rust-analyzer], [watchexec], [xi-editor], [watchfiles],
+As used by: [alacritty], [cargo watch], [cobalt], [deno], [docket], [mdBook],
+[rust-analyzer], [watchexec], [watchfiles], [xi-editor],
 and others.
 
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
@@ -65,6 +65,7 @@ Originally created by [Félix Saparelli] and awesome [contributors].
 [coc]: http://contributor-covenant.org/version/1/4/
 [contributors]: https://github.com/notify-rs/notify/graphs/contributors
 [crate]: https://crates.io/crates/notify
+[deno]: https://github.com/denoland/deno
 [docket]: https://iwillspeak.github.io/docket/
 [notify-docs]: https://docs.rs/notify/latest/notify/
 [fsnotify]: https://github.com/fsnotify/fsnotify
