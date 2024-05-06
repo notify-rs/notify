@@ -1,0 +1,42 @@
+// Based on the Blender safe save scenario.
+//
+// In this scenario a file is saved twice in very short succession.
+{
+    state: {}
+    events: [
+        { kind: "create-any", paths: ["/watch/file@"], time: 1 }
+        { kind: "remove-any", paths: ["/watch/file1"], time: 2 }
+        { kind: "rename-from", paths: ["/watch/file"], tracker: 1, time: 3 }
+        { kind: "rename-to", paths: ["/watch/file1"], tracker: 1, time: 4 }
+        { kind: "rename-from", paths: ["/watch/file@"], tracker: 2, time: 5 }
+        { kind: "rename-to", paths: ["/watch/file"], tracker: 2, time: 6 }
+        { kind: "create-any", paths: ["/watch/file@"], time: 7 }
+        { kind: "remove-any", paths: ["/watch/file1"], time: 8 }
+        { kind: "rename-from", paths: ["/watch/file"], tracker: 3, time: 9 }
+        { kind: "rename-to", paths: ["/watch/file1"], tracker: 3, time: 10 }
+        { kind: "rename-from", paths: ["/watch/file@"], tracker: 4, time: 11 }
+        { kind: "rename-to", paths: ["/watch/file"], tracker: 4, time: 12 }
+    ]
+    expected: {
+        queues: {
+            /watch/file: {
+                events: [
+                    { kind: "create-any", paths: ["*"], time: 7 }
+                ]
+            }
+            /watch/file1: {
+                events: [
+                    { kind: "remove-any", paths: ["*"], time: 8 }
+                    { kind: "create-any", paths: ["*"], time: 1 }
+                ]
+            }
+        }
+        events: {
+            long: [
+                { kind: "create-any", paths: ["/watch/file"], time: 7 }
+                { kind: "remove-any", paths: ["/watch/file1"], time: 8 }
+                { kind: "create-any", paths: ["/watch/file1"], time: 1 }
+            ]
+        }
+    }
+}

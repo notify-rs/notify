@@ -34,6 +34,8 @@ New crate containing public type definitions for the notify and debouncer crates
 - CHANGE: add `RecommendedCache`, which automatically enables the file ID cache on Windows and MacOS
   and disables it on Linux, where it is not needed
 
+- FIX: ordering of debounced events when multiple files are modified and renamed (eg. during a safe save performed by Blender)
+
 ## debouncer-full 0.3.1 (2023-08-21)
 
 - CHANGE: remove serde binary experiment opt-out after it got removed [#530]
