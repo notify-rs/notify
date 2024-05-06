@@ -27,6 +27,8 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 - CHANGE: add `RecommendedCache`, which automatically enables the file ID cache on Windows and MacOS
   and disables it on Linux, where it is not needed
 
+- FIX: ordering of debounced events when multiple files are modified and renamed (eg. during a safe save performed by Blender)
+
 ## debouncer-full 0.3.1 (2023-08-21)
 
 - CHANGE: remove serde binary experiment opt-out after it got removed [#530]

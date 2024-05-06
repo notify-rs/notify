@@ -1,0 +1,41 @@
+// https://github.com/notify-rs/notify/issues/587
+//
+// Blender causes the following events when saving a file:
+//
+// create test.blend@ (new content)
+// delete test.blend1 (delete backup)
+// rename test.blend -> test.blend1 (move current to backup)
+// rename test.blend@ -> test.blend (move new to current)
+{
+    state: {}
+    events: [
+        { kind: "create-any", paths: ["/watch/file@"], time: 1 }
+        { kind: "remove-any", paths: ["/watch/file1"], time: 2 }
+        { kind: "rename-from", paths: ["/watch/file"], tracker: 1, time: 3 }
+        { kind: "rename-to", paths: ["/watch/file1"], tracker: 1, time: 4 }
+        { kind: "rename-from", paths: ["/watch/file@"], tracker: 2, time: 5 }
+        { kind: "rename-to", paths: ["/watch/file"], tracker: 2, time: 6 }
+    ]
+    expected: {
+        queues: {
+            /watch/file: {
+                events: [
+                    { kind: "create-any", paths: ["*"], time: 1 }
+                ]
+            }
+            /watch/file1: {
+                events: [
+                    { kind: "remove-any", paths: ["*"], time: 2 }
+                    { kind: "rename-both", paths: ["/watch/file", "/watch/file1"], tracker: 1, time: 3 }
+                ]
+            }
+        }
+        events: {
+            long: [
+                { kind: "remove-any", paths: ["/watch/file1"], time: 2 }
+                { kind: "rename-both", paths: ["/watch/file", "/watch/file1"], tracker: 1, time: 3 }
+                { kind: "create-any", paths: ["/watch/file"], time: 1 }
+            ]
+        }
+    }
+}

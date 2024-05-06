@@ -1,0 +1,33 @@
+// Based on the Blender safe save scenario.
+//
+// In this scenario the backup file is not removed first.
+{
+    state: {}
+    events: [
+        { kind: "create-any", paths: ["/watch/file@"], time: 1 }
+        { kind: "rename-from", paths: ["/watch/file"], tracker: 1, time: 3 }
+        { kind: "rename-to", paths: ["/watch/file1"], tracker: 1, time: 4 }
+        { kind: "rename-from", paths: ["/watch/file@"], tracker: 2, time: 5 }
+        { kind: "rename-to", paths: ["/watch/file"], tracker: 2, time: 6 }
+    ]
+    expected: {
+        queues: {
+            /watch/file: {
+                events: [
+                    { kind: "create-any", paths: ["*"], time: 1 }
+                ]
+            }
+            /watch/file1: {
+                events: [
+                    { kind: "rename-both", paths: ["/watch/file", "/watch/file1"], tracker: 1, time: 3 }
+                ]
+            }
+        }
+        events: {
+            long: [
+                { kind: "rename-both", paths: ["/watch/file", "/watch/file1"], tracker: 1, time: 3 }
+                { kind: "create-any", paths: ["/watch/file"], time: 1 }
+            ]
+        }
+    }
+}
