@@ -13,7 +13,7 @@ use notify::{
     Error, ErrorKind, Event, EventKind, RecursiveMode,
 };
 
-use crate::{DebounceDataInner, DebouncedEvent, FileIdCache, Queue};
+use crate::{BlockManager, DebounceDataInner, DebouncedEvent, FileIdCache, Queue};
 
 pub(crate) use schema::TestCase;
 
@@ -267,6 +267,7 @@ impl schema::State {
 
         DebounceDataInner {
             queues,
+            blocking: BlockManager::new(),
             roots: Vec::new(),
             cache,
             rename_event,

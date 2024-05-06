@@ -61,6 +61,7 @@
 //!
 //! As all file events are sourced from notify, the [known problems](https://docs.rs/notify/latest/notify/#known-problems) section applies here too.
 
+mod block_manager;
 mod cache;
 mod time;
 
@@ -71,8 +72,7 @@ mod testing;
 mod file_id_map;
 
 use std::{
-    cmp::Reverse,
-    collections::{BinaryHeap, VecDeque},
+    collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -81,7 +81,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rustc_hash::FxHashMap as HashMap;
+use block_manager::BlockManager;
 use time::now;
 
 pub use cache::{FileIdCache, NoCache, RecommendedCache};
@@ -99,6 +99,8 @@ use notify::{
     Error, ErrorKind, Event, EventKind, PathOp, RecommendedWatcher, RecursiveMode,
     UpdatePathsError, Watcher, WatcherKind,
 };
+
+use crate::block_manager::BlockEntry;
 
 /// The set of requirements for watcher debounce event handling functions.
 ///
@@ -206,6 +208,7 @@ impl Queue {
 #[derive(Debug)]
 pub(crate) struct DebounceDataInner<T> {
     queues: HashMap<PathBuf, Queue>,
+    blocking: BlockManager,
     roots: Vec<(PathBuf, RecursiveMode)>,
     cache: T,
     rename_event: Option<(DebouncedEvent, Option<FileId>)>,
@@ -217,7 +220,8 @@ pub(crate) struct DebounceDataInner<T> {
 impl<T: FileIdCache> DebounceDataInner<T> {
     pub(crate) fn new(cache: T, timeout: Duration) -> Self {
         Self {
-            queues: HashMap::default(),
+            queues: HashMap::new(),
+            blocking: BlockManager::new(),
             roots: Vec::new(),
             cache,
             rename_event: None,
@@ -227,10 +231,17 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         }
     }
 
+    fn contains_event(&self, path: &Path, time: Instant) -> bool {
+        self.queues
+            .get(path)
+            .is_some_and(|queue| queue.events.iter().any(|event| event.time == time))
+    }
+
     /// Retrieve a vec of debounced events, removing them if not continuous
     pub fn debounced_events(&mut self) -> Vec<DebouncedEvent> {
         let now = now();
-        let mut events_expired = Vec::with_capacity(self.queues.len());
+        let events_count = self.queues.values().map(|queue| queue.events.len()).sum();
+        let mut events_expired = Vec::with_capacity(events_count);
 
         if let Some(event) = self.rescan_event.take() {
             if now.saturating_duration_since(event.time) >= self.timeout {
@@ -241,36 +252,68 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             }
         }
 
-        // Visit each queue in place and remove only the ones that become empty.
-        self.queues
-            .extract_if(|_, queue| {
-                let mut kind_index: HashMap<EventKind, usize> = HashMap::default();
-                let mut queue_expired = Vec::new();
+        let mut kind_index: HashMap<PathBuf, HashMap<EventKind, usize>> = HashMap::new();
 
-                while let Some(event) = queue.events.pop_front() {
-                    // remove previous event of the same kind
-                    if now.saturating_duration_since(event.time) >= self.timeout {
-                        if let Some(idx) = kind_index.insert(event.kind, queue_expired.len()) {
-                            queue_expired[idx] = None;
-                        }
-
-                        queue_expired.push(Some(event));
-                    } else {
-                        if let Some(&idx) = kind_index.get(&event.kind) {
-                            queue_expired[idx] = None;
-                        }
-                        queue.events.push_front(event);
-                        break;
-                    }
-                }
-
-                events_expired.extend(queue_expired.into_iter().flatten());
-
-                queue.events.is_empty()
+        while let Some(path) = self
+            .queues
+            // iterate over all queues
+            .iter()
+            // get the first event of every queue
+            .filter_map(|(path, queue)| queue.events.front().map(|event| (path, event.time)))
+            // filter out all blocked events
+            .filter(|(path, _)| {
+                self.blocking
+                    .is_blocked_by(path)
+                    .is_none_or(|(path, time)| !self.contains_event(path, time))
             })
-            .for_each(drop);
+            // get the event with the earliest timestamp
+            .min_by_key(|(_, time)| *time)
+            // get the path of the event
+            .map(|(path, _)| path.clone())
+        {
+            // unwraps are safe because only paths for existing queues with at least one event are returned by the query above
+            let event = self
+                .queues
+                .get_mut(&path)
+                .unwrap()
+                .events
+                .pop_front()
+                .unwrap();
 
-        sort_events(events_expired)
+            if now.saturating_duration_since(event.time) >= self.timeout {
+                // remove previous event of the same kind
+                let kind_index = kind_index.entry(path.clone()).or_default();
+                if let Some(idx) = kind_index.get(&event.kind).copied() {
+                    events_expired.remove(idx);
+
+                    kind_index.values_mut().for_each(|i| {
+                        if *i > idx {
+                            *i -= 1
+                        }
+                    })
+                }
+                kind_index.insert(event.kind, events_expired.len());
+
+                self.blocking.remove_blocker(&path, event.time);
+
+                events_expired.push(event);
+            } else {
+                let kind_index = kind_index.entry(path.clone()).or_default();
+                if let Some(idx) = kind_index.get(&event.kind).copied() {
+                    events_expired.remove(idx);
+                }
+                self.queues.get_mut(&path).unwrap().events.push_front(event); // unwrap is safe because only paths for existing queues are returned by the query above
+                break;
+            }
+        }
+
+        self.queues.retain(|_, queue| !queue.events.is_empty());
+
+        if self.queues.is_empty() {
+            self.blocking.entries.clear();
+        }
+
+        events_expired
     }
 
     /// Returns all currently stored errors
@@ -449,18 +492,6 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             source_queue.events.remove(remove_index);
         }
 
-        // split off remove or move out event and add it back to the events map
-        if source_queue.was_removed() {
-            let event = source_queue.events.pop_front().unwrap();
-
-            self.queues.insert(
-                event.paths[0].clone(),
-                Queue {
-                    events: [event].into(),
-                },
-            );
-        }
-
         // update paths
         for e in &mut source_queue.events {
             e.paths = vec![event.paths[0].clone()];
@@ -479,7 +510,12 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         }
 
         if let Some(target_queue) = self.queues.get_mut(&event.paths[0]) {
-            if !target_queue.was_created() {
+            if target_queue.was_removed() {
+                let event = target_queue.events.pop_front().unwrap(); // unwrap is safe because `was_removed` implies that the queue is not empty
+                source_queue.events.push_front(event);
+            }
+
+            if !target_queue.was_created() && !source_queue.was_removed() {
                 let mut remove_event = DebouncedEvent {
                     event: Event {
                         kind: EventKind::Remove(RemoveKind::Any),
@@ -497,6 +533,8 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         } else {
             self.queues.insert(event.paths[0].clone(), source_queue);
         }
+
+        self.mark_blocked_events(&event.paths[0]);
     }
 
     fn push_remove_event(&mut self, event: Event, time: Instant) {
@@ -545,9 +583,35 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             );
         }
     }
+
+    fn mark_blocked_events(&mut self, path: &Path) {
+        for queue in self.queues.values_mut() {
+            for event in &mut queue.events {
+                if matches!(
+                    event.event.kind,
+                    EventKind::Modify(ModifyKind::Name(RenameMode::Both))
+                ) && event.event.paths[0] == path
+                {
+                    self.blocking.add_blocker(BlockEntry {
+                        blocker_path: event.event.paths[1].clone(),
+                        blocker_time: event.time,
+                        blockee_path: path.to_path_buf(),
+                    });
+                    break;
+                }
+            }
+        }
+    }
 }
 
-/// Debouncer guard, stops the debouncer on drop.
+/// A debounced file-system watcher.
+///
+/// Wraps a [`Watcher`] and a background thread that collects raw events, merges
+/// duplicates, and emits debounced events after the configured
+/// `timeout` has elapsed without further activity on the same path.
+///
+/// Created by [`new_debouncer`] or [`new_debouncer_opt`]. Stops the background
+/// thread on drop.
 #[derive(Debug)]
 pub struct Debouncer<T: Watcher, C: FileIdCache> {
     watcher: T,
@@ -604,6 +668,13 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         data.cache.remove_path(path.as_ref());
     }
 
+    /// Watch a path for file-system events.
+    ///
+    /// Passes the request to the underlying [`Watcher`] and registers the path
+    /// with the file-ID cache.
+    ///
+    /// Use [`RecursiveMode::Recursive`] to monitor a directory tree, or
+    /// [`RecursiveMode::NonRecursive`] to monitor only the top-level entries.
     pub fn watch(
         &mut self,
         path: impl AsRef<Path>,
@@ -614,6 +685,10 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         Ok(())
     }
 
+    /// Stop watching a path.
+    ///
+    /// Passes the request to the underlying [`Watcher`] and removes the path
+    /// from the root list and file-ID cache.
     pub fn unwatch(&mut self, path: impl AsRef<Path>) -> notify::Result<()> {
         self.watcher.unwatch(path.as_ref())?;
         self.remove_root(path);
@@ -695,10 +770,15 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         self.watcher.watched_paths()
     }
 
+    /// Pass a configuration change to the underlying [`Watcher`].
+    ///
+    /// Returns `true` if the configuration was applied, `false` if the
+    /// watcher does not support runtime reconfiguration, or an error.
     pub fn configure(&mut self, option: notify::Config) -> notify::Result<bool> {
         self.watcher.configure(option)
     }
 
+    /// Return the [`WatcherKind`] of the underlying watcher.
     #[must_use]
     pub fn kind() -> WatcherKind
     where
@@ -811,59 +891,6 @@ pub fn new_debouncer<F: DebounceEventHandler>(
         RecommendedCache::new(),
         notify::Config::default(),
     )
-}
-
-fn sort_events(events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
-    let mut sorted = Vec::with_capacity(events.len());
-
-    // group events by path
-    let mut groups = Vec::<(PathBuf, VecDeque<DebouncedEvent>)>::new();
-    let mut group_indexes: HashMap<PathBuf, usize> = HashMap::default();
-    group_indexes.reserve(events.len());
-    groups.reserve(events.len());
-
-    for event in events {
-        let path = event.paths.last().cloned().unwrap_or_default();
-
-        if let Some(&index) = group_indexes.get(&path) {
-            groups[index].1.push_back(event);
-        } else {
-            group_indexes.insert(path.clone(), groups.len());
-            groups.push((path, [event].into()));
-        }
-    }
-
-    // Keep path order as the tie-breaker for identical timestamps.
-    groups.sort_unstable_by(|(left_path, _), (right_path, _)| left_path.cmp(right_path));
-
-    // push events for different paths in chronological order and keep the order of events with the same path
-
-    let mut min_time_heap = groups
-        .iter()
-        .enumerate()
-        .map(|(index, (_, events))| Reverse((events[0].time, index)))
-        .collect::<BinaryHeap<_>>();
-
-    while let Some(Reverse((min_time, index))) = min_time_heap.pop() {
-        let events = &mut groups[index].1;
-
-        let mut push_next = false;
-
-        while events.front().is_some_and(|event| event.time <= min_time) {
-            // unwrap is safe because `pop_front` mus return some in order to enter the loop
-            let event = events.pop_front().unwrap();
-            sorted.push(event);
-            push_next = true;
-        }
-
-        if push_next {
-            if let Some(event) = events.front() {
-                min_time_heap.push(Reverse((event.time, index)));
-            }
-        }
-    }
-
-    sorted
 }
 
 #[cfg(test)]
@@ -993,6 +1020,11 @@ mod tests {
             "add_errors",
             "debounce_modify_events",
             "emit_continuous_modify_content_events",
+            "emit_create_event_after_safe_save_and_backup_override",
+            "emit_create_event_after_safe_save_and_backup_rotation_twice",
+            "emit_create_event_after_safe_save_and_backup_rotation",
+            "emit_create_event_after_safe_save_and_double_move",
+            "emit_create_event_after_safe_save_and_double_move_and_recreate",
             "emit_events_in_chronological_order",
             "emit_events_with_a_prepended_rename_event",
             "emit_close_events_only_once",
@@ -1091,32 +1123,6 @@ mod tests {
                 "debounced events after a `{delay}` delay"
             );
         }
-    }
-
-    #[test]
-    fn sort_events_ties_by_path() {
-        let time = now();
-        let events = vec![
-            DebouncedEvent::new(
-                Event::new(EventKind::Any).add_path(PathBuf::from("/watch/b")),
-                time,
-            ),
-            DebouncedEvent::new(
-                Event::new(EventKind::Any).add_path(PathBuf::from("/watch/a")),
-                time,
-            ),
-        ];
-
-        let sorted = sort_events(events);
-        let paths = sorted
-            .into_iter()
-            .map(|event| event.paths[0].clone())
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            paths,
-            vec![PathBuf::from("/watch/a"), PathBuf::from("/watch/b")]
-        );
     }
 
     #[test]
