@@ -17,7 +17,6 @@
 //! - `serde` for serialization of events
 //! - `macos_fsevent` enabled by default, for fsevent backend on macos
 //! - `macos_kqueue` for kqueue backend on macos
-//! - `crossbeam-channel` enabled by default, see below
 //! - `serialization-compat-6` restores the serialization behavior of notify 6, off by default
 //!
 //! ### Serde
@@ -27,19 +26,6 @@
 //! ```toml
 //! notify = { version = "6.1.1", features = ["serde"] }
 //! ```
-//!
-//! ### Crossbeam-Channel & Tokio
-//!
-//! By default crossbeam-channel is used internally by notify. Which also allows the [Watcher] to be sync.
-//! This can [cause issues](https://github.com/notify-rs/notify/issues/380) when used inside tokio.
-//!
-//! You can disable crossbeam-channel, letting notify fallback to std channels via
-//!
-//! ```toml
-//! notify = { version = "6.1.1", default-features = false, features = ["macos_kqueue"] }
-//! // Alternatively macos_fsevent instead of macos_kqueue
-//! ```
-//! Note the `macos_kqueue` requirement here, otherwise no native backend is available on macos.
 //!
 //! # Known Problems
 //!
@@ -182,44 +168,18 @@ pub use error::{Error, ErrorKind, Result};
 pub use notify_types::event::{self, Event, EventKind};
 use std::path::Path;
 
-#[allow(dead_code)]
-#[cfg(feature = "crossbeam-channel")]
-pub(crate) type Receiver<T> = crossbeam_channel::Receiver<T>;
-#[allow(dead_code)]
-#[cfg(not(feature = "crossbeam-channel"))]
 pub(crate) type Receiver<T> = std::sync::mpsc::Receiver<T>;
-
-#[allow(dead_code)]
-#[cfg(feature = "crossbeam-channel")]
-pub(crate) type Sender<T> = crossbeam_channel::Sender<T>;
-#[allow(dead_code)]
-#[cfg(not(feature = "crossbeam-channel"))]
 pub(crate) type Sender<T> = std::sync::mpsc::Sender<T>;
-
-// std limitation
-#[allow(dead_code)]
-#[cfg(feature = "crossbeam-channel")]
-pub(crate) type BoundSender<T> = crossbeam_channel::Sender<T>;
-#[allow(dead_code)]
-#[cfg(not(feature = "crossbeam-channel"))]
 pub(crate) type BoundSender<T> = std::sync::mpsc::SyncSender<T>;
 
-#[allow(dead_code)]
 #[inline]
 pub(crate) fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
-    #[cfg(feature = "crossbeam-channel")]
-    return crossbeam_channel::unbounded();
-    #[cfg(not(feature = "crossbeam-channel"))]
-    return std::sync::mpsc::channel();
+    std::sync::mpsc::channel()
 }
 
-#[allow(dead_code)]
 #[inline]
 pub(crate) fn bounded<T>(cap: usize) -> (BoundSender<T>, Receiver<T>) {
-    #[cfg(feature = "crossbeam-channel")]
-    return crossbeam_channel::bounded(cap);
-    #[cfg(not(feature = "crossbeam-channel"))]
-    return std::sync::mpsc::sync_channel(cap);
+    std::sync::mpsc::sync_channel(cap)
 }
 
 #[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
