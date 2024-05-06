@@ -198,13 +198,13 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     }
 
     /// Retrieve a vec of debounced events, removing them if not continuous
-    pub fn debounced_events(&mut self) -> Vec<DebouncedEvent> {
+    pub fn debounced_events(&mut self, ignore_timeout: bool) -> Vec<DebouncedEvent> {
         let now = Instant::now();
         let mut events_expired = Vec::with_capacity(self.queues.len());
         let mut queues_remaining = HashMap::with_capacity(self.queues.len());
 
         if let Some(event) = self.rescan_event.take() {
-            if now.saturating_duration_since(event.time) >= self.timeout {
+            if now.saturating_duration_since(event.time) >= self.timeout || ignore_timeout {
                 log::trace!("debounced event: {event:?}");
                 events_expired.push(event);
             } else {
@@ -217,7 +217,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             let mut kind_index = HashMap::new();
 
             while let Some(event) = queue.events.pop_front() {
-                if now.saturating_duration_since(event.time) >= self.timeout {
+                if now.saturating_duration_since(event.time) >= self.timeout || ignore_timeout {
                     // remove previous event of the same kind
                     if let Some(idx) = kind_index.get(&event.kind).copied() {
                         events_expired.remove(idx);
@@ -530,6 +530,7 @@ pub struct Debouncer<T: Watcher, C: FileIdCache> {
     debouncer_thread: Option<std::thread::JoinHandle<()>>,
     data: DebounceData<C>,
     stop: Arc<AtomicBool>,
+    flush: Arc<AtomicBool>,
 }
 
 impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
@@ -545,6 +546,11 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     /// Stop the debouncer, does not wait for the event thread to finish.
     pub fn stop_nonblocking(self) {
         self.set_stop();
+    }
+
+    /// Indicates that on the next tick of the debouncer thread, all events should be emitted.
+    pub fn flush_nonblocking(&self) {
+        self.flush.store(true, Ordering::Relaxed);
     }
 
     fn set_stop(&self) {
@@ -628,6 +634,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
 ) -> Result<Debouncer<T, C>, Error> {
     let data = Arc::new(Mutex::new(DebounceDataInner::new(file_id_cache, timeout)));
     let stop = Arc::new(AtomicBool::new(false));
+    let flush = Arc::new(AtomicBool::new(false));
 
     let tick_div = 4;
     let tick = match tick_rate {
@@ -650,18 +657,26 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
 
     let data_c = data.clone();
     let stop_c = stop.clone();
+    let flush_c = flush.clone();
     let thread = std::thread::Builder::new()
         .name("notify-rs debouncer loop".to_string())
         .spawn(move || loop {
             if stop_c.load(Ordering::Acquire) {
                 break;
             }
+
+            let should_flush = flush_c.load(Ordering::Acquire);
+
             std::thread::sleep(tick);
             let send_data;
             let errors;
             {
                 let mut lock = data_c.lock().unwrap();
-                send_data = lock.debounced_events();
+                send_data = lock.debounced_events(should_flush);
+                if should_flush {
+                    flush_c.store(false, Ordering::Release);
+                }
+
                 errors = lock.errors();
             }
             if !send_data.is_empty() {
@@ -691,6 +706,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
         debouncer_thread: Some(thread),
         data,
         stop,
+        flush,
     };
 
     Ok(guard)
@@ -847,7 +863,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             assert_eq!(
-                state.debounced_events(),
+                state.debounced_events(false),
                 events,
                 "debounced events after a `{delay}` delay"
             );
