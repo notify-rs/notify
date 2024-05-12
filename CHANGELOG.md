@@ -130,7 +130,7 @@ Newly introduced alternative debouncer with more features. [#480]
 
 - FEATURE: only emit a single `rename` event if the rename `From` and `To` events can be matched
 - FEATURE: merge multiple `rename` events
-- FEATURE: keep track of the file system IDs all files and stiches rename events together (FSevents, Windows)
+- FEATURE: keep track of the file system IDs all files and stitches rename events together (FSevents, Windows)
 - FEATURE: emit only one `remove` event when deleting a directory (inotify)
 - FEATURE: don't emit duplicate create events
 - FEATURE: don't emit `Modify` events after a `Create` event
