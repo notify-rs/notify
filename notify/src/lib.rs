@@ -120,7 +120,7 @@
 //! #     #[cfg(not(any(
 //! #     target_os = "freebsd",
 //! #     target_os = "openbsd",
-//! #     target_os = "dragonflybsd",
+//! #     target_os = "dragonfly",
 //! #     target_os = "netbsd")))]
 //! #     { // "." doesn't exist on BSD for some reason in CI
 //!     watcher.watch(Path::new("."), RecursiveMode::Recursive)?;
@@ -163,7 +163,7 @@
 //! #     #[cfg(not(any(
 //! #     target_os = "freebsd",
 //! #     target_os = "openbsd",
-//! #     target_os = "dragonflybsd",
+//! #     target_os = "dragonfly",
 //! #     target_os = "netbsd")))]
 //! #     { // "." doesn't exist on BSD for some reason in CI
 //! #     watcher1.watch(Path::new("."), RecursiveMode::Recursive)?;
@@ -230,7 +230,7 @@ pub use crate::inotify::INotifyWatcher;
     target_os = "freebsd",
     target_os = "openbsd",
     target_os = "netbsd",
-    target_os = "dragonflybsd",
+    target_os = "dragonfly",
     target_os = "ios",
     all(target_os = "macos", feature = "macos_kqueue")
 ))]
@@ -247,7 +247,7 @@ pub mod inotify;
 #[cfg(any(
     target_os = "freebsd",
     target_os = "openbsd",
-    target_os = "dragonflybsd",
+    target_os = "dragonfly",
     target_os = "netbsd",
     target_os = "ios",
     all(target_os = "macos", feature = "macos_kqueue")
@@ -393,7 +393,7 @@ pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
     target_os = "freebsd",
     target_os = "openbsd",
     target_os = "netbsd",
-    target_os = "dragonflybsd",
+    target_os = "dragonfly",
     target_os = "ios",
     all(target_os = "macos", feature = "macos_kqueue")
 ))]
@@ -407,7 +407,7 @@ pub type RecommendedWatcher = KqueueWatcher;
     target_os = "freebsd",
     target_os = "openbsd",
     target_os = "netbsd",
-    target_os = "dragonflybsd",
+    target_os = "dragonfly",
     target_os = "ios"
 )))]
 pub type RecommendedWatcher = PollWatcher;
