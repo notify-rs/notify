@@ -131,7 +131,7 @@ impl Config {
     }
     /// Set batch mode
     ///
-    /// When `batch_mode` is enabled, events may be delayed (at most 2x the specified timout) and delivered with others.
+    /// When `batch_mode` is enabled, events may be delayed (at most 2x the specified timeout) and delivered with others.
     /// If disabled, all events are delivered immediately when their debounce timeout is reached.
     pub fn with_batch_mode(mut self, batch_mode: bool) -> Self {
         self.batch_mode = batch_mode;
@@ -248,7 +248,7 @@ impl DebounceDataInner {
                 data_back.insert(path.clone(), event);
                 events_expired.push(DebouncedEvent::new(path, DebouncedEventKind::AnyContinuous));
             } else {
-                // event is neither old enough for continous event, nor is it expired for an Any event
+                // event is neither old enough for continuous event, nor is it expired for an Any event
                 Self::check_deadline(
                     self.batch_mode,
                     self.timeout,
@@ -276,7 +276,7 @@ impl DebounceDataInner {
         match debounce_deadline {
             Some(current_deadline) => {
                 // shorten deadline to not delay the event
-                // with batch mode simply wait for the incoming deadline and delay the event untill then
+                // with batch mode simply wait for the incoming deadline and delay the event until then
                 if !batch_mode && *current_deadline > deadline_candidate {
                     *debounce_deadline = Some(deadline_candidate);
                 }

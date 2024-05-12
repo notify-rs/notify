@@ -153,8 +153,8 @@ impl EventLoop {
                     let path = PathBuf::from(path);
                     let event = match data {
                         /*
-                        TODO: Differenciate folders and files
-                        kqueue dosen't tell us if this was a file or a dir, so we
+                        TODO: Differentiate folders and files
+                        kqueue doesn't tell us if this was a file or a dir, so we
                         could only emulate this inotify behavior if we keep track of
                         all files and directories internally and then perform a
                         lookup.
@@ -206,7 +206,7 @@ impl EventLoop {
 
                         /*
                         Extend and Truncate are just different names for the same
-                        operation, extend is only used on FreeBSD, truncate everwhere
+                        operation, extend is only used on FreeBSD, truncate everywhere
                         else
                         */
                         kqueue::Vnode::Extend | kqueue::Vnode::Truncate => Ok(Event::new(
@@ -231,13 +231,13 @@ impl EventLoop {
                         delete.
                         */
                         kqueue::Vnode::Link => {
-                            // As we currently don't have a solution that whould allow us
+                            // As we currently don't have a solution that would allow us
                             // to only add/remove the new/delete directory and that dosn't include a
                             // possible race condition. On possible solution would be to
                             // create a `HashMap<PathBuf, Vec<PathBuf>>` which would
                             // include every directory and this content add the time of
-                            // adding it to kqueue. While this sould allow us to do the
-                            // diff and only add/remove the files nessesary. This whould
+                            // adding it to kqueue. While this should allow us to do the
+                            // diff and only add/remove the files necessary. This would
                             // also introduce a race condition, where multiple files could
                             // all ready be remove from the directory, and we could get out
                             // of sync.
@@ -250,7 +250,7 @@ impl EventLoop {
                             Ok(Event::new(EventKind::Modify(ModifyKind::Any)).add_path(path))
                         }
 
-                        // Kqueue not provide us with the infomation nessesary to provide
+                        // Kqueue not provide us with the information necessary to provide
                         // the new file name to the event.
                         kqueue::Vnode::Rename => {
                             remove_watches.push(path.clone());
