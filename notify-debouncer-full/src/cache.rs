@@ -53,7 +53,7 @@ impl FileIdMap {
 
     fn dir_scan_depth(is_recursive: bool) -> usize {
         if is_recursive {
-            usize::max_value()
+            usize::MAX
         } else {
             1
         }
