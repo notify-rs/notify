@@ -189,6 +189,9 @@ mod data {
             let all_path_data =
                 Self::scan_all_path_data(data_builder, root.clone(), is_recursive, true).collect();
 
+            let close_initial_scan_evt = Event::new(EventKind::Other).set_info(&format!("initial_scan_complete"));
+            data_builder.emitter.emit(Ok(close_initial_scan_evt));
+
             Some(Self {
                 root,
                 is_recursive,
