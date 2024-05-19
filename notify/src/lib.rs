@@ -36,10 +36,9 @@
 //! You can disable crossbeam-channel, letting notify fallback to std channels via
 //!
 //! ```toml
-//! notify = { version = "6.1.1", default-features = false, features = ["macos_kqueue"] }
-//! // Alternatively macos_fsevent instead of macos_kqueue
+//! notify = { version = "6.1.1", default-features = false, features = ["macos_fsevent"] }
 //! ```
-//! Note the `macos_kqueue` requirement here, otherwise no native backend is available on macos.
+//! Note the `macos_fsevent` requirement here, otherwise no native backend is available on macos.
 //!
 //! # Known Problems
 //!
