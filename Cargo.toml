@@ -39,7 +39,7 @@ fsevent = "0.4"
 fsevent-sys = "2"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3.8", features = ["fileapi", "handleapi", "ioapiset", "minwinbase", "synchapi", "winbase", "winnt"] }
+winapi = { version = "0.3.8", features = ["fileapi", "handleapi", "ioapiset", "minwinbase", "std", "synchapi", "winbase", "winerror", "winnt"] }
 
 [dev-dependencies]
 tempfile = "3"
