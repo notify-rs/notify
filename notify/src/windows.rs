@@ -282,8 +282,8 @@ fn start_read(rd: &ReadData, event_handler: Arc<Mutex<dyn EventHandler>>, handle
         // for our own purposes
 
         let req_buf = request.buffer.as_mut_ptr() as *mut c_void;
-        let request_p = Box::into_raw(request) as isize;
-        overlapped.hEvent = request_p;
+        let request_p = Box::into_raw(request);
+        overlapped.hEvent = request_p as isize;
 
         // This is using an asynchronous call with a completion routine for receiving notifications
         // An I/O completion port would probably be more performant
@@ -304,7 +304,7 @@ fn start_read(rd: &ReadData, event_handler: Arc<Mutex<dyn EventHandler>>, handle
             // over to `ReadDirectoryChangesW`.
             // So we can claim ownership back.
             let _overlapped_alloc = std::mem::ManuallyDrop::into_inner(overlapped);
-            let request: Box<ReadDirectoryRequest> = mem::transmute(request_p);
+            let request: Box<ReadDirectoryRequest> = Box::from_raw(request_p);
             ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
         }
     }
