@@ -1,6 +1,6 @@
 # adopted from https://github.com/tokio-rs/tokio/blob/master/.cirrus.yml
 freebsd_instance:
-  image_family: freebsd-13-2
+  image_family: freebsd-14-1
 task:
   name: FreeBSD 64-bit
   setup_script:
