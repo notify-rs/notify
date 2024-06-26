@@ -6,7 +6,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify = "4.0.17"
+//! notify = "4.0.18"
 //! ```
 //!
 //! # Examples
@@ -524,7 +524,7 @@ impl From<io::Error> for Error {
         #[cfg(target_os = "linux")]
         {
             if err.raw_os_error() == Some(28) {
-                return Error::Generic(String::from("Can't watch (more) files, limit on the total number of inotify watches reached"))
+                return Error::Generic(String::from("Can't watch (more) files, limit on the total number of inotify watches reached"));
             }
         }
         Error::Io(err)

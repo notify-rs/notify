@@ -23,7 +23,7 @@ As used by: [alacritty], [cargo watch], [cobalt], [docket], [handlebars-iron],
 
 ```toml
 [dependencies]
-notify = "4.0.17"
+notify = "4.0.18"
 ```
 
 ## Usage

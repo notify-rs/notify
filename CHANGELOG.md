@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.0.18 (2024-06-26)
+
+- FIX: Add missing winapi features [#603]
+
+[#603]: https://github.com/notify-rs/notify/pull/603
+
 ## 4.0.17 (2021-05-13)
 
 - FIX: Don't crash on macos when creating & deleting folders in rapid succession [#303]

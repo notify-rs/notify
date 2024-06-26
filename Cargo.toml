@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "4.0.17"
+version = "4.0.18"
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Jorge Israel Peña <jorge.israel.p@gmail.com>",
@@ -8,7 +8,7 @@ authors = [
   "Pierre Baillet <oct@zoy.org>",
   "Joe Wilm <joe@jwilm.com>",
   "Daniel Faust <hessijames@gmail.com>",
-  "Aron Heinecke <Ox0p54r36@t-online.de>"
+  "Aron Heinecke <Ox0p54r36@t-online.de>",
 ]
 description = "Cross-platform filesystem notification library"
 documentation = "https://docs.rs/notify"
@@ -18,10 +18,7 @@ readme = "README.md"
 license = "CC0-1.0"
 keywords = ["events", "filesystem", "notify", "watch"]
 categories = ["filesystem"]
-exclude = [
-  "/clippy.toml",
-  ".github/*"
-]
+exclude = ["/clippy.toml", ".github/*"]
 
 [dependencies]
 bitflags = "^1.0.4"
@@ -39,7 +36,17 @@ fsevent = "0.4"
 fsevent-sys = "2"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3.8", features = ["fileapi", "handleapi", "ioapiset", "minwinbase", "std", "synchapi", "winbase", "winerror", "winnt"] }
+winapi = { version = "0.3.8", features = [
+  "fileapi",
+  "handleapi",
+  "ioapiset",
+  "minwinbase",
+  "std",
+  "synchapi",
+  "winbase",
+  "winerror",
+  "winnt",
+] }
 
 [dev-dependencies]
 tempfile = "3"
