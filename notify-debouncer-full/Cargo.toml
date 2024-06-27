@@ -40,7 +40,7 @@ mock_instant = { version = "0.3.0", optional = true }
 [dev-dependencies]
 notify-debouncer-full = { path = ".", features = ["mock_instant"] }
 pretty_assertions = "1.3.0"
-rstest = "0.18"
+rstest = "0.21.0"
 serde = { version = "1.0.89", features = ["derive"] }
 deser-hjson = "1.1.1"
 rand = "0.8.5"
