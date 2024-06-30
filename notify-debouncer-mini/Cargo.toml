@@ -18,6 +18,7 @@ serde = ["notify-types/serde"]
 crossbeam-channel = ["dep:crossbeam-channel", "notify/crossbeam-channel"]
 macos_fsevent = ["notify/macos_fsevent"]
 macos_kqueue = ["notify/macos_kqueue"]
+serialization-compat-6 = ["notify/serialization-compat-6"]
 
 [dependencies]
 notify = { workspace = true }
