@@ -81,6 +81,15 @@ impl Error {
         Self::new(ErrorKind::Io(err))
     }
 
+    /// Similar to [`Error::io`], but specifically handles [`io::ErrorKind::NotFound`].
+    pub fn io_watch(err: io::Error) -> Self {
+        if err.kind() == io::ErrorKind::NotFound {
+            Self::path_not_found()
+        } else {
+            Self::io(err)
+        }
+    }
+
     /// Creates a new "path not found" error.
     pub fn path_not_found() -> Self {
         Self::new(ErrorKind::PathNotFound)
