@@ -417,6 +417,7 @@ impl EventLoop {
     ) -> Result<()> {
         let mut watchmask = WatchMask::ATTRIB
             | WatchMask::CREATE
+            | WatchMask::OPEN
             | WatchMask::DELETE
             | WatchMask::CLOSE_WRITE
             | WatchMask::MODIFY
