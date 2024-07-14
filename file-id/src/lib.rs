@@ -129,7 +129,7 @@ pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
 pub fn get_low_res_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     let file = open_file(path)?;
 
-    unsafe { get_file_info_ex(&file) }
+    unsafe { get_file_info(&file) }
 }
 
 /// Get the `FileId` with the high resolution variant for the file or directory at `path`
@@ -137,7 +137,7 @@ pub fn get_low_res_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
 pub fn get_high_res_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     let file = open_file(path)?;
 
-    unsafe { get_file_info(&file) }
+    unsafe { get_file_info_ex(&file) }
 }
 
 #[cfg(target_family = "windows")]
