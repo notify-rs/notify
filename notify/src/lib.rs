@@ -34,12 +34,12 @@
 //! Network mounted filesystems like NFS may not emit any events for notify to listen to.
 //! This applies especially to WSL programs watching windows paths ([issue #254](https://github.com/notify-rs/notify/issues/254)).
 //!
-//! A workaround is the [PollWatcher] backend.
+//! A workaround is the [`PollWatcher`] backend.
 //!
 //! ### Docker with Linux on MacOS M1
 //!
 //! Docker on macos M1 [throws](https://github.com/notify-rs/notify/issues/423) `Function not implemented (os error 38)`.
-//! You have to manually use the [PollWatcher], as the native backend isn't available inside the emulation.
+//! You have to manually use the [`PollWatcher`], as the native backend isn't available inside the emulation.
 //!
 //! ### MacOS, FSEvents and unowned files
 //!
@@ -62,7 +62,7 @@
 //! ### Pseudo Filesystems like /proc, /sys
 //!
 //! Some filesystems like `/proc` and `/sys` on *nix do not emit change events or use correct file change dates.
-//! To circumvent that problem you can use the [PollWatcher] with the `compare_contents` option.
+//! To circumvent that problem you can use the [`PollWatcher`] with the `compare_contents` option.
 //!
 //! ### Linux: Bad File Descriptor / No space left on device
 //!
@@ -76,7 +76,7 @@
 //! sudo sysctl -p
 //! ```
 //!
-//! Note that the [PollWatcher] is not restricted by this limitation, so it may be an alternative if your users can't increase the limit.
+//! Note that the [`PollWatcher`] is not restricted by this limitation, so it may be an alternative if your users can't increase the limit.
 //!
 //! ### Watching large directories
 //!

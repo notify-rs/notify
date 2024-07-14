@@ -532,7 +532,7 @@ pub struct Debouncer<T: Watcher, C: FileIdCache> {
 
 impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     /// Stop the debouncer, waits for the event thread to finish.
-    /// May block for the duration of one tick_rate.
+    /// May block for the duration of one `tick_rate`.
     pub fn stop(mut self) {
         self.set_stop();
         if let Some(t) = self.debouncer_thread.take() {
@@ -616,7 +616,7 @@ impl<T: Watcher, C: FileIdCache> Drop for Debouncer<T, C> {
 ///
 /// Timeout is the amount of time after which a debounced event is emitted.
 ///
-/// If tick_rate is None, notify will select a tick rate that is 1/4 of the provided timeout.
+/// If `tick_rate` is `None`, notify will select a tick rate that is 1/4 of the provided timeout.
 pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + Send + 'static>(
     timeout: Duration,
     tick_rate: Option<Duration>,
@@ -698,7 +698,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
 ///
 /// Timeout is the amount of time after which a debounced event is emitted.
 ///
-/// If tick_rate is None, notify will select a tick rate that is 1/4 of the provided timeout.
+/// If `tick_rate` is `None`, notify will select a tick rate that is 1/4 of the provided timeout.
 pub fn new_debouncer<F: DebounceEventHandler>(
     timeout: Duration,
     tick_rate: Option<Duration>,
