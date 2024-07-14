@@ -54,7 +54,7 @@ pub enum FileId {
     ///
     /// On Windows, the low resolution variant can be requested explicitly with the `get_low_res_file_id` function.
     ///
-    /// Details: https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle.
+    /// Details: <https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle>
     #[cfg_attr(feature = "serde", serde(rename = "lowres"))]
     LowRes {
         /// Volume serial number
@@ -70,7 +70,7 @@ pub enum FileId {
     ///
     /// On Windows, the high resolution variant can be requested explicitly with the `get_high_res_file_id` function.
     ///
-    /// Details: https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex.
+    /// Details: <https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex>
     #[cfg_attr(feature = "serde", serde(rename = "highres"))]
     HighRes {
         /// Volume serial number
