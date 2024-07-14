@@ -7,10 +7,10 @@ authors = ["Daniel Faust <hessijames@gmail.com>"]
 keywords = ["events", "filesystem", "notify", "watch"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-rust-version = { workspace = true }
-edition = { workspace = true }
-homepage = { workspace = true }
-repository = { workspace = true }
+rust-version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
 
 [features]
 default = ["macos_fsevent"]
@@ -22,18 +22,18 @@ macos_kqueue = ["notify/macos_kqueue"]
 serialization-compat-6 = ["notify/serialization-compat-6"]
 
 [dependencies]
-notify = { workspace = true }
-notify-types = { workspace = true }
+notify.workspace = true
+notify-types.workspace = true
 crossbeam-channel = { workspace = true, optional = true }
-file-id = { workspace = true }
-walkdir = { workspace = true }
-log = { workspace = true }
+file-id.workspace = true
+walkdir.workspace = true
+log.workspace = true
 mock_instant = { workspace = true, optional = true }
 
 [dev-dependencies]
 notify-debouncer-full = { workspace = true, features = ["mock_instant"] }
-pretty_assertions = { workspace = true }
-rstest = { workspace = true }
-serde = { workspace = true }
-deser-hjson = { workspace = true }
-rand = { workspace = true }
+pretty_assertions.workspace = true
+rstest.workspace = true
+serde.workspace = true
+deser-hjson.workspace = true
+rand.workspace = true

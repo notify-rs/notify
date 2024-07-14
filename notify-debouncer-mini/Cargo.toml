@@ -7,10 +7,10 @@ authors = ["Aron Heinecke <Ox0p54r36@t-online.de>"]
 keywords = ["events", "filesystem", "notify", "watch"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-rust-version = { workspace = true }
-edition = { workspace = true }
-homepage = { workspace = true }
-repository = { workspace = true }
+rust-version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
 
 [features]
 default = ["macos_fsevent"]
@@ -21,7 +21,7 @@ macos_kqueue = ["notify/macos_kqueue"]
 serialization-compat-6 = ["notify/serialization-compat-6"]
 
 [dependencies]
-notify = { workspace = true }
-notify-types = { workspace = true }
+notify.workspace = true
+notify-types.workspace = true
 crossbeam-channel = { workspace = true, optional = true }
-log = { workspace = true }
+log.workspace = true
