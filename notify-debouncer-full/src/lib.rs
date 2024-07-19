@@ -123,7 +123,7 @@ where
     }
 }
 
-#[cfg(feature = "crossbeam")]
+#[cfg(feature = "crossbeam-channel")]
 impl DebounceEventHandler for crossbeam_channel::Sender<DebounceEventResult> {
     fn handle_event(&mut self, event: DebounceEventResult) {
         let _ = self.send(event);
