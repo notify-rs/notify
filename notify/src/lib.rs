@@ -170,6 +170,7 @@ use std::path::Path;
 
 pub(crate) type Receiver<T> = std::sync::mpsc::Receiver<T>;
 pub(crate) type Sender<T> = std::sync::mpsc::Sender<T>;
+#[allow(dead_code)] // This is not used on all platforms.
 pub(crate) type BoundSender<T> = std::sync::mpsc::SyncSender<T>;
 
 #[inline]
@@ -177,6 +178,7 @@ pub(crate) fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
     std::sync::mpsc::channel()
 }
 
+#[allow(dead_code)] // This is not used on all platforms.
 #[inline]
 pub(crate) fn bounded<T>(cap: usize) -> (BoundSender<T>, Receiver<T>) {
     std::sync::mpsc::sync_channel(cap)
