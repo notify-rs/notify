@@ -264,7 +264,7 @@ impl DebounceDataInner {
     /// Updates the deadline if none is set or when batch mode is disabled and the current deadline would miss the next event.
     /// The new deadline is calculated based on the last event update time and the debounce timeout.
     ///
-    /// can't sub-function this due to event_map.drain() holding &mut self
+    /// can't sub-function this due to `event_map.drain()` holding `&mut self`
     fn check_deadline(
         batch_mode: bool,
         timeout: Duration,
