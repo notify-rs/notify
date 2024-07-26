@@ -309,8 +309,13 @@ pub struct Event {
     /// creation, they should all go in this `Vec`. Otherwise, using the `Tracker` attr may be more
     /// appropriate.
     ///
-    /// The order of the paths is likely to be significant! For example, renames where both ends of
-    /// the name change are known will have the "source" path first, and the "target" path last.
+    /// The order of the paths is likely to be significant! Furthermore, the paths might be part of
+    /// different "groups". For example, renames where both ends of the name change are known will
+    /// have the "source" paths first, followed by the "target" paths. These two sets of paths are
+    /// in distinct groups.
+    ///
+    /// If there are different path groups, the `path_group_split_index` attribute indicates the
+    /// first index with paths in the second group.
     pub paths: Vec<PathBuf>,
 
     // "What should be in the struct" and "what can go in the attrs" is an interesting question.
@@ -400,6 +405,19 @@ struct EventAttributesInner {
     )]
     source: Option<String>,
 
+    /// Index of the first element in `paths` that is in the second path group.
+    ///
+    /// In some cases there are two groups of paths. For instance, a renamed file can be accessed
+    /// through multiple source or destination paths (because of hard or symbolic links). Elements
+    /// in the `paths` vector located before this index are part of the first group (and thus refer
+    /// to the source file in the case of a rename), elements at or after the index are in the
+    /// secoud group (refering to the destination file).
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    path_group_split_index: Option<usize>,
+
     /// The process ID of the originator of the event.
     ///
     /// This attribute is experimental and, while included in Notify itself, is not considered
@@ -465,6 +483,10 @@ impl EventAttributes {
     /// Sets the process id onto the event.
     pub fn set_process_id(&mut self, process_id: u32) {
         self.inner_mut().process_id = Some(process_id)
+    }
+
+    pub fn set_path_group_split_index(&mut self, path_group_split_index: usize) {
+        self.inner_mut().path_group_split_index = Some(path_group_split_index);
     }
 
     fn inner_mut(&mut self) -> &mut EventAttributesInner {
@@ -539,10 +561,16 @@ impl Event {
         self
     }
 
-    /// Adds a path to the event if the argument is Some.
-    pub fn add_some_path(self, path: Option<PathBuf>) -> Self {
-        if let Some(path) = path {
-            self.add_path(path)
+    /// Adds paths to the event.
+    pub fn add_paths(mut self, paths: &[PathBuf]) -> Self {
+        self.paths.extend_from_slice(paths);
+        self
+    }
+
+    /// Adds paths to the event if the argument is Some.
+    pub fn add_some_paths(self, paths: Option<&Vec<PathBuf>>) -> Self {
+        if let Some(paths) = paths {
+            self.add_paths(paths)
         } else {
             self
         }
@@ -569,6 +597,13 @@ impl Event {
     /// Sets the process id onto the event.
     pub fn set_process_id(mut self, process_id: u32) -> Self {
         self.attrs.set_process_id(process_id);
+        self
+    }
+
+    /// Sets the tracker.
+    pub fn set_path_group_split_index(mut self, path_group_split_index: usize) -> Self {
+        self.attrs
+            .set_path_group_split_index(path_group_split_index);
         self
     }
 }
