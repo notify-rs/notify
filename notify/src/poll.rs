@@ -3,7 +3,9 @@
 //! Checks the `watch`ed paths periodically to detect changes. This implementation only uses
 //! Rust stdlib APIs and should work on all of the platforms it supports.
 
-use crate::{unbounded, Config, Error, EventHandler, Receiver, RecursiveMode, Sender, Watcher};
+use crate::{
+    unbounded, Config, Error, EventHandler, Receiver, RecursiveMode, Sender, WatchFilterFn, Watcher,
+};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -612,7 +614,12 @@ impl Watcher for PollWatcher {
         Self::new(event_handler, config)
     }
 
-    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> crate::Result<()> {
+    fn watch_filtered(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        _watch_filter: Box<WatchFilterFn>,
+    ) -> crate::Result<()> {
         self.watch_inner(path, recursive_mode);
 
         Ok(())
