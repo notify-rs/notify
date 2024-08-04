@@ -275,6 +275,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             // get the path of the event
             .map(|(path, _)| path.clone())
         {
+            // unwraps are safe because only paths for existing queues with at least one event are returned by the query above
             let event = self
                 .queues
                 .get_mut(&path)
@@ -301,7 +302,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
                 events_expired.push(event);
             } else {
-                self.queues.get_mut(&path).unwrap().events.push_front(event);
+                self.queues.get_mut(&path).unwrap().events.push_front(event); // unwrap is safe because only paths for existing queues are returned by the query above
 
                 break;
             }
@@ -505,7 +506,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
         if let Some(target_queue) = self.queues.get_mut(&event.paths[0]) {
             if target_queue.was_removed() {
-                let event = target_queue.events.pop_front().unwrap();
+                let event = target_queue.events.pop_front().unwrap(); // unwrap is safe because `was_removed` implies that the queue is not empty
                 source_queue.events.push_front(event);
             }
 
