@@ -45,7 +45,7 @@
 //!
 //! The following crate features can be turned on or off in your cargo dependency config:
 //!
-//! - `crossbeam` passed down to notify, off by default
+//! - `crossbeam-channel` passed down to notify, off by default
 //! - `serde` enables serde support for events, off by default
 //! - `serialization-compat-6` passed down to notify, off by default
 //!
@@ -152,7 +152,7 @@ where
     }
 }
 
-#[cfg(feature = "crossbeam")]
+#[cfg(feature = "crossbeam-channel")]
 impl DebounceEventHandler for crossbeam_channel::Sender<DebounceEventResult> {
     fn handle_event(&mut self, event: DebounceEventResult) {
         let _ = self.send(event);

@@ -18,6 +18,7 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 - CHANGE: move event type to notify-types crate [#559]
 - CHANGE: flatten serialization of events and use camelCase [#558]
 - CHANGE: remove internal use of crossbeam-channels [#569] [#610]
+- CHANGE: rename feature `crossbeam` to `crossbeam-channels`
 - CHANGE: upgrade mio to 1.0 [#623]
 - FIX: prevent UB with illegal instruction for the windows backend [#604] [#607]
 - FIX: on Linux report deleted directories correctly [#545]
