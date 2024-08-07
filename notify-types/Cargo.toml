@@ -18,7 +18,6 @@ serialization-compat-6 = []
 
 [dependencies]
 serde = { workspace = true, optional = true }
-mock_instant = { workspace = true, optional = true }
 instant.workspace = true
 
 [dev-dependencies]

@@ -57,6 +57,7 @@
 //! As all file events are sourced from notify, the [known problems](https://docs.rs/notify/latest/notify/#known-problems) section applies here too.
 
 mod cache;
+mod time;
 
 #[cfg(test)]
 mod testing;
@@ -69,8 +70,10 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
+
+use time::now;
 
 pub use cache::{FileIdCache, FileIdMap, NoCache, RecommendedCache};
 
@@ -83,12 +86,6 @@ use notify::{
     event::{ModifyKind, RemoveKind, RenameMode},
     Error, ErrorKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher, WatcherKind,
 };
-
-#[cfg(feature = "mock_instant")]
-use mock_instant::Instant;
-
-#[cfg(not(feature = "mock_instant"))]
-use std::time::Instant;
 
 /// The set of requirements for watcher debounce event handling functions.
 ///
@@ -198,7 +195,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
     /// Retrieve a vec of debounced events, removing them if not continuous
     pub fn debounced_events(&mut self) -> Vec<DebouncedEvent> {
-        let now = Instant::now();
+        let now = now();
         let mut events_expired = Vec::with_capacity(self.queues.len());
         let mut queues_remaining = HashMap::with_capacity(self.queues.len());
 
@@ -265,7 +262,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
         if event.need_rescan() {
             self.cache.rescan(&self.roots);
-            self.rescan_event = Some(event.into());
+            self.rescan_event = Some(DebouncedEvent { event, time: now() });
             return;
         }
 
@@ -277,7 +274,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
                 self.cache.add_path(path, recursive_mode);
 
-                self.push_event(event, Instant::now());
+                self.push_event(event, now());
             }
             EventKind::Modify(ModifyKind::Name(rename_mode)) => {
                 match rename_mode {
@@ -303,7 +300,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
                 }
             }
             EventKind::Remove(_) => {
-                self.push_remove_event(event, Instant::now());
+                self.push_remove_event(event, now());
             }
             EventKind::Other => {
                 // ignore meta events
@@ -315,7 +312,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
                     self.cache.add_path(path, recursive_mode);
                 }
 
-                self.push_event(event, Instant::now());
+                self.push_event(event, now());
             }
         }
     }
@@ -334,7 +331,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     }
 
     fn handle_rename_from(&mut self, event: Event) {
-        let time = Instant::now();
+        let time = now();
         let path = &event.paths[0];
 
         // store event
@@ -382,7 +379,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             self.push_rename_event(path, event, time);
         } else {
             // move in
-            self.push_event(event, Instant::now());
+            self.push_event(event, now());
         }
 
         self.rename_event = None;
@@ -753,10 +750,10 @@ mod tests {
 
     use super::*;
 
-    use mock_instant::MockClock;
     use pretty_assertions::assert_eq;
     use rstest::rstest;
     use testing::TestCase;
+    use time::MockTime;
 
     #[rstest]
     fn state(
@@ -805,16 +802,19 @@ mod tests {
             fs::read_to_string(Path::new(&format!("./test_cases/{file_name}.hjson"))).unwrap();
         let mut test_case = deser_hjson::from_str::<TestCase>(&file_content).unwrap();
 
-        MockClock::set_time(Duration::default());
-
-        let time = Instant::now();
+        let time = now();
+        MockTime::set_time(time);
 
         let mut state = test_case.state.into_debounce_data_inner(time);
         state.roots = vec![(PathBuf::from("/"), RecursiveMode::Recursive)];
 
+        let mut prev_event_time = Duration::default();
+
         for event in test_case.events {
+            let event_time = Duration::from_millis(event.time);
             let event = event.into_debounced_event(time, None);
-            MockClock::set_time(event.time - time);
+            MockTime::advance(event_time - prev_event_time);
+            prev_event_time = event_time;
             state.add_event(event.event);
         }
 
@@ -856,21 +856,20 @@ mod tests {
             "errors not as expected"
         );
 
-        let backup_time = Instant::now().duration_since(time);
+        let backup_time = now();
         let backup_queues = state.queues.clone();
 
         for (delay, events) in expected_events {
-            MockClock::set_time(backup_time);
+            MockTime::set_time(backup_time);
             state.queues = backup_queues.clone();
 
             match delay.as_str() {
                 "none" => {}
-                "short" => MockClock::advance(Duration::from_millis(10)),
-                "long" => MockClock::advance(Duration::from_millis(100)),
+                "short" => MockTime::advance(Duration::from_millis(10)),
+                "long" => MockTime::advance(Duration::from_millis(100)),
                 _ => {
                     if let Ok(ts) = delay.parse::<u64>() {
-                        let ts = time + Duration::from_millis(ts);
-                        MockClock::set_time(ts - time);
+                        MockTime::set_time(time + Duration::from_millis(ts));
                     }
                 }
             }

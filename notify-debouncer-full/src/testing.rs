@@ -1,11 +1,10 @@
 use std::{
     collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use file_id::FileId;
-use mock_instant::Instant;
 use notify::{
     event::{
         AccessKind, AccessMode, CreateKind, DataChange, Flag, MetadataKind, ModifyKind, RemoveKind,
