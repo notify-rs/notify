@@ -208,6 +208,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             }
         }
 
+        // drain the entire queue, then process the expired events and re-add the rest
         // TODO: perfect fit for drain_filter https://github.com/rust-lang/rust/issues/59618
         for (path, mut queue) in self.queues.drain() {
             let mut kind_index = HashMap::new();
@@ -246,13 +247,13 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
     /// Returns all currently stored errors
     pub fn errors(&mut self) -> Vec<Error> {
-        let mut v = Vec::new();
-        std::mem::swap(&mut v, &mut self.errors);
-        v
+        std::mem::take(&mut self.errors)
     }
 
     /// Add an error entry to re-send later on
     pub fn add_error(&mut self, error: Error) {
+        log::trace!("raw error: {error:?}");
+
         self.errors.push(error);
     }
 
