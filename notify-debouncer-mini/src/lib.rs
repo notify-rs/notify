@@ -396,3 +396,39 @@ pub fn new_debouncer<F: DebounceEventHandler>(
     let config = Config::default().with_timeout(timeout);
     new_debouncer_opt::<F, RecommendedWatcher>(config, event_handler)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notify::RecursiveMode;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn integration() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        let mut debouncer = new_debouncer(Duration::from_secs(1), tx)?;
+
+        debouncer
+            .watcher()
+            .watch(dir.path(), RecursiveMode::Recursive)?;
+
+        let file_path = dir.path().join("file.txt");
+        fs::write(&file_path, b"Lorem ipsum")?;
+
+        let events = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("no events received")
+            .expect("received an error");
+
+        assert_eq!(
+            events,
+            vec![DebouncedEvent::new(file_path, DebouncedEventKind::Any)]
+        );
+
+        Ok(())
+    }
+}
