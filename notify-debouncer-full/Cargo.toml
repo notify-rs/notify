@@ -15,7 +15,6 @@ repository.workspace = true
 [features]
 default = ["macos_fsevent"]
 serde = ["notify-types/serde"]
-mock_instant = ["dep:mock_instant", "notify-types/mock_instant"]
 crossbeam-channel = ["dep:crossbeam-channel", "notify/crossbeam-channel"]
 macos_fsevent = ["notify/macos_fsevent"]
 macos_kqueue = ["notify/macos_kqueue"]
@@ -28,10 +27,8 @@ crossbeam-channel = { workspace = true, optional = true }
 file-id.workspace = true
 walkdir.workspace = true
 log.workspace = true
-mock_instant = { workspace = true, optional = true }
 
 [dev-dependencies]
-notify-debouncer-full = { workspace = true, features = ["mock_instant"] }
 pretty_assertions.workspace = true
 rstest.workspace = true
 serde.workspace = true
