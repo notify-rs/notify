@@ -752,6 +752,7 @@ mod tests {
 
     use pretty_assertions::assert_eq;
     use rstest::rstest;
+    use tempfile::tempdir;
     use testing::TestCase;
     use time::MockTime;
 
@@ -885,5 +886,27 @@ mod tests {
                 "debounced events after a `{delay}` delay"
             );
         }
+    }
+
+    #[test]
+    fn integration() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        let mut debouncer = new_debouncer(Duration::from_millis(10), None, tx)?;
+
+        debouncer.watch(dir.path(), RecursiveMode::Recursive)?;
+
+        fs::write(dir.path().join("file.txt"), b"Lorem ipsum")?;
+
+        let events = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("no events received")
+            .expect("received an error");
+
+        assert!(!events.is_empty(), "received empty event list");
+
+        Ok(())
     }
 }

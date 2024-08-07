@@ -34,3 +34,4 @@ rstest.workspace = true
 serde.workspace = true
 deser-hjson.workspace = true
 rand.workspace = true
+tempfile.workspace = true

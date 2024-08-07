@@ -25,3 +25,4 @@ notify.workspace = true
 notify-types.workspace = true
 crossbeam-channel = { workspace = true, optional = true }
 log.workspace = true
+tempfile.workspace = true
