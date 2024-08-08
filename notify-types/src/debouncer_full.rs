@@ -1,9 +1,5 @@
 use std::ops::{Deref, DerefMut};
 
-#[cfg(feature = "mock_instant")]
-use mock_instant::Instant;
-
-#[cfg(not(feature = "mock_instant"))]
 use instant::Instant;
 
 use crate::event::Event;
@@ -35,23 +31,5 @@ impl Deref for DebouncedEvent {
 impl DerefMut for DebouncedEvent {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.event
-    }
-}
-
-impl Default for DebouncedEvent {
-    fn default() -> Self {
-        Self {
-            event: Default::default(),
-            time: Instant::now(),
-        }
-    }
-}
-
-impl From<Event> for DebouncedEvent {
-    fn from(event: Event) -> Self {
-        Self {
-            event,
-            time: Instant::now(),
-        }
     }
 }

@@ -6,19 +6,31 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 ## notify 7.0.0
 
-- CHANGE: raise MSRV to 1.72
-- CHANGE: remove internal use of crossbeam-channels
+- CHANGE: raise MSRV to 1.72 [#610] **breaking**
+- CHANGE: remove internal use of crossbeam channels [#610]
+- CHANGE: rename feature `crossbeam` to `crossbeam-channel` and disable it by default [#610] **breaking**
+- CHANGE: emit file open events with inotify [#612] **breaking**
+- CHANGE: add log statements [#499]
+
+[#499]: https://github.com/notify-rs/notify/pull/499
+[#610]: https://github.com/notify-rs/notify/pull/610
+[#612]: https://github.com/notify-rs/notify/pull/612
 
 ## notify-types 1.0.0
 
-New crate containing public type definitions for the notify and debouncer crates.
+New crate containing public type definitions for the notify and debouncer crates. [#559]
 
 - CHANGE: the serialization format for events has been changed to be easier to use in environments like JavaScript;
-  the old behavior can be restored using the new feature flag `serialization-compat-6` 
+  the old behavior can be restored using the new feature flag `serialization-compat-6` [#568] **breaking**
+- CHANGE: use instant crate (which provides an `Instant` type that works in Wasm environments) [#570]
+
+[#559]: https://github.com/notify-rs/notify/pull/559
+[#568]: https://github.com/notify-rs/notify/pull/568
+[#570]: https://github.com/notify-rs/notify/pull/570
 
 ## debouncer-full 0.4.0
 
-- CHANGE: manage root folder paths for the file ID cache automatically **breaking**
+- CHANGE: manage root folder paths for the file ID cache automatically [#557] **breaking**
 
   ```rust
   debouncer.watcher().watch(path, RecursiveMode::Recursive)?;
@@ -32,7 +44,9 @@ New crate containing public type definitions for the notify and debouncer crates
   ```
 
 - CHANGE: add `RecommendedCache`, which automatically enables the file ID cache on Windows and MacOS
-  and disables it on Linux, where it is not needed
+  and disables it on Linux, where it is not needed [#557]
+
+[#557]: https://github.com/notify-rs/notify/pull/557
 
 ## debouncer-full 0.3.1 (2023-08-21)
 
