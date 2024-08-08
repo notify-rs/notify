@@ -14,18 +14,20 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 ## notify 7.0.0 (unreleased)
 
-- CHANGE: raise MSRV to 1.72 [#569] [#610]
+- CHANGE: raise MSRV to 1.72 [#569] [#610] **breaking**
 - CHANGE: move event type to notify-types crate [#559]
 - CHANGE: flatten serialization of events and use camelCase [#558]
-- CHANGE: remove internal use of crossbeam-channels [#569] [#610]
-- CHANGE: rename feature `crossbeam` to `crossbeam-channels`
+- CHANGE: remove internal use of crossbeam channels [#569] [#610]
+- CHANGE: rename feature `crossbeam` to `crossbeam-channel` and disable it by default [#610] **breaking**
 - CHANGE: upgrade mio to 1.0 [#623]
+- CHANGE: add log statements [#499]
 - FIX: prevent UB with illegal instruction for the windows backend [#604] [#607]
 - FIX: on Linux report deleted directories correctly [#545]
 - FEATURE: enable kqueue on iOS [#533]
 - MISC: various minor doc updates and fixes [#535] [#536] [#543] [#565] [#592] [#595]
 - MISC: update inotify to 0.10 [#547]
 
+[#499]: https://github.com/notify-rs/notify/pull/499
 [#533]: https://github.com/notify-rs/notify/pull/533
 [#535]: https://github.com/notify-rs/notify/pull/535
 [#536]: https://github.com/notify-rs/notify/pull/536
@@ -44,13 +46,16 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 ## notify-types 1.0.0 (unreleased)
 
-New crate containing public type definitions for the notify and debouncer crates.
+New crate containing public type definitions for the notify and debouncer crates. [#559]
 
 - CHANGE: the serialization format for events has been changed to be easier to use in environments like JavaScript;
-  the old behavior can be restored using the new feature flag `serialization-compat-6` [#558] [#568]
+  the old behavior can be restored using the new feature flag **breaking**`serialization-compat-6` [#558] [#568]
+- CHANGE: use instant crate (which provides an `Instant` type that works in Wasm environments) [#570]
 
 [#558]: https://github.com/notify-rs/notify/pull/558
+[#559]: https://github.com/notify-rs/notify/pull/559
 [#568]: https://github.com/notify-rs/notify/pull/568
+[#570]: https://github.com/notify-rs/notify/pull/570
 
 ## debouncer-full 0.4.0 (unreleased)
 
