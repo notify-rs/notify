@@ -37,11 +37,13 @@ impl RecursiveMode {
 /// Some options can be changed during runtime, others have to be set when creating the watcher backend.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct Config {
-    /// See [BackendConfig::with_poll_interval]
+    /// See [Config::with_poll_interval]
     poll_interval: Option<Duration>,
 
-    /// See [BackendConfig::with_compare_contents]
+    /// See [Config::with_compare_contents]
     compare_contents: bool,
+
+    follow_symlinks: bool,
 }
 
 impl Config {
@@ -94,6 +96,22 @@ impl Config {
     pub fn compare_contents(&self) -> bool {
         self.compare_contents
     }
+
+    /// For the [INotifyWatcher](crate::INotifyWatcher), [KqueueWatcher](crate::KqueueWatcher),
+    /// and [PollWatcher](crate::PollWatcher).
+    ///
+    /// Determine if sybolic links should be followed when recursively watching a directory.
+    ///
+    /// This can't be changed during runtime. On by default.
+    pub fn with_follow_symlinks(mut self, follow_symlinks: bool) -> Self {
+        self.follow_symlinks = follow_symlinks;
+        self
+    }
+
+    /// Returns current setting
+    pub fn follow_symlinks(&self) -> bool {
+        self.follow_symlinks
+    }
 }
 
 impl Default for Config {
@@ -101,6 +119,7 @@ impl Default for Config {
         Self {
             poll_interval: Some(Duration::from_secs(30)),
             compare_contents: false,
+            follow_symlinks: true,
         }
     }
 }
