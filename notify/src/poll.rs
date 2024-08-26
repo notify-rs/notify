@@ -182,7 +182,7 @@ mod data {
             // FIXME: Can we always allow to watch a path, even file not
             // found at this path?
             if let Err(e) = fs::metadata(&root) {
-                data_builder.emitter.emit_io_err(e, &root);
+                data_builder.emitter.emit_io_err(e, Some(&root));
                 return None;
             }
 
@@ -259,25 +259,19 @@ mod data {
                 .follow_links(true)
                 .max_depth(Self::dir_scan_depth(is_recursive))
                 .into_iter()
-                //
-                // QUESTION: should we ignore IO Error?
-                //
-                // current implementation ignore some IO error, e.g.,
-                //
-                // - `.filter_map(|entry| entry.ok())`
-                // - all read error when hashing
-                //
-                // but the code also interest with `fs::metadata()` error and
-                // propagate to event handler. It may not consistent.
-                //
-                // FIXME: Should we emit all IO error events? Or ignore them all?
                 .filter_map(|entry_res| match entry_res {
                     Ok(entry) => Some(entry),
                     Err(err) => {
                         log::warn!("walkdir error scanning {err:?}");
-                        let crate_err =
-                            crate::Error::new(crate::ErrorKind::Generic(err.to_string()));
-                        data_builder.emitter.emit(Err(crate_err));
+                        if let Some(io_error) = err.io_error() {
+                            // clone an io::Error, so we have to create a new one.
+                            let new_io_error = io::Error::new(io_error.kind(), err.to_string());
+                            data_builder.emitter.emit_io_err(new_io_error, err.path());
+                        } else {
+                            let crate_err =
+                                crate::Error::new(crate::ErrorKind::Generic(err.to_string()));
+                            data_builder.emitter.emit(Err(crate_err));
+                        }
                         None
                     }
                 })
@@ -298,7 +292,7 @@ mod data {
                     Err(e) => {
                         // emit event.
                         let path = entry.into_path();
-                        data_builder.emitter.emit_io_err(e, path);
+                        data_builder.emitter.emit_io_err(e, Some(path));
 
                         None
                     }
@@ -455,12 +449,17 @@ mod data {
         }
 
         /// Emit io error event.
-        fn emit_io_err<E, P>(&self, err: E, path: P)
+        fn emit_io_err<E, P>(&self, err: E, path: Option<P>)
         where
             E: Into<io::Error>,
             P: Into<PathBuf>,
         {
-            self.emit(Err(crate::Error::io(err.into()).add_path(path.into())))
+            let e = crate::Error::io(err.into());
+            if let Some(path) = path {
+                self.emit(Err(e.add_path(path.into())));
+            } else {
+                self.emit(Err(e));
+            }
         }
     }
 }

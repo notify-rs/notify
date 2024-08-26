@@ -195,7 +195,10 @@ pub enum RemoveKind {
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
-#[cfg_attr(all(feature = "serde", not(feature = "serialization-compat-6")), serde(tag = "type"))]
+#[cfg_attr(
+    all(feature = "serde", not(feature = "serialization-compat-6")),
+    serde(tag = "type")
+)]
 pub enum EventKind {
     /// The catch-all event kind, for unsupported/unknown events.
     ///
@@ -300,7 +303,10 @@ pub struct Event {
     /// The `EventKind::Any` variant should be used as the "else" case when mapping native kernel
     /// bitmasks or bitmaps, such that if the mask is ever extended with new event types the
     /// backend will not gain bugs due to not matching new unknown event types.
-    #[cfg_attr(all(feature = "serde", not(feature = "serialization-compat-6")), serde(flatten))]
+    #[cfg_attr(
+        all(feature = "serde", not(feature = "serialization-compat-6")),
+        serde(flatten)
+    )]
     pub kind: EventKind,
 
     /// Paths the event is about, if known.
@@ -478,7 +484,10 @@ impl EventAttributes {
 /// particular ways.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
-#[cfg_attr(all(feature = "serde", not(feature = "serialization-compat-6")), serde(rename_all = "camelCase"))]
+#[cfg_attr(
+    all(feature = "serde", not(feature = "serialization-compat-6")),
+    serde(rename_all = "camelCase")
+)]
 pub enum Flag {
     /// Rescan notices are emitted by some platforms (and may also be emitted by Notify itself).
     /// They indicate either a lapse in the events or a change in the filesystem such that events
