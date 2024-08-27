@@ -51,7 +51,11 @@ enum EventLoopMsg {
 }
 
 impl EventLoop {
-    pub fn new(kqueue: kqueue::Watcher, event_handler: Box<dyn EventHandler>) -> Result<Self> {
+    pub fn new(
+        kqueue: kqueue::Watcher,
+        event_handler: Box<dyn EventHandler>,
+        follow_symlinks: bool,
+    ) -> Result<Self> {
         let (event_loop_tx, event_loop_rx) = unbounded::<EventLoopMsg>();
         let poll = mio::Poll::new()?;
 
@@ -71,6 +75,7 @@ impl EventLoop {
             kqueue,
             event_handler,
             watches: HashMap::new(),
+            follow_symlinks,
         };
         Ok(event_loop)
     }
