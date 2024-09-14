@@ -4,6 +4,12 @@ v5 maintenance branch is on `v5_maintenance` after `5.2.0`
 
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
+## debouncer-full 0.4.1 (unreleased)
+
+- FIX: ordering of debounced events could lead to a panic with Rust 1.81.0 and above [#636]
+
+[#636]: https://github.com/notify-rs/notify/issues/636
+
 ## notify 7.0.0
 
 - CHANGE: raise MSRV to 1.72
