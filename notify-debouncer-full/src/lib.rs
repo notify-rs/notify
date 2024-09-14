@@ -57,9 +57,9 @@
 //! - `crossbeam` enabled by default, adds [`DebounceEventHandler`](DebounceEventHandler) support for crossbeam channels.
 //!   Also enables crossbeam-channel in the re-exported notify. You may want to disable this when using the tokio async runtime.
 //! - `serde` enables serde support for events.
-//! 
+//!
 //! # Caveats
-//! 
+//!
 //! As all file events are sourced from notify, the [known problems](https://docs.rs/notify/latest/notify/#known-problems) section applies here too.
 
 mod cache;
@@ -69,7 +69,8 @@ mod debounced_event;
 mod testing;
 
 use std::{
-    collections::{HashMap, VecDeque},
+    cmp::Reverse,
+    collections::{BinaryHeap, HashMap, VecDeque},
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -657,21 +658,31 @@ fn sort_events(events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
         });
 
     // push events for different paths in chronological order and keep the order of events with the same path
-    while !events_by_path.is_empty() {
-        let min_time = events_by_path
-            .values()
-            .map(|events| events[0].time)
-            .min()
-            .unwrap();
 
-        for events in events_by_path.values_mut() {
-            while events.front().is_some_and(|event| event.time <= min_time) {
-                let event = events.pop_front().unwrap();
-                sorted.push(event);
-            }
+    let mut min_time_heap = events_by_path
+        .iter()
+        .map(|(path, events)| Reverse((events[0].time, path.clone())))
+        .collect::<BinaryHeap<_>>();
+
+    while let Some(Reverse((min_time, path))) = min_time_heap.pop() {
+        // unwrap is safe because only paths from `events_by_path` are added to `min_time_heap`
+        // and they are never removed from `events_by_path`.
+        let events = events_by_path.get_mut(&path).unwrap();
+
+        let mut push_next = false;
+
+        while events.front().is_some_and(|event| event.time <= min_time) {
+            // unwrap is safe beause `pop_front` mus return some in order to enter the loop
+            let event = events.pop_front().unwrap();
+            sorted.push(event);
+            push_next = true;
         }
 
-        events_by_path.retain(|_, events| !events.is_empty());
+        if push_next {
+            if let Some(event) = events.front() {
+                min_time_heap.push(Reverse((event.time, path)));
+            }
+        }
     }
 
     sorted
