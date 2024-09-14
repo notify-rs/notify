@@ -244,16 +244,33 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         self.queues = queues_remaining;
 
         // order events for different files chronologically, but keep the order of events for the same file
-        events_expired.sort_by(|event_a, event_b| {
-            // use the last path because rename events are emitted for the target path
-            if event_a.paths.last() == event_b.paths.last() {
-                std::cmp::Ordering::Equal
-            } else {
-                event_a.time.cmp(&event_b.time)
-            }
+        // group events by last path
+        let events_expired_by_last: HashMap<_, Vec<_>> =
+            events_expired
+                .into_iter()
+                .fold(HashMap::new(), |mut acc, event| {
+                    acc.entry(event.paths.last().cloned())
+                        .or_default()
+                        .push(event);
+                    acc
+                });
+        // Extract groups and sort events in each group by time
+        let mut vecs_of_events: Vec<_> = events_expired_by_last
+            .into_values()
+            .map(|mut vec| {
+                vec.sort_by_key(|event| event.time);
+                vec
+            })
+            .collect();
+        // Sort groups lexicographically by time
+        vecs_of_events.sort_by(|vec_a, vec_b| {
+            vec_a
+                .iter()
+                .map(|event_a| event_a.time)
+                .cmp(vec_b.iter().map(|event_b| event_b.time))
         });
-
-        events_expired
+        // Flatten vec of groups of events to vec of events
+        vecs_of_events.into_iter().flatten().collect()
     }
 
     /// Returns all currently stored errors
