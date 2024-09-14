@@ -243,17 +243,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
         self.queues = queues_remaining;
 
-        // order events for different files chronologically, but keep the order of events for the same file
-        events_expired.sort_by(|event_a, event_b| {
-            // use the last path because rename events are emitted for the target path
-            if event_a.paths.last() == event_b.paths.last() {
-                std::cmp::Ordering::Equal
-            } else {
-                event_a.time.cmp(&event_b.time)
-            }
-        });
-
-        events_expired
+        sort_events(events_expired)
     }
 
     /// Returns all currently stored errors
@@ -713,6 +703,39 @@ pub fn new_debouncer<F: DebounceEventHandler>(
     )
 }
 
+fn sort_events(events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
+    let mut sorted = Vec::with_capacity(events.len());
+
+    // group events by path
+    let mut events_by_path: HashMap<_, VecDeque<_>> =
+        events.into_iter().fold(HashMap::new(), |mut acc, event| {
+            acc.entry(event.paths.last().cloned().unwrap_or_default())
+                .or_default()
+                .push_back(event);
+            acc
+        });
+
+    // push events for different paths in chronological order and keep the order of events with the same path
+    while !events_by_path.is_empty() {
+        let min_time = events_by_path
+            .values()
+            .map(|events| events[0].time)
+            .min()
+            .unwrap();
+
+        for events in events_by_path.values_mut() {
+            while events.front().is_some_and(|event| event.time <= min_time) {
+                let event = events.pop_front().unwrap();
+                sorted.push(event);
+            }
+        }
+
+        events_by_path.retain(|_, events| !events.is_empty());
+    }
+
+    sorted
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path};
@@ -761,7 +784,9 @@ mod tests {
             "emit_close_events_only_once",
             "emit_modify_event_after_close_event",
             "emit_needs_rescan_event",
-            "read_file_id_without_create_event"
+            "read_file_id_without_create_event",
+            "sort_events_chronologically",
+            "sort_events_with_reordering"
         )]
         file_name: &str,
     ) {
