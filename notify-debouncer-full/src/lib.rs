@@ -244,33 +244,44 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         self.queues = queues_remaining;
 
         // order events for different files chronologically, but keep the order of events for the same file
-        // group events by last path
-        let events_expired_by_last: HashMap<_, Vec<_>> =
-            events_expired
-                .into_iter()
-                .fold(HashMap::new(), |mut acc, event| {
-                    acc.entry(event.paths.last().cloned())
-                        .or_default()
-                        .push(event);
-                    acc
-                });
-        // Extract groups and sort events in each group by time
-        let mut vecs_of_events: Vec<_> = events_expired_by_last
-            .into_values()
-            .map(|mut vec| {
-                vec.sort_by_key(|event| event.time);
-                vec
-            })
-            .collect();
+        // concatenate neighbour events with same last path to one group
+        let mut concatenated_events_expired = Vec::with_capacity(events_expired.len());
+        let mut it = events_expired.into_iter();
+        if let Some(event) = it.next() {
+            concatenated_events_expired.push(vec![event]);
+            for event in it {
+                if event
+                    .paths
+                    .last()
+                    .zip(
+                        concatenated_events_expired
+                            .last()
+                            // it is safe to call unwrap here because concatenated_events_expired contains at least one element
+                            .unwrap()
+                            .last()
+                            .and_then(|event| event.paths.last()),
+                    )
+                    .filter(|(curr, prev)| curr == prev)
+                    .is_some()
+                {
+                    // Previous last path is equal to current last path, so appending events in one group
+                    // it is safe to call unwrap here because concatenated_events_expired contains at least one element
+                    concatenated_events_expired.last_mut().unwrap().push(event);
+                } else {
+                    concatenated_events_expired.push(vec![event]);
+                }
+            }
+        }
+
         // Sort groups lexicographically by time
-        vecs_of_events.sort_by(|vec_a, vec_b| {
+        concatenated_events_expired.sort_by(|vec_a, vec_b| {
             vec_a
                 .iter()
                 .map(|event_a| event_a.time)
                 .cmp(vec_b.iter().map(|event_b| event_b.time))
         });
         // Flatten vec of groups of events to vec of events
-        vecs_of_events.into_iter().flatten().collect()
+        concatenated_events_expired.into_iter().flatten().collect()
     }
 
     /// Returns all currently stored errors
