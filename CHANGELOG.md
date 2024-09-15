@@ -4,6 +4,12 @@ v5 maintenance branch is on `v5_maintenance` after `5.2.0`
 
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
+## file-id 0.2.2 (unreleased)
+
+- CHANGE: get file stats without read permission [#625]
+
+[#625]: https://github.com/notify-rs/notify/issues/625
+
 ## debouncer-full 0.4.1 (unreleased)
 
 - FIX: ordering of debounced events could lead to a panic with Rust 1.81.0 and above [#636]
