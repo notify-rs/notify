@@ -34,14 +34,14 @@
 //! Network mounted filesystems like NFS may not emit any events for notify to listen to.
 //! This applies especially to WSL programs watching windows paths ([issue #254](https://github.com/notify-rs/notify/issues/254)).
 //!
-//! A workaround is the [PollWatcher] backend.
+//! A workaround is the [`PollWatcher`] backend.
 //!
-//! ### Docker with Linux on MacOS M1
+//! ### Docker with Linux on macOS M1
 //!
-//! Docker on macos M1 [throws](https://github.com/notify-rs/notify/issues/423) `Function not implemented (os error 38)`.
-//! You have to manually use the [PollWatcher], as the native backend isn't available inside the emulation.
+//! Docker on macOS M1 [throws](https://github.com/notify-rs/notify/issues/423) `Function not implemented (os error 38)`.
+//! You have to manually use the [`PollWatcher`], as the native backend isn't available inside the emulation.
 //!
-//! ### MacOS, FSEvents and unowned files
+//! ### macOS, FSEvents and unowned files
 //!
 //! Due to the inner security model of FSEvents (see [FileSystemEventSecurity](https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/FSEvents_ProgGuide/FileSystemEventSecurity/FileSystemEventSecurity.html)),
 //! some events cannot be observed easily when trying to follow files that do not
@@ -62,7 +62,7 @@
 //! ### Pseudo Filesystems like /proc, /sys
 //!
 //! Some filesystems like `/proc` and `/sys` on *nix do not emit change events or use correct file change dates.
-//! To circumvent that problem you can use the [PollWatcher] with the `compare_contents` option.
+//! To circumvent that problem you can use the [`PollWatcher`] with the `compare_contents` option.
 //!
 //! ### Linux: Bad File Descriptor / No space left on device
 //!
@@ -76,7 +76,7 @@
 //! sudo sysctl -p
 //! ```
 //!
-//! Note that the [PollWatcher] is not restricted by this limitation, so it may be an alternative if your users can't increase the limit.
+//! Note that the [`PollWatcher`] is not restricted by this limitation, so it may be an alternative if your users can't increase the limit.
 //!
 //! ### Watching large directories
 //!
@@ -287,7 +287,7 @@ pub enum WatcherKind {
 
 /// Type that can deliver file activity notifications
 ///
-/// Watcher is implemented per platform using the best implementation available on that platform.
+/// `Watcher` is implemented per platform using the best implementation available on that platform.
 /// In addition to such event driven implementations, a polling implementation is also provided
 /// that should work on any platform.
 pub trait Watcher {
@@ -339,16 +339,16 @@ pub trait Watcher {
         Self: Sized;
 }
 
-/// The recommended `Watcher` implementation for the current platform
+/// The recommended [`Watcher`] implementation for the current platform
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub type RecommendedWatcher = INotifyWatcher;
-/// The recommended `Watcher` implementation for the current platform
+/// The recommended [`Watcher`] implementation for the current platform
 #[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
 pub type RecommendedWatcher = FsEventWatcher;
-/// The recommended `Watcher` implementation for the current platform
+/// The recommended [`Watcher`] implementation for the current platform
 #[cfg(target_os = "windows")]
 pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
-/// The recommended `Watcher` implementation for the current platform
+/// The recommended [`Watcher`] implementation for the current platform
 #[cfg(any(
     target_os = "freebsd",
     target_os = "openbsd",
@@ -358,7 +358,7 @@ pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
     all(target_os = "macos", feature = "macos_kqueue")
 ))]
 pub type RecommendedWatcher = KqueueWatcher;
-/// The recommended `Watcher` implementation for the current platform
+/// The recommended [`Watcher`] implementation for the current platform
 #[cfg(not(any(
     target_os = "linux",
     target_os = "android",
@@ -372,7 +372,7 @@ pub type RecommendedWatcher = KqueueWatcher;
 )))]
 pub type RecommendedWatcher = PollWatcher;
 
-/// Convenience method for creating the `RecommendedWatcher` for the current platform.
+/// Convenience method for creating the [`RecommendedWatcher`] for the current platform.
 pub fn recommended_watcher<F>(event_handler: F) -> Result<RecommendedWatcher>
 where
     F: EventHandler,
