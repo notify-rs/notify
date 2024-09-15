@@ -192,7 +192,7 @@ fn open_file<P: AsRef<Path>>(path: P) -> io::Result<fs::File> {
     use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
 
     OpenOptions::new()
-        .read(true)
+        .access_mode(0)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
         .open(path)
 }
