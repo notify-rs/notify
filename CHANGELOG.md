@@ -10,16 +10,30 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 [#625]: https://github.com/notify-rs/notify/issues/625
 
-## debouncer-full 0.4.1 (unreleased)
-
-- FIX: ordering of debounced events could lead to a panic with Rust 1.81.0 and above [#636]
-
-[#636]: https://github.com/notify-rs/notify/issues/636
-
 ## notify 7.0.0
 
 - CHANGE: raise MSRV to 1.72
+- CHANGE: move event type to notify-types crate [#559]
+- CHANGE: flatten serialization of events and use camelCase [#558]
 - CHANGE: remove internal use of crossbeam-channels
+- FIX: prevent UB with illegal instruction for the windows backend [#604] [#607]
+- FIX: on Linux report deleted directories correctly [#545]
+- FEATURE: enable kqueue on iOS [#533]
+- MISC: various minor doc updates and fixes [#536] [#535] [#543] [#565] [#595] [#592]
+- MISC: update inotify to 0.10 [#547]
+
+[#533]: https://github.com/notify-rs/notify/pull/533
+[#536]: https://github.com/notify-rs/notify/pull/536
+[#535]: https://github.com/notify-rs/notify/pull/535
+[#545]: https://github.com/notify-rs/notify/pull/545
+[#543]: https://github.com/notify-rs/notify/pull/543
+[#547]: https://github.com/notify-rs/notify/pull/547
+[#558]: https://github.com/notify-rs/notify/pull/558
+[#559]: https://github.com/notify-rs/notify/pull/559
+[#565]: https://github.com/notify-rs/notify/pull/565
+[#604]: https://github.com/notify-rs/notify/pull/604
+[#607]: https://github.com/notify-rs/notify/pull/607
+[#592]: https://github.com/notify-rs/notify/pull/592
 
 ## notify-types 1.0.0
 
@@ -45,6 +59,9 @@ New crate containing public type definitions for the notify and debouncer crates
 
 - CHANGE: add `RecommendedCache`, which automatically enables the file ID cache on Windows and MacOS
   and disables it on Linux, where it is not needed
+- FIX: ordering of debounced events could lead to a panic with Rust 1.81.0 and above [#636]
+
+[#636]: https://github.com/notify-rs/notify/issues/636
 
 ## debouncer-full 0.3.1 (2023-08-21)
 
