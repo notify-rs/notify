@@ -85,7 +85,7 @@ use notify::{
 };
 
 #[cfg(feature = "mock_instant")]
-use mock_instant::Instant;
+use mock_instant::thread_local::Instant;
 
 #[cfg(not(feature = "mock_instant"))]
 use std::time::Instant;
@@ -753,7 +753,7 @@ mod tests {
 
     use super::*;
 
-    use mock_instant::MockClock;
+    use mock_instant::thread_local::MockClock;
     use pretty_assertions::assert_eq;
     use rstest::rstest;
     use testing::TestCase;

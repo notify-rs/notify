@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 #[cfg(feature = "mock_instant")]
-use mock_instant::Instant;
+use mock_instant::thread_local::Instant;
 
 #[cfg(not(feature = "mock_instant"))]
 use instant::Instant;
