@@ -20,6 +20,7 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 - CHANGE: raise MSRV to 1.72
 - CHANGE: remove internal use of crossbeam-channels
+- CHANGE: upgrade mio to 1.0
 
 ## notify-types 1.0.0
 
