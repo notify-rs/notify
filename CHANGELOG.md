@@ -3,6 +3,12 @@
 v5 maintenance branch is on `v5_maintenance` after `5.2.0`  
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
+## debouncer-full 0.3.2 (2024-09-29)
+
+- FIX: ordering of debounced events could lead to a panic with Rust 1.81.0 and above [#636]
+
+[#636]: https://github.com/notify-rs/notify/issues/636
+
 ## debouncer-full 0.3.1 (2023-08-21)
 
 - CHANGE: remove serde binary experiment opt-out after it got removed [#530]
