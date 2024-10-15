@@ -15,11 +15,11 @@ use std::{
     time::Duration,
 };
 
-/// Event send for registered handler on initial directory scans
+/// Event sent for registered handlers on initial directory scans
 pub type ScanEvent = crate::Result<PathBuf>;
 
-/// Handler trait for receivers of ScanEvent.
-/// Very much the same as [EventHandler], but including the Result.
+/// Handler trait for receivers of [`ScanEvent`].
+/// Very much the same as [`EventHandler`], but including the Result.
 ///
 /// See the full example for more information.
 pub trait ScanEventHandler: Send + 'static {
@@ -482,7 +482,7 @@ pub struct PollWatcher {
 }
 
 impl PollWatcher {
-    /// Create a new [PollWatcher], configured as needed.
+    /// Create a new [`PollWatcher`], configured as needed.
     pub fn new<F: EventHandler>(event_handler: F, config: Config) -> crate::Result<PollWatcher> {
         Self::with_opt::<_, ()>(event_handler, config, None)
     }
@@ -495,7 +495,7 @@ impl PollWatcher {
         Ok(())
     }
 
-    /// Create a new [PollWatcher] with an scan event handler.
+    /// Create a new [`PollWatcher`] with an scan event handler.
     ///
     /// `scan_fallback` is called on the initial scan with all files seen by the pollwatcher.
     pub fn with_initial_scan<F: EventHandler, G: ScanEventHandler>(
@@ -506,7 +506,7 @@ impl PollWatcher {
         Self::with_opt(event_handler, config, Some(scan_callback))
     }
 
-    /// create a new PollWatcher with all options
+    /// create a new [`PollWatcher`] with all options.
     fn with_opt<F: EventHandler, G: ScanEventHandler>(
         event_handler: F,
         config: Config,
@@ -606,7 +606,7 @@ impl PollWatcher {
 }
 
 impl Watcher for PollWatcher {
-    /// Create a new [PollWatcher].
+    /// Create a new [`PollWatcher`].
     fn new<F: EventHandler>(event_handler: F, config: Config) -> crate::Result<Self> {
         Self::new(event_handler, config)
     }
