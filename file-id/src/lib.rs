@@ -1,8 +1,8 @@
-//! Utility for reading inode numbers (Linux, MacOS) and file ids (Windows) that uniquely identify a file on a single computer.
+//! Utility for reading inode numbers (Linux, macOS) and file ids (Windows) that uniquely identify a file on a single computer.
 //!
-//! Modern file systems assign a unique ID to each file. On Linux and MacOS it is called an `inode number`,
+//! Modern file systems assign a unique ID to each file. On Linux and macOS it is called an `inode number`,
 //! on Windows it is called a `file id` or `file index`.
-//! Together with the `device id` (Linux, MacOS) or the `volume serial number` (Windows),
+//! Together with the `device id` (Linux, macOS) or the `volume serial number` (Windows),
 //! a file or directory can be uniquely identified on a single computer at a given time.
 //!
 //! Keep in mind though, that IDs may be re-used at some point.
@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum FileId {
-    /// Inode number, available on Linux and MacOS.
+    /// Inode number, available on Linux and macOS.
     #[cfg_attr(feature = "serde", serde(rename = "inode"))]
     Inode {
         /// Device ID
