@@ -125,6 +125,15 @@ jobs:
       - name: check build without crossbeam/default features
         run: cargo build -p notify --no-default-features --target ${{ matrix.target }}
 
+  # If this fails, consider changing your text or adding something to .typos.toml
+  typos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: check typos
+        uses: crate-ci/typos@v1.26.0
+
   audit:
     runs-on: ubuntu-latest
 
