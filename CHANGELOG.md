@@ -1,5 +1,7 @@
 # Changelog
 
+v6 maintenance branch is on `v6_maintenance` after `6.1.1`
+
 v5 maintenance branch is on `v5_maintenance` after `5.2.0`
 
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
@@ -10,28 +12,48 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 [#625]: https://github.com/notify-rs/notify/issues/625
 
-## debouncer-full 0.4.1 (unreleased)
+## notify 7.0.0 (unreleased)
 
-- FIX: ordering of debounced events could lead to a panic with Rust 1.81.0 and above [#636]
+- CHANGE: raise MSRV to 1.72 [#569] [#610]
+- CHANGE: move event type to notify-types crate [#559]
+- CHANGE: flatten serialization of events and use camelCase [#558]
+- CHANGE: remove internal use of crossbeam-channels [#569] [#610]
+- CHANGE: upgrade mio to 1.0 [#623]
+- FIX: prevent UB with illegal instruction for the windows backend [#604] [#607]
+- FIX: on Linux report deleted directories correctly [#545]
+- FEATURE: enable kqueue on iOS [#533]
+- MISC: various minor doc updates and fixes [#535] [#536] [#543] [#565] [#592] [#595]
+- MISC: update inotify to 0.10 [#547]
 
-[#636]: https://github.com/notify-rs/notify/issues/636
+[#533]: https://github.com/notify-rs/notify/pull/533
+[#535]: https://github.com/notify-rs/notify/pull/535
+[#536]: https://github.com/notify-rs/notify/pull/536
+[#543]: https://github.com/notify-rs/notify/pull/543
+[#545]: https://github.com/notify-rs/notify/pull/545
+[#547]: https://github.com/notify-rs/notify/pull/547
+[#558]: https://github.com/notify-rs/notify/pull/558
+[#559]: https://github.com/notify-rs/notify/pull/559
+[#565]: https://github.com/notify-rs/notify/pull/565
+[#569]: https://github.com/notify-rs/notify/pull/569
+[#592]: https://github.com/notify-rs/notify/pull/592
+[#604]: https://github.com/notify-rs/notify/pull/604
+[#607]: https://github.com/notify-rs/notify/pull/607
+[#610]: https://github.com/notify-rs/notify/pull/610
+[#623]: https://github.com/notify-rs/notify/pull/623
 
-## notify 7.0.0
-
-- CHANGE: raise MSRV to 1.72
-- CHANGE: remove internal use of crossbeam-channels
-- CHANGE: upgrade mio to 1.0
-
-## notify-types 1.0.0
+## notify-types 1.0.0 (unreleased)
 
 New crate containing public type definitions for the notify and debouncer crates.
 
 - CHANGE: the serialization format for events has been changed to be easier to use in environments like JavaScript;
-  the old behavior can be restored using the new feature flag `serialization-compat-6` 
+  the old behavior can be restored using the new feature flag `serialization-compat-6` [#558] [#568]
 
-## debouncer-full 0.4.0
+[#558]: https://github.com/notify-rs/notify/pull/558
+[#568]: https://github.com/notify-rs/notify/pull/568
 
-- CHANGE: manage root folder paths for the file ID cache automatically **breaking**
+## debouncer-full 0.4.0 (unreleased)
+
+- CHANGE: manage root folder paths for the file ID cache automatically [#557] **breaking**
 
   ```rust
   debouncer.watcher().watch(path, RecursiveMode::Recursive)?;
@@ -45,7 +67,15 @@ New crate containing public type definitions for the notify and debouncer crates
   ```
 
 - CHANGE: add `RecommendedCache`, which automatically enables the file ID cache on Windows and MacOS
-  and disables it on Linux, where it is not needed
+  and disables it on Linux, where it is not needed [#557]
+
+[#557]: https://github.com/notify-rs/notify/pull/557
+
+## debouncer-full 0.3.2 (2024-09-29)
+
+- FIX: ordering of debounced events could lead to a panic with Rust 1.81.0 and above [#636]
+
+[#636]: https://github.com/notify-rs/notify/issues/636
 
 ## debouncer-full 0.3.1 (2023-08-21)
 
