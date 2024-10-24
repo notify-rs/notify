@@ -127,8 +127,9 @@ mod data {
             &self,
             root: PathBuf,
             is_recursive: bool,
+            follow_symlinks: bool,
         ) -> Option<WatchData> {
-            WatchData::new(self, root, is_recursive)
+            WatchData::new(self, root, is_recursive, follow_symlinks)
         }
 
         /// Create [`PathData`].
@@ -151,6 +152,7 @@ mod data {
         // config part, won't change.
         root: PathBuf,
         is_recursive: bool,
+        follow_symlinks: bool,
 
         // current status part.
         all_path_data: HashMap<PathBuf, PathData>,
@@ -162,7 +164,12 @@ mod data {
         /// # Side effect
         ///
         /// This function may send event by `data_builder.emitter`.
-        fn new(data_builder: &DataBuilder, root: PathBuf, is_recursive: bool) -> Option<Self> {
+        fn new(
+            data_builder: &DataBuilder,
+            root: PathBuf,
+            is_recursive: bool,
+            follow_symlinks: bool,
+        ) -> Option<Self> {
             // If metadata read error at `root` path, it will emit
             // a error event and stop to create the whole `WatchData`.
             //
@@ -186,12 +193,19 @@ mod data {
                 return None;
             }
 
-            let all_path_data =
-                Self::scan_all_path_data(data_builder, root.clone(), is_recursive, true).collect();
+            let all_path_data = Self::scan_all_path_data(
+                data_builder,
+                root.clone(),
+                is_recursive,
+                follow_symlinks,
+                true,
+            )
+            .collect();
 
             Some(Self {
                 root,
                 is_recursive,
+                follow_symlinks,
                 all_path_data,
             })
         }
@@ -203,9 +217,13 @@ mod data {
         /// This function may emit event by `data_builder.emitter`.
         pub(super) fn rescan(&mut self, data_builder: &mut DataBuilder) {
             // scan current filesystem.
-            for (path, new_path_data) in
-                Self::scan_all_path_data(data_builder, self.root.clone(), self.is_recursive, false)
-            {
+            for (path, new_path_data) in Self::scan_all_path_data(
+                data_builder,
+                self.root.clone(),
+                self.is_recursive,
+                self.follow_symlinks,
+                false,
+            ) {
                 let old_path_data = self
                     .all_path_data
                     .insert(path.clone(), new_path_data.clone());
@@ -247,6 +265,7 @@ mod data {
             data_builder: &'_ DataBuilder,
             root: PathBuf,
             is_recursive: bool,
+            follow_symlinks: bool,
             // whether this is an initial scan, used only for events
             is_initial: bool,
         ) -> impl Iterator<Item = (PathBuf, PathData)> + '_ {
@@ -256,7 +275,7 @@ mod data {
             //
             // See: https://docs.rs/walkdir/2.0.1/walkdir/struct.WalkDir.html#method.new
             WalkDir::new(root)
-                .follow_links(true)
+                .follow_links(follow_symlinks)
                 .max_depth(Self::dir_scan_depth(is_recursive))
                 .into_iter()
                 .filter_map(|entry_res| match entry_res {
@@ -479,6 +498,7 @@ pub struct PollWatcher {
     /// currently used only for manual polling
     message_channel: Sender<()>,
     delay: Option<Duration>,
+    follow_sylinks: bool,
 }
 
 impl PollWatcher {
@@ -522,6 +542,7 @@ impl PollWatcher {
             data_builder: Arc::new(Mutex::new(data_builder)),
             want_to_stop: Arc::new(AtomicBool::new(false)),
             delay: config.poll_interval(),
+            follow_sylinks: config.follow_symlinks(),
             message_channel: tx,
         };
 
@@ -581,8 +602,11 @@ impl PollWatcher {
         {
             data_builder.update_timestamp();
 
-            let watch_data =
-                data_builder.build_watch_data(path.to_path_buf(), recursive_mode.is_recursive());
+            let watch_data = data_builder.build_watch_data(
+                path.to_path_buf(),
+                recursive_mode.is_recursive(),
+                self.follow_sylinks,
+            );
 
             // if create watch_data successful, add it to watching list.
             if let Some(watch_data) = watch_data {

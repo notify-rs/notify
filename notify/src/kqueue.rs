@@ -34,6 +34,7 @@ struct EventLoop {
     kqueue: kqueue::Watcher,
     event_handler: Box<dyn EventHandler>,
     watches: HashMap<PathBuf, bool>,
+    follow_symlinks: bool,
 }
 
 /// Watcher implementation based on inotify
@@ -50,7 +51,11 @@ enum EventLoopMsg {
 }
 
 impl EventLoop {
-    pub fn new(kqueue: kqueue::Watcher, event_handler: Box<dyn EventHandler>) -> Result<Self> {
+    pub fn new(
+        kqueue: kqueue::Watcher,
+        event_handler: Box<dyn EventHandler>,
+        follow_symlinks: bool,
+    ) -> Result<Self> {
         let (event_loop_tx, event_loop_rx) = unbounded::<EventLoopMsg>();
         let poll = mio::Poll::new()?;
 
@@ -70,6 +75,7 @@ impl EventLoop {
             kqueue,
             event_handler,
             watches: HashMap::new(),
+            follow_symlinks,
         };
         Ok(event_loop)
     }
@@ -292,7 +298,10 @@ impl EventLoop {
         if !is_recursive || !metadata(&path).map_err(Error::io)?.is_dir() {
             self.add_single_watch(path, false)?;
         } else {
-            for entry in WalkDir::new(path).follow_links(true).into_iter() {
+            for entry in WalkDir::new(path)
+                .follow_links(self.follow_symlinks)
+                .into_iter()
+            {
                 let entry = entry.map_err(map_walkdir_error)?;
                 self.add_single_watch(entry.path().to_path_buf(), is_recursive)?;
             }
@@ -338,7 +347,10 @@ impl EventLoop {
                     .map_err(|e| Error::io(e).add_path(path.clone()))?;
 
                 if is_recursive || remove_recursive {
-                    for entry in WalkDir::new(path).follow_links(true).into_iter() {
+                    for entry in WalkDir::new(path)
+                        .follow_links(self.follow_symlinks)
+                        .into_iter()
+                    {
                         let p = entry.map_err(map_walkdir_error)?.path().to_path_buf();
                         self.kqueue
                             .remove_filename(&p, EventFilter::EVFILT_VNODE)
@@ -362,9 +374,12 @@ fn map_walkdir_error(e: walkdir::Error) -> Error {
 }
 
 impl KqueueWatcher {
-    fn from_event_handler(event_handler: Box<dyn EventHandler>) -> Result<Self> {
+    fn from_event_handler(
+        event_handler: Box<dyn EventHandler>,
+        follow_symlinks: bool,
+    ) -> Result<Self> {
         let kqueue = kqueue::Watcher::new()?;
-        let event_loop = EventLoop::new(kqueue, event_handler)?;
+        let event_loop = EventLoop::new(kqueue, event_handler, follow_symlinks)?;
         let channel = event_loop.event_loop_tx.clone();
         let waker = event_loop.event_loop_waker.clone();
         event_loop.run();
@@ -416,8 +431,8 @@ impl KqueueWatcher {
 
 impl Watcher for KqueueWatcher {
     /// Create a new watcher.
-    fn new<F: EventHandler>(event_handler: F, _config: Config) -> Result<Self> {
-        Self::from_event_handler(Box::new(event_handler))
+    fn new<F: EventHandler>(event_handler: F, config: Config) -> Result<Self> {
+        Self::from_event_handler(Box::new(event_handler), config.follow_symlinks())
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {

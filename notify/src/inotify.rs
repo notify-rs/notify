@@ -40,6 +40,7 @@ struct EventLoop {
     watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool)>,
     paths: HashMap<WatchDescriptor, PathBuf>,
     rename_event: Option<Event>,
+    follow_links: bool,
 }
 
 /// Watcher implementation based on inotify
@@ -90,7 +91,11 @@ fn remove_watch_by_event(
 }
 
 impl EventLoop {
-    pub fn new(inotify: Inotify, event_handler: Box<dyn EventHandler>) -> Result<Self> {
+    pub fn new(
+        inotify: Inotify,
+        event_handler: Box<dyn EventHandler>,
+        follow_links: bool,
+    ) -> Result<Self> {
         let (event_loop_tx, event_loop_rx) = unbounded::<EventLoopMsg>();
         let poll = mio::Poll::new()?;
 
@@ -112,6 +117,7 @@ impl EventLoop {
             watches: HashMap::new(),
             paths: HashMap::new(),
             rename_event: None,
+            follow_links,
         };
         Ok(event_loop)
     }
@@ -398,7 +404,7 @@ impl EventLoop {
         }
 
         for entry in WalkDir::new(path)
-            .follow_links(true)
+            .follow_links(self.follow_links)
             .into_iter()
             .filter_map(filter_dir)
         {
@@ -523,9 +529,12 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 }
 
 impl INotifyWatcher {
-    fn from_event_handler(event_handler: Box<dyn EventHandler>) -> Result<Self> {
+    fn from_event_handler(
+        event_handler: Box<dyn EventHandler>,
+        follow_links: bool,
+    ) -> Result<Self> {
         let inotify = Inotify::init()?;
-        let event_loop = EventLoop::new(inotify, event_handler)?;
+        let event_loop = EventLoop::new(inotify, event_handler, follow_links)?;
         let channel = event_loop.event_loop_tx.clone();
         let waker = event_loop.event_loop_waker.clone();
         event_loop.run();
@@ -567,8 +576,8 @@ impl INotifyWatcher {
 
 impl Watcher for INotifyWatcher {
     /// Create a new watcher.
-    fn new<F: EventHandler>(event_handler: F, _config: Config) -> Result<Self> {
-        Self::from_event_handler(Box::new(event_handler))
+    fn new<F: EventHandler>(event_handler: F, config: Config) -> Result<Self> {
+        Self::from_event_handler(Box::new(event_handler), config.follow_symlinks())
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
