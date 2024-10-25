@@ -1,6 +1,6 @@
 [package]
 name = "file-id"
-version = "0.2.1"
+version = "0.2.2"
 description = "Utility for reading inode numbers (Linux, MacOS) and file IDs (Windows)"
 documentation = "https://docs.rs/notify"
 readme = "README.md"

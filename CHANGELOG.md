@@ -6,13 +6,13 @@ v5 maintenance branch is on `v5_maintenance` after `5.2.0`
 
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
-## file-id 0.2.2 (unreleased)
+## file-id 0.2.2 (2024-10-25)
 
 - CHANGE: get file stats without read permission [#625]
 
 [#625]: https://github.com/notify-rs/notify/issues/625
 
-## notify 7.0.0 (unreleased)
+## notify 7.0.0 (2024-10-25)
 
 - CHANGE: raise MSRV to 1.72 [#569] [#610] **breaking**
 - CHANGE: move event type to notify-types crate [#559]
@@ -23,6 +23,7 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 - CHANGE: add log statements [#499]
 - FIX: prevent UB with illegal instruction for the windows backend [#604] [#607]
 - FIX: on Linux report deleted directories correctly [#545]
+- FIX: on Linux report access open events [#612]
 - FEATURE: enable kqueue on iOS [#533]
 - MISC: various minor doc updates and fixes [#535] [#536] [#543] [#565] [#592] [#595]
 - MISC: update inotify to 0.10 [#547]
@@ -39,12 +40,14 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 [#565]: https://github.com/notify-rs/notify/pull/565
 [#569]: https://github.com/notify-rs/notify/pull/569
 [#592]: https://github.com/notify-rs/notify/pull/592
+[#595]: https://github.com/notify-rs/notify/pull/595
 [#604]: https://github.com/notify-rs/notify/pull/604
 [#607]: https://github.com/notify-rs/notify/pull/607
 [#610]: https://github.com/notify-rs/notify/pull/610
+[#612]: https://github.com/notify-rs/notify/pull/612
 [#623]: https://github.com/notify-rs/notify/pull/623
 
-## notify-types 1.0.0 (unreleased)
+## notify-types 1.0.0 (2024-10-25)
 
 New crate containing public type definitions for the notify and debouncer crates. [#559]
 
@@ -57,8 +60,13 @@ New crate containing public type definitions for the notify and debouncer crates
 [#568]: https://github.com/notify-rs/notify/pull/568
 [#570]: https://github.com/notify-rs/notify/pull/570
 
-## debouncer-full 0.4.0 (unreleased)
+## debouncer-mini 0.5.0 (2024-10-25)
 
+- CHANGE: update notify to version 7.0.0
+
+## debouncer-full 0.4.0 (2024-10-25)
+
+- CHANGE: update notify to version 7.0.0
 - CHANGE: manage root folder paths for the file ID cache automatically [#557] **breaking**
 
   ```rust
