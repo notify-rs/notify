@@ -33,7 +33,6 @@ kqueue = "1.0.8"
 libc = "0.2.4"
 log = "0.4.17"
 mio = { version = "1.0", features = ["os-ext"] }
-mock_instant = "0.3.0"
 instant = "0.1.12"
 nix = "0.27.0"
 notify = { path = "notify" }

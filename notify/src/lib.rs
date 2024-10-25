@@ -383,6 +383,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, time::Duration};
+
+    use tempfile::tempdir;
+
     use super::*;
 
     #[test]
@@ -407,5 +411,28 @@ mod tests {
         assert_debug_impl!(RecommendedWatcher);
         assert_debug_impl!(RecursiveMode);
         assert_debug_impl!(WatcherKind);
+    }
+
+    #[test]
+    fn integration() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+
+        watcher.watch(dir.path(), RecursiveMode::Recursive)?;
+
+        let file_path = dir.path().join("file.txt");
+        fs::write(&file_path, b"Lorem ipsum")?;
+
+        let event = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("no events received")
+            .expect("received an error");
+
+        assert_eq!(event.paths, vec![file_path]);
+
+        Ok(())
     }
 }
