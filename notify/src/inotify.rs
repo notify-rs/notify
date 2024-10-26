@@ -5,7 +5,9 @@
 //! will return events for the directory itself, and for files inside the directory.
 
 use super::event::*;
-use super::{Config, Error, ErrorKind, EventHandler, RecursiveMode, Result, Watcher};
+use super::{
+    Config, Error, ErrorKind, EventHandler, RecursiveMode, Result, WatchFilterFn, Watcher,
+};
 use crate::{bounded, unbounded, BoundSender, Receiver, Sender};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
@@ -50,7 +52,12 @@ pub struct INotifyWatcher {
 }
 
 enum EventLoopMsg {
-    AddWatch(PathBuf, RecursiveMode, Sender<Result<()>>),
+    AddWatch(
+        PathBuf,
+        RecursiveMode,
+        Box<WatchFilterFn>,
+        Sender<Result<()>>,
+    ),
     RemoveWatch(PathBuf, Sender<Result<()>>),
     Shutdown,
     Configure(Config, BoundSender<Result<bool>>),
@@ -166,8 +173,13 @@ impl EventLoop {
     fn handle_messages(&mut self) {
         while let Ok(msg) = self.event_loop_rx.try_recv() {
             match msg {
-                EventLoopMsg::AddWatch(path, recursive_mode, tx) => {
-                    let _ = tx.send(self.add_watch(path, recursive_mode.is_recursive(), true));
+                EventLoopMsg::AddWatch(path, recursive_mode, watch_filter, tx) => {
+                    let _ = tx.send(self.add_watch(
+                        path,
+                        recursive_mode.is_recursive(),
+                        true,
+                        &watch_filter,
+                    ));
                 }
                 EventLoopMsg::RemoveWatch(path, tx) => {
                     let _ = tx.send(self.remove_watch(path, false));
@@ -386,11 +398,17 @@ impl EventLoop {
         }
 
         for path in add_watches {
-            self.add_watch(path, true, false).ok();
+            self.add_watch(path, true, false, &|_| true).ok();
         }
     }
 
-    fn add_watch(&mut self, path: PathBuf, is_recursive: bool, mut watch_self: bool) -> Result<()> {
+    fn add_watch(
+        &mut self,
+        path: PathBuf,
+        is_recursive: bool,
+        mut watch_self: bool,
+        watch_filter: &dyn Fn(&Path) -> bool,
+    ) -> Result<()> {
         // If the watch is not recursive, or if we determine (by stat'ing the path to get its
         // metadata) that the watched path is not a directory, add a single path watch.
         if !is_recursive || !metadata(&path).map_err(Error::io_watch)?.is_dir() {
@@ -401,6 +419,7 @@ impl EventLoop {
             .follow_links(true)
             .into_iter()
             .filter_map(filter_dir)
+            .filter(|e| watch_filter(e.path()))
         {
             self.add_single_watch(entry.path().to_path_buf(), is_recursive, watch_self)?;
             watch_self = false;
@@ -532,7 +551,12 @@ impl INotifyWatcher {
         Ok(INotifyWatcher { channel, waker })
     }
 
-    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+    fn watch_inner(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: Box<WatchFilterFn>,
+    ) -> Result<()> {
         let pb = if path.is_absolute() {
             path.to_owned()
         } else {
@@ -540,7 +564,7 @@ impl INotifyWatcher {
             p.join(path)
         };
         let (tx, rx) = unbounded();
-        let msg = EventLoopMsg::AddWatch(pb, recursive_mode, tx);
+        let msg = EventLoopMsg::AddWatch(pb, recursive_mode, watch_filter, tx);
 
         // we expect the event loop to live and reply => unwraps must not panic
         self.channel.send(msg).unwrap();
@@ -571,8 +595,13 @@ impl Watcher for INotifyWatcher {
         Self::from_event_handler(Box::new(event_handler))
     }
 
-    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path, recursive_mode)
+    fn watch_filtered(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: Box<WatchFilterFn>,
+    ) -> Result<()> {
+        self.watch_inner(path, recursive_mode, watch_filter)
     }
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {
