@@ -4,7 +4,7 @@
 //! Rust stdlib APIs and should work on all of the platforms it supports.
 
 use crate::{
-    unbounded, Config, Error, EventHandler, Receiver, RecursiveMode, Sender, WatchFilterFn, Watcher,
+    unbounded, Config, Error, EventHandler, Receiver, RecursiveMode, Sender, WatchFilter, Watcher,
 };
 use std::{
     collections::HashMap,
@@ -618,7 +618,7 @@ impl Watcher for PollWatcher {
         &mut self,
         path: &Path,
         recursive_mode: RecursiveMode,
-        _watch_filter: Box<WatchFilterFn>,
+        _watch_filter: WatchFilter,
     ) -> crate::Result<()> {
         self.watch_inner(path, recursive_mode);
 

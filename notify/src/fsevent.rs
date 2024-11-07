@@ -15,7 +15,9 @@
 #![allow(non_upper_case_globals, dead_code)]
 
 use crate::event::*;
-use crate::{unbounded, Config, Error, EventHandler, RecursiveMode, Result, Sender, Watcher};
+use crate::{
+    unbounded, Config, Error, EventHandler, RecursiveMode, Result, Sender, WatchFilter, Watcher,
+};
 use fsevent_sys as fs;
 use fsevent_sys::core_foundation as cf;
 use std::collections::HashMap;
@@ -66,7 +68,7 @@ pub struct FsEventWatcher {
     flags: fs::FSEventStreamCreateFlags,
     event_handler: Arc<Mutex<dyn EventHandler>>,
     runloop: Option<(cf::CFRunLoopRef, thread::JoinHandle<()>)>,
-    recursive_info: HashMap<PathBuf, bool>,
+    recursive_info: HashMap<PathBuf, (bool, WatchFilter)>,
 }
 
 impl fmt::Debug for FsEventWatcher {
@@ -242,7 +244,7 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
 
 struct StreamContextInfo {
     event_handler: Arc<Mutex<dyn EventHandler>>,
-    recursive_info: HashMap<PathBuf, bool>,
+    recursive_info: HashMap<PathBuf, (bool, WatchFilter)>,
 }
 
 // Free the context when the stream created by `FSEventStreamCreate` is released.
@@ -280,9 +282,14 @@ impl FsEventWatcher {
         })
     }
 
-    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+    fn watch_inner(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> Result<()> {
         self.stop();
-        let result = self.append_path(path, recursive_mode);
+        let result = self.append_path(path, recursive_mode, watch_filter);
         // ignore return error: may be empty path list
         let _ = self.run();
         result
@@ -360,7 +367,12 @@ impl FsEventWatcher {
     }
 
     // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
-    fn append_path(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+    fn append_path(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> Result<()> {
         if !path.exists() {
             return Err(Error::path_not_found().add_path(path.into()));
         }
@@ -378,8 +390,10 @@ impl FsEventWatcher {
             cf::CFArrayAppendValue(self.paths, cf_path);
             cf::CFRelease(cf_path);
         }
-        self.recursive_info
-            .insert(canonical_path, recursive_mode.is_recursive());
+        self.recursive_info.insert(
+            canonical_path,
+            (recursive_mode.is_recursive(), watch_filter),
+        );
         Ok(())
     }
 
@@ -522,8 +536,8 @@ unsafe fn callback_impl(
         });
 
         let mut handle_event = false;
-        for (p, r) in &(*info).recursive_info {
-            if path.starts_with(p) {
+        for (p, (r, filt)) in &(*info).recursive_info {
+            if path.starts_with(p) && filt.should_watch(p) {
                 if *r || &path == p {
                     handle_event = true;
                     break;
@@ -557,8 +571,13 @@ impl Watcher for FsEventWatcher {
         Self::from_event_handler(Arc::new(Mutex::new(event_handler)))
     }
 
-    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path, recursive_mode)
+    fn watch_filtered(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> Result<()> {
+        self.watch_inner(path, recursive_mode, watch_filter)
     }
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {
