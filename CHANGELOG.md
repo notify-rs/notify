@@ -60,6 +60,10 @@ New crate containing public type definitions for the notify and debouncer crates
 [#568]: https://github.com/notify-rs/notify/pull/568
 [#570]: https://github.com/notify-rs/notify/pull/570
 
+## notify-types 2.0.0 (unreleased)
+
+- CHANGE: replace instant crate with web-time **breaking**
+
 ## debouncer-mini 0.5.0 (2024-10-25)
 
 - CHANGE: update notify to version 7.0.0

@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use instant::Instant;
+use web_time::Instant;
 
 use crate::event::Event;
 
