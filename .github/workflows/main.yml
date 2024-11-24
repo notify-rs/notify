@@ -18,7 +18,7 @@ jobs:
     strategy:
       matrix:
         version:
-          - 1.72.1 # MSRV
+          - 1.77.2 # MSRV
           - stable
           - nightly
         os:
@@ -38,19 +38,19 @@ jobs:
           rustup override set ${{ matrix.version }}
 
       - name: check build serde,macos_kqueue for examples
-        if: matrix.version != '1.72.1' && matrix.os == 'macos-latest'
+        if: matrix.version != '1.77.2' && matrix.os == 'macos-latest'
         run: cargo check -p notify --features=serde,macos_kqueue --examples
 
       - name: check build serde,macos_kqueue
-        if: matrix.version == '1.72.1' && matrix.os == 'macos-latest'
+        if: matrix.version == '1.77.2' && matrix.os == 'macos-latest'
         run: cargo check -p notify --features=serde,macos_kqueue
 
       - name: check build serde for examples
-        if: matrix.version != '1.72.1' && matrix.os != 'macos-latest'
+        if: matrix.version != '1.77.2' && matrix.os != 'macos-latest'
         run: cargo check -p notify --features=serde --examples
 
       - name: check build serde
-        if: matrix.version == '1.72.1' && matrix.os != 'macos-latest'
+        if: matrix.version == '1.77.2' && matrix.os != 'macos-latest'
         run: cargo check --features=serde
 
       - name: check build without crossbeam/default features

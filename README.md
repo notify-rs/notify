@@ -16,7 +16,7 @@ _Cross-platform filesystem notification library for Rust._
 - [Examples][examples]
 - [Changelog][changelog]
 - [Upgrading notify from v4](UPGRADING_V4_TO_V5.md)
-- Minimum supported Rust version: **1.72**
+- Minimum supported Rust version: **1.77**
 
 As used by: [alacritty], [cargo watch], [cobalt], [deno], [docket], [mdBook],
 [rust-analyzer], [watchexec], [watchfiles], [xi-editor],

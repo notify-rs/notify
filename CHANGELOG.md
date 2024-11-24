@@ -6,6 +6,21 @@ v5 maintenance branch is on `v5_maintenance` after `5.2.0`
 
 v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
+## notify 8.0.0 (unreleased)
+
+- CHANGE: raise MSRV to 1.77 [#569] [#610] **breaking**
+- FEATURE: add config option to disable following symbolic links [#635]
+- FIX: unaligned access to FILE_NOTIFY_INFORMATION [#647] **breaking**
+
+[#635]: https://github.com/notify-rs/notify/pull/635
+[#647]: https://github.com/notify-rs/notify/pull/647
+
+## notify-types 2.0.0 (unreleased)
+
+- CHANGE: replace instant crate with web-time [#652] **breaking**
+
+[#652]: https://github.com/notify-rs/notify/pull/652
+
 ## file-id 0.2.2 (2024-10-25)
 
 - CHANGE: get file stats without read permission [#625]
@@ -59,10 +74,6 @@ New crate containing public type definitions for the notify and debouncer crates
 [#559]: https://github.com/notify-rs/notify/pull/559
 [#568]: https://github.com/notify-rs/notify/pull/568
 [#570]: https://github.com/notify-rs/notify/pull/570
-
-## notify-types 2.0.0 (unreleased)
-
-- CHANGE: replace instant crate with web-time **breaking**
 
 ## debouncer-mini 0.5.0 (2024-10-25)
 
