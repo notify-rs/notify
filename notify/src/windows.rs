@@ -331,11 +331,18 @@ unsafe extern "system" fn handle_event(
     // string as its last member. Each struct contains an offset for getting the next entry in
     // the buffer.
     let mut cur_offset: *const u8 = request.buffer.as_ptr();
-    let mut cur_entry = cur_offset as *const FILE_NOTIFY_INFORMATION;
+    // In Wine, FILE_NOTIFY_INFORMATION structs are packed placed in the buffer;
+    // they are aligned to 16bit (WCHAR) boundary instead of 32bit required by FILE_NOTIFY_INFORMATION.
+    // Hence, we need to use `read_unaligned` here to avoid UB.
+    let mut cur_entry = ptr::read_unaligned(cur_offset as *const FILE_NOTIFY_INFORMATION);
     loop {
         // filename length is size in bytes, so / 2
-        let len = (*cur_entry).FileNameLength as usize / 2;
-        let encoded_path: &[u16] = slice::from_raw_parts((*cur_entry).FileName.as_ptr(), len);
+        let len = cur_entry.FileNameLength as usize / 2;
+        let encoded_path: &[u16] = slice::from_raw_parts(
+            cur_offset.offset(std::mem::offset_of!(FILE_NOTIFY_INFORMATION, FileName) as isize)
+                as _,
+            len,
+        );
         // prepend root to get a full path
         let path = request
             .data
@@ -353,7 +360,7 @@ unsafe extern "system" fn handle_event(
             log::trace!(
                 "Event: path = `{}`, action = {:?}",
                 path.display(),
-                (*cur_entry).Action
+                cur_entry.Action
             );
 
             let newe = Event::new(EventKind::Any).add_path(path);
@@ -367,14 +374,14 @@ unsafe extern "system" fn handle_event(
 
             let event_handler = |res| emit_event(&request.event_handler, res);
 
-            if (*cur_entry).Action == FILE_ACTION_RENAMED_OLD_NAME {
+            if cur_entry.Action == FILE_ACTION_RENAMED_OLD_NAME {
                 let mode = RenameMode::From;
                 let kind = ModifyKind::Name(mode);
                 let kind = EventKind::Modify(kind);
                 let ev = newe.set_kind(kind);
                 event_handler(Ok(ev))
             } else {
-                match (*cur_entry).Action {
+                match cur_entry.Action {
                     FILE_ACTION_RENAMED_NEW_NAME => {
                         let kind = EventKind::Modify(ModifyKind::Name(RenameMode::To));
                         let ev = newe.set_kind(kind);
@@ -400,11 +407,11 @@ unsafe extern "system" fn handle_event(
             }
         }
 
-        if (*cur_entry).NextEntryOffset == 0 {
+        if cur_entry.NextEntryOffset == 0 {
             break;
         }
-        cur_offset = cur_offset.offset((*cur_entry).NextEntryOffset as isize);
-        cur_entry = cur_offset as *const FILE_NOTIFY_INFORMATION;
+        cur_offset = cur_offset.offset(cur_entry.NextEntryOffset as isize);
+        cur_entry = ptr::read_unaligned(cur_offset as *const FILE_NOTIFY_INFORMATION);
     }
 }
 
