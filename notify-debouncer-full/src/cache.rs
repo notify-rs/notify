@@ -26,12 +26,15 @@ pub trait FileIdCache {
     /// This will be called if a file or directory is deleted.
     fn remove_path(&mut self, path: &Path);
 
-    /// Re-scan all paths.
+    /// Re-scan all `root_paths`.
     ///
     /// This will be called if the notification back-end has dropped events.
-    fn rescan(&mut self, roots: &[(PathBuf, RecursiveMode)]) {
-        for (root, recursive_mode) in roots {
-            self.add_path(root, *recursive_mode);
+    /// The root paths are passed as argument, so the implementer doesn't have to store them.
+    /// 
+    /// The default implementation calls `add_path` for each root path.
+    fn rescan(&mut self, root_paths: &[(PathBuf, RecursiveMode)]) {
+        for (path, recursive_mode) in root_paths {
+            self.add_path(path, *recursive_mode);
         }
     }
 }
