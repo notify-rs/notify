@@ -202,6 +202,11 @@ mod data {
             )
             .collect();
 
+            if let Some(ref emitter) = data_builder.scan_emitter {
+                let close_initial_scan_evt = Event::new(EventKind::Other).set_info(&format!("initial_scan_complete"));
+                data_builder.emitter.emit(Ok(close_initial_scan_evt));
+            } 
+
             Some(Self {
                 root,
                 is_recursive,
