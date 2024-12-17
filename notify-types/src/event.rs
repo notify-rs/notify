@@ -307,6 +307,10 @@ pub struct Event {
         all(feature = "serde", not(feature = "serialization-compat-6")),
         serde(flatten)
     )]
+    #[cfg_attr(
+        all(feature = "serde", feature = "serialization-compat-6"),
+        serde(rename = "type")
+    )]
     pub kind: EventKind,
 
     /// Paths the event is about, if known.
