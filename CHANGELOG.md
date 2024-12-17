@@ -21,6 +21,12 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 
 [#652]: https://github.com/notify-rs/notify/pull/652
 
+## notify-types 1.0.1 (2024-12-17)
+
+- FIX: `Event::kind` serialization with `serialization-compat-6` feature [#660]
+
+[#660]: https://github.com/notify-rs/notify/pull/660
+
 ## file-id 0.2.2 (2024-10-25)
 
 - CHANGE: get file stats without read permission [#625]
@@ -67,7 +73,7 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 New crate containing public type definitions for the notify and debouncer crates. [#559]
 
 - CHANGE: the serialization format for events has been changed to be easier to use in environments like JavaScript;
-  the old behavior can be restored using the new feature flag **breaking**`serialization-compat-6` [#558] [#568]
+  the old behavior can be restored using the new feature flag `serialization-compat-6` [#558] [#568] **breaking**
 - CHANGE: use instant crate (which provides an `Instant` type that works in Wasm environments) [#570]
 
 [#558]: https://github.com/notify-rs/notify/pull/558
