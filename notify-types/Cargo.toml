@@ -4,7 +4,10 @@ version = "1.0.0"
 description = "Types used by the notify crate"
 documentation = "https://docs.rs/notify-types"
 readme = "../README.md"
-license = "MIT OR Apache-2.0"
+# src/events.rs is copied from notify; see its license header, and see
+# https://github.com/notify-rs/notify/issues/514 regarding the Artistic-2.0
+# option mentioned there
+license = "(MIT OR Apache-2.0) AND CC0-1.0"
 keywords = ["events", "filesystem", "notify", "watch"]
 categories = ["filesystem"]
 authors = ["Daniel Faust <hessijames@gmail.com>"]
