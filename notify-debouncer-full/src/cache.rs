@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
-
 use file_id::{get_file_id, FileId};
 use notify::RecursiveMode;
 use walkdir::WalkDir;
@@ -14,7 +13,7 @@ pub trait FileIdCache {
     /// Get a `FileId` from the cache for a given `path`.
     ///
     /// If the path is not cached, `None` should be returned and there should not be any attempt to read the file ID from disk.
-    fn cached_file_id(&self, path: &Path) -> Option<&FileId>;
+    fn cached_file_id(&self, path: &Path) -> Option<impl AsRef<FileId>>;
 
     /// Add a new path to the cache or update its value.
     ///
@@ -64,7 +63,7 @@ impl FileIdMap {
 }
 
 impl FileIdCache for FileIdMap {
-    fn cached_file_id(&self, path: &Path) -> Option<&FileId> {
+    fn cached_file_id(&self, path: &Path) -> Option<impl AsRef<FileId>> {
         self.paths.get(path)
     }
 
@@ -104,8 +103,8 @@ impl NoCache {
 }
 
 impl FileIdCache for NoCache {
-    fn cached_file_id(&self, _path: &Path) -> Option<&FileId> {
-        None
+    fn cached_file_id(&self, _path: &Path) -> Option<impl AsRef<FileId>> {
+        Option::<&FileId>::None
     }
 
     fn add_path(&mut self, _path: &Path, _recursive_mode: RecursiveMode) {}

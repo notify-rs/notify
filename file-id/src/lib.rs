@@ -106,6 +106,12 @@ impl FileId {
     }
 }
 
+impl AsRef<FileId> for FileId {
+    fn as_ref(&self) -> &FileId {
+        self
+    }
+}
+
 /// Get the `FileId` for the file or directory at `path`
 #[cfg(target_family = "unix")]
 pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
