@@ -4,13 +4,13 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify-debouncer-mini = "0.4.1"
+//! notify-debouncer-mini = "0.6.0"
 //! ```
 //! In case you want to select specific features of notify,
 //! specify notify as dependency explicitly in your dependencies.
 //! Otherwise you can just use the re-export of notify from debouncer-mini.
 //! ```toml
-//! notify-debouncer-mini = "0.4.1"
+//! notify-debouncer-mini = "0.6.0"
 //! notify = { version = "..", features = [".."] }
 //! ```
 //!
@@ -45,8 +45,10 @@
 //!
 //! The following crate features can be turned on or off in your cargo dependency config:
 //!
+//! - `serde` passed down to notify-types, off by default
 //! - `crossbeam-channel` passed down to notify, off by default
-//! - `serde` enables serde support for events, off by default
+//! - `macos_fsevent` passed down to notify, off by default
+//! - `macos_kqueue` passed down to notify, off by default
 //! - `serialization-compat-6` passed down to notify, off by default
 //!
 //! # Caveats

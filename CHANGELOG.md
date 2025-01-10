@@ -1,29 +1,29 @@
 # Changelog
 
-v6 maintenance branch is on `v6_maintenance` after `6.1.1`
+## notify 8.0.0 (2025-01-10)
 
-v5 maintenance branch is on `v5_maintenance` after `5.2.0`
-
-v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
-
-## notify 8.0.0 (unreleased)
-
-- CHANGE: raise MSRV to 1.77 [#569] [#610] **breaking**
+- CHANGE: update notify-types to version 2.0.0
+- CHANGE: raise MSRV to 1.77 **breaking**
 - FEATURE: add config option to disable following symbolic links [#635]
 - FIX: unaligned access to FILE_NOTIFY_INFORMATION [#647] **breaking**
 
 [#635]: https://github.com/notify-rs/notify/pull/635
 [#647]: https://github.com/notify-rs/notify/pull/647
 
-## notify-types 2.0.0 (unreleased)
+## notify-types 2.0.0 (2025-01-10)
 
 - CHANGE: replace instant crate with web-time [#652] **breaking**
 - CHANGE: the web-time dependency is now behind the `web-time` feature **breaking**
 
 [#652]: https://github.com/notify-rs/notify/pull/652
 
-## debouncer-full 0.5.0 (unreleased)
+## debouncer-mini 0.6.0 (2025-01-10)
 
+- CHANGE: update notify to version 8.0.0
+
+## debouncer-full 0.5.0 (2025-01-10)
+
+- CHANGE: update notify to version 8.0.0
 - CHANGE: pass `web-time` feature to notify-types
 
 ## notify-types 1.0.1 (2024-12-17)

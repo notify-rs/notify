@@ -35,10 +35,10 @@ log = "0.4.17"
 mio = { version = "1.0", features = ["os-ext"] }
 web-time = "1.1.0"
 nix = "0.29.0"
-notify = { version = "7.0.0", path = "notify" }
-notify-debouncer-full = { version = "0.4.0", path = "notify-debouncer-full" }
-notify-debouncer-mini = { version = "0.5.0", path = "notify-debouncer-mini" }
-notify-types = { version = "1.0.0", path = "notify-types" }
+notify = { version = "8.0.0", path = "notify" }
+notify-debouncer-full = { version = "0.5.0", path = "notify-debouncer-full" }
+notify-debouncer-mini = { version = "0.6.0", path = "notify-debouncer-mini" }
+notify-types = { version = "2.0.0", path = "notify-types" }
 pretty_assertions = "1.3.0"
 rand = "0.8.5"
 rstest = "0.24.0"
