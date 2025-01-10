@@ -18,7 +18,7 @@ serialization-compat-6 = []
 
 [dependencies]
 serde = { workspace = true, optional = true }
-web-time.workspace = true
+web-time = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true

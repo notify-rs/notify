@@ -15,6 +15,7 @@ repository.workspace = true
 [features]
 default = ["macos_fsevent"]
 serde = ["notify-types/serde"]
+web-time = ["notify-types/web-time"]
 crossbeam-channel = ["dep:crossbeam-channel", "notify/crossbeam-channel"]
 macos_fsevent = ["notify/macos_fsevent"]
 macos_kqueue = ["notify/macos_kqueue"]

@@ -18,8 +18,13 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
 ## notify-types 2.0.0 (unreleased)
 
 - CHANGE: replace instant crate with web-time [#652] **breaking**
+- CHANGE: the web-time dependency is now behind the `web-time` feature **breaking**
 
 [#652]: https://github.com/notify-rs/notify/pull/652
+
+## debouncer-full 0.5.0 (unreleased)
+
+- CHANGE: pass `web-time` feature to notify-types
 
 ## notify-types 1.0.1 (2024-12-17)
 
