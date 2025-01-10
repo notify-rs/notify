@@ -1,4 +1,7 @@
 #[cfg(not(test))]
+pub use build::*;
+
+#[cfg(not(test))]
 mod build {
     use std::time::Instant;
 
@@ -7,8 +10,8 @@ mod build {
     }
 }
 
-#[cfg(not(test))]
-pub use build::*;
+#[cfg(test)]
+pub use test::*;
 
 #[cfg(test)]
 mod test {
@@ -18,12 +21,12 @@ mod test {
     };
 
     thread_local! {
-        static NOW: Mutex<Option<Instant>> = Mutex::new(None);
+        static NOW: Mutex<Option<Instant>> = const { Mutex::new(None) };
     }
 
     pub fn now() -> Instant {
         let time = NOW.with(|now| *now.lock().unwrap());
-        time.unwrap_or_else(|| Instant::now())
+        time.unwrap_or_else(Instant::now)
     }
 
     pub struct MockTime;
@@ -42,6 +45,3 @@ mod test {
         }
     }
 }
-
-#[cfg(test)]
-pub use test::*;

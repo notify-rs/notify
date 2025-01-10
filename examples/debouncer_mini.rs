@@ -12,11 +12,11 @@ fn main() {
     // emit some events by changing a file
     std::thread::spawn(|| {
         let path = Path::new("test.txt");
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path);
         // log::info!("running 250ms events");
         for _ in 0..20 {
             log::trace!("writing..");
-            std::fs::write(&path, b"Lorem ipsum").unwrap();
+            std::fs::write(path, b"Lorem ipsum").unwrap();
             std::thread::sleep(Duration::from_millis(250));
         }
         // log::debug!("waiting 20s");
@@ -24,7 +24,7 @@ fn main() {
         // log::info!("running 3s events");
         for _ in 0..20 {
             // log::debug!("writing..");
-            std::fs::write(&path, b"Lorem ipsum").unwrap();
+            std::fs::write(path, b"Lorem ipsum").unwrap();
             std::thread::sleep(Duration::from_millis(3000));
         }
     });

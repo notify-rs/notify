@@ -8,9 +8,9 @@ fn main() {
     // emit some events by changing a file
     std::thread::spawn(|| {
         let path = Path::new("test.txt");
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path);
         loop {
-            std::fs::write(&path, b"Lorem ipsum").unwrap();
+            std::fs::write(path, b"Lorem ipsum").unwrap();
             std::thread::sleep(Duration::from_millis(250));
         }
     });
