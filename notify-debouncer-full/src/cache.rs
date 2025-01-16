@@ -30,7 +30,7 @@ pub trait FileIdCache {
     ///
     /// This will be called if the notification back-end has dropped events.
     /// The root paths are passed as argument, so the implementer doesn't have to store them.
-    /// 
+    ///
     /// The default implementation calls `add_path` for each root path.
     fn rescan(&mut self, root_paths: &[(PathBuf, RecursiveMode)]) {
         for (path, recursive_mode) in root_paths {
