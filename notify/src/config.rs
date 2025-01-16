@@ -100,7 +100,7 @@ impl Config {
     /// For the [INotifyWatcher](crate::INotifyWatcher), [KqueueWatcher](crate::KqueueWatcher),
     /// and [PollWatcher](crate::PollWatcher).
     ///
-    /// Determine if sybolic links should be followed when recursively watching a directory.
+    /// Determine if symbolic links should be followed when recursively watching a directory.
     ///
     /// This can't be changed during runtime. On by default.
     pub fn with_follow_symlinks(mut self, follow_symlinks: bool) -> Self {
