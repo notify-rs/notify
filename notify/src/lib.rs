@@ -88,9 +88,8 @@
 //! For more examples visit the [examples folder](https://github.com/notify-rs/notify/tree/main/examples) in the repository.
 //!
 //! ```rust
-//! # use std::path::Path;
-//! use notify::{recommended_watcher, Event, RecursiveMode, Result, Watcher};
-//! use std::sync::mpsc;
+//! use notify::{Event, RecursiveMode, Result, Watcher};
+//! use std::{path::Path, sync::mpsc};
 //!
 //! fn main() -> Result<()> {
 //!     let (tx, rx) = mpsc::channel::<Result<Event>>();
@@ -132,7 +131,7 @@
 //! all call the same event function. This can accommodate advanced behaviour or work around limits.
 //!
 //! ```rust
-//! # use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
+//! # use notify::{RecursiveMode, Result, Watcher};
 //! # use std::path::Path;
 //! #
 //! # fn main() -> Result<()> {
