@@ -89,7 +89,7 @@
 //!
 //! ```rust
 //! # use std::path::Path;
-//! use notify::{recommended_watcher, Event, RecursiveMode, Result, Watcher};
+//! use notify::{Event, RecursiveMode, Result, Watcher};
 //! use std::sync::mpsc;
 //!
 //! fn main() -> Result<()> {
