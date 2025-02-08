@@ -340,7 +340,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         let path = &event.paths[0];
 
         // store event
-        let file_id = self.cache.cached_file_id(path).cloned();
+        let file_id = self.cache.cached_file_id(path).map(|id| *id.as_ref());
         self.rename_event = Some((DebouncedEvent::new(event.clone(), time), file_id));
 
         self.cache.remove_path(path);
@@ -372,7 +372,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             .and_then(|from_file_id| {
                 self.cache
                     .cached_file_id(&event.paths[0])
-                    .map(|to_file_id| from_file_id == to_file_id)
+                    .map(|to_file_id| from_file_id == to_file_id.as_ref())
             })
             .unwrap_or_default();
 
