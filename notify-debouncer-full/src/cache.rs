@@ -34,6 +34,7 @@ pub trait FileIdCache {
     }
 }
 
+#[cfg(not(any(target_os = "linux", target_os = "android", target_family = "wasm")))]
 mod file_id_map {
     use crate::FileIdCache;
     use file_id::{get_file_id, FileId};
