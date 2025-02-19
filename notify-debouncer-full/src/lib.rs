@@ -79,7 +79,7 @@ use std::{
 
 use time::now;
 
-pub use cache::{FileIdCache, FileIdMap, NoCache, RecommendedCache};
+pub use cache::{FileIdCache, NoCache, RecommendedCache};
 
 pub use file_id;
 pub use notify;
