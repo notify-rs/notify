@@ -66,6 +66,9 @@ mod time;
 #[cfg(test)]
 mod testing;
 
+#[cfg(not(target_family = "wasm"))]
+mod file_id_map;
+
 use std::{
     cmp::Reverse,
     collections::{BinaryHeap, HashMap, VecDeque},
