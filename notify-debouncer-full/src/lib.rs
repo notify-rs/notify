@@ -81,6 +81,9 @@ use time::now;
 
 pub use cache::{FileIdCache, NoCache, RecommendedCache};
 
+#[cfg(not(target_family = "wasm"))]
+pub use file_id_map::FileIdMap;
+
 pub use file_id;
 pub use notify;
 pub use notify_types::debouncer_full::DebouncedEvent;
