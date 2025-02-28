@@ -32,7 +32,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows_sys::Win32::System::Threading::{
-    CreateSemaphoreW, ReleaseSemaphore, WaitForSingleObjectEx, INFINITE,
+    CreateSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForSingleObjectEx, INFINITE,
 };
 use windows_sys::Win32::System::IO::{CancelIo, OVERLAPPED};
 
@@ -138,7 +138,7 @@ impl ReadDirectoryChangesServer {
 
             unsafe {
                 // wait with alertable flag so that the completion routine fires
-                let waitres = WaitForSingleObjectEx(self.wakeup_sem, 100, 1);
+                let waitres = WaitForSingleObject(self.wakeup_sem, 100);
                 if waitres == WAIT_OBJECT_0 {
                     let _ = self.meta_tx.send(MetaEvent::WatcherAwakened);
                 }
