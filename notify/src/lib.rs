@@ -436,4 +436,23 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_windows_trash_dir() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+        let child_dir = dir.path().join("child");
+        fs::create_dir(&child_dir)?;
+
+        let mut watcher = recommended_watcher(|e| {
+            println!("{:?}", e);
+        })?;
+        watcher.watch(&child_dir, RecursiveMode::NonRecursive)?;
+
+        trash::delete(&child_dir)?;
+
+        watcher.watch(dir.path(), RecursiveMode::NonRecursive)?;
+
+        Ok(())
+    }
 }

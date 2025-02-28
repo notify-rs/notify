@@ -45,5 +45,6 @@ rstest = "0.24.0"
 serde = { version = "1.0.89", features = ["derive"] }
 serde_json = "1.0.39"
 tempfile = "3.10.0"
+trash = "5.2.2"
 walkdir = "2.4.0"
 windows-sys = "0.59.0"

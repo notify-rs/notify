@@ -32,7 +32,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows_sys::Win32::System::Threading::{
-    CreateSemaphoreW, ReleaseSemaphore, WaitForSingleObjectEx, INFINITE,
+    CreateSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForSingleObjectEx, INFINITE,
 };
 use windows_sys::Win32::System::IO::{CancelIo, OVERLAPPED};
 
@@ -138,7 +138,7 @@ impl ReadDirectoryChangesServer {
 
             unsafe {
                 // wait with alertable flag so that the completion routine fires
-                let waitres = WaitForSingleObjectEx(self.wakeup_sem, 100, 1);
+                let waitres = WaitForSingleObject(self.wakeup_sem, 100);
                 if waitres == WAIT_OBJECT_0 {
                     let _ = self.meta_tx.send(MetaEvent::WatcherAwakened);
                 }
@@ -206,7 +206,7 @@ impl ReadDirectoryChangesServer {
         };
         // every watcher gets its own semaphore to signal completion
         let semaphore = unsafe { CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
-        if semaphore == ptr::null_mut() || semaphore == INVALID_HANDLE_VALUE {
+        if semaphore.is_null() || semaphore == INVALID_HANDLE_VALUE {
             unsafe {
                 CloseHandle(handle);
             }
@@ -431,7 +431,7 @@ impl ReadDirectoryChangesWatcher {
         let (cmd_tx, cmd_rx) = unbounded();
 
         let wakeup_sem = unsafe { CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
-        if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
+        if wakeup_sem.is_null() || wakeup_sem == INVALID_HANDLE_VALUE {
             return Err(Error::generic("Failed to create wakeup semaphore."));
         }
 
