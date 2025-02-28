@@ -459,4 +459,25 @@ mod tests {
 
         panic!("did not receive expected event");
     }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_windows_trash_dir() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+        let inner_dir_1 = dir.path().join("Inner1");
+        let inner_dir_2 = inner_dir_1.join("Inner2");
+        fs::create_dir_all(&inner_dir_2)?;
+
+        let mut watcher = recommended_watcher(|e| {
+            println!("{:?}", e);
+        })?;
+        watcher.watch(&inner_dir_1, RecursiveMode::NonRecursive)?;
+        watcher.watch(&inner_dir_2, RecursiveMode::NonRecursive)?;
+
+        trash::delete(&inner_dir_2)?;
+
+        watcher.watch(&inner_dir_1, RecursiveMode::NonRecursive)?;
+
+        Ok(())
+    }
 }
