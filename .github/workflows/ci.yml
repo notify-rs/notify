@@ -1,0 +1,177 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Code quality checks
+  quality:
+    name: Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      
+      - name: Install typos-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: typos-cli
+      
+      - name: Check for typos
+        run: typos
+      
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      
+      - name: Run cargo-deny
+        run: cargo deny check
+        
+      - name: Install cargo-machete
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
+      
+      - name: Run cargo-machete
+        run: cargo machete
+
+  # Test on multiple platforms with different Rust versions
+  test:
+    name: Test ${{ matrix.os }} - ${{ matrix.rust }} ${{ matrix.features != '' && format('({0})', matrix.features) || '' }}
+    runs-on: ${{ matrix.os }}
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        rust: [stable, nightly, 1.77.2]
+        features: [""]
+        include:
+          # MacOS with fsevent
+          - os: macos-latest
+            rust: stable
+            features: "--no-default-features --features macos_fsevent"
+          - os: macos-latest
+            rust: nightly
+            features: "--no-default-features --features macos_fsevent"
+          - os: macos-latest
+            rust: 1.77.2
+            features: "--no-default-features --features macos_fsevent"
+          # MacOS with kqueue
+          - os: macos-latest
+            rust: stable
+            features: "--no-default-features --features macos_kqueue"
+          - os: macos-latest
+            rust: nightly
+            features: "--no-default-features --features macos_kqueue"
+          - os: macos-latest
+            rust: 1.77.2
+            features: "--no-default-features --features macos_kqueue"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remove rust-toolchain.toml (Unix)
+        if: runner.os != 'Windows'
+        run: rm -f rust-toolchain.toml
+
+      - name: Remove rust-toolchain.toml (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if (Test-Path rust-toolchain.toml) {
+            Remove-Item -Path rust-toolchain.toml
+          }
+
+      - name: Install Rust ${{ matrix.rust }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --verbose ${{ matrix.features }}
+
+      - name: Build examples
+        run: cargo build --examples --verbose ${{ matrix.features }}
+
+      - name: Run tests
+        run: cargo test --verbose ${{ matrix.features }}
+
+  # Android cross-compilation
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remove rust-toolchain.toml
+        run: rm -f rust-toolchain.toml
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: armv7-linux-androideabi, aarch64-linux-android
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - name: Build for Android (arm64)
+        run: cargo ndk --target aarch64-linux-android build --verbose
+
+      - name: Build for Android (arm)
+        run: cargo ndk --target armv7-linux-androideabi build --verbose
+
+  # # WebAssembly System Interface (WASI)
+  # wasi:
+  #   name: WASI
+  #   runs-on: ubuntu-latest
+  #   needs: quality
+  #   steps:
+  #     - uses: actions/checkout@v4
+
+  #     - name: Remove rust-toolchain.toml
+  #       run: rm -f rust-toolchain.toml
+
+  #     - name: Install Rust
+  #       uses: dtolnay/rust-toolchain@nightly
+  #       with:
+  #         targets: wasm32-wasip2
+
+  #     - name: Cache dependencies
+  #       uses: Swatinem/rust-cache@v2
+
+  #     - name: Build for WASI
+  #       run: cargo build --target wasm32-wasip2 --verbose
+
+  #     - name: Build examples for WASI
+  #       run: cargo build --examples --target wasm32-wasip2 --verbose

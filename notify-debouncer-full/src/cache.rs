@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
+
 use file_id::{get_file_id, FileId};
 use notify::RecursiveMode;
 use walkdir::WalkDir;
