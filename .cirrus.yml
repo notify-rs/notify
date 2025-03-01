@@ -1,16 +1,42 @@
-# adopted from https://github.com/tokio-rs/tokio/blob/master/.cirrus.yml
 freebsd_instance:
-  image_family: freebsd-14-1
+  image_family: freebsd-14-2
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
 task:
-  name: FreeBSD 64-bit
+  name: FreeBSD
+  matrix:
+    - name: FreeBSD 14.0 - Rust stable
+      env:
+        RUST_VERSION: stable
+    - name: FreeBSD 14.0 - Rust nightly
+      env:
+        RUST_VERSION: nightly
+    - name: FreeBSD 14.0 - Rust 1.77.2 (MSRV)
+      env:
+        RUST_VERSION: 1.77.2
+
   setup_script:
-    - pkg install -y bash
-    - curl https://sh.rustup.rs -sSf --output rustup.sh
-    - sh rustup.sh -y --profile minimal --default-toolchain stable
+    - rm -f rust-toolchain.toml
+    - curl https://sh.rustup.rs -sSf | sh -s -- -y --profile=minimal --default-toolchain ${RUST_VERSION}
     - . $HOME/.cargo/env
-    - |
-      echo "~~~~ rustc --version ~~~~"
-      rustc --version
+    - cargo --version
+    - rustc --version
+
+  cargo_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_script: cat Cargo.lock || echo "No Cargo.lock"
+
+  build_script:
+    - . $HOME/.cargo/env
+    - cargo build --verbose
+
+  build_examples_script:
+    - . $HOME/.cargo/env
+    - cargo build --examples --verbose
+
   test_script:
     - . $HOME/.cargo/env
-    - cargo test --all --all-features
+    - cargo test --verbose

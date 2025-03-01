@@ -897,21 +897,36 @@ mod tests {
     fn integration() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
 
+        // set up the watcher
         let (tx, rx) = std::sync::mpsc::channel();
-
         let mut debouncer = new_debouncer(Duration::from_millis(10), None, tx)?;
-
         debouncer.watch(dir.path(), RecursiveMode::Recursive)?;
 
-        fs::write(dir.path().join("file.txt"), b"Lorem ipsum")?;
+        // create a new file
+        let file_path = dir.path().join("file.txt");
+        fs::write(&file_path, b"Lorem ipsum")?;
 
-        let events = rx
-            .recv_timeout(Duration::from_secs(10))
-            .expect("no events received")
-            .expect("received an error");
+        println!("waiting for event at {}", file_path.display());
 
-        assert!(!events.is_empty(), "received empty event list");
+        // wait for up to 10 seconds for the create event, ignore all other events
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while deadline > Instant::now() {
+            let events = rx
+                .recv_timeout(deadline - Instant::now())
+                .expect("did not receive expected event")
+                .expect("received an error");
 
-        Ok(())
+            for event in events {
+                if event.event.paths == vec![file_path.clone()]
+                    || event.event.paths == vec![file_path.canonicalize()?]
+                {
+                    return Ok(());
+                }
+
+                println!("unexpected event: {event:?}");
+            }
+        }
+
+        panic!("did not receive expected event");
     }
 }
