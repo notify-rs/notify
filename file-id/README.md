@@ -21,4 +21,6 @@ println!("{file_id:?}");
 
 - `serde` for serde support, off by default
 
+- `nightly` for wasip2 support, off by default
+
 [docs]: https://docs.rs/file-id

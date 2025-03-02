@@ -27,6 +27,9 @@
 //! let file_id = file_id::get_high_res_file_id(file.path()).unwrap();
 //! println!("{file_id:?}");
 //! ```
+
+#![cfg_attr(feature = "nightly", feature(wasip2, wasi_ext))]
+
 use std::{fs, io, path::Path};
 
 #[cfg(feature = "serde")]
@@ -116,6 +119,16 @@ impl AsRef<FileId> for FileId {
 #[cfg(target_family = "unix")]
 pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     use std::os::unix::fs::MetadataExt;
+
+    let metadata = fs::metadata(path.as_ref())?;
+
+    Ok(FileId::new_inode(metadata.dev(), metadata.ino()))
+}
+
+/// Get the `FileId` for the file or directory at `path`
+#[cfg(target_family = "wasm")]
+pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
+    use std::os::wasi::fs::MetadataExt;
 
     let metadata = fs::metadata(path.as_ref())?;
 

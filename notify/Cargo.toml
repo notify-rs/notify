@@ -23,6 +23,7 @@ serde = ["notify-types/serde"]
 macos_kqueue = ["kqueue", "mio"]
 macos_fsevent = ["fsevent-sys"]
 serialization-compat-6 = ["notify-types/serialization-compat-6"]
+nightly = ["tempfile/nightly"]
 
 [dependencies]
 notify-types.workspace = true

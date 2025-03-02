@@ -5,6 +5,9 @@ publish = false
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+[features]
+nightly = ["tempfile/nightly"]
+
 [dev-dependencies]
 notify = { workspace = true }
 notify-debouncer-mini = { workspace = true }
