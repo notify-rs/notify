@@ -20,7 +20,6 @@ crossbeam-channel = ["dep:crossbeam-channel", "notify/crossbeam-channel"]
 macos_fsevent = ["notify/macos_fsevent"]
 macos_kqueue = ["notify/macos_kqueue"]
 serialization-compat-6 = ["notify/serialization-compat-6"]
-nightly = ["file-id/nightly", "tempfile/nightly"]
 
 [dependencies]
 notify.workspace = true
@@ -36,4 +35,9 @@ rstest.workspace = true
 serde.workspace = true
 deser-hjson.workspace = true
 rand.workspace = true
-tempfile.workspace = true
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tempfile = { workspace = true }
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+tempfile = { workspace = true, features = ["nightly"] }

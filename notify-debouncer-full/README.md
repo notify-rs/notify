@@ -18,7 +18,5 @@ A debouncer for [notify] that is optimized for ease of use.
 
 - `serialization-compat-6` passed down to notify, off by default
 
-- `nightly` passed down to file-id, off by default
-
 [docs]: https://docs.rs/notify-debouncer-full
 [notify]: https://crates.io/crates/notify

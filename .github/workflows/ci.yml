@@ -169,9 +169,28 @@ jobs:
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        
+      # - name: Install wasmtime
+      #   uses: taiki-e/install-action@v2
+      #   with:
+      #     tool: wasmtime
+
+      # - name: Install cargo-wasi
+      #   uses: taiki-e/install-action@v2
+      #   with:
+      #     tool: cargo-wasi
+
+      # - name: Build for WASI
+      #   run: cargo wasi build --features nightly --verbose
+
+      # - name: Build examples for WASI
+      #   run: cargo wasi build --features nightly --examples --verbose
+        
+      # - name: Run tests in WASI environment
+      #   run: cargo wasi test --features nightly --verbose
 
       - name: Build for WASI
-        run: cargo build --target wasm32-wasip2 --features nightly --verbose
+        run: cargo build --target wasm32-wasip2 --verbose
 
       - name: Build examples for WASI
-        run: cargo build --examples --target wasm32-wasip2 --features nightly --verbose
+        run: cargo build --examples --target wasm32-wasip2 --verbose

@@ -19,11 +19,15 @@ crossbeam-channel = ["dep:crossbeam-channel", "notify/crossbeam-channel"]
 macos_fsevent = ["notify/macos_fsevent"]
 macos_kqueue = ["notify/macos_kqueue"]
 serialization-compat-6 = ["notify/serialization-compat-6"]
-nightly = ["tempfile/nightly"]
 
 [dependencies]
 notify.workspace = true
 notify-types.workspace = true
 crossbeam-channel = { workspace = true, optional = true }
 log.workspace = true
-tempfile.workspace = true
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tempfile = { workspace = true }
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+tempfile = { workspace = true, features = ["nightly"] }

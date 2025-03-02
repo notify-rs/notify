@@ -28,7 +28,7 @@
 //! println!("{file_id:?}");
 //! ```
 
-#![cfg_attr(feature = "nightly", feature(wasip2, wasi_ext))]
+#![cfg_attr(target_family = "wasm", feature(wasip2, wasi_ext))]
 
 use std::{fs, io, path::Path};
 

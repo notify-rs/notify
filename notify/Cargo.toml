@@ -23,7 +23,6 @@ serde = ["notify-types/serde"]
 macos_kqueue = ["kqueue", "mio"]
 macos_fsevent = ["fsevent-sys"]
 serialization-compat-6 = ["notify-types/serialization-compat-6"]
-nightly = ["tempfile/nightly"]
 
 [dependencies]
 notify-types.workspace = true
@@ -52,6 +51,11 @@ mio.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
-tempfile.workspace = true
 nix.workspace = true
 insta.workspace = true
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tempfile = { workspace = true }
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+tempfile = { workspace = true, features = ["nightly"] }
