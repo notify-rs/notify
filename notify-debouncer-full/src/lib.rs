@@ -271,6 +271,10 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             return;
         }
 
+        if event.paths.is_empty() {
+            log::warn!("add_event: Skipping event with empty paths array");
+            return;
+        }
         let path = &event.paths[0];
 
         match &event.kind {
