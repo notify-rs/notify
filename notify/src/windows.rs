@@ -33,7 +33,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows_sys::Win32::System::Threading::{
-    CreateSemaphoreW, ReleaseSemaphore, WaitForSingleObject, WaitForSingleObjectEx, INFINITE,
+    CreateSemaphoreW, ReleaseSemaphore, WaitForSingleObjectEx, INFINITE,
 };
 use windows_sys::Win32::System::IO::{CancelIo, OVERLAPPED};
 
@@ -53,6 +53,12 @@ struct ReadDirectoryRequest {
     handle: HANDLE,
     data: ReadData,
     action_tx: Sender<Action>,
+}
+
+impl ReadDirectoryRequest {
+    fn unwatch(&self) {
+        let _ = self.action_tx.send(Action::Unwatch(self.data.dir.clone()));
+    }
 }
 
 enum Action {
@@ -330,21 +336,34 @@ unsafe extern "system" fn handle_event(
     let overlapped: Box<OVERLAPPED> = Box::from_raw(overlapped);
     let request: Box<ReadDirectoryRequest> = Box::from_raw(overlapped.hEvent as *mut _);
 
-    if error_code == ERROR_OPERATION_ABORTED {
-        // received when dir is unwatched or watcher is shutdown; return and let overlapped/request
-        // get drop-cleaned
-        ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
-        return;
-    }
-
-    if error_code == ERROR_ACCESS_DENIED {
-        // This could hanppen when the watched directory is deleted or trahsed, first check if it's the case.
-        // If so, unwatch the directory and return.
-        if !request.data.dir.exists() {
-            request
-                .action_tx
-                .send(Action::Unwatch(request.data.dir.clone()))
-                .ok();
+    match error_code {
+        ERROR_OPERATION_ABORTED => {
+            // received when dir is unwatched or watcher is shutdown, or directory has been deleted
+            // check if the directory still exists, if not, unwatch it
+            if !request.data.dir.exists() {
+                request.unwatch();
+            }
+            // return and let overlapped/request get drop-cleaned
+            ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+            return;
+        }
+        ERROR_ACCESS_DENIED => {
+            // This could hanppen when the watched directory is deleted or trahsed, first check if it's the case.
+            // If so, unwatch the directory and return, otherwise, continue to handle the event.
+            if !request.data.dir.exists() {
+                request.unwatch();
+                ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+                return;
+            }
+        }
+        ERROR_SUCCESS => {}
+        _ => {
+            log::error!(
+                "Unknown error in ReadDirectoryChangesW for directory {}: {}",
+                request.data.dir.display(),
+                error_code
+            );
+            request.unwatch();
             ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
             return;
         }
