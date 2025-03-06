@@ -467,8 +467,8 @@ mod tests {
         let child_dir = dir.path().join("child");
         fs::create_dir(&child_dir)?;
 
-        let mut watcher = recommended_watcher(|e| {
-            println!("{:?}", e);
+        let mut watcher = recommended_watcher(|_| {
+            // Do something with the event
         })?;
         watcher.watch(&child_dir, RecursiveMode::NonRecursive)?;
 
