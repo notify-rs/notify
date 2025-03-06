@@ -20,7 +20,8 @@ use std::slice;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_OPERATION_ABORTED, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_OPERATION_ABORTED, ERROR_SUCCESS, HANDLE,
+    INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, ReadDirectoryChangesW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED,
@@ -51,6 +52,7 @@ struct ReadDirectoryRequest {
     buffer: [u8; BUF_SIZE as usize],
     handle: HANDLE,
     data: ReadData,
+    action_tx: Sender<Action>,
 }
 
 enum Action {
@@ -72,6 +74,7 @@ struct WatchState {
 }
 
 struct ReadDirectoryChangesServer {
+    tx: Sender<Action>,
     rx: Receiver<Action>,
     event_handler: Arc<Mutex<dyn EventHandler>>,
     meta_tx: Sender<MetaEvent>,
@@ -92,17 +95,21 @@ impl ReadDirectoryChangesServer {
         let sem_temp = wakeup_sem as u64;
         let _ = thread::Builder::new()
             .name("notify-rs windows loop".to_string())
-            .spawn(move || {
-                let wakeup_sem = sem_temp as HANDLE;
-                let server = ReadDirectoryChangesServer {
-                    rx: action_rx,
-                    event_handler,
-                    meta_tx,
-                    cmd_tx,
-                    watches: HashMap::new(),
-                    wakeup_sem,
-                };
-                server.run();
+            .spawn({
+                let tx = action_tx.clone();
+                move || {
+                    let wakeup_sem = sem_temp as HANDLE;
+                    let server = ReadDirectoryChangesServer {
+                        tx,
+                        rx: action_rx,
+                        event_handler,
+                        meta_tx,
+                        cmd_tx,
+                        watches: HashMap::new(),
+                        wakeup_sem,
+                    };
+                    server.run();
+                }
             });
         action_tx
     }
@@ -138,7 +145,7 @@ impl ReadDirectoryChangesServer {
 
             unsafe {
                 // wait with alertable flag so that the completion routine fires
-                let waitres = WaitForSingleObject(self.wakeup_sem, 100);
+                let waitres = WaitForSingleObjectEx(self.wakeup_sem, 100, 1);
                 if waitres == WAIT_OBJECT_0 {
                     let _ = self.meta_tx.send(MetaEvent::WatcherAwakened);
                 }
@@ -223,7 +230,7 @@ impl ReadDirectoryChangesServer {
             complete_sem: semaphore,
         };
         self.watches.insert(path.clone(), ws);
-        start_read(&rd, self.event_handler.clone(), handle);
+        start_read(&rd, self.event_handler.clone(), handle, self.tx.clone());
         Ok(path)
     }
 
@@ -254,12 +261,18 @@ fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
     let _ = meta_tx.send(MetaEvent::SingleWatchComplete);
 }
 
-fn start_read(rd: &ReadData, event_handler: Arc<Mutex<dyn EventHandler>>, handle: HANDLE) {
+fn start_read(
+    rd: &ReadData,
+    event_handler: Arc<Mutex<dyn EventHandler>>,
+    handle: HANDLE,
+    action_tx: Sender<Action>,
+) {
     let request = Box::new(ReadDirectoryRequest {
         event_handler,
         handle,
         buffer: [0u8; BUF_SIZE as usize],
         data: rd.clone(),
+        action_tx,
     });
 
     let flags = FILE_NOTIFY_CHANGE_FILE_NAME
@@ -324,8 +337,26 @@ unsafe extern "system" fn handle_event(
         return;
     }
 
+    if error_code == ERROR_ACCESS_DENIED {
+        // This could hanppen when the watched directory is deleted or trahsed, first check if it's the case.
+        // If so, unwatch the directory and return.
+        if !request.data.dir.exists() {
+            request
+                .action_tx
+                .send(Action::Unwatch(request.data.dir.clone()))
+                .ok();
+            ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+            return;
+        }
+    }
+
     // Get the next request queued up as soon as possible
-    start_read(&request.data, request.event_handler.clone(), request.handle);
+    start_read(
+        &request.data,
+        request.event_handler.clone(),
+        request.handle,
+        request.action_tx,
+    );
 
     // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length
     // string as its last member. Each struct contains an offset for getting the next entry in
