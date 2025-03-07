@@ -338,17 +338,12 @@ unsafe extern "system" fn handle_event(
 
     match error_code {
         ERROR_OPERATION_ABORTED => {
-            // received when dir is unwatched or watcher is shutdown, or directory has been deleted
-            // check if the directory still exists, if not, unwatch it
-            if !request.data.dir.exists() {
-                request.unwatch();
-            }
-            // return and let overlapped/request get drop-cleaned
+            // received when dir is unwatched or watcher is shutdown; return and let overlapped/request get drop-cleaned
             ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
             return;
         }
         ERROR_ACCESS_DENIED => {
-            // This could hanppen when the watched directory is deleted or trahsed, first check if it's the case.
+            // This could hanppen when the watched directory is deleted or trashed, first check if it's the case.
             // If so, unwatch the directory and return, otherwise, continue to handle the event.
             if !request.data.dir.exists() {
                 request.unwatch();
@@ -356,8 +351,11 @@ unsafe extern "system" fn handle_event(
                 return;
             }
         }
-        ERROR_SUCCESS => {}
+        ERROR_SUCCESS => {
+            // Success, continue to handle the event
+        }
         _ => {
+            // Some unidentified error occurred, log and unwatch the directory, then return.
             log::error!(
                 "Unknown error in ReadDirectoryChangesW for directory {}: {}",
                 request.data.dir.display(),
