@@ -17,6 +17,7 @@ default = ["macos_fsevent"]
 serde = ["notify-types/serde"]
 web-time = ["notify-types/web-time"]
 crossbeam-channel = ["dep:crossbeam-channel", "notify/crossbeam-channel"]
+flume = ["dep:flume", "notify/flume"]
 macos_fsevent = ["notify/macos_fsevent"]
 macos_kqueue = ["notify/macos_kqueue"]
 serialization-compat-6 = ["notify/serialization-compat-6"]
@@ -25,6 +26,7 @@ serialization-compat-6 = ["notify/serialization-compat-6"]
 notify.workspace = true
 notify-types.workspace = true
 crossbeam-channel = { workspace = true, optional = true }
+flume = { workspace = true, optional = true }
 file-id.workspace = true
 walkdir.workspace = true
 log.workspace = true

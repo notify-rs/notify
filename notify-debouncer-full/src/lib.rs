@@ -132,6 +132,13 @@ impl DebounceEventHandler for crossbeam_channel::Sender<DebounceEventResult> {
     }
 }
 
+#[cfg(feature = "flume")]
+impl DebounceEventHandler for flume::Sender<DebounceEventResult> {
+    fn handle_event(&mut self, event: DebounceEventResult) {
+        let _ = self.send(event);
+    }
+}
+
 impl DebounceEventHandler for std::sync::mpsc::Sender<DebounceEventResult> {
     fn handle_event(&mut self, event: DebounceEventResult) {
         let _ = self.send(event);
