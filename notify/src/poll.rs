@@ -43,6 +43,13 @@ impl ScanEventHandler for crossbeam_channel::Sender<ScanEvent> {
     }
 }
 
+#[cfg(feature = "flume")]
+impl ScanEventHandler for flume::Sender<ScanEvent> {
+    fn handle_event(&mut self, event: ScanEvent) {
+        let _ = self.send(event);
+    }
+}
+
 impl ScanEventHandler for std::sync::mpsc::Sender<ScanEvent> {
     fn handle_event(&mut self, event: ScanEvent) {
         let _ = self.send(event);
