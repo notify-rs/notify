@@ -16,6 +16,8 @@ A debouncer for [notify] that is optimized for ease of use.
 
 - `crossbeam-channel` passed down to notify, off by default
 
+- `flume` passed down to notify, off by default
+
 - `serialization-compat-6` passed down to notify, off by default
 
 [docs]: https://docs.rs/notify-debouncer-full
