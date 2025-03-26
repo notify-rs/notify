@@ -47,6 +47,7 @@
 //!
 //! - `serde` passed down to notify-types, off by default
 //! - `crossbeam-channel` passed down to notify, off by default
+//! - `flume` passed down to notify, off by default
 //! - `macos_fsevent` passed down to notify, off by default
 //! - `macos_kqueue` passed down to notify, off by default
 //! - `serialization-compat-6` passed down to notify, off by default
