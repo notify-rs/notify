@@ -1,5 +1,15 @@
 # Changelog
 
+## notify 9.0.0 (unreleased)
+- FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
+
+## debouncer-full 0.6.0 (unreleased)
+- FEATURE: allow `FileIdCache` trait implementations to choose ownership of the returned file-ids
+- FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
+
+## debouncer-mini 0.7.0 (unreleased)
+- FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
+
 ## notify 8.0.0 (2025-01-10)
 
 - CHANGE: update notify-types to version 2.0.0
