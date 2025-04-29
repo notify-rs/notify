@@ -10,9 +10,14 @@ notify = { workspace = true }
 notify-debouncer-mini = { workspace = true }
 notify-debouncer-full = { workspace = true }
 futures = { workspace = true }
-tempfile = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tempfile = { workspace = true }
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+tempfile = { workspace = true, features = ["nightly"] }
 
 [[example]]
 name = "async_monitor"

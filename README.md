@@ -14,7 +14,7 @@ _Cross-platform filesystem notification library for Rust._
 - [Notify Types Documentation][notify-types-docs]
 - [Mini Debouncer Documentation][debouncer-mini-docs]
 - [Full Debouncer Documentation][debouncer-full-docs]
-- [File ID][file-id-docs]
+- [File ID Documentation][file-id-docs]
 - [Examples][examples]
 - [Changelog][changelog]
 - [Upgrading notify from v4](UPGRADING_V4_TO_V5.md)
