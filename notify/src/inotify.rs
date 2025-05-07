@@ -444,6 +444,8 @@ impl EventLoop {
                     Err(if e.raw_os_error() == Some(libc::ENOSPC) {
                         // do not report inotify limits as "no more space" on linux #266
                         Error::new(ErrorKind::MaxFilesWatch)
+                    } else if e.kind() == std::io::ErrorKind::NotFound {
+                        Error::new(ErrorKind::PathNotFound)
                     } else {
                         Error::io(e)
                     }
