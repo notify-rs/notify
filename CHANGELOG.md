@@ -1,7 +1,15 @@
 # Changelog
 
+## notify 9.0.0 (unreleased)
+- FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
+- FIX: kqueue-backend: do not double unwatch top-level directory when recursively unwatching [#683]
+
 ## debouncer-full 0.6.0 (unreleased)
 - FEATURE: allow `FileIdCache` trait implementations to choose ownership of the returned file-ids
+- FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
+
+## debouncer-mini 0.7.0 (unreleased)
+- FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
 
 ## file-id 0.2.3 (unreleased)
 - CHANGE: implement `AsRef<FileId>` for `FileId`

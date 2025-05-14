@@ -27,6 +27,7 @@ serialization-compat-6 = ["notify-types/serialization-compat-6"]
 [dependencies]
 notify-types.workspace = true
 crossbeam-channel = { workspace = true, optional = true }
+flume = { workspace = true, optional = true }
 filetime.workspace = true
 libc.workspace = true
 log.workspace = true

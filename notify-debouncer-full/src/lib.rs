@@ -52,6 +52,7 @@
 //! - `serde` passed down to notify-types, off by default
 //! - `web-time` passed down to notify-types, off by default
 //! - `crossbeam-channel` passed down to notify, off by default
+//! - `flume` passed down to notify, off by default
 //! - `macos_fsevent` passed down to notify, off by default
 //! - `macos_kqueue` passed down to notify, off by default
 //! - `serialization-compat-6` passed down to notify, off by default
@@ -127,6 +128,13 @@ where
 
 #[cfg(feature = "crossbeam-channel")]
 impl DebounceEventHandler for crossbeam_channel::Sender<DebounceEventResult> {
+    fn handle_event(&mut self, event: DebounceEventResult) {
+        let _ = self.send(event);
+    }
+}
+
+#[cfg(feature = "flume")]
+impl DebounceEventHandler for flume::Sender<DebounceEventResult> {
     fn handle_event(&mut self, event: DebounceEventResult) {
         let _ = self.send(event);
     }

@@ -262,6 +262,13 @@ impl EventHandler for crossbeam_channel::Sender<Result<Event>> {
     }
 }
 
+#[cfg(feature = "flume")]
+impl EventHandler for flume::Sender<Result<Event>> {
+    fn handle_event(&mut self, event: Result<Event>) {
+        let _ = self.send(event);
+    }
+}
+
 impl EventHandler for std::sync::mpsc::Sender<Result<Event>> {
     fn handle_event(&mut self, event: Result<Event>) {
         let _ = self.send(event);
