@@ -3,6 +3,7 @@
 ## notify 9.0.0 (unreleased)
 - FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
 - FIX: kqueue-backend: do not double unwatch top-level directory when recursively unwatching [#683]
+- FIX: Return the crate error `PathNotFound` instead bubbling up the std::io error  [#685] **breaking**
 
 ## debouncer-full 0.6.0 (unreleased)
 - FEATURE: allow `FileIdCache` trait implementations to choose ownership of the returned file-ids

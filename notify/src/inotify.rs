@@ -611,3 +611,21 @@ fn inotify_watcher_is_send_and_sync() {
     fn check<T: Send + Sync>() {}
     check::<INotifyWatcher>();
 }
+
+#[test]
+fn native_error_type_on_missing_path() {
+    let mut watcher = INotifyWatcher::new(|_| {}, Config::default()).unwrap();
+
+    let result = watcher.watch(
+        &PathBuf::from("/some/non/existant/path"),
+        RecursiveMode::NonRecursive,
+    );
+
+    assert!(matches!(
+        result,
+        Err(Error {
+            paths: _,
+            kind: ErrorKind::PathNotFound
+        })
+    ))
+}
