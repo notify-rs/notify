@@ -52,6 +52,11 @@ mio.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
-tempfile.workspace = true
 nix.workspace = true
 insta.workspace = true
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tempfile = { workspace = true }
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+tempfile = { workspace = true, features = ["nightly"] }

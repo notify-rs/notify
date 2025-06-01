@@ -27,4 +27,9 @@ notify-types.workspace = true
 crossbeam-channel = { workspace = true, optional = true }
 flume = { workspace = true, optional = true }
 log.workspace = true
-tempfile.workspace = true
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tempfile = { workspace = true }
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+tempfile = { workspace = true, features = ["nightly"] }

@@ -151,27 +151,40 @@ jobs:
       - name: Build for Android (arm)
         run: cargo ndk --target armv7-linux-androideabi build --verbose
 
-  # # WebAssembly System Interface (WASI)
-  # wasi:
-  #   name: WASI
-  #   runs-on: ubuntu-latest
-  #   needs: quality
-  #   steps:
-  #     - uses: actions/checkout@v4
+  # WebAssembly System Interface (WASI)
+  wasi:
+    name: WASI
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
 
-  #     - name: Remove rust-toolchain.toml
-  #       run: rm -f rust-toolchain.toml
+      - name: Remove rust-toolchain.toml
+        run: rm -f rust-toolchain.toml
 
-  #     - name: Install Rust
-  #       uses: dtolnay/rust-toolchain@nightly
-  #       with:
-  #         targets: wasm32-wasip2
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32-wasip2
 
-  #     - name: Cache dependencies
-  #       uses: Swatinem/rust-cache@v2
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        
+      - name: Install wasmtime
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasmtime
 
-  #     - name: Build for WASI
-  #       run: cargo build --target wasm32-wasip2 --verbose
+      - name: Build for WASI
+        run: cargo build --target wasm32-wasip2 --verbose
 
-  #     - name: Build examples for WASI
-  #       run: cargo build --examples --target wasm32-wasip2 --verbose
+      - name: Build examples for WASI
+        run: cargo build --examples --target wasm32-wasip2 --verbose
+        
+      - name: Run tests in WASI environment
+        run: |
+          cargo test --no-run --target wasm32-wasip2 --verbose
+          find target/wasm32-wasip2/debug/deps -type f -name "*.wasm" | while read -r test_file; do
+            echo "Running test: $test_file"
+            wasmtime run "$test_file" --dir=.
+          done
