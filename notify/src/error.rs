@@ -166,9 +166,6 @@ fn display_formatted_errors() {
 
     assert_eq!(
         expected,
-        format!(
-            "{}",
-            Error::io(io::Error::new(io::ErrorKind::Other, expected))
-        )
+        format!("{}", Error::io(io::Error::other(expected)))
     );
 }

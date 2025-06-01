@@ -244,13 +244,9 @@ impl EventLoop {
                                         .add_some_path(path.clone()),
                                 );
 
-                                let trackers_match = self
-                                    .rename_event
-                                    .as_ref()
-                                    .and_then(|e| e.tracker())
-                                    .map_or(false, |from_tracker| {
-                                        from_tracker == event.cookie as usize
-                                    });
+                                let trackers_match =
+                                    self.rename_event.as_ref().and_then(|e| e.tracker())
+                                        == Some(event.cookie as usize);
 
                                 if trackers_match {
                                     let rename_event = self.rename_event.take().unwrap(); // unwrap is safe because `rename_event` must be set at this point
