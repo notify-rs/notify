@@ -444,6 +444,8 @@ impl EventLoop {
                     Err(if e.raw_os_error() == Some(libc::ENOSPC) {
                         // do not report inotify limits as "no more space" on linux #266
                         Error::new(ErrorKind::MaxFilesWatch)
+                    } else if e.kind() == std::io::ErrorKind::NotFound {
+                        Error::new(ErrorKind::PathNotFound)
                     } else {
                         Error::io(e)
                     }
@@ -608,4 +610,22 @@ impl Drop for INotifyWatcher {
 fn inotify_watcher_is_send_and_sync() {
     fn check<T: Send + Sync>() {}
     check::<INotifyWatcher>();
+}
+
+#[test]
+fn native_error_type_on_missing_path() {
+    let mut watcher = INotifyWatcher::new(|_| {}, Config::default()).unwrap();
+
+    let result = watcher.watch(
+        &PathBuf::from("/some/non/existant/path"),
+        RecursiveMode::NonRecursive,
+    );
+
+    assert!(matches!(
+        result,
+        Err(Error {
+            paths: _,
+            kind: ErrorKind::PathNotFound
+        })
+    ))
 }
