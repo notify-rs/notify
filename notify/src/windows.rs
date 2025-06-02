@@ -343,7 +343,7 @@ unsafe extern "system" fn handle_event(
             return;
         }
         ERROR_ACCESS_DENIED => {
-            // This could hanppen when the watched directory is deleted or trashed, first check if it's the case.
+            // This could happen when the watched directory is deleted or trashed, first check if it's the case.
             // If so, unwatch the directory and return, otherwise, continue to handle the event.
             if !request.data.dir.exists() {
                 request.unwatch();
