@@ -357,7 +357,7 @@ unsafe extern "system" fn handle_event(
         _ => {
             // Some unidentified error occurred, log and unwatch the directory, then return.
             log::error!(
-                "Unknown error in ReadDirectoryChangesW for directory {}: {}",
+                "unknown error in ReadDirectoryChangesW for directory {}: {}",
                 request.data.dir.display(),
                 error_code
             );
