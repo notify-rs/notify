@@ -20,7 +20,8 @@ use std::slice;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_OPERATION_ABORTED, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_OPERATION_ABORTED, ERROR_SUCCESS, HANDLE,
+    INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, ReadDirectoryChangesW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED,
@@ -51,6 +52,13 @@ struct ReadDirectoryRequest {
     buffer: [u8; BUF_SIZE as usize],
     handle: HANDLE,
     data: ReadData,
+    action_tx: Sender<Action>,
+}
+
+impl ReadDirectoryRequest {
+    fn unwatch(&self) {
+        let _ = self.action_tx.send(Action::Unwatch(self.data.dir.clone()));
+    }
 }
 
 enum Action {
@@ -72,6 +80,7 @@ struct WatchState {
 }
 
 struct ReadDirectoryChangesServer {
+    tx: Sender<Action>,
     rx: Receiver<Action>,
     event_handler: Arc<Mutex<dyn EventHandler>>,
     meta_tx: Sender<MetaEvent>,
@@ -92,17 +101,21 @@ impl ReadDirectoryChangesServer {
         let sem_temp = wakeup_sem as u64;
         let _ = thread::Builder::new()
             .name("notify-rs windows loop".to_string())
-            .spawn(move || {
-                let wakeup_sem = sem_temp as HANDLE;
-                let server = ReadDirectoryChangesServer {
-                    rx: action_rx,
-                    event_handler,
-                    meta_tx,
-                    cmd_tx,
-                    watches: HashMap::new(),
-                    wakeup_sem,
-                };
-                server.run();
+            .spawn({
+                let tx = action_tx.clone();
+                move || {
+                    let wakeup_sem = sem_temp as HANDLE;
+                    let server = ReadDirectoryChangesServer {
+                        tx,
+                        rx: action_rx,
+                        event_handler,
+                        meta_tx,
+                        cmd_tx,
+                        watches: HashMap::new(),
+                        wakeup_sem,
+                    };
+                    server.run();
+                }
             });
         action_tx
     }
@@ -206,7 +219,7 @@ impl ReadDirectoryChangesServer {
         };
         // every watcher gets its own semaphore to signal completion
         let semaphore = unsafe { CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
-        if semaphore == ptr::null_mut() || semaphore == INVALID_HANDLE_VALUE {
+        if semaphore.is_null() || semaphore == INVALID_HANDLE_VALUE {
             unsafe {
                 CloseHandle(handle);
             }
@@ -223,7 +236,7 @@ impl ReadDirectoryChangesServer {
             complete_sem: semaphore,
         };
         self.watches.insert(path.clone(), ws);
-        start_read(&rd, self.event_handler.clone(), handle);
+        start_read(&rd, self.event_handler.clone(), handle, self.tx.clone());
         Ok(path)
     }
 
@@ -254,12 +267,18 @@ fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
     let _ = meta_tx.send(MetaEvent::SingleWatchComplete);
 }
 
-fn start_read(rd: &ReadData, event_handler: Arc<Mutex<dyn EventHandler>>, handle: HANDLE) {
+fn start_read(
+    rd: &ReadData,
+    event_handler: Arc<Mutex<dyn EventHandler>>,
+    handle: HANDLE,
+    action_tx: Sender<Action>,
+) {
     let request = Box::new(ReadDirectoryRequest {
         event_handler,
         handle,
         buffer: [0u8; BUF_SIZE as usize],
         data: rd.clone(),
+        action_tx,
     });
 
     let flags = FILE_NOTIFY_CHANGE_FILE_NAME
@@ -317,15 +336,44 @@ unsafe extern "system" fn handle_event(
     let overlapped: Box<OVERLAPPED> = Box::from_raw(overlapped);
     let request: Box<ReadDirectoryRequest> = Box::from_raw(overlapped.hEvent as *mut _);
 
-    if error_code == ERROR_OPERATION_ABORTED {
-        // received when dir is unwatched or watcher is shutdown; return and let overlapped/request
-        // get drop-cleaned
-        ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
-        return;
+    match error_code {
+        ERROR_OPERATION_ABORTED => {
+            // received when dir is unwatched or watcher is shutdown; return and let overlapped/request get drop-cleaned
+            ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+            return;
+        }
+        ERROR_ACCESS_DENIED => {
+            // This could happen when the watched directory is deleted or trashed, first check if it's the case.
+            // If so, unwatch the directory and return, otherwise, continue to handle the event.
+            if !request.data.dir.exists() {
+                request.unwatch();
+                ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+                return;
+            }
+        }
+        ERROR_SUCCESS => {
+            // Success, continue to handle the event
+        }
+        _ => {
+            // Some unidentified error occurred, log and unwatch the directory, then return.
+            log::error!(
+                "unknown error in ReadDirectoryChangesW for directory {}: {}",
+                request.data.dir.display(),
+                error_code
+            );
+            request.unwatch();
+            ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+            return;
+        }
     }
 
     // Get the next request queued up as soon as possible
-    start_read(&request.data, request.event_handler.clone(), request.handle);
+    start_read(
+        &request.data,
+        request.event_handler.clone(),
+        request.handle,
+        request.action_tx,
+    );
 
     // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length
     // string as its last member. Each struct contains an offset for getting the next entry in
@@ -431,7 +479,7 @@ impl ReadDirectoryChangesWatcher {
         let (cmd_tx, cmd_rx) = unbounded();
 
         let wakeup_sem = unsafe { CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
-        if wakeup_sem == ptr::null_mut() || wakeup_sem == INVALID_HANDLE_VALUE {
+        if wakeup_sem.is_null() || wakeup_sem == INVALID_HANDLE_VALUE {
             return Err(Error::generic("Failed to create wakeup semaphore."));
         }
 
