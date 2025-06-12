@@ -25,7 +25,6 @@ flume = "0.11.1"
 deser-hjson = "2.2.4"
 env_logger = "0.11.2"
 file-id = { version = "0.2.2", path = "file-id" }
-filetime = "0.2.22"
 fsevent-sys = "4.0.0"
 futures = "0.3.30"
 inotify = { version = "0.11.0", default-features = false }
