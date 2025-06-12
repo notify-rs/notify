@@ -66,7 +66,6 @@ mod data {
         event::{CreateKind, DataChange, Event, EventKind, MetadataKind, ModifyKind, RemoveKind},
         EventHandler,
     };
-    use filetime::FileTime;
     use std::{
         cell::RefCell,
         collections::{hash_map::RandomState, HashMap},
@@ -80,6 +79,13 @@ mod data {
     use walkdir::WalkDir;
 
     use super::ScanEventHandler;
+
+    fn system_time_to_seconds(time: std::time::SystemTime) -> i64 {
+        match time.duration_since(std::time::SystemTime::UNIX_EPOCH) {
+            Ok(d) => d.as_secs() as i64,
+            Err(e) => -(e.duration().as_secs() as i64),
+        }
+    }
 
     /// Builder for [`WatchData`] & [`PathData`].
     pub(super) struct DataBuilder {
@@ -356,7 +362,7 @@ mod data {
             let metadata = meta_path.metadata();
 
             PathData {
-                mtime: FileTime::from_last_modification_time(metadata).seconds(),
+                mtime: metadata.modified().map_or(0, system_time_to_seconds),
                 hash: data_builder
                     .build_hasher
                     .as_ref()
