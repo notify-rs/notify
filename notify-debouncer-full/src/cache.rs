@@ -41,7 +41,7 @@ pub trait FileIdCache {
 
 /// A cache to hold the file system IDs of all watched files.
 ///
-/// The file ID cache uses unique file IDs provided by the file system and is used to stich together
+/// The file ID cache uses unique file IDs provided by the file system and is used to stitch together
 /// rename events in case the notification back-end doesn't emit rename cookies.
 #[derive(Debug, Clone, Default)]
 pub struct FileIdMap {
