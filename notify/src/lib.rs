@@ -293,6 +293,18 @@ pub enum WatcherKind {
     NullWatcher,
 }
 
+/// todo: docs
+pub trait PathsMut {
+    /// todo: docs
+    fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
+
+    /// todo: docs
+    fn remove(&mut self, path: &Path) -> Result<()>;
+
+    /// todo: docs
+    fn commit(self: Box<Self>) -> Result<()>;
+}
+
 /// Type that can deliver file activity notifications
 ///
 /// `Watcher` is implemented per platform using the best implementation available on that platform.
@@ -319,6 +331,26 @@ pub trait Watcher {
     /// [#165]: https://github.com/notify-rs/notify/issues/165
     /// [#166]: https://github.com/notify-rs/notify/issues/166
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
+
+    /// todo: docs
+    fn paths_mut<'me>(
+        &'me mut self
+    ) -> Box<dyn PathsMut + 'me> {
+        struct DefaultPathsMut<'a, T: ?Sized>(&'a mut T);
+        impl<'a, T: Watcher + ?Sized> PathsMut for DefaultPathsMut<'a, T> {
+            fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+                self.0.watch(path, recursive_mode)
+            }
+            fn remove(&mut self, path: &Path) -> Result<()> {
+                self.0.unwatch(path)
+            }
+            fn commit(self: Box<Self>) -> Result<()> {
+                Ok(())
+            }
+            
+        }
+        Box::new(DefaultPathsMut(self))
+    }
 
     /// Stop watching a path.
     ///
