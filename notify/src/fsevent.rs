@@ -313,18 +313,6 @@ impl FsEventWatcher {
         result
     }
 
-    fn watch_many_inner(
-        &mut self,
-        f: &mut dyn FnMut(&mut dyn FnMut(&Path, RecursiveMode) -> Result<()>) -> Result<()>,
-    ) -> Result<()> {
-        self.stop();
-        let result = f(&mut |path: &Path, recursive_mode: RecursiveMode| {
-            self.append_path(path, recursive_mode)
-        });
-        let _ = self.run();
-        result
-    }
-
     fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
         self.stop();
         let result = self.remove_path(path);
