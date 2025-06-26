@@ -283,7 +283,7 @@ impl PathsMut for FsEventPathsMut<'_> {
         self.0.remove_path(path)
     }
 
-    fn commit(self: Box<Self>) -> Result<()> {
+    fn commit(&mut self) -> Result<()> {
         // ignore return error: may be empty path list
         let _ = self.0.run();
         Ok(())

@@ -293,16 +293,16 @@ pub enum WatcherKind {
     NullWatcher,
 }
 
-/// todo: docs
+/// Providing methods add and remove paths to watch
 pub trait PathsMut {
-    /// todo: docs
+    /// Add a new path to watch. See [`Watcher::watch`] for more.
     fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
 
-    /// todo: docs
+    /// Remove a path from watching. See [`Watcher::unwatch`] for more.
     fn remove(&mut self, path: &Path) -> Result<()>;
 
-    /// todo: docs
-    fn commit(self: Box<Self>) -> Result<()>;
+    /// Ensure previously added/removed paths are applied.
+    fn commit(&mut self) -> Result<()>;
 }
 
 /// Type that can deliver file activity notifications
@@ -332,7 +332,9 @@ pub trait Watcher {
     /// [#166]: https://github.com/notify-rs/notify/issues/166
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
 
-    /// todo: docs
+    /// Begin to add/remove paths to watch.
+    /// 
+    /// For some watcher implementations this method provides better performance than multiple calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
     fn paths_mut<'me>(
         &'me mut self
     ) -> Box<dyn PathsMut + 'me> {
@@ -344,7 +346,7 @@ pub trait Watcher {
             fn remove(&mut self, path: &Path) -> Result<()> {
                 self.0.unwatch(path)
             }
-            fn commit(self: Box<Self>) -> Result<()> {
+            fn commit(&mut self) -> Result<()> {
                 Ok(())
             }
             
