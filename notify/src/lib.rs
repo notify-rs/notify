@@ -333,11 +333,9 @@ pub trait Watcher {
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
 
     /// Begin to add/remove paths to watch.
-    /// 
+    ///
     /// For some watcher implementations this method provides better performance than multiple calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
-    fn paths_mut<'me>(
-        &'me mut self
-    ) -> Box<dyn PathsMut + 'me> {
+    fn paths_mut<'me>(&'me mut self) -> Box<dyn PathsMut + 'me> {
         struct DefaultPathsMut<'a, T: ?Sized>(&'a mut T);
         impl<'a, T: Watcher + ?Sized> PathsMut for DefaultPathsMut<'a, T> {
             fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
@@ -349,7 +347,6 @@ pub trait Watcher {
             fn commit(&mut self) -> Result<()> {
                 Ok(())
             }
-            
         }
         Box::new(DefaultPathsMut(self))
     }
