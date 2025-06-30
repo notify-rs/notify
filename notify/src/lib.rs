@@ -293,7 +293,9 @@ pub enum WatcherKind {
     NullWatcher,
 }
 
-/// Providing methods add and remove paths to watch
+/// Providing methods for adding and removing paths to watch.
+///
+/// `Box<dyn PathsMut>` is created by [`Watcher::paths_mut`]. See its documentation for more.
 pub trait PathsMut {
     /// Add a new path to watch. See [`Watcher::watch`] for more.
     fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
@@ -332,9 +334,34 @@ pub trait Watcher {
     /// [#166]: https://github.com/notify-rs/notify/issues/166
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
 
-    /// Begin to add/remove paths to watch.
+    /// Stop watching a path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error in the case that `path` has not been watched or if removing the watch
+    /// fails.
+    fn unwatch(&mut self, path: &Path) -> Result<()>;
+
+    /// Add/remove paths to watch.
     ///
     /// For some watcher implementations this method provides better performance than multiple calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use notify::{Watcher, RecursiveMode, Result};
+    /// # use std::path::Path;
+    /// # fn main() -> Result<()> {
+    /// # let many_paths_to_add = vec![];
+    /// let mut watcher = notify::recommended_watcher(|_event| { /* event handler */ })?;
+    /// let mut watcher_paths = watcher.paths_mut();
+    /// for path in many_paths_to_add {
+    ///     watcher_paths.add(path, RecursiveMode::Recursive)?;
+    /// }
+    /// watcher_paths.commit()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     fn paths_mut<'me>(&'me mut self) -> Box<dyn PathsMut + 'me> {
         struct DefaultPathsMut<'a, T: ?Sized>(&'a mut T);
         impl<'a, T: Watcher + ?Sized> PathsMut for DefaultPathsMut<'a, T> {
@@ -350,14 +377,6 @@ pub trait Watcher {
         }
         Box::new(DefaultPathsMut(self))
     }
-
-    /// Stop watching a path.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error in the case that `path` has not been watched or if removing the watch
-    /// fails.
-    fn unwatch(&mut self, path: &Path) -> Result<()>;
 
     /// Configure the watcher at runtime.
     ///
