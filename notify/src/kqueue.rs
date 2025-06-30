@@ -303,7 +303,7 @@ impl EventLoop {
                 .into_iter()
             {
                 let entry = entry.map_err(map_walkdir_error)?;
-                self.add_single_watch(entry.path().to_path_buf(), is_recursive)?;
+                self.add_single_watch(entry.into_path(), is_recursive)?;
             }
         }
 
@@ -347,7 +347,7 @@ impl EventLoop {
                         .follow_links(self.follow_symlinks)
                         .into_iter()
                     {
-                        let p = entry.map_err(map_walkdir_error)?.path().to_path_buf();
+                        let p = entry.map_err(map_walkdir_error)?.into_path();
                         self.kqueue
                             .remove_filename(&p, EventFilter::EVFILT_VNODE)
                             .map_err(|e| Error::io(e).add_path(p))?;
