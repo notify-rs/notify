@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 env:
@@ -18,42 +18,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
-      
+
       - name: Check formatting
         run: cargo fmt --all -- --check
-      
+
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
-      
+
       - name: Install typos-cli
         uses: taiki-e/install-action@v2
         with:
           tool: typos-cli
-      
+
       - name: Check for typos
         run: typos
-      
+
       - name: Install cargo-deny
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
-      
+
       - name: Run cargo-deny
         run: cargo deny check
-        
+
       - name: Install cargo-machete
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-machete
-      
+
       - name: Run cargo-machete
         run: cargo machete
 
