@@ -408,7 +408,7 @@ impl EventLoop {
             .into_iter()
             .filter_map(filter_dir)
         {
-            self.add_single_watch(entry.path().to_path_buf(), is_recursive, watch_self)?;
+            self.add_single_watch(entry.into_path(), is_recursive, watch_self)?;
             watch_self = false;
         }
 
