@@ -442,7 +442,7 @@ where
 #[cfg(test)]
 mod tests {
     use std::{
-        fs,
+        fs, iter,
         time::{Duration, Instant},
     };
 
@@ -475,6 +475,21 @@ mod tests {
         assert_debug_impl!(WatcherKind);
     }
 
+    fn iter_with_timeout(rx: &Receiver<Result<Event>>) -> impl Iterator<Item = Event> + '_ {
+        // wait for up to 10 seconds for the events
+        let deadline = Instant::now() + Duration::from_secs(10);
+        iter::from_fn(move || {
+            if Instant::now() >= deadline {
+                return None;
+            }
+            Some(
+                rx.recv_timeout(deadline - Instant::now())
+                    .expect("did not receive expected event")
+                    .expect("received an error"),
+            )
+        })
+    }
+
     #[test]
     fn integration() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
@@ -490,14 +505,8 @@ mod tests {
 
         println!("waiting for event at {}", file_path.display());
 
-        // wait for up to 10 seconds for the create event, ignore all other events
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while deadline > Instant::now() {
-            let event = rx
-                .recv_timeout(deadline - Instant::now())
-                .expect("did not receive expected event")
-                .expect("received an error");
-
+        // wait for the create event, ignore all other events
+        for event in iter_with_timeout(&rx) {
             if event.paths == vec![file_path.clone()]
                 || event.paths == vec![file_path.canonicalize()?]
             {
@@ -527,5 +536,77 @@ mod tests {
         watcher.watch(dir.path(), RecursiveMode::NonRecursive)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn test_paths_mut() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+
+        let dir_a = dir.path().join("a");
+        let dir_b = dir.path().join("b");
+
+        fs::create_dir(&dir_a)?;
+        fs::create_dir(&dir_b)?;
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+
+        // start watching a and b
+        {
+            let mut watcher_paths = watcher.paths_mut();
+            watcher_paths.add(&dir_a, RecursiveMode::Recursive)?;
+            watcher_paths.add(&dir_b, RecursiveMode::Recursive)?;
+            watcher_paths.commit()?;
+        }
+
+        // create file1 in both a and b
+        let a_file1 = dir_a.join("file1");
+        let b_file1 = dir_b.join("file1");
+        fs::write(&a_file1, b"Lorem ipsum")?;
+        fs::write(&b_file1, b"Lorem ipsum")?;
+
+        // wait for create events of a/file1 and b/file1
+        let mut a_file1_encoutered: bool = false;
+        let mut b_file1_encoutered: bool = false;
+        for event in iter_with_timeout(&rx) {
+            for path in event.paths {
+                a_file1_encoutered =
+                    a_file1_encoutered || (path == a_file1 || path == a_file1.canonicalize()?);
+                b_file1_encoutered =
+                    b_file1_encoutered || (path == b_file1 || path == b_file1.canonicalize()?);
+            }
+            if a_file1_encoutered && b_file1_encoutered {
+                break;
+            }
+        }
+        assert!(a_file1_encoutered, "Did not receive event of {a_file1:?}");
+        assert!(b_file1_encoutered, "Did not receive event of {b_file1:?}");
+
+        // stop watching a
+        {
+            let mut watcher_paths = watcher.paths_mut();
+            watcher_paths.remove(&dir_a)?;
+            watcher_paths.commit()?;
+        }
+
+        // create file2 in both a and b
+        let a_file2 = dir_a.join("file2");
+        let b_file2 = dir_b.join("file2");
+        fs::write(&a_file2, b"Lorem ipsum")?;
+        fs::write(&b_file2, b"Lorem ipsum")?;
+
+        // wait for the create event of b/file2 only
+        for event in iter_with_timeout(&rx) {
+            for path in event.paths {
+                assert!(
+                    path != a_file2 || path != a_file2.canonicalize()?,
+                    "Event of {a_file2:?} should not be received"
+                );
+                if path == b_file2 || path == b_file2.canonicalize()? {
+                    return Ok(());
+                }
+            }
+        }
+        panic!("Did not receive the event of {b_file2:?}");
     }
 }
