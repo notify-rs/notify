@@ -566,21 +566,21 @@ mod tests {
         fs::write(&b_file1, b"Lorem ipsum")?;
 
         // wait for create events of a/file1 and b/file1
-        let mut a_file1_encoutered: bool = false;
-        let mut b_file1_encoutered: bool = false;
+        let mut a_file1_encountered: bool = false;
+        let mut b_file1_encountered: bool = false;
         for event in iter_with_timeout(&rx) {
             for path in event.paths {
-                a_file1_encoutered =
-                    a_file1_encoutered || (path == a_file1 || path == a_file1.canonicalize()?);
-                b_file1_encoutered =
-                    b_file1_encoutered || (path == b_file1 || path == b_file1.canonicalize()?);
+                a_file1_encountered =
+                    a_file1_encountered || (path == a_file1 || path == a_file1.canonicalize()?);
+                b_file1_encountered =
+                    b_file1_encountered || (path == b_file1 || path == b_file1.canonicalize()?);
             }
-            if a_file1_encoutered && b_file1_encoutered {
+            if a_file1_encountered && b_file1_encountered {
                 break;
             }
         }
-        assert!(a_file1_encoutered, "Did not receive event of {a_file1:?}");
-        assert!(b_file1_encoutered, "Did not receive event of {b_file1:?}");
+        assert!(a_file1_encountered, "Did not receive event of {a_file1:?}");
+        assert!(b_file1_encountered, "Did not receive event of {b_file1:?}");
 
         // stop watching a
         {
