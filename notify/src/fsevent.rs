@@ -15,7 +15,9 @@
 #![allow(non_upper_case_globals, dead_code)]
 
 use crate::event::*;
-use crate::{unbounded, Config, Error, EventHandler, RecursiveMode, Result, Sender, Watcher};
+use crate::{
+    unbounded, Config, Error, EventHandler, PathsMut, RecursiveMode, Result, Sender, Watcher,
+};
 use fsevent_sys as fs;
 use fsevent_sys::core_foundation as cf;
 use std::collections::HashMap;
@@ -263,6 +265,29 @@ extern "C" fn release_context(info: *const libc::c_void) {
 extern "C" {
     /// Indicates whether the run loop is waiting for an event.
     fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> cf::Boolean;
+}
+
+struct FsEventPathsMut<'a>(&'a mut FsEventWatcher);
+impl<'a> FsEventPathsMut<'a> {
+    fn new(watcher: &'a mut FsEventWatcher) -> Self {
+        watcher.stop();
+        Self(watcher)
+    }
+}
+impl PathsMut for FsEventPathsMut<'_> {
+    fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.0.append_path(path, recursive_mode)
+    }
+
+    fn remove(&mut self, path: &Path) -> Result<()> {
+        self.0.remove_path(path)
+    }
+
+    fn commit(&mut self) -> Result<()> {
+        // ignore return error: may be empty path list
+        let _ = self.0.run();
+        Ok(())
+    }
 }
 
 impl FsEventWatcher {
@@ -559,6 +584,10 @@ impl Watcher for FsEventWatcher {
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
         self.watch_inner(path, recursive_mode)
+    }
+
+    fn paths_mut<'me>(&'me mut self) -> Box<dyn PathsMut + 'me> {
+        Box::new(FsEventPathsMut::new(self))
     }
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {
