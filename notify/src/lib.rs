@@ -303,8 +303,11 @@ pub trait PathsMut {
     /// Remove a path from watching. See [`Watcher::unwatch`] for more.
     fn remove(&mut self, path: &Path) -> Result<()>;
 
-    /// Ensure previously added/removed paths are applied.
-    fn commit(&mut self) -> Result<()>;
+    /// Ensure added/removed paths are applied.
+    ///
+    /// The behaviour of dropping a [`PathsMut`] without calling [`commit`] is unspecified.
+    /// The implementation is free to ignore the changes or not, and may leave the watcher in a started or stopped state.
+    fn commit(self: Box<Self>) -> Result<()>;
 }
 
 /// Type that can deliver file activity notifications
@@ -371,7 +374,7 @@ pub trait Watcher {
             fn remove(&mut self, path: &Path) -> Result<()> {
                 self.0.unwatch(path)
             }
-            fn commit(&mut self) -> Result<()> {
+            fn commit(self: Box<Self>) -> Result<()> {
                 Ok(())
             }
         }
