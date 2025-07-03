@@ -290,7 +290,7 @@ impl TestCache {
 }
 
 impl FileIdCache for TestCache {
-    fn cached_file_id(&self, path: &Path) -> Option<impl AsRef<FileId>> {
+    fn cached_file_id(&self, path: &Path) -> Option<&FileId> {
         self.paths.get(path)
     }
 
