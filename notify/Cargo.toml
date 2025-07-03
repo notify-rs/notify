@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "8.0.0"
+version = "8.1.0"
 description = "Cross-platform filesystem notification library"
 documentation = "https://docs.rs/notify"
 readme = "../README.md"

@@ -2,9 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - 'main'
+      - '*_maintenance'
   pull_request:
-    branches: [main]
+    branches:
+      - 'main'
+      - '*_maintenance'
   workflow_dispatch:
 
 env:
