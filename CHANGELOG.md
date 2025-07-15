@@ -1,5 +1,10 @@
 # Changelog
 
+## notify 8.2.0 (unreleased)
+- FEATURE: notify a user if the `max_user_watches` has been reached implicitly (`INotifyWatcher`) [#698]
+
+[#698]: https://github.com/notify-rs/notify/pull/698
+
 ## notify 8.1.0 (2025-07-03)
 - FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
 - FIX: kqueue-backend: do not double unwatch top-level directory when recursively unwatching [#683]
