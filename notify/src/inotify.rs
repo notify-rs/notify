@@ -388,7 +388,19 @@ impl EventLoop {
         }
 
         for path in add_watches {
-            self.add_watch(path, true, false).ok();
+            if let Err(add_watch_error) = self.add_watch(path, true, false) {
+                // The handler should be notified if we have reached the limit.
+                // Otherwise, the user might expect that a recursive watch
+                // is continuing to work correctly, but it's not.
+                if let ErrorKind::MaxFilesWatch = add_watch_error.kind {
+                    self.event_handler.handle_event(Err(add_watch_error));
+
+                    // After that kind of a error we should stop adding watches,
+                    // because the limit has already reached and all next calls
+                    // will return us only the same error.
+                    break;
+                }
+            }
         }
     }
 
@@ -628,4 +640,64 @@ fn native_error_type_on_missing_path() {
             kind: ErrorKind::PathNotFound
         })
     ))
+}
+
+/// Runs manually.
+///
+/// * Save actual value of the limit: `MAX_USER_WATCHES=$(sysctl -n fs.inotify.max_user_watches)`
+/// * Run the test.
+/// * Set the limit to 0: `sudo sysctl fs.inotify.max_user_watches=0` while test is running
+/// * Wait for the test to complete
+/// * Restore the limit `sudo sysctl fs.inotify.max_user_watches=$MAX_USER_WATCHES`
+#[test]
+#[ignore = "requires changing sysctl fs.inotify.max_user_watches while test is running"]
+fn recurcive_watch_calls_handler_if_creating_a_file_raises_max_files_watch() {
+    use std::time::Duration;
+
+    let tmpdir = tempfile::tempdir().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (proc_changed_tx, proc_changed_rx) = std::sync::mpsc::channel();
+    let proc_path = Path::new("/proc/sys/fs/inotify/max_user_watches");
+    let mut watcher = INotifyWatcher::new(
+        move |result: Result<Event>| match result {
+            Ok(event) => {
+                if event.paths.first().is_some_and(|path| path == proc_path) {
+                    proc_changed_tx.send(()).unwrap();
+                }
+            }
+            Err(e) => tx.send(e).unwrap(),
+        },
+        Config::default(),
+    )
+    .unwrap();
+
+    watcher
+        .watch(tmpdir.path(), RecursiveMode::Recursive)
+        .unwrap();
+    watcher
+        .watch(proc_path, RecursiveMode::NonRecursive)
+        .unwrap();
+
+    // give the time to set the limit
+    proc_changed_rx
+        .recv_timeout(Duration::from_secs(30))
+        .unwrap();
+
+    let child_dir = tmpdir.path().join("child");
+    std::fs::create_dir(child_dir).unwrap();
+
+    let result = rx.recv_timeout(Duration::from_millis(500));
+
+    assert!(
+        matches!(
+            &result,
+            Ok(Error {
+                kind: ErrorKind::MaxFilesWatch,
+                paths: _,
+            })
+        ),
+        "expected {:?}, found: {:#?}",
+        ErrorKind::MaxFilesWatch,
+        result
+    );
 }
