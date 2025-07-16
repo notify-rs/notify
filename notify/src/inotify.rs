@@ -653,7 +653,7 @@ mod tests {
     /// * Restore the limit `sudo sysctl fs.inotify.max_user_watches=$MAX_USER_WATCHES`
     #[test]
     #[ignore = "requires changing sysctl fs.inotify.max_user_watches while test is running"]
-    fn recurcive_watch_calls_handler_if_creating_a_file_raises_max_files_watch() {
+    fn recursive_watch_calls_handler_if_creating_a_file_raises_max_files_watch() {
         use std::time::Duration;
 
         let tmpdir = tempfile::tempdir().unwrap();
