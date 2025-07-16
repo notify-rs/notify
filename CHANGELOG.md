@@ -2,8 +2,10 @@
 
 ## notify 8.2.0 (unreleased)
 - FEATURE: notify a user if the `max_user_watches` has been reached implicitly (`INotifyWatcher`) [#698]
+- FIX: `INotifyWatcher` ignores events with unknown watch descriptors (instead of `EventMask::Q_OVERFLOW`) [#700]
 
 [#698]: https://github.com/notify-rs/notify/pull/698
+[#700]: https://github.com/notify-rs/notify/pull/700
 
 ## notify 8.1.0 (2025-07-03)
 - FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
