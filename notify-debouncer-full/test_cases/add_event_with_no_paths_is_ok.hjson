@@ -1,0 +1,13 @@
+// https://github.com/notify-rs/notify/issues/678
+//
+// There was a bug in INotifyWatcher that causes producing events with no paths.
+// Debouncer should ignore this kind of events
+{
+    state: {}
+    events: [
+        { kind: "create-folder", paths: [] }
+    ]
+    expected: {
+        queues: {}
+    }
+}
