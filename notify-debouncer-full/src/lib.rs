@@ -279,7 +279,13 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             return;
         }
 
-        let path = &event.paths[0];
+        let path = match event.paths.first() {
+            Some(path) => path,
+            None => {
+                log::info!("skipping event with no paths: {event:?}");
+                return;
+            }
+        };
 
         match &event.kind {
             EventKind::Create(_) => {
@@ -775,6 +781,7 @@ mod tests {
             "add_create_event",
             "add_create_event_after_remove_event",
             "add_create_dir_event_twice",
+            "add_event_with_no_paths_is_ok",
             "add_modify_content_event_after_create_event",
             "add_rename_from_event",
             "add_rename_from_event_after_create_event",
