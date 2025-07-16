@@ -222,7 +222,7 @@ impl EventLoop {
                             let path = match path {
                                 Some(path) => path,
                                 None => {
-                                    log::debug!("inotify event with unknown desciptor: {event:?}");
+                                    log::debug!("inotify event with unknown descriptor: {event:?}");
                                     continue;
                                 }
                             };
