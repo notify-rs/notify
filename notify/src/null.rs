@@ -36,8 +36,4 @@ impl Watcher for NullWatcher {
     fn kind() -> crate::WatcherKind {
         crate::WatcherKind::NullWatcher
     }
-
-    fn paths_mut(&mut self) -> crate::PathsMut<'_> {
-        crate::PathsMut::new(self)
-    }
 }

@@ -585,10 +585,6 @@ impl Watcher for ReadDirectoryChangesWatcher {
     fn kind() -> crate::WatcherKind {
         WatcherKind::ReadDirectoryChangesWatcher
     }
-
-    fn paths_mut(&mut self) -> crate::PathsMut<'_> {
-        crate::PathsMut::new(self)
-    }
 }
 
 impl Drop for ReadDirectoryChangesWatcher {
