@@ -601,6 +601,10 @@ impl Watcher for INotifyWatcher {
     fn kind() -> crate::WatcherKind {
         crate::WatcherKind::Inotify
     }
+
+    fn paths_mut(&mut self) -> crate::PathsMut<'_> {
+        crate::PathsMut::new(self)
+    }
 }
 
 impl Drop for INotifyWatcher {
