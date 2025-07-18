@@ -14,7 +14,7 @@
 
 #![allow(non_upper_case_globals, dead_code)]
 
-use crate::{event::*, WatchOp};
+use crate::{event::*, PathOp};
 use crate::{unbounded, Config, Error, EventHandler, RecursiveMode, Result, Sender, Watcher};
 use fsevent_sys as fs;
 use fsevent_sys::core_foundation as cf;
@@ -296,15 +296,15 @@ impl FsEventWatcher {
         result
     }
 
-    fn update_watches_inner(
+    fn update_paths_inner(
         &mut self,
-        ops: Vec<crate::WatchOp>,
-    ) -> crate::StdResult<(), crate::UpdateWatchesError> {
+        ops: Vec<crate::PathOp>,
+    ) -> crate::StdResult<(), crate::UpdatePathsError> {
         self.stop();
 
-        let result = crate::update_watches(ops, |op| match op {
-            crate::WatchOp::Watch(path, recursive_mode) => self.append_path(&path, recursive_mode),
-            crate::WatchOp::Unwatch(path) => self.remove_path(&path),
+        let result = crate::update_paths(ops, |op| match op {
+            crate::PathOp::Watch(path, config) => self.append_path(&path, config.recursive_mode()),
+            crate::PathOp::Unwatch(path) => self.remove_path(&path),
         });
 
         // ignore return error: may be empty path list
@@ -584,11 +584,8 @@ impl Watcher for FsEventWatcher {
         self.unwatch_inner(path)
     }
 
-    fn update_watches(
-        &mut self,
-        ops: Vec<WatchOp>,
-    ) -> crate::StdResult<(), crate::UpdateWatchesError> {
-        self.update_watches_inner(ops)
+    fn update_paths(&mut self, ops: Vec<PathOp>) -> crate::StdResult<(), crate::UpdatePathsError> {
+        self.update_paths_inner(ops)
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {

@@ -162,10 +162,10 @@
 
 #![deny(missing_docs)]
 
-pub use config::{Config, RecursiveMode};
-pub use error::{Error, ErrorKind, Result, UpdateWatchesError};
+pub use config::{Config, PathOp, RecursiveMode, WatchPathConfig};
+pub use error::{Error, ErrorKind, Result, UpdatePathsError};
 pub use notify_types::event::{self, Event, EventKind};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub(crate) type StdResult<T, E> = std::result::Result<T, E>;
 pub(crate) type Receiver<T> = std::sync::mpsc::Receiver<T>;
@@ -294,16 +294,47 @@ pub enum WatcherKind {
     NullWatcher,
 }
 
-/// An operation to apply to a watcher
+/// Providing methods for adding and removing paths to watch.
 ///
-/// See [`Watcher::update_watches`] for more information
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum WatchOp {
-    /// Path should be watcher
-    Watch(PathBuf, RecursiveMode),
+/// `Box<dyn PathsMut>` is created by [`Watcher::paths_mut`]. See its documentation for more.
+#[deprecated(
+    since = "9.0.0",
+    note = "paths_mut has been replaced with update_paths"
+)]
+pub trait PathsMut {
+    /// Add a new path to watch. See [`Watcher::watch`] for more.
+    fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
 
-    /// Path should be unwatched
-    Unwatch(PathBuf),
+    /// Remove a path from watching. See [`Watcher::unwatch`] for more.
+    fn remove(&mut self, path: &Path) -> Result<()>;
+
+    /// Ensure added/removed paths are applied.
+    fn commit(self: Box<Self>) -> Result<()>;
+}
+
+struct PathsMutInternal<'a, T: ?Sized> {
+    ops: Vec<PathOp>,
+    watcher: &'a mut T,
+}
+
+#[allow(deprecated)]
+impl<'a, T: Watcher + ?Sized> PathsMut for PathsMutInternal<'a, T> {
+    fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.ops.push(PathOp::Watch(
+            path.to_path_buf(),
+            WatchPathConfig::new(recursive_mode),
+        ));
+        Ok(())
+    }
+
+    fn remove(&mut self, path: &Path) -> Result<()> {
+        self.ops.push(PathOp::Unwatch(path.to_path_buf()));
+        Ok(())
+    }
+
+    fn commit(self: Box<Self>) -> Result<()> {
+        self.watcher.update_paths(self.ops).map_err(|v| v.source)
+    }
 }
 
 /// Type that can deliver file activity notifications
@@ -341,6 +372,19 @@ pub trait Watcher {
     /// fails.
     fn unwatch(&mut self, path: &Path) -> Result<()>;
 
+    /// deprecated
+    #[deprecated(
+        since = "9.0.0",
+        note = "paths_mut has been replaced with update_paths"
+    )]
+    #[allow(deprecated)]
+    fn paths_mut<'me>(&'me mut self) -> Box<dyn PathsMut + 'me> {
+        Box::new(PathsMutInternal {
+            watcher: self,
+            ops: Default::default(),
+        })
+    }
+
     /// Add/remove paths to watch in batch.
     ///
     /// For some [`Watcher`] implementations this method provides better performance than multiple
@@ -349,31 +393,31 @@ pub trait Watcher {
     /// # Examples
     ///
     /// ```
-    /// # use notify::{Watcher, RecursiveMode, WatchOp};
-    /// # use std::path::Path;
+    /// # use notify::{Watcher, RecursiveMode, PathOp};
+    /// # use std::path::{Path, PathBuf};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let many_paths_to_add = vec![];
-    /// # let many_paths_to_remove = vec![];
+    /// # let many_paths_to_add: Vec<PathBuf> = vec![];
+    /// # let many_paths_to_remove: Vec<PathBuf> = vec![];
     /// let mut watcher = notify::NullWatcher;
     /// let mut batch = Vec::new();
     ///
-    /// for (path, recursive_mode) in many_paths_to_add {
-    ///     batch.push(WatchOp::Watch(path, recursive_mode));
+    /// for path in many_paths_to_add {
+    ///     batch.push(PathOp::watch_recursive(path));
     /// }
     ///
     /// for path in many_paths_to_remove {
-    ///     batch.push(WatchOp::Unwatch(path));
+    ///     batch.push(PathOp::unwatch(path));
     /// }
     ///
     /// // real work is done there
-    /// watcher.update_watches(batch)?;
+    /// watcher.update_paths(batch)?;
     /// # Ok(())
     /// # }
     /// ```
-    fn update_watches(&mut self, ops: Vec<WatchOp>) -> StdResult<(), UpdateWatchesError> {
-        update_watches(ops, |op| match op {
-            WatchOp::Watch(path, recursive_mode) => self.watch(&path, recursive_mode),
-            WatchOp::Unwatch(path) => self.unwatch(&path),
+    fn update_paths(&mut self, ops: Vec<PathOp>) -> StdResult<(), UpdatePathsError> {
+        update_paths(ops, |op| match op {
+            PathOp::Watch(path, config) => self.watch(&path, config.recursive_mode()),
+            PathOp::Unwatch(path) => self.unwatch(&path),
         })
     }
 
@@ -438,17 +482,14 @@ where
     RecommendedWatcher::new(event_handler, Config::default())
 }
 
-pub(crate) fn update_watches<F>(
-    ops: Vec<WatchOp>,
-    mut apply: F,
-) -> StdResult<(), UpdateWatchesError>
+pub(crate) fn update_paths<F>(ops: Vec<PathOp>, mut apply: F) -> StdResult<(), UpdatePathsError>
 where
-    F: FnMut(WatchOp) -> Result<()>,
+    F: FnMut(PathOp) -> Result<()>,
 {
     let mut iter = ops.into_iter();
     while let Some(op) = iter.next() {
         if let Err(source) = apply(op) {
-            return Err(UpdateWatchesError {
+            return Err(UpdatePathsError {
                 source,
                 remaining: iter.collect(),
             });
@@ -557,7 +598,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_watches() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn test_update_paths() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
 
         let dir_a = dir.path().join("a");
@@ -570,9 +611,15 @@ mod tests {
         let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
 
         // start watching a and b
-        watcher.update_watches(vec![
-            WatchOp::Watch(dir_a.clone(), RecursiveMode::Recursive),
-            WatchOp::Watch(dir_b.clone(), RecursiveMode::Recursive),
+        watcher.update_paths(vec![
+            PathOp::Watch(
+                dir_a.clone(),
+                WatchPathConfig::new(RecursiveMode::Recursive),
+            ),
+            PathOp::Watch(
+                dir_b.clone(),
+                WatchPathConfig::new(RecursiveMode::Recursive),
+            ),
         ])?;
 
         // create file1 in both a and b
@@ -599,7 +646,7 @@ mod tests {
         assert!(b_file1_encountered, "Did not receive event of {b_file1:?}");
 
         // stop watching a
-        watcher.update_watches(vec![WatchOp::Unwatch(dir_a.clone())])?;
+        watcher.update_paths(vec![PathOp::unwatch(&dir_a)])?;
 
         // create file2 in both a and b
         let a_file2 = dir_a.join("file2");

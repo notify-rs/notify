@@ -1,6 +1,6 @@
 //! Error types
 
-use crate::{Config, WatchOp};
+use crate::{Config, PathOp};
 use std::error::Error as StdError;
 use std::fmt::Debug;
 use std::path::PathBuf;
@@ -159,23 +159,23 @@ impl<T> From<std::sync::PoisonError<T>> for Error {
     }
 }
 
-/// The error provided by [`crate::Watcher::update_watches`] method
+/// The error provided by [`crate::Watcher::update_paths`] method
 #[derive(Debug)]
-pub struct UpdateWatchesError {
+pub struct UpdatePathsError {
     /// The original error
     pub source: Error,
 
     /// The remaining operations that haven't been applied
-    pub remaining: Vec<WatchOp>,
+    pub remaining: Vec<PathOp>,
 }
 
-impl fmt::Display for UpdateWatchesError {
+impl fmt::Display for UpdatePathsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "unable to apply the batch operation: {}", self.source)
     }
 }
 
-impl StdError for UpdateWatchesError {
+impl StdError for UpdatePathsError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         Some(&self.source)
     }
@@ -198,8 +198,8 @@ mod tests {
     }
 
     #[test]
-    fn display_update_watches() {
-        let actual = UpdateWatchesError {
+    fn display_update_paths() {
+        let actual = UpdatePathsError {
             source: Error::generic("Some error"),
             remaining: Default::default(),
         }
