@@ -600,10 +600,6 @@ impl Watcher for FsEventWatcher {
     fn kind() -> crate::WatcherKind {
         crate::WatcherKind::Fsevent
     }
-
-    fn paths_mut(&mut self) -> crate::PathsMut<'_> {
-        crate::PathsMut::new(self)
-    }
 }
 
 impl Drop for FsEventWatcher {

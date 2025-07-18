@@ -294,51 +294,9 @@ pub enum WatcherKind {
     NullWatcher,
 }
 
-/// Providing methods for adding and removing paths to watch.
-///
-/// It is created by [`Watcher::paths_mut`].
-pub struct PathsMut<'a> {
-    ops: Vec<WatchOp>,
-    watcher: &'a mut dyn Watcher,
-}
-
-impl<'a> Extend<WatchOp> for PathsMut<'a> {
-    fn extend<T: IntoIterator<Item = WatchOp>>(&mut self, iter: T) {
-        self.ops.extend(iter);
-    }
-}
-
-impl<'a> PathsMut<'a> {
-    /// Creates new [`PathsMut`] to operate with watched paths in a bulk manner
-    pub fn new<W: Watcher + 'a>(watcher: &'a mut W) -> Self {
-        Self {
-            ops: Default::default(),
-            watcher,
-        }
-    }
-
-    /// Plan a path to be added to watching. See [`Watcher::unwatch`] for more information.
-    pub fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) {
-        self.ops
-            .push(WatchOp::Watch(path.to_owned(), recursive_mode));
-    }
-
-    /// Plan a path to be removed from watching. See [`Watcher::unwatch`] for more information.
-    pub fn unwatch(&mut self, path: &Path) {
-        self.ops.push(WatchOp::Unwatch(path.to_owned()));
-    }
-
-    /// Commit all the operations.
-    ///
-    /// Dropping a [`PathsMut`] without calling [`Self::commit`] is noop.
-    pub fn commit(self) -> StdResult<(), UpdateWatchesError> {
-        self.watcher.update_watches(self.ops)
-    }
-}
-
 /// An operation to apply to a watcher
 ///
-/// See [`Watcher::paths_mut`] for more information
+/// See [`Watcher::update_watches`] for more information
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum WatchOp {
     /// Path should be watcher
@@ -385,40 +343,33 @@ pub trait Watcher {
 
     /// Add/remove paths to watch in batch.
     ///
-    /// It is ergonomic way to call [`Watcher::update_watches`]
+    /// For some [`Watcher`] implementations this method provides better performance than multiple
+    /// calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
     ///
     /// # Examples
     ///
     /// ```
-    /// # use notify::{Watcher, RecursiveMode};
+    /// # use notify::{Watcher, RecursiveMode, WatchOp};
     /// # use std::path::Path;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let many_paths_to_add = vec![];
     /// # let many_paths_to_remove = vec![];
-    /// let mut watcher = notify::recommended_watcher(|_event| { /* event handler */ })?;
-    /// let mut watcher_paths = watcher.paths_mut();
+    /// let mut watcher = notify::NullWatcher;
+    /// let mut batch = Vec::new();
     ///
-    /// for path in many_paths_to_add {
-    ///     // just some memory stuff
-    ///     watcher_paths.watch(path, RecursiveMode::Recursive);
+    /// for (path, recursive_mode) in many_paths_to_add {
+    ///     batch.push(WatchOp::Watch(path, recursive_mode));
     /// }
     ///
     /// for path in many_paths_to_remove {
-    ///     // just some memory stuff
-    ///     watcher_paths.unwatch(path);
+    ///     batch.push(WatchOp::Unwatch(path));
     /// }
     ///
     /// // real work is done there
-    /// watcher_paths.commit()?;
+    /// watcher.update_watches(batch)?;
     /// # Ok(())
     /// # }
     /// ```
-    fn paths_mut(&mut self) -> crate::PathsMut<'_>;
-
-    /// Add/remove paths to watch in batch.
-    ///
-    /// For some [`Watcher`] implementations this method provides better performance than multiple
-    /// calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
     fn update_watches(&mut self, ops: Vec<WatchOp>) -> StdResult<(), UpdateWatchesError> {
         update_watches(ops, |op| match op {
             WatchOp::Watch(path, recursive_mode) => self.watch(&path, recursive_mode),
@@ -606,7 +557,7 @@ mod tests {
     }
 
     #[test]
-    fn test_paths_mut() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn test_update_watches() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
 
         let dir_a = dir.path().join("a");
@@ -619,12 +570,10 @@ mod tests {
         let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
 
         // start watching a and b
-        {
-            let mut watcher_paths = watcher.paths_mut();
-            watcher_paths.watch(&dir_a, RecursiveMode::Recursive);
-            watcher_paths.watch(&dir_b, RecursiveMode::Recursive);
-            watcher_paths.commit()?;
-        }
+        watcher.update_watches(vec![
+            WatchOp::Watch(dir_a.clone(), RecursiveMode::Recursive),
+            WatchOp::Watch(dir_b.clone(), RecursiveMode::Recursive),
+        ])?;
 
         // create file1 in both a and b
         let a_file1 = dir_a.join("file1");
@@ -650,11 +599,7 @@ mod tests {
         assert!(b_file1_encountered, "Did not receive event of {b_file1:?}");
 
         // stop watching a
-        {
-            let mut watcher_paths = watcher.paths_mut();
-            watcher_paths.unwatch(&dir_a);
-            watcher_paths.commit()?;
-        }
+        watcher.update_watches(vec![WatchOp::Unwatch(dir_a.clone())])?;
 
         // create file2 in both a and b
         let a_file2 = dir_a.join("file2");
