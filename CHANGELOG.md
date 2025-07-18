@@ -16,6 +16,9 @@
 ## debouncer-full 0.6.0 (unreleased)
 - FEATURE: allow `FileIdCache` trait implementations to choose ownership of the returned file-ids
 - FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
+- FIX: skip all `Modify` events right after a `Create` event, unless it's a rename event [#701]
+
+[#701]: https://github.com/notify-rs/notify/pull/701
 
 ## debouncer-mini 0.7.0 (unreleased)
 - FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
