@@ -447,6 +447,10 @@ impl Watcher for KqueueWatcher {
     fn kind() -> crate::WatcherKind {
         crate::WatcherKind::Kqueue
     }
+
+    fn paths_mut(&mut self) -> crate::PathsMut<'_> {
+        crate::PathsMut::new(self)
+    }
 }
 
 impl Drop for KqueueWatcher {

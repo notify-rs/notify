@@ -163,10 +163,11 @@
 #![deny(missing_docs)]
 
 pub use config::{Config, RecursiveMode};
-pub use error::{Error, ErrorKind, Result};
+pub use error::{Error, ErrorKind, Result, UpdateWatchesError};
 pub use notify_types::event::{self, Event, EventKind};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+pub(crate) type StdResult<T, E> = std::result::Result<T, E>;
 pub(crate) type Receiver<T> = std::sync::mpsc::Receiver<T>;
 pub(crate) type Sender<T> = std::sync::mpsc::Sender<T>;
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
@@ -295,19 +296,56 @@ pub enum WatcherKind {
 
 /// Providing methods for adding and removing paths to watch.
 ///
-/// `Box<dyn PathsMut>` is created by [`Watcher::paths_mut`]. See its documentation for more.
-pub trait PathsMut {
-    /// Add a new path to watch. See [`Watcher::watch`] for more.
-    fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
+/// It is created by [`Watcher::paths_mut`].
+pub struct PathsMut<'a> {
+    ops: Vec<WatchOp>,
+    watcher: &'a mut dyn Watcher,
+}
 
-    /// Remove a path from watching. See [`Watcher::unwatch`] for more.
-    fn remove(&mut self, path: &Path) -> Result<()>;
+impl<'a> Extend<WatchOp> for PathsMut<'a> {
+    fn extend<T: IntoIterator<Item = WatchOp>>(&mut self, iter: T) {
+        self.ops.extend(iter);
+    }
+}
 
-    /// Ensure added/removed paths are applied.
+impl<'a> PathsMut<'a> {
+    /// Creates new [`PathsMut`] to operate with watched paths in a bulk manner
+    pub fn new<W: Watcher + 'a>(watcher: &'a mut W) -> Self {
+        Self {
+            ops: Default::default(),
+            watcher,
+        }
+    }
+
+    /// Plan a path to be added to watching. See [`Watcher::unwatch`] for more information.
+    pub fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) {
+        self.ops
+            .push(WatchOp::Watch(path.to_owned(), recursive_mode));
+    }
+
+    /// Plan a path to be removed from watching. See [`Watcher::unwatch`] for more information.
+    pub fn unwatch(&mut self, path: &Path) {
+        self.ops.push(WatchOp::Unwatch(path.to_owned()));
+    }
+
+    /// Commit all the operations.
     ///
-    /// The behaviour of dropping a [`PathsMut`] without calling [`commit`] is unspecified.
-    /// The implementation is free to ignore the changes or not, and may leave the watcher in a started or stopped state.
-    fn commit(self: Box<Self>) -> Result<()>;
+    /// Dropping a [`PathsMut`] without calling [`Self::commit`] is noop.
+    pub fn commit(self) -> StdResult<(), UpdateWatchesError> {
+        self.watcher.update_watches(self.ops)
+    }
+}
+
+/// An operation to apply to a watcher
+///
+/// See [`Watcher::paths_mut`] for more information
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum WatchOp {
+    /// Path should be watcher
+    Watch(PathBuf, RecursiveMode),
+
+    /// Path should be unwatched
+    Unwatch(PathBuf),
 }
 
 /// Type that can deliver file activity notifications
@@ -345,40 +383,47 @@ pub trait Watcher {
     /// fails.
     fn unwatch(&mut self, path: &Path) -> Result<()>;
 
-    /// Add/remove paths to watch.
+    /// Add/remove paths to watch in batch.
     ///
-    /// For some watcher implementations this method provides better performance than multiple calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
+    /// It is ergonomic way to call [`Watcher::update_watches`]
     ///
     /// # Examples
     ///
     /// ```
-    /// # use notify::{Watcher, RecursiveMode, Result};
+    /// # use notify::{Watcher, RecursiveMode};
     /// # use std::path::Path;
-    /// # fn main() -> Result<()> {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let many_paths_to_add = vec![];
+    /// # let many_paths_to_remove = vec![];
     /// let mut watcher = notify::recommended_watcher(|_event| { /* event handler */ })?;
     /// let mut watcher_paths = watcher.paths_mut();
+    ///
     /// for path in many_paths_to_add {
-    ///     watcher_paths.add(path, RecursiveMode::Recursive)?;
+    ///     // just some memory stuff
+    ///     watcher_paths.watch(path, RecursiveMode::Recursive);
     /// }
+    ///
+    /// for path in many_paths_to_remove {
+    ///     // just some memory stuff
+    ///     watcher_paths.unwatch(path);
+    /// }
+    ///
+    /// // real work is done there
     /// watcher_paths.commit()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn paths_mut<'me>(&'me mut self) -> Box<dyn PathsMut + 'me> {
-        struct DefaultPathsMut<'a, T: ?Sized>(&'a mut T);
-        impl<'a, T: Watcher + ?Sized> PathsMut for DefaultPathsMut<'a, T> {
-            fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-                self.0.watch(path, recursive_mode)
-            }
-            fn remove(&mut self, path: &Path) -> Result<()> {
-                self.0.unwatch(path)
-            }
-            fn commit(self: Box<Self>) -> Result<()> {
-                Ok(())
-            }
-        }
-        Box::new(DefaultPathsMut(self))
+    fn paths_mut(&mut self) -> crate::PathsMut<'_>;
+
+    /// Add/remove paths to watch in batch.
+    ///
+    /// For some [`Watcher`] implementations this method provides better performance than multiple
+    /// calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
+    fn update_watches(&mut self, ops: Vec<WatchOp>) -> StdResult<(), UpdateWatchesError> {
+        update_watches(ops, |op| match op {
+            WatchOp::Watch(path, recursive_mode) => self.watch(&path, recursive_mode),
+            WatchOp::Unwatch(path) => self.unwatch(&path),
+        })
     }
 
     /// Configure the watcher at runtime.
@@ -440,6 +485,25 @@ where
 {
     // All recommended watchers currently implement `new`, so just call that.
     RecommendedWatcher::new(event_handler, Config::default())
+}
+
+pub(crate) fn update_watches<F>(
+    ops: Vec<WatchOp>,
+    mut apply: F,
+) -> StdResult<(), UpdateWatchesError>
+where
+    F: FnMut(WatchOp) -> Result<()>,
+{
+    let mut iter = ops.into_iter();
+    while let Some(op) = iter.next() {
+        if let Err(source) = apply(op) {
+            return Err(UpdateWatchesError {
+                source,
+                remaining: iter.collect(),
+            });
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -557,8 +621,8 @@ mod tests {
         // start watching a and b
         {
             let mut watcher_paths = watcher.paths_mut();
-            watcher_paths.add(&dir_a, RecursiveMode::Recursive)?;
-            watcher_paths.add(&dir_b, RecursiveMode::Recursive)?;
+            watcher_paths.watch(&dir_a, RecursiveMode::Recursive);
+            watcher_paths.watch(&dir_b, RecursiveMode::Recursive);
             watcher_paths.commit()?;
         }
 
@@ -588,7 +652,7 @@ mod tests {
         // stop watching a
         {
             let mut watcher_paths = watcher.paths_mut();
-            watcher_paths.remove(&dir_a)?;
+            watcher_paths.unwatch(&dir_a);
             watcher_paths.commit()?;
         }
 

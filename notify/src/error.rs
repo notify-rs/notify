@@ -1,7 +1,8 @@
 //! Error types
 
-use crate::Config;
+use crate::{Config, WatchOp};
 use std::error::Error as StdError;
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::result::Result as StdResult;
 use std::{self, fmt, io};
@@ -158,14 +159,55 @@ impl<T> From<std::sync::PoisonError<T>> for Error {
     }
 }
 
-#[test]
-fn display_formatted_errors() {
-    let expected = "Some error";
+/// The error provided by [`crate::Watcher::update_watches`] method
+#[derive(Debug)]
+pub struct UpdateWatchesError {
+    /// The original error
+    pub source: Error,
 
-    assert_eq!(expected, format!("{}", Error::generic(expected)));
+    /// The remaining operations that haven't been applied
+    pub remaining: Vec<WatchOp>,
+}
 
-    assert_eq!(
-        expected,
-        format!("{}", Error::io(io::Error::other(expected)))
-    );
+impl fmt::Display for UpdateWatchesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "unable to apply the batch operation: {}", self.source)
+    }
+}
+
+impl StdError for UpdateWatchesError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        Some(&self.source)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_formatted_errors() {
+        let expected = "Some error";
+
+        assert_eq!(expected, format!("{}", Error::generic(expected)));
+
+        assert_eq!(
+            expected,
+            format!("{}", Error::io(io::Error::other(expected)))
+        );
+    }
+
+    #[test]
+    fn display_update_watches() {
+        let actual = UpdateWatchesError {
+            source: Error::generic("Some error"),
+            remaining: Default::default(),
+        }
+        .to_string();
+
+        assert_eq!(
+            format!("unable to apply the batch operation: Some error"),
+            actual
+        );
+    }
 }

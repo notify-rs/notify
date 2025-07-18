@@ -661,6 +661,10 @@ impl Watcher for PollWatcher {
     fn kind() -> crate::WatcherKind {
         crate::WatcherKind::PollWatcher
     }
+
+    fn paths_mut(&mut self) -> crate::PathsMut<'_> {
+        crate::PathsMut::new(self)
+    }
 }
 
 impl Drop for PollWatcher {
