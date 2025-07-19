@@ -2,14 +2,14 @@
 ## notify 9.0.0 (unreleased)
 
 - CHANGE: raise MSRV to 1.82 **breaking**
-
-## notify (unreleased)
 - FIX: Fix the bug that `FsEventWatcher` crashes when dealing with empty path [#718]
+- FEATURE: deprecate `Watcher::paths_mut` and introduce `update_paths` [#705]
 
 [#718]: https://github.com/notify-rs/notify/pull/718
+[#705]: https://github.com/notify-rs/notify/pull/705
 
 
-## notify 8.2.0 (2025-08-03)
+## notify 8.2.0
 - FEATURE: notify user if inotify's `max_user_watches` has been reached [#698]
 - FIX: `INotifyWatcher` ignore events with unknown watch descriptors (instead of `EventMask::Q_OVERFLOW`) [#700]
 
