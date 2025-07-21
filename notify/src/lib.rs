@@ -706,7 +706,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("event must have a path: {event:?}"));
             assert!(
                 path != &not_existent_dir,
-                "unexpeced {:?} event",
+                "unexpected {:?} event",
                 not_existent_dir
             );
             if path == &waiting_path {
