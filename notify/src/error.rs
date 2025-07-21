@@ -181,6 +181,12 @@ impl StdError for UpdatePathsError {
     }
 }
 
+impl From<UpdatePathsError> for Error {
+    fn from(value: UpdatePathsError) -> Self {
+        value.source
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
