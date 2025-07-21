@@ -668,4 +668,52 @@ mod tests {
         }
         panic!("Did not receive the event of {b_file2:?}");
     }
+
+    #[test]
+    fn update_paths_in_a_loop_with_errors() -> StdResult<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+        let existing_dir_1 = dir.path().join("existing_dir_1");
+        let not_existent_dir = dir.path().join("noт_existent_dir");
+        let existing_dir_2 = dir.path().join("existing_dir_2");
+
+        fs::create_dir(&existing_dir_1)?;
+        fs::create_dir(&existing_dir_2)?;
+
+        let mut paths_to_add = vec![
+            PathOp::watch_recursive(existing_dir_1.clone()),
+            PathOp::watch_recursive(not_existent_dir.clone()),
+            PathOp::watch_recursive(existing_dir_2.clone()),
+        ];
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+
+        while !paths_to_add.is_empty() {
+            if let Err(e) = watcher.update_paths(std::mem::take(&mut paths_to_add)) {
+                paths_to_add = e.remaining;
+            }
+        }
+
+        fs::create_dir(existing_dir_1.join("1"))?;
+        fs::create_dir(&not_existent_dir)?;
+        let waiting_path = existing_dir_2.join("1");
+        fs::create_dir(&waiting_path)?;
+
+        for event in iter_with_timeout(&rx) {
+            let path = event
+                .paths
+                .first()
+                .unwrap_or_else(|| panic!("event must have a path: {event:?}"));
+            assert!(
+                path != &not_existent_dir,
+                "unexpeced {:?} event",
+                not_existent_dir
+            );
+            if path == &waiting_path {
+                return Ok(());
+            }
+        }
+
+        panic!("Did not receive the event of {waiting_path:?}");
+    }
 }
