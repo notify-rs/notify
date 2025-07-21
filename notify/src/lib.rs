@@ -673,7 +673,7 @@ mod tests {
     fn update_paths_in_a_loop_with_errors() -> StdResult<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
         let existing_dir_1 = dir.path().join("existing_dir_1");
-        let not_existent_dir = dir.path().join("noт_existent_dir");
+        let not_existent_file = dir.path().join("noт_existent_dir");
         let existing_dir_2 = dir.path().join("existing_dir_2");
 
         fs::create_dir(&existing_dir_1)?;
@@ -681,7 +681,7 @@ mod tests {
 
         let mut paths_to_add = vec![
             PathOp::watch_recursive(existing_dir_1.clone()),
-            PathOp::watch_recursive(not_existent_dir.clone()),
+            PathOp::watch_recursive(not_existent_file.clone()),
             PathOp::watch_recursive(existing_dir_2.clone()),
         ];
 
@@ -694,10 +694,10 @@ mod tests {
             }
         }
 
-        fs::create_dir(existing_dir_1.join("1"))?;
-        fs::create_dir(&not_existent_dir)?;
+        fs::write(existing_dir_1.join("1"), "")?;
+        fs::write(&not_existent_file, "")?;
         let waiting_path = existing_dir_2.join("1");
-        fs::create_dir(&waiting_path)?;
+        fs::write(&waiting_path, "")?;
 
         for event in iter_with_timeout(&rx) {
             let path = event
@@ -705,11 +705,11 @@ mod tests {
                 .first()
                 .unwrap_or_else(|| panic!("event must have a path: {event:?}"));
             assert!(
-                path != &not_existent_dir,
+                path != &not_existent_file,
                 "unexpected {:?} event",
-                not_existent_dir
+                not_existent_file
             );
-            if path == &waiting_path {
+            if path == &waiting_path || path == &waiting_path.canonicalize()? {
                 return Ok(());
             }
         }
