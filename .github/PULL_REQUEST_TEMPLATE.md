@@ -1,15 +1,21 @@
-<!-- By contributing, you agree to the terms of the license, available in the LICENSE.ARTISTIC file, and of the code of conduct, available in the CODE_OF_CONDUCT.md file. Furthermore, you agree to release under CC0, also available in the LICENSE file, until Notify has fully transitioned to Artistic 2.0. -->
+<!-- 
+## Contribution Agreement
+By contributing, you agree to the license terms (CC Zero 1.0 for notify crate, MIT/Apache 2.0 for the rest) and the code of conduct in CODE_OF_CONDUCT.md.
 
-<!-- After creating this pull request, the test suite will run.
+## Changelog
+Add an entry to CHANGELOG.md if applicable. Create a new section `## notify (unreleased)` if not already present.
 
-It is expected that if any failures occur in the builds, you either:
+## Testing
+The test suite will run after creating this PR. If builds fail, you must either fix the errors, ask for help, or provide a detailed explanation of why failures are expected. If you don't, a maintainer may prompt you, but it will take longer for your contribution to be reviewed.
 
-- fix the errors,
-- ask for help, or
-- note that the failures are expected with a detailed explanation.
+## Code Quality
+Running `cargo fmt` and `cargo clippy` is appreciated but not required.
 
-If you do not, a maintainer may prompt you and/or do it themselves, but do note that it will take longer for your contribution to be reviewed if the build does not pass.
+You can delete this comment after reading.
+-->
 
-Running `cargo fmt` and/or `cargo clippy` is NOT required but appreciated!
+## Description
+<!-- Describe your changes here -->
 
-You can remove this text. -->
+## Related Issues
+<!-- Link any related issues -->

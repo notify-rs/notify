@@ -1,0 +1,28 @@
+name: Documentation
+description: Report documentation issues or suggest improvements
+title: "[Docs]: "
+labels: ["documentation"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us improve the documentation!
+
+  - type: input
+    id: location
+    attributes:
+      label: Location
+      description: Where is the documentation issue?
+      placeholder: "docs.rs URL, README section, code comments, etc."
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: What's the issue?
+      description: Describe the documentation problem
+    validations:
+      required: true
