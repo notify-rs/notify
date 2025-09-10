@@ -1,0 +1,49 @@
+{
+    state: {
+        timeout: 3
+    }
+    events: [
+        { kind: "modify-any", paths: ["/watch/file"], time: 2 }
+        { kind: "modify-any", paths: ["/watch/file"], time: 4 }
+    ]
+    expected: {
+        queues: {
+            /watch/file: {
+                events: [
+                    { kind: "modify-any", paths: ["*"], time: 2 }
+                    { kind: "modify-any", paths: ["*"], time: 4 }
+                ]
+            }
+        }
+        events: {
+            1: []
+            2: []
+            3: []
+            4: []
+            5: [
+                { kind: "modify-any", paths: ["/watch/file"], time: 2 }
+            ]
+            6: [
+                { kind: "modify-any", paths: ["/watch/file"], time: 2 }
+            ]
+            7: [
+                { kind: "modify-any", paths: ["/watch/file"], time: 4 }
+            ]
+            8: [
+                { kind: "modify-any", paths: ["/watch/file"], time: 4 }
+            ]
+            9: [
+                { kind: "modify-any", paths: ["/watch/file"], time: 4 }
+            ]
+            10: [
+                { kind: "modify-any", paths: ["/watch/file"], time: 4 }
+            ]
+            100: [
+                { kind: "modify-any", paths: ["/watch/file"], time: 4 }
+            ]
+            1000: [
+                { kind: "modify-any", paths: ["/watch/file"], time: 4 }
+            ]
+        }
+    }
+}

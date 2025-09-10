@@ -812,6 +812,7 @@ mod tests {
             "add_remove_event_after_create_and_modify_event",
             "add_remove_parent_event_after_remove_child_event",
             "add_errors",
+            "debounce_modify_events",
             "emit_continuous_modify_content_events",
             "emit_events_in_chronological_order",
             "emit_events_with_a_prepended_rename_event",
