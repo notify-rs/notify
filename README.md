@@ -71,7 +71,7 @@ Originally created by [Félix Saparelli] and awesome [contributors].
 [deno]: https://github.com/denoland/deno
 [docket]: https://iwillspeak.github.io/docket/
 [notify-docs]: https://docs.rs/notify/latest/notify/
-[notify-types-docs]: https://docs.rs/notify-types/latest/notify-types/
+[notify-types-docs]: https://docs.rs/notify-types/
 [file-id-docs]: https://docs.rs/file-id/latest/file_id/
 [fsnotify]: https://github.com/fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
