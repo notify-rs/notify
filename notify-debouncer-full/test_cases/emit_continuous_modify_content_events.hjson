@@ -23,12 +23,8 @@
             3: []
             4: []
             5: []
-            6: [
-                { kind: "modify-data-content", paths: ["/watch/file"], time: 1 }
-            ]
-            7: [
-                { kind: "modify-data-content", paths: ["/watch/file"], time: 2 }
-            ]
+            6: []
+            7: []
             8: [
                 { kind: "modify-data-content", paths: ["/watch/file"], time: 3 }
             ]

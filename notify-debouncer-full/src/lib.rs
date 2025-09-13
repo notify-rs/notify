@@ -226,18 +226,18 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             let mut kind_index = HashMap::new();
 
             while let Some(event) = queue.events.pop_front() {
+                // remove previous event of the same kind
+                if let Some(idx) = kind_index.get(&event.kind).copied() {
+                    events_expired.remove(idx);
+
+                    kind_index.values_mut().for_each(|i| {
+                        if *i > idx {
+                            *i -= 1
+                        }
+                    })
+                }
+
                 if now.saturating_duration_since(event.time) >= self.timeout {
-                    // remove previous event of the same kind
-                    if let Some(idx) = kind_index.get(&event.kind).copied() {
-                        events_expired.remove(idx);
-
-                        kind_index.values_mut().for_each(|i| {
-                            if *i > idx {
-                                *i -= 1
-                            }
-                        })
-                    }
-
                     kind_index.insert(event.kind, events_expired.len());
 
                     events_expired.push(event);
@@ -812,6 +812,7 @@ mod tests {
             "add_remove_event_after_create_and_modify_event",
             "add_remove_parent_event_after_remove_child_event",
             "add_errors",
+            "debounce_modify_events",
             "emit_continuous_modify_content_events",
             "emit_events_in_chronological_order",
             "emit_events_with_a_prepended_rename_event",
