@@ -11,15 +11,17 @@ _Cross-platform filesystem notification library for Rust._
 
 
 - [Notify Documentation][notify-docs]
+- [Notify Types Documentation][notify-types-docs]
 - [Mini Debouncer Documentation][debouncer-mini-docs]
 - [Full Debouncer Documentation][debouncer-full-docs]
+- [File ID][file-id-docs]
 - [Examples][examples]
 - [Changelog][changelog]
 - [Upgrading notify from v4](UPGRADING_V4_TO_V5.md)
-- Earliest supported Rust version: **1.63**
+- Minimum supported Rust version: **1.77**
 
-As used by: [alacritty], [cargo watch], [cobalt], [docket], [mdBook],
-[rust-analyzer], [watchexec], [xi-editor], [watchfiles],
+As used by: [alacritty], [cargo watch], [cobalt], [deno], [docket], [mdBook],
+[rust-analyzer], [watchexec], [watchfiles], [xi-editor],
 and others.
 
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
@@ -35,7 +37,8 @@ and others.
 
 ## License
 
-Notify is licensed under the [CC Zero 1.0][cc0].  
+notify is licensed under the [CC Zero 1.0][cc0].    
+notify-types is licensed under the [MIT] or [Apache-2.0][apache] license.  
 notify-debouncer-mini is licensed under the [MIT] or [Apache-2.0][apache] license.  
 notify-debouncer-full is licensed under the [MIT] or [Apache-2.0][apache] license.  
 file-id is licensed under the [MIT] or [Apache-2.0][apache] license.
@@ -65,8 +68,11 @@ Originally created by [Félix Saparelli] and awesome [contributors].
 [coc]: http://contributor-covenant.org/version/1/4/
 [contributors]: https://github.com/notify-rs/notify/graphs/contributors
 [crate]: https://crates.io/crates/notify
+[deno]: https://github.com/denoland/deno
 [docket]: https://iwillspeak.github.io/docket/
 [notify-docs]: https://docs.rs/notify/latest/notify/
+[notify-types-docs]: https://docs.rs/notify-types/
+[file-id-docs]: https://docs.rs/file-id/latest/file_id/
 [fsnotify]: https://github.com/fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
 [hotwatch]: https://github.com/francesca64/hotwatch

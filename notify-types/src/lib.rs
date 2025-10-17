@@ -1,3 +1,5 @@
+pub mod debouncer_full;
+pub mod debouncer_mini;
 pub mod event;
 
 #[cfg(test)]
@@ -8,6 +10,7 @@ mod tests {
     fn test_debug_impl() {
         macro_rules! assert_debug_impl {
             ($t:ty) => {{
+                #[allow(dead_code)]
                 trait NeedsDebug: std::fmt::Debug {}
                 impl NeedsDebug for $t {}
             }};
@@ -25,5 +28,8 @@ mod tests {
         assert_debug_impl!(event::RenameMode);
         assert_debug_impl!(event::Event);
         assert_debug_impl!(event::EventKind);
+        assert_debug_impl!(debouncer_mini::DebouncedEvent);
+        assert_debug_impl!(debouncer_mini::DebouncedEventKind);
+        assert_debug_impl!(debouncer_full::DebouncedEvent);
     }
 }

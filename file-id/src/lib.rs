@@ -1,8 +1,8 @@
-//! Utility for reading inode numbers (Linux, MacOS) and file ids (Windows) that uniquely identify a file on a single computer.
+//! Utility for reading inode numbers (Linux, macOS) and file ids (Windows) that uniquely identify a file on a single computer.
 //!
-//! Modern file systems assign a unique ID to each file. On Linux and MacOS it is called an `inode number`,
+//! Modern file systems assign a unique ID to each file. On Linux and macOS it is called an `inode number`,
 //! on Windows it is called a `file id` or `file index`.
-//! Together with the `device id` (Linux, MacOS) or the `volume serial number` (Windows),
+//! Together with the `device id` (Linux, macOS) or the `volume serial number` (Windows),
 //! a file or directory can be uniquely identified on a single computer at a given time.
 //!
 //! Keep in mind though, that IDs may be re-used at some point.
@@ -27,6 +27,16 @@
 //! let file_id = file_id::get_high_res_file_id(file.path()).unwrap();
 //! println!("{file_id:?}");
 //! ```
+//!
+//! ## Example (Not Following Symlinks/Reparse Points)
+//!
+//! ```
+//! let file = tempfile::NamedTempFile::new().unwrap();
+//!
+//! // Get file ID without following symlinks
+//! let file_id = file_id::get_file_id_no_follow(file.path()).unwrap();
+//! println!("{file_id:?}");
+//! ```
 use std::{fs, io, path::Path};
 
 #[cfg(feature = "serde")]
@@ -36,7 +46,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum FileId {
-    /// Inode number, available on Linux and MacOS.
+    /// Inode number, available on Linux and macOS.
     #[cfg_attr(feature = "serde", serde(rename = "inode"))]
     Inode {
         /// Device ID
@@ -54,7 +64,7 @@ pub enum FileId {
     ///
     /// On Windows, the low resolution variant can be requested explicitly with the `get_low_res_file_id` function.
     ///
-    /// Details: https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle.
+    /// Details: <https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle>.
     #[cfg_attr(feature = "serde", serde(rename = "lowres"))]
     LowRes {
         /// Volume serial number
@@ -70,7 +80,7 @@ pub enum FileId {
     ///
     /// On Windows, the high resolution variant can be requested explicitly with the `get_high_res_file_id` function.
     ///
-    /// Details: https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex.
+    /// Details: <https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex>.
     #[cfg_attr(feature = "serde", serde(rename = "highres"))]
     HighRes {
         /// Volume serial number
@@ -106,12 +116,28 @@ impl FileId {
     }
 }
 
+impl AsRef<FileId> for FileId {
+    fn as_ref(&self) -> &FileId {
+        self
+    }
+}
+
 /// Get the `FileId` for the file or directory at `path`
 #[cfg(target_family = "unix")]
 pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     use std::os::unix::fs::MetadataExt;
 
     let metadata = fs::metadata(path.as_ref())?;
+
+    Ok(FileId::new_inode(metadata.dev(), metadata.ino()))
+}
+
+/// Get the `FileId` for the file or directory at `path` without following symlinks
+#[cfg(target_family = "unix")]
+pub fn get_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = fs::symlink_metadata(path.as_ref())?;
 
     Ok(FileId::new_inode(metadata.dev(), metadata.ino()))
 }
@@ -124,12 +150,28 @@ pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     unsafe { get_file_info_ex(&file).or_else(|_| get_file_info(&file)) }
 }
 
+/// Get the `FileId` for the file or directory at `path` without following symlinks/reparse points
+#[cfg(target_family = "windows")]
+pub fn get_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
+    let file = open_file_no_follow(path)?;
+
+    unsafe { get_file_info_ex(&file).or_else(|_| get_file_info(&file)) }
+}
+
 /// Get the `FileId` with the low resolution variant for the file or directory at `path`
 #[cfg(target_family = "windows")]
 pub fn get_low_res_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     let file = open_file(path)?;
 
-    unsafe { get_file_info_ex(&file) }
+    unsafe { get_file_info(&file) }
+}
+
+/// Get the `FileId` with the low resolution variant for the file or directory at `path` without following symlinks/reparse points
+#[cfg(target_family = "windows")]
+pub fn get_low_res_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
+    let file = open_file_no_follow(path)?;
+
+    unsafe { get_file_info(&file) }
 }
 
 /// Get the `FileId` with the high resolution variant for the file or directory at `path`
@@ -137,7 +179,15 @@ pub fn get_low_res_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
 pub fn get_high_res_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     let file = open_file(path)?;
 
-    unsafe { get_file_info(&file) }
+    unsafe { get_file_info_ex(&file) }
+}
+
+/// Get the `FileId` with the high resolution variant for the file or directory at `path` without following symlinks/reparse points
+#[cfg(target_family = "windows")]
+pub fn get_high_res_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
+    let file = open_file_no_follow(path)?;
+
+    unsafe { get_file_info_ex(&file) }
 }
 
 #[cfg(target_family = "windows")]
@@ -192,7 +242,20 @@ fn open_file<P: AsRef<Path>>(path: P) -> io::Result<fs::File> {
     use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
 
     OpenOptions::new()
-        .read(true)
+        .access_mode(0)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+}
+
+#[cfg(target_family = "windows")]
+fn open_file_no_follow<P: AsRef<Path>>(path: P) -> io::Result<fs::File> {
+    use std::{fs::OpenOptions, os::windows::fs::OpenOptionsExt};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+    };
+
+    OpenOptions::new()
+        .access_mode(0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)
 }

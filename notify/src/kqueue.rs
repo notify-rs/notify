@@ -34,6 +34,7 @@ struct EventLoop {
     kqueue: kqueue::Watcher,
     event_handler: Box<dyn EventHandler>,
     watches: HashMap<PathBuf, bool>,
+    follow_symlinks: bool,
 }
 
 /// Watcher implementation based on inotify
@@ -50,7 +51,11 @@ enum EventLoopMsg {
 }
 
 impl EventLoop {
-    pub fn new(kqueue: kqueue::Watcher, event_handler: Box<dyn EventHandler>) -> Result<Self> {
+    pub fn new(
+        kqueue: kqueue::Watcher,
+        event_handler: Box<dyn EventHandler>,
+        follow_symlinks: bool,
+    ) -> Result<Self> {
         let (event_loop_tx, event_loop_rx) = unbounded::<EventLoopMsg>();
         let poll = mio::Poll::new()?;
 
@@ -70,6 +75,7 @@ impl EventLoop {
             kqueue,
             event_handler,
             watches: HashMap::new(),
+            follow_symlinks,
         };
         Ok(event_loop)
     }
@@ -153,8 +159,8 @@ impl EventLoop {
                     let path = PathBuf::from(path);
                     let event = match data {
                         /*
-                        TODO: Differenciate folders and files
-                        kqueue dosen't tell us if this was a file or a dir, so we
+                        TODO: Differentiate folders and files
+                        kqueue doesn't tell us if this was a file or a dir, so we
                         could only emulate this inotify behavior if we keep track of
                         all files and directories internally and then perform a
                         lookup.
@@ -206,7 +212,7 @@ impl EventLoop {
 
                         /*
                         Extend and Truncate are just different names for the same
-                        operation, extend is only used on FreeBSD, truncate everwhere
+                        operation, extend is only used on FreeBSD, truncate everywhere
                         else
                         */
                         kqueue::Vnode::Extend | kqueue::Vnode::Truncate => Ok(Event::new(
@@ -231,13 +237,13 @@ impl EventLoop {
                         delete.
                         */
                         kqueue::Vnode::Link => {
-                            // As we currently don't have a solution that whould allow us
+                            // As we currently don't have a solution that would allow us
                             // to only add/remove the new/delete directory and that dosn't include a
                             // possible race condition. On possible solution would be to
                             // create a `HashMap<PathBuf, Vec<PathBuf>>` which would
                             // include every directory and this content add the time of
-                            // adding it to kqueue. While this sould allow us to do the
-                            // diff and only add/remove the files nessesary. This whould
+                            // adding it to kqueue. While this should allow us to do the
+                            // diff and only add/remove the files necessary. This would
                             // also introduce a race condition, where multiple files could
                             // all ready be remove from the directory, and we could get out
                             // of sync.
@@ -250,7 +256,7 @@ impl EventLoop {
                             Ok(Event::new(EventKind::Modify(ModifyKind::Any)).add_path(path))
                         }
 
-                        // Kqueue not provide us with the infomation nessesary to provide
+                        // Kqueue not provide us with the information necessary to provide
                         // the new file name to the event.
                         kqueue::Vnode::Rename => {
                             remove_watches.push(path.clone());
@@ -292,9 +298,12 @@ impl EventLoop {
         if !is_recursive || !metadata(&path).map_err(Error::io)?.is_dir() {
             self.add_single_watch(path, false)?;
         } else {
-            for entry in WalkDir::new(path).follow_links(true).into_iter() {
+            for entry in WalkDir::new(path)
+                .follow_links(self.follow_symlinks)
+                .into_iter()
+            {
                 let entry = entry.map_err(map_walkdir_error)?;
-                self.add_single_watch(entry.path().to_path_buf(), is_recursive)?;
+                self.add_single_watch(entry.into_path(), is_recursive)?;
             }
         }
 
@@ -333,18 +342,22 @@ impl EventLoop {
         match self.watches.remove(&path) {
             None => return Err(Error::watch_not_found()),
             Some(is_recursive) => {
-                self.kqueue
-                    .remove_filename(&path, EventFilter::EVFILT_VNODE)
-                    .map_err(|e| Error::io(e).add_path(path.clone()))?;
-
                 if is_recursive || remove_recursive {
-                    for entry in WalkDir::new(path).follow_links(true).into_iter() {
-                        let p = entry.map_err(map_walkdir_error)?.path().to_path_buf();
+                    for entry in WalkDir::new(path)
+                        .follow_links(self.follow_symlinks)
+                        .into_iter()
+                    {
+                        let p = entry.map_err(map_walkdir_error)?.into_path();
                         self.kqueue
                             .remove_filename(&p, EventFilter::EVFILT_VNODE)
                             .map_err(|e| Error::io(e).add_path(p))?;
                     }
+                } else {
+                    self.kqueue
+                        .remove_filename(&path, EventFilter::EVFILT_VNODE)
+                        .map_err(|e| Error::io(e).add_path(path.clone()))?;
                 }
+
                 self.kqueue.watch()?;
             }
         }
@@ -362,9 +375,12 @@ fn map_walkdir_error(e: walkdir::Error) -> Error {
 }
 
 impl KqueueWatcher {
-    fn from_event_handler(event_handler: Box<dyn EventHandler>) -> Result<Self> {
+    fn from_event_handler(
+        event_handler: Box<dyn EventHandler>,
+        follow_symlinks: bool,
+    ) -> Result<Self> {
         let kqueue = kqueue::Watcher::new()?;
-        let event_loop = EventLoop::new(kqueue, event_handler)?;
+        let event_loop = EventLoop::new(kqueue, event_handler, follow_symlinks)?;
         let channel = event_loop.event_loop_tx.clone();
         let waker = event_loop.event_loop_waker.clone();
         event_loop.run();
@@ -416,8 +432,8 @@ impl KqueueWatcher {
 
 impl Watcher for KqueueWatcher {
     /// Create a new watcher.
-    fn new<F: EventHandler>(event_handler: F, _config: Config) -> Result<Self> {
-        Self::from_event_handler(Box::new(event_handler))
+    fn new<F: EventHandler>(event_handler: F, config: Config) -> Result<Self> {
+        Self::from_event_handler(Box::new(event_handler), config.follow_symlinks())
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
@@ -438,5 +454,28 @@ impl Drop for KqueueWatcher {
         // we expect the event loop to live => unwrap must not panic
         self.channel.send(EventLoopMsg::Shutdown).unwrap();
         self.waker.wake().unwrap();
+    }
+}
+
+mod tests {
+    use super::{Config, KqueueWatcher, RecursiveMode};
+    use crate::Watcher;
+    use std::error::Error;
+    use std::path::PathBuf;
+    use std::result::Result;
+
+    #[test]
+    fn test_remove_recursive() -> Result<(), Box<dyn Error>> {
+        let path = PathBuf::from("src");
+
+        let mut watcher = KqueueWatcher::new(|event| println!("{:?}", event), Config::default())?;
+        watcher.watch(&path, RecursiveMode::Recursive)?;
+        let result = watcher.unwatch(&path);
+        assert!(
+            result.is_ok(),
+            "unwatch yielded error: {}",
+            result.unwrap_err()
+        );
+        Ok(())
     }
 }

@@ -3,7 +3,7 @@
 //! * Only emits a single `Rename` event if the rename `From` and `To` events can be matched
 //! * Merges multiple `Rename` events
 //! * Takes `Rename` events into account and updates paths for events that occurred before the rename event, but which haven't been emitted, yet
-//! * Optionally keeps track of the file system IDs all files and stiches rename events together (FSevents, Windows)
+//! * Optionally keeps track of the file system IDs all files and stitches rename events together (macOS FS Events, Windows)
 //! * Emits only one `Remove` event when deleting a directory (inotify)
 //! * Doesn't emit duplicate create events
 //! * Doesn't emit `Modify` events after a `Create` event
@@ -12,7 +12,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify-debouncer-full = "0.3.1"
+//! notify-debouncer-full = "0.5.0"
 //! ```
 //!
 //! In case you want to select specific features of notify,
@@ -20,7 +20,7 @@
 //! Otherwise you can just use the re-export of notify from debouncer-full.
 //!
 //! ```toml
-//! notify-debouncer-full = "0.3.1"
+//! notify-debouncer-full = "0.5.0"
 //! notify = { version = "..", features = [".."] }
 //! ```
 //!
@@ -49,47 +49,48 @@
 //!
 //! The following crate features can be turned on or off in your cargo dependency config:
 //!
-//! - `crossbeam` enabled by default, adds [`DebounceEventHandler`](DebounceEventHandler) support for crossbeam channels.
-//!   Also enables crossbeam-channel in the re-exported notify. You may want to disable this when using the tokio async runtime.
-//! - `serde` enables serde support for events.
+//! - `serde` passed down to notify-types, off by default
+//! - `web-time` passed down to notify-types, off by default
+//! - `crossbeam-channel` passed down to notify, off by default
+//! - `flume` passed down to notify, off by default
+//! - `macos_fsevent` passed down to notify, off by default
+//! - `macos_kqueue` passed down to notify, off by default
+//! - `serialization-compat-6` passed down to notify, off by default
 //!
 //! # Caveats
 //!
 //! As all file events are sourced from notify, the [known problems](https://docs.rs/notify/latest/notify/#known-problems) section applies here too.
 
 mod cache;
-mod debounced_event;
+mod time;
 
 #[cfg(test)]
 mod testing;
 
 use std::{
-    collections::{HashMap, VecDeque},
+    cmp::Reverse,
+    collections::{BinaryHeap, HashMap, VecDeque},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
+use time::now;
+
 pub use cache::{FileIdCache, FileIdMap, NoCache, RecommendedCache};
-pub use debounced_event::DebouncedEvent;
 
 pub use file_id;
 pub use notify;
+pub use notify_types::debouncer_full::DebouncedEvent;
 
 use file_id::FileId;
 use notify::{
     event::{ModifyKind, RemoveKind, RenameMode},
     Error, ErrorKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher, WatcherKind,
 };
-
-#[cfg(test)]
-use mock_instant::Instant;
-
-#[cfg(not(test))]
-use std::time::Instant;
 
 /// The set of requirements for watcher debounce event handling functions.
 ///
@@ -125,8 +126,15 @@ where
     }
 }
 
-#[cfg(feature = "crossbeam")]
+#[cfg(feature = "crossbeam-channel")]
 impl DebounceEventHandler for crossbeam_channel::Sender<DebounceEventResult> {
+    fn handle_event(&mut self, event: DebounceEventResult) {
+        let _ = self.send(event);
+    }
+}
+
+#[cfg(feature = "flume")]
+impl DebounceEventHandler for flume::Sender<DebounceEventResult> {
     fn handle_event(&mut self, event: DebounceEventResult) {
         let _ = self.send(event);
     }
@@ -155,7 +163,7 @@ struct Queue {
 
 impl Queue {
     fn was_created(&self) -> bool {
-        self.events.front().map_or(false, |event| {
+        self.events.front().is_some_and(|event| {
             matches!(
                 event.kind,
                 EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(RenameMode::To))
@@ -164,7 +172,7 @@ impl Queue {
     }
 
     fn was_removed(&self) -> bool {
-        self.events.front().map_or(false, |event| {
+        self.events.front().is_some_and(|event| {
             matches!(
                 event.kind,
                 EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(RenameMode::From))
@@ -199,7 +207,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
     /// Retrieve a vec of debounced events, removing them if not continuous
     pub fn debounced_events(&mut self) -> Vec<DebouncedEvent> {
-        let now = Instant::now();
+        let now = now();
         let mut events_expired = Vec::with_capacity(self.queues.len());
         let mut queues_remaining = HashMap::with_capacity(self.queues.len());
 
@@ -212,23 +220,24 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             }
         }
 
+        // drain the entire queue, then process the expired events and re-add the rest
         // TODO: perfect fit for drain_filter https://github.com/rust-lang/rust/issues/59618
         for (path, mut queue) in self.queues.drain() {
             let mut kind_index = HashMap::new();
 
             while let Some(event) = queue.events.pop_front() {
+                // remove previous event of the same kind
+                if let Some(idx) = kind_index.get(&event.kind).copied() {
+                    events_expired.remove(idx);
+
+                    kind_index.values_mut().for_each(|i| {
+                        if *i > idx {
+                            *i -= 1
+                        }
+                    })
+                }
+
                 if now.saturating_duration_since(event.time) >= self.timeout {
-                    // remove previous event of the same kind
-                    if let Some(idx) = kind_index.get(&event.kind).copied() {
-                        events_expired.remove(idx);
-
-                        kind_index.values_mut().for_each(|i| {
-                            if *i > idx {
-                                *i -= 1
-                            }
-                        })
-                    }
-
                     kind_index.insert(event.kind, events_expired.len());
 
                     events_expired.push(event);
@@ -245,28 +254,18 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
         self.queues = queues_remaining;
 
-        // order events for different files chronologically, but keep the order of events for the same file
-        events_expired.sort_by(|event_a, event_b| {
-            // use the last path because rename events are emitted for the target path
-            if event_a.paths.last() == event_b.paths.last() {
-                std::cmp::Ordering::Equal
-            } else {
-                event_a.time.cmp(&event_b.time)
-            }
-        });
-
-        events_expired
+        sort_events(events_expired)
     }
 
     /// Returns all currently stored errors
     pub fn errors(&mut self) -> Vec<Error> {
-        let mut v = Vec::new();
-        std::mem::swap(&mut v, &mut self.errors);
-        v
+        std::mem::take(&mut self.errors)
     }
 
     /// Add an error entry to re-send later on
     pub fn add_error(&mut self, error: Error) {
+        log::trace!("raw error: {error:?}");
+
         self.errors.push(error);
     }
 
@@ -276,11 +275,17 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
         if event.need_rescan() {
             self.cache.rescan(&self.roots);
-            self.rescan_event = Some(event.into());
+            self.rescan_event = Some(DebouncedEvent { event, time: now() });
             return;
         }
 
-        let path = &event.paths[0];
+        let path = match event.paths.first() {
+            Some(path) => path,
+            None => {
+                log::info!("skipping event with no paths: {event:?}");
+                return;
+            }
+        };
 
         match &event.kind {
             EventKind::Create(_) => {
@@ -288,7 +293,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
                 self.cache.add_path(path, recursive_mode);
 
-                self.push_event(event, Instant::now());
+                self.push_event(event, now());
             }
             EventKind::Modify(ModifyKind::Name(rename_mode)) => {
                 match rename_mode {
@@ -314,7 +319,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
                 }
             }
             EventKind::Remove(_) => {
-                self.push_remove_event(event, Instant::now());
+                self.push_remove_event(event, now());
             }
             EventKind::Other => {
                 // ignore meta events
@@ -326,7 +331,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
                     self.cache.add_path(path, recursive_mode);
                 }
 
-                self.push_event(event, Instant::now());
+                self.push_event(event, now());
             }
         }
     }
@@ -345,11 +350,11 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     }
 
     fn handle_rename_from(&mut self, event: Event) {
-        let time = Instant::now();
+        let time = now();
         let path = &event.paths[0];
 
         // store event
-        let file_id = self.cache.cached_file_id(path).cloned();
+        let file_id = self.cache.cached_file_id(path).map(|id| *id.as_ref());
         self.rename_event = Some((DebouncedEvent::new(event.clone(), time), file_id));
 
         self.cache.remove_path(path);
@@ -381,7 +386,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             .and_then(|from_file_id| {
                 self.cache
                     .cached_file_id(&event.paths[0])
-                    .map(|to_file_id| from_file_id == to_file_id)
+                    .map(|to_file_id| from_file_id == to_file_id.as_ref())
             })
             .unwrap_or_default();
 
@@ -393,7 +398,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             self.push_rename_event(path, event, time);
         } else {
             // move in
-            self.push_event(event, Instant::now());
+            self.push_event(event, now());
         }
 
         self.rename_event = None;
@@ -504,9 +509,15 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         let path = &event.paths[0];
 
         if let Some(queue) = self.queues.get_mut(path) {
-            // skip duplicate create events and modifications right after creation
+            // Skip duplicate create events and modifications right after creation.
+            // This code relies on backends never emitting a `Modify` event with kind other than `Name` for a rename event.
             if match event.kind {
-                EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Metadata(_))
+                EventKind::Modify(
+                    ModifyKind::Any
+                    | ModifyKind::Data(_)
+                    | ModifyKind::Metadata(_)
+                    | ModifyKind::Other,
+                )
                 | EventKind::Create(_) => !queue.was_created(),
                 _ => true,
             } {
@@ -534,7 +545,7 @@ pub struct Debouncer<T: Watcher, C: FileIdCache> {
 
 impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     /// Stop the debouncer, waits for the event thread to finish.
-    /// May block for the duration of one tick_rate.
+    /// May block for the duration of one `tick_rate`.
     pub fn stop(mut self) {
         self.set_stop();
         if let Some(t) = self.debouncer_thread.take() {
@@ -618,7 +629,7 @@ impl<T: Watcher, C: FileIdCache> Drop for Debouncer<T, C> {
 ///
 /// Timeout is the amount of time after which a debounced event is emitted.
 ///
-/// If tick_rate is None, notify will select a tick rate that is 1/4 of the provided timeout.
+/// If `tick_rate` is `None`, notify will select a tick rate that is 1/4 of the provided timeout.
 pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + Send + 'static>(
     timeout: Duration,
     tick_rate: Option<Duration>,
@@ -634,16 +645,14 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
         Some(v) => {
             if v > timeout {
                 return Err(Error::new(ErrorKind::Generic(format!(
-                    "Invalid tick_rate, tick rate {:?} > {:?} timeout!",
-                    v, timeout
+                    "Invalid tick_rate, tick rate {v:?} > {timeout:?} timeout!"
                 ))));
             }
             v
         }
         None => timeout.checked_div(tick_div).ok_or_else(|| {
             Error::new(ErrorKind::Generic(format!(
-                "Failed to calculate tick as {:?}/{}!",
-                timeout, tick_div
+                "Failed to calculate tick as {timeout:?}/{tick_div}!"
             )))
         })?,
     };
@@ -700,7 +709,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
 ///
 /// Timeout is the amount of time after which a debounced event is emitted.
 ///
-/// If tick_rate is None, notify will select a tick rate that is 1/4 of the provided timeout.
+/// If `tick_rate` is `None`, notify will select a tick rate that is 1/4 of the provided timeout.
 pub fn new_debouncer<F: DebounceEventHandler>(
     timeout: Duration,
     tick_rate: Option<Duration>,
@@ -715,16 +724,60 @@ pub fn new_debouncer<F: DebounceEventHandler>(
     )
 }
 
+fn sort_events(events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
+    let mut sorted = Vec::with_capacity(events.len());
+
+    // group events by path
+    let mut events_by_path: HashMap<_, VecDeque<_>> =
+        events.into_iter().fold(HashMap::new(), |mut acc, event| {
+            acc.entry(event.paths.last().cloned().unwrap_or_default())
+                .or_default()
+                .push_back(event);
+            acc
+        });
+
+    // push events for different paths in chronological order and keep the order of events with the same path
+
+    let mut min_time_heap = events_by_path
+        .iter()
+        .map(|(path, events)| Reverse((events[0].time, path.clone())))
+        .collect::<BinaryHeap<_>>();
+
+    while let Some(Reverse((min_time, path))) = min_time_heap.pop() {
+        // unwrap is safe because only paths from `events_by_path` are added to `min_time_heap`
+        // and they are never removed from `events_by_path`.
+        let events = events_by_path.get_mut(&path).unwrap();
+
+        let mut push_next = false;
+
+        while events.front().is_some_and(|event| event.time <= min_time) {
+            // unwrap is safe because `pop_front` mus return some in order to enter the loop
+            let event = events.pop_front().unwrap();
+            sorted.push(event);
+            push_next = true;
+        }
+
+        if push_next {
+            if let Some(event) = events.front() {
+                min_time_heap.push(Reverse((event.time, path)));
+            }
+        }
+    }
+
+    sorted
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path};
 
     use super::*;
 
-    use mock_instant::MockClock;
     use pretty_assertions::assert_eq;
     use rstest::rstest;
+    use tempfile::tempdir;
     use testing::TestCase;
+    use time::MockTime;
 
     #[rstest]
     fn state(
@@ -732,6 +785,8 @@ mod tests {
             "add_create_event",
             "add_create_event_after_remove_event",
             "add_create_dir_event_twice",
+            "add_event_with_no_paths_is_ok",
+            "add_modify_any_event_after_create_event",
             "add_modify_content_event_after_create_event",
             "add_rename_from_event",
             "add_rename_from_event_after_create_event",
@@ -757,13 +812,16 @@ mod tests {
             "add_remove_event_after_create_and_modify_event",
             "add_remove_parent_event_after_remove_child_event",
             "add_errors",
+            "debounce_modify_events",
             "emit_continuous_modify_content_events",
             "emit_events_in_chronological_order",
             "emit_events_with_a_prepended_rename_event",
             "emit_close_events_only_once",
             "emit_modify_event_after_close_event",
             "emit_needs_rescan_event",
-            "read_file_id_without_create_event"
+            "read_file_id_without_create_event",
+            "sort_events_chronologically",
+            "sort_events_with_reordering"
         )]
         file_name: &str,
     ) {
@@ -771,16 +829,19 @@ mod tests {
             fs::read_to_string(Path::new(&format!("./test_cases/{file_name}.hjson"))).unwrap();
         let mut test_case = deser_hjson::from_str::<TestCase>(&file_content).unwrap();
 
-        MockClock::set_time(Duration::default());
-
-        let time = Instant::now();
+        let time = now();
+        MockTime::set_time(time);
 
         let mut state = test_case.state.into_debounce_data_inner(time);
         state.roots = vec![(PathBuf::from("/"), RecursiveMode::Recursive)];
 
+        let mut prev_event_time = Duration::default();
+
         for event in test_case.events {
+            let event_time = Duration::from_millis(event.time);
             let event = event.into_debounced_event(time, None);
-            MockClock::set_time(event.time - time);
+            MockTime::advance(event_time - prev_event_time);
+            prev_event_time = event_time;
             state.add_event(event.event);
         }
 
@@ -813,7 +874,7 @@ mod tests {
             state
                 .errors
                 .iter()
-                .map(|e| format!("{:?}", e))
+                .map(|e| format!("{e:?}"))
                 .collect::<Vec<_>>(),
             expected_errors
                 .iter()
@@ -822,21 +883,20 @@ mod tests {
             "errors not as expected"
         );
 
-        let backup_time = Instant::now().duration_since(time);
+        let backup_time = now();
         let backup_queues = state.queues.clone();
 
         for (delay, events) in expected_events {
-            MockClock::set_time(backup_time);
+            MockTime::set_time(backup_time);
             state.queues = backup_queues.clone();
 
             match delay.as_str() {
                 "none" => {}
-                "short" => MockClock::advance(Duration::from_millis(10)),
-                "long" => MockClock::advance(Duration::from_millis(100)),
+                "short" => MockTime::advance(Duration::from_millis(10)),
+                "long" => MockTime::advance(Duration::from_millis(100)),
                 _ => {
                     if let Ok(ts) = delay.parse::<u64>() {
-                        let ts = time + Duration::from_millis(ts);
-                        MockClock::set_time(ts - time);
+                        MockTime::set_time(time + Duration::from_millis(ts));
                     }
                 }
             }
@@ -852,5 +912,42 @@ mod tests {
                 "debounced events after a `{delay}` delay"
             );
         }
+    }
+
+    #[test]
+    fn integration() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+
+        // set up the watcher
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut debouncer = new_debouncer(Duration::from_millis(10), None, tx)?;
+        debouncer.watch(dir.path(), RecursiveMode::Recursive)?;
+
+        // create a new file
+        let file_path = dir.path().join("file.txt");
+        fs::write(&file_path, b"Lorem ipsum")?;
+
+        println!("waiting for event at {}", file_path.display());
+
+        // wait for up to 10 seconds for the create event, ignore all other events
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while deadline > Instant::now() {
+            let events = rx
+                .recv_timeout(deadline - Instant::now())
+                .expect("did not receive expected event")
+                .expect("received an error");
+
+            for event in events {
+                if event.event.paths == vec![file_path.clone()]
+                    || event.event.paths == vec![file_path.canonicalize()?]
+                {
+                    return Ok(());
+                }
+
+                println!("unexpected event: {event:?}");
+            }
+        }
+
+        panic!("did not receive expected event");
     }
 }

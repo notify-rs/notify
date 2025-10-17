@@ -1,0 +1,26 @@
+// https://github.com/notify-rs/notify/issues/671
+
+// Windows may emit a Create Any and then a Modify Anyevent when a file is created.
+{
+    state: {
+        queues: {
+            /watch/file: {
+                events: [
+                    { kind: "create-any", paths: ["*"] }
+                ]
+            }
+        }
+    }
+    events: [
+        { kind: "modify-any", paths: ["/watch/file"] }
+    ]
+    expected: {
+        queues: {
+            /watch/file: {
+                events: [
+                    { kind: "create-any", paths: ["*"] }
+                ]
+            }
+        }
+    }
+}

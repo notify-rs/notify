@@ -16,7 +16,8 @@
 
 use crate::event::*;
 use crate::{
-    unbounded, Config, Error, EventHandler, RecursiveMode, Result, Sender, WatchFilter, Watcher,
+    unbounded, Config, Error, EventHandler, PathsMut, RecursiveMode, Result, Sender, WatchFilter,
+    Watcher,
 };
 use fsevent_sys as fs;
 use fsevent_sys::core_foundation as cf;
@@ -267,6 +268,29 @@ extern "C" {
     fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> cf::Boolean;
 }
 
+struct FsEventPathsMut<'a>(&'a mut FsEventWatcher);
+impl<'a> FsEventPathsMut<'a> {
+    fn new(watcher: &'a mut FsEventWatcher) -> Self {
+        watcher.stop();
+        Self(watcher)
+    }
+}
+impl PathsMut for FsEventPathsMut<'_> {
+    fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.0.append_path(path, recursive_mode)
+    }
+
+    fn remove(&mut self, path: &Path) -> Result<()> {
+        self.0.remove_path(path)
+    }
+
+    fn commit(self: Box<Self>) -> Result<()> {
+        // ignore return error: may be empty path list
+        let _ = self.0.run();
+        Ok(())
+    }
+}
+
 impl FsEventWatcher {
     fn from_event_handler(event_handler: Arc<Mutex<dyn EventHandler>>) -> Result<Self> {
         Ok(FsEventWatcher {
@@ -405,7 +429,7 @@ impl FsEventWatcher {
 
         // We need to associate the stream context with our callback in order to propagate events
         // to the rest of the system. This will be owned by the stream, and will be freed when the
-        // stream is closed. This means we will leak the context if we panic before reacing
+        // stream is closed. This means we will leak the context if we panic before reaching
         // `FSEventStreamRelease`.
         let context = Box::into_raw(Box::new(StreamContextInfo {
             event_handler: self.event_handler.clone(),
@@ -578,6 +602,10 @@ impl Watcher for FsEventWatcher {
         watch_filter: WatchFilter,
     ) -> Result<()> {
         self.watch_inner(path, recursive_mode, watch_filter)
+    }
+
+    fn paths_mut<'me>(&'me mut self) -> Box<dyn PathsMut + 'me> {
+        Box::new(FsEventPathsMut::new(self))
     }
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {

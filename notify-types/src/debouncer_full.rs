@@ -1,12 +1,12 @@
 use std::ops::{Deref, DerefMut};
 
-#[cfg(test)]
-use mock_instant::Instant;
+#[cfg(feature = "web-time")]
+use web_time::Instant;
 
-#[cfg(not(test))]
+#[cfg(not(feature = "web-time"))]
 use std::time::Instant;
 
-use notify::Event;
+use crate::event::Event;
 
 /// A debounced event is emitted after a short delay.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,23 +35,5 @@ impl Deref for DebouncedEvent {
 impl DerefMut for DebouncedEvent {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.event
-    }
-}
-
-impl Default for DebouncedEvent {
-    fn default() -> Self {
-        Self {
-            event: Default::default(),
-            time: Instant::now(),
-        }
-    }
-}
-
-impl From<Event> for DebouncedEvent {
-    fn from(event: Event) -> Self {
-        Self {
-            event,
-            time: Instant::now(),
-        }
     }
 }

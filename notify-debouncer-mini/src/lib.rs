@@ -4,16 +4,16 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify-debouncer-mini = "0.4.1"
+//! notify-debouncer-mini = "0.6.0"
 //! ```
 //! In case you want to select specific features of notify,
 //! specify notify as dependency explicitly in your dependencies.
 //! Otherwise you can just use the re-export of notify from debouncer-mini.
 //! ```toml
-//! notify-debouncer-mini = "0.4.1"
+//! notify-debouncer-mini = "0.6.0"
 //! notify = { version = "..", features = [".."] }
 //! ```
-//!  
+//!
 //! # Examples
 //! See also the full configuration example [here](https://github.com/notify-rs/notify/blob/main/examples/debouncer_mini_custom.rs).
 //!
@@ -45,15 +45,16 @@
 //!
 //! The following crate features can be turned on or off in your cargo dependency config:
 //!
-//! - `crossbeam` enabled by default, adds [`DebounceEventHandler`](DebounceEventHandler) support for crossbeam channels.
-//!   Also enables crossbeam-channel in the re-exported notify. You may want to disable this when using the tokio async runtime.
-//! - `serde` enables serde support for events.
+//! - `serde` passed down to notify-types, off by default
+//! - `crossbeam-channel` passed down to notify, off by default
+//! - `flume` passed down to notify, off by default
+//! - `macos_fsevent` passed down to notify, off by default
+//! - `macos_kqueue` passed down to notify, off by default
+//! - `serialization-compat-6` passed down to notify, off by default
 //!
 //! # Caveats
 //!
 //! As all file events are sourced from notify, the [known problems](https://docs.rs/notify/latest/notify/#known-problems) section applies here too.
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -62,6 +63,8 @@ use std::{
 };
 
 pub use notify;
+pub use notify_types::debouncer_mini::{DebouncedEvent, DebouncedEventKind};
+
 use notify::{Error, Event, RecommendedWatcher, Watcher};
 
 /// The set of requirements for watcher debounce event handling functions.
@@ -130,7 +133,7 @@ impl Config {
     }
     /// Set batch mode
     ///
-    /// When `batch_mode` is enabled, events may be delayed (at most 2x the specified timout) and delivered with others.
+    /// When `batch_mode` is enabled, events may be delayed (at most 2x the specified timeout) and delivered with others.
     /// If disabled, all events are delivered immediately when their debounce timeout is reached.
     pub fn with_batch_mode(mut self, batch_mode: bool) -> Self {
         self.batch_mode = batch_mode;
@@ -152,8 +155,15 @@ where
     }
 }
 
-#[cfg(feature = "crossbeam")]
+#[cfg(feature = "crossbeam-channel")]
 impl DebounceEventHandler for crossbeam_channel::Sender<DebounceEventResult> {
+    fn handle_event(&mut self, event: DebounceEventResult) {
+        let _ = self.send(event);
+    }
+}
+
+#[cfg(feature = "flume")]
+impl DebounceEventHandler for flume::Sender<DebounceEventResult> {
     fn handle_event(&mut self, event: DebounceEventResult) {
         let _ = self.send(event);
     }
@@ -187,36 +197,6 @@ impl EventData {
 /// A result of debounced events.
 /// Comes with either a vec of events or an immediate error.
 pub type DebounceEventResult = Result<Vec<DebouncedEvent>, Error>;
-
-/// A debounced event kind.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[non_exhaustive]
-pub enum DebouncedEventKind {
-    /// No precise events
-    Any,
-    /// Event but debounce timed out (for example continuous writes)
-    AnyContinuous,
-}
-
-/// A debounced event.
-///
-/// Does not emit any specific event type on purpose, only distinguishes between an any event and a continuous any event.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct DebouncedEvent {
-    /// Event path
-    pub path: PathBuf,
-    /// Event kind
-    pub kind: DebouncedEventKind,
-}
-
-impl DebouncedEvent {
-    #[inline(always)]
-    fn new(path: PathBuf, kind: DebouncedEventKind) -> Self {
-        Self { path, kind }
-    }
-}
 
 enum InnerEvent {
     NotifyEvent(Result<Event, Error>),
@@ -277,7 +257,7 @@ impl DebounceDataInner {
                 data_back.insert(path.clone(), event);
                 events_expired.push(DebouncedEvent::new(path, DebouncedEventKind::AnyContinuous));
             } else {
-                // event is neither old enough for continous event, nor is it expired for an Any event
+                // event is neither old enough for continuous event, nor is it expired for an Any event
                 Self::check_deadline(
                     self.batch_mode,
                     self.timeout,
@@ -293,8 +273,8 @@ impl DebounceDataInner {
 
     /// Updates the deadline if none is set or when batch mode is disabled and the current deadline would miss the next event.
     /// The new deadline is calculated based on the last event update time and the debounce timeout.
-    ///  
-    /// can't sub-function this due to event_map.drain() holding &mut self
+    ///
+    /// can't sub-function this due to `event_map.drain()` holding `&mut self`
     fn check_deadline(
         batch_mode: bool,
         timeout: Duration,
@@ -305,7 +285,7 @@ impl DebounceDataInner {
         match debounce_deadline {
             Some(current_deadline) => {
                 // shorten deadline to not delay the event
-                // with batch mode simply wait for the incoming deadline and delay the event untill then
+                // with batch mode simply wait for the incoming deadline and delay the event until then
                 if !batch_mode && *current_deadline > deadline_candidate {
                     *debounce_deadline = Some(deadline_candidate);
                 }
@@ -425,4 +405,52 @@ pub fn new_debouncer<F: DebounceEventHandler>(
 ) -> Result<Debouncer<RecommendedWatcher>, Error> {
     let config = Config::default().with_timeout(timeout);
     new_debouncer_opt::<F, RecommendedWatcher>(config, event_handler)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notify::RecursiveMode;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn integration() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+
+        // set up the watcher
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut debouncer = new_debouncer(Duration::from_secs(1), tx)?;
+        debouncer
+            .watcher()
+            .watch(dir.path(), RecursiveMode::Recursive)?;
+
+        // create a new file
+        let file_path = dir.path().join("file.txt");
+        fs::write(&file_path, b"Lorem ipsum")?;
+
+        println!("waiting for event at {}", file_path.display());
+
+        // wait for up to 10 seconds for the create event, ignore all other events
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while deadline > Instant::now() {
+            let events = rx
+                .recv_timeout(deadline - Instant::now())
+                .expect("did not receive expected event")
+                .expect("received an error");
+
+            for event in events {
+                if event == DebouncedEvent::new(file_path.clone(), DebouncedEventKind::Any)
+                    || event
+                        == DebouncedEvent::new(file_path.canonicalize()?, DebouncedEventKind::Any)
+                {
+                    return Ok(());
+                }
+
+                println!("unexpected event: {event:?}");
+            }
+        }
+
+        panic!("did not receive expected event");
+    }
 }

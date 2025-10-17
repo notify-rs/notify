@@ -14,7 +14,7 @@ pub trait FileIdCache {
     /// Get a `FileId` from the cache for a given `path`.
     ///
     /// If the path is not cached, `None` should be returned and there should not be any attempt to read the file ID from disk.
-    fn cached_file_id(&self, path: &Path) -> Option<&FileId>;
+    fn cached_file_id(&self, path: &Path) -> Option<impl AsRef<FileId>>;
 
     /// Add a new path to the cache or update its value.
     ///
@@ -26,19 +26,22 @@ pub trait FileIdCache {
     /// This will be called if a file or directory is deleted.
     fn remove_path(&mut self, path: &Path);
 
-    /// Re-scan all paths.
+    /// Re-scan all `root_paths`.
     ///
     /// This will be called if the notification back-end has dropped events.
-    fn rescan(&mut self, roots: &[(PathBuf, RecursiveMode)]) {
-        for (root, recursive_mode) in roots {
-            self.add_path(root, *recursive_mode);
+    /// The root paths are passed as argument, so the implementer doesn't have to store them.
+    ///
+    /// The default implementation calls `add_path` for each root path.
+    fn rescan(&mut self, root_paths: &[(PathBuf, RecursiveMode)]) {
+        for (path, recursive_mode) in root_paths {
+            self.add_path(path, *recursive_mode);
         }
     }
 }
 
 /// A cache to hold the file system IDs of all watched files.
 ///
-/// The file ID cache uses unique file IDs provided by the file system and is used to stich together
+/// The file ID cache uses unique file IDs provided by the file system and is used to stitch together
 /// rename events in case the notification back-end doesn't emit rename cookies.
 #[derive(Debug, Clone, Default)]
 pub struct FileIdMap {
@@ -53,7 +56,7 @@ impl FileIdMap {
 
     fn dir_scan_depth(is_recursive: bool) -> usize {
         if is_recursive {
-            usize::max_value()
+            usize::MAX
         } else {
             1
         }
@@ -61,7 +64,7 @@ impl FileIdMap {
 }
 
 impl FileIdCache for FileIdMap {
-    fn cached_file_id(&self, path: &Path) -> Option<&FileId> {
+    fn cached_file_id(&self, path: &Path) -> Option<impl AsRef<FileId>> {
         self.paths.get(path)
     }
 
@@ -101,8 +104,8 @@ impl NoCache {
 }
 
 impl FileIdCache for NoCache {
-    fn cached_file_id(&self, _path: &Path) -> Option<&FileId> {
-        None
+    fn cached_file_id(&self, _path: &Path) -> Option<impl AsRef<FileId>> {
+        Option::<&FileId>::None
     }
 
     fn add_path(&mut self, _path: &Path, _recursive_mode: RecursiveMode) {}

@@ -17,11 +17,11 @@ use std::{
     time::Duration,
 };
 
-/// Event send for registered handler on initial directory scans
+/// Event sent for registered handlers on initial directory scans
 pub type ScanEvent = crate::Result<PathBuf>;
 
-/// Handler trait for receivers of ScanEvent.
-/// Very much the same as [EventHandler], but including the Result.
+/// Handler trait for receivers of [`ScanEvent`].
+/// Very much the same as [`EventHandler`], but including the Result.
 ///
 /// See the full example for more information.
 pub trait ScanEventHandler: Send + 'static {
@@ -45,6 +45,13 @@ impl ScanEventHandler for crossbeam_channel::Sender<ScanEvent> {
     }
 }
 
+#[cfg(feature = "flume")]
+impl ScanEventHandler for flume::Sender<ScanEvent> {
+    fn handle_event(&mut self, event: ScanEvent) {
+        let _ = self.send(event);
+    }
+}
+
 impl ScanEventHandler for std::sync::mpsc::Sender<ScanEvent> {
     fn handle_event(&mut self, event: ScanEvent) {
         let _ = self.send(event);
@@ -61,7 +68,6 @@ mod data {
         event::{CreateKind, DataChange, Event, EventKind, MetadataKind, ModifyKind, RemoveKind},
         EventHandler,
     };
-    use filetime::FileTime;
     use std::{
         cell::RefCell,
         collections::{hash_map::RandomState, HashMap},
@@ -75,6 +81,13 @@ mod data {
     use walkdir::WalkDir;
 
     use super::ScanEventHandler;
+
+    fn system_time_to_seconds(time: std::time::SystemTime) -> i64 {
+        match time.duration_since(std::time::SystemTime::UNIX_EPOCH) {
+            Ok(d) => d.as_secs() as i64,
+            Err(e) => -(e.duration().as_secs() as i64),
+        }
+    }
 
     /// Builder for [`WatchData`] & [`PathData`].
     pub(super) struct DataBuilder {
@@ -129,8 +142,9 @@ mod data {
             &self,
             root: PathBuf,
             is_recursive: bool,
+            follow_symlinks: bool,
         ) -> Option<WatchData> {
-            WatchData::new(self, root, is_recursive)
+            WatchData::new(self, root, is_recursive, follow_symlinks)
         }
 
         /// Create [`PathData`].
@@ -153,6 +167,7 @@ mod data {
         // config part, won't change.
         root: PathBuf,
         is_recursive: bool,
+        follow_symlinks: bool,
 
         // current status part.
         all_path_data: HashMap<PathBuf, PathData>,
@@ -164,7 +179,12 @@ mod data {
         /// # Side effect
         ///
         /// This function may send event by `data_builder.emitter`.
-        fn new(data_builder: &DataBuilder, root: PathBuf, is_recursive: bool) -> Option<Self> {
+        fn new(
+            data_builder: &DataBuilder,
+            root: PathBuf,
+            is_recursive: bool,
+            follow_symlinks: bool,
+        ) -> Option<Self> {
             // If metadata read error at `root` path, it will emit
             // a error event and stop to create the whole `WatchData`.
             //
@@ -184,16 +204,23 @@ mod data {
             // FIXME: Can we always allow to watch a path, even file not
             // found at this path?
             if let Err(e) = fs::metadata(&root) {
-                data_builder.emitter.emit_io_err(e, &root);
+                data_builder.emitter.emit_io_err(e, Some(&root));
                 return None;
             }
 
-            let all_path_data =
-                Self::scan_all_path_data(data_builder, root.clone(), is_recursive, true).collect();
+            let all_path_data = Self::scan_all_path_data(
+                data_builder,
+                root.clone(),
+                is_recursive,
+                follow_symlinks,
+                true,
+            )
+            .collect();
 
             Some(Self {
                 root,
                 is_recursive,
+                follow_symlinks,
                 all_path_data,
             })
         }
@@ -205,9 +232,13 @@ mod data {
         /// This function may emit event by `data_builder.emitter`.
         pub(super) fn rescan(&mut self, data_builder: &mut DataBuilder) {
             // scan current filesystem.
-            for (path, new_path_data) in
-                Self::scan_all_path_data(data_builder, self.root.clone(), self.is_recursive, false)
-            {
+            for (path, new_path_data) in Self::scan_all_path_data(
+                data_builder,
+                self.root.clone(),
+                self.is_recursive,
+                self.follow_symlinks,
+                false,
+            ) {
                 let old_path_data = self
                     .all_path_data
                     .insert(path.clone(), new_path_data.clone());
@@ -249,6 +280,7 @@ mod data {
             data_builder: &'_ DataBuilder,
             root: PathBuf,
             is_recursive: bool,
+            follow_symlinks: bool,
             // whether this is an initial scan, used only for events
             is_initial: bool,
         ) -> impl Iterator<Item = (PathBuf, PathData)> + '_ {
@@ -258,28 +290,22 @@ mod data {
             //
             // See: https://docs.rs/walkdir/2.0.1/walkdir/struct.WalkDir.html#method.new
             WalkDir::new(root)
-                .follow_links(true)
+                .follow_links(follow_symlinks)
                 .max_depth(Self::dir_scan_depth(is_recursive))
                 .into_iter()
-                //
-                // QUESTION: should we ignore IO Error?
-                //
-                // current implementation ignore some IO error, e.g.,
-                //
-                // - `.filter_map(|entry| entry.ok())`
-                // - all read error when hashing
-                //
-                // but the code also interest with `fs::metadata()` error and
-                // propagate to event handler. It may not consistent.
-                //
-                // FIXME: Should we emit all IO error events? Or ignore them all?
                 .filter_map(|entry_res| match entry_res {
                     Ok(entry) => Some(entry),
                     Err(err) => {
                         log::warn!("walkdir error scanning {err:?}");
-                        let crate_err =
-                            crate::Error::new(crate::ErrorKind::Generic(err.to_string()));
-                        data_builder.emitter.emit(Err(crate_err));
+                        if let Some(io_error) = err.io_error() {
+                            // clone an io::Error, so we have to create a new one.
+                            let new_io_error = io::Error::new(io_error.kind(), err.to_string());
+                            data_builder.emitter.emit_io_err(new_io_error, err.path());
+                        } else {
+                            let crate_err =
+                                crate::Error::new(crate::ErrorKind::Generic(err.to_string()));
+                            data_builder.emitter.emit(Err(crate_err));
+                        }
                         None
                     }
                 })
@@ -300,7 +326,7 @@ mod data {
                     Err(e) => {
                         // emit event.
                         let path = entry.into_path();
-                        data_builder.emitter.emit_io_err(e, path);
+                        data_builder.emitter.emit_io_err(e, Some(path));
 
                         None
                     }
@@ -309,7 +335,7 @@ mod data {
 
         fn dir_scan_depth(is_recursive: bool) -> usize {
             if is_recursive {
-                usize::max_value()
+                usize::MAX
             } else {
                 1
             }
@@ -338,7 +364,7 @@ mod data {
             let metadata = meta_path.metadata();
 
             PathData {
-                mtime: FileTime::from_last_modification_time(metadata).seconds(),
+                mtime: metadata.modified().map_or(0, system_time_to_seconds),
                 hash: data_builder
                     .build_hasher
                     .as_ref()
@@ -457,12 +483,17 @@ mod data {
         }
 
         /// Emit io error event.
-        fn emit_io_err<E, P>(&self, err: E, path: P)
+        fn emit_io_err<E, P>(&self, err: E, path: Option<P>)
         where
             E: Into<io::Error>,
             P: Into<PathBuf>,
         {
-            self.emit(Err(crate::Error::io(err.into()).add_path(path.into())))
+            let e = crate::Error::io(err.into());
+            if let Some(path) = path {
+                self.emit(Err(e.add_path(path.into())));
+            } else {
+                self.emit(Err(e));
+            }
         }
     }
 }
@@ -482,10 +513,11 @@ pub struct PollWatcher {
     /// currently used only for manual polling
     message_channel: Sender<()>,
     delay: Option<Duration>,
+    follow_sylinks: bool,
 }
 
 impl PollWatcher {
-    /// Create a new [PollWatcher], configured as needed.
+    /// Create a new [`PollWatcher`], configured as needed.
     pub fn new<F: EventHandler>(event_handler: F, config: Config) -> crate::Result<PollWatcher> {
         Self::with_opt::<_, ()>(event_handler, config, None)
     }
@@ -498,7 +530,7 @@ impl PollWatcher {
         Ok(())
     }
 
-    /// Create a new [PollWatcher] with an scan event handler.
+    /// Create a new [`PollWatcher`] with an scan event handler.
     ///
     /// `scan_fallback` is called on the initial scan with all files seen by the pollwatcher.
     pub fn with_initial_scan<F: EventHandler, G: ScanEventHandler>(
@@ -509,7 +541,7 @@ impl PollWatcher {
         Self::with_opt(event_handler, config, Some(scan_callback))
     }
 
-    /// create a new PollWatcher with all options
+    /// create a new [`PollWatcher`] with all options.
     fn with_opt<F: EventHandler, G: ScanEventHandler>(
         event_handler: F,
         config: Config,
@@ -525,6 +557,7 @@ impl PollWatcher {
             data_builder: Arc::new(Mutex::new(data_builder)),
             want_to_stop: Arc::new(AtomicBool::new(false)),
             delay: config.poll_interval(),
+            follow_sylinks: config.follow_symlinks(),
             message_channel: tx,
         };
 
@@ -584,8 +617,11 @@ impl PollWatcher {
         {
             data_builder.update_timestamp();
 
-            let watch_data =
-                data_builder.build_watch_data(path.to_path_buf(), recursive_mode.is_recursive());
+            let watch_data = data_builder.build_watch_data(
+                path.to_path_buf(),
+                recursive_mode.is_recursive(),
+                self.follow_sylinks,
+            );
 
             // if create watch_data successful, add it to watching list.
             if let Some(watch_data) = watch_data {
@@ -609,7 +645,7 @@ impl PollWatcher {
 }
 
 impl Watcher for PollWatcher {
-    /// Create a new [PollWatcher].
+    /// Create a new [`PollWatcher`].
     fn new<F: EventHandler>(event_handler: F, config: Config) -> crate::Result<Self> {
         Self::new(event_handler, config)
     }

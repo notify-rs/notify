@@ -81,6 +81,15 @@ impl Error {
         Self::new(ErrorKind::Io(err))
     }
 
+    /// Similar to [`Error::io`], but specifically handles [`io::ErrorKind::NotFound`].
+    pub fn io_watch(err: io::Error) -> Self {
+        if err.kind() == io::ErrorKind::NotFound {
+            Self::path_not_found()
+        } else {
+            Self::io(err)
+        }
+    }
+
     /// Creates a new "path not found" error.
     pub fn path_not_found() -> Self {
         Self::new(ErrorKind::PathNotFound)
@@ -131,25 +140,12 @@ impl From<io::Error> for Error {
     }
 }
 
-#[cfg(feature = "crossbeam-channel")]
-impl<T> From<crossbeam_channel::SendError<T>> for Error {
-    fn from(err: crossbeam_channel::SendError<T>) -> Self {
-        Error::generic(&format!("internal channel disconnect: {:?}", err))
-    }
-}
-#[cfg(not(feature = "crossbeam-channel"))]
 impl<T> From<std::sync::mpsc::SendError<T>> for Error {
     fn from(err: std::sync::mpsc::SendError<T>) -> Self {
         Error::generic(&format!("internal channel disconnect: {:?}", err))
     }
 }
-#[cfg(feature = "crossbeam-channel")]
-impl From<crossbeam_channel::RecvError> for Error {
-    fn from(err: crossbeam_channel::RecvError) -> Self {
-        Error::generic(&format!("internal channel disconnect: {:?}", err))
-    }
-}
-#[cfg(not(feature = "crossbeam-channel"))]
+
 impl From<std::sync::mpsc::RecvError> for Error {
     fn from(err: std::sync::mpsc::RecvError) -> Self {
         Error::generic(&format!("internal channel disconnect: {:?}", err))
@@ -170,9 +166,6 @@ fn display_formatted_errors() {
 
     assert_eq!(
         expected,
-        format!(
-            "{}",
-            Error::io(io::Error::new(io::ErrorKind::Other, expected))
-        )
+        format!("{}", Error::io(io::Error::other(expected)))
     );
 }

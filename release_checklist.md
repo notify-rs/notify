@@ -4,8 +4,9 @@ Specifically the notify version.
 
 - update CHANGELOG.md
 - update README.md
-- update notify/lib.rs
-- update notify/cargo.toml examples/Cargo.toml examples/hot_reload_tide/Cargo.toml
-  - bump version number on the root Cargo.toml and examples
-- maybe update notify-debouncer-mini/Cargo.toml
-- maybe update notify-debouncer-full/Cargo.toml
+- update Cargo.toml and src/lib.rs for:
+  - file-id
+  - notify
+  - notify-debouncer-full
+  - notify-debouncer-mini
+  - notify-types

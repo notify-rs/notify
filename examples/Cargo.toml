@@ -3,15 +3,16 @@ name = "examples"
 version = "0.0.0"
 publish = false
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 [dev-dependencies]
-notify = { version = "6.1.1", path = "../notify" }
-notify-debouncer-mini = { version = "0.4.1", path = "../notify-debouncer-mini" }
-notify-debouncer-full = { version = "0.4.0", path = "../notify-debouncer-full" }
-futures = "0.3"
-tempfile = "3.5.0"
-log = "0.4.17"
-env_logger = "0.10.0"
+notify = { workspace = true }
+notify-debouncer-mini = { workspace = true }
+notify-debouncer-full = { workspace = true }
+futures = { workspace = true }
+tempfile = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
 
 [[example]]
 name = "async_monitor"

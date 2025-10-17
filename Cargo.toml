@@ -1,14 +1,50 @@
 [workspace]
-
+resolver = "2"
 members = [
   "notify",
   "notify-types",
   "notify-debouncer-mini",
   "notify-debouncer-full",
   "file-id",
-  # internal
-  "examples"
-  #"examples/hot_reload_tide" until https://github.com/rustsec/rustsec/issues/501 is resolved
+  "examples",
+]
+exclude = [
+  "examples/hot_reload_tide", # excluded until https://github.com/rustsec/rustsec/issues/501 is resolved
 ]
 
-exclude = ["examples/hot_reload_tide"]
+[workspace.package]
+rust-version = "1.77"
+homepage = "https://github.com/notify-rs/notify"
+repository = "https://github.com/notify-rs/notify.git"
+edition = "2021"
+
+[workspace.dependencies]
+bitflags = "2.7.0"
+crossbeam-channel = "0.5.0"
+flume = "0.11.1"
+deser-hjson = "2.2.4"
+env_logger = "0.11.2"
+file-id = { version = "0.2.3", path = "file-id" }
+fsevent-sys = "4.0.0"
+futures = "0.3.30"
+inotify = { version = "0.11.0", default-features = false }
+insta = "1.34.0"
+kqueue = "1.1.1"
+libc = "0.2.4"
+log = "0.4.17"
+mio = { version = "1.0", features = ["os-ext"] }
+web-time = "1.1.0"
+nix = "0.29.0"
+notify = { version = "8.2.0", path = "notify" }
+notify-debouncer-full = { version = "0.6.0", path = "notify-debouncer-full" }
+notify-debouncer-mini = { version = "0.7.0", path = "notify-debouncer-mini" }
+notify-types = { version = "2.0.0", path = "notify-types" }
+pretty_assertions = "1.3.0"
+rand = "0.8.5"
+rstest = "0.26.0"
+serde = { version = "1.0.89", features = ["derive"] }
+serde_json = "1.0.39"
+tempfile = "3.10.0"
+trash = "5.2.2"
+walkdir = "2.4.0"
+windows-sys = "0.60.1"

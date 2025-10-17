@@ -1,11 +1,10 @@
 use std::{
     collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use file_id::FileId;
-use mock_instant::Instant;
 use notify::{
     event::{
         AccessKind, AccessMode, CreateKind, DataChange, Flag, MetadataKind, ModifyKind, RemoveKind,
@@ -291,7 +290,7 @@ impl TestCache {
 }
 
 impl FileIdCache for TestCache {
-    fn cached_file_id(&self, path: &Path) -> Option<&FileId> {
+    fn cached_file_id(&self, path: &Path) -> Option<impl AsRef<FileId>> {
         self.paths.get(path)
     }
 
@@ -300,7 +299,7 @@ impl FileIdCache for TestCache {
             if file_path == path
                 || (file_path.starts_with(path) && recursive_mode == RecursiveMode::Recursive)
             {
-                self.paths.insert(file_path.clone(), file_id.clone());
+                self.paths.insert(file_path.clone(), *file_id);
             }
         }
     }

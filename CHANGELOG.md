@@ -1,12 +1,127 @@
 # Changelog
 
-v5 maintenance branch is on `v5_maintenance` after `5.2.0`
+## notify 8.2.0 (2025-08-03)
+- FEATURE: notify user if inotify's `max_user_watches` has been reached [#698]
+- FIX: `INotifyWatcher` ignore events with unknown watch descriptors (instead of `EventMask::Q_OVERFLOW`) [#700]
 
-v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
+[#698]: https://github.com/notify-rs/notify/pull/698
+[#700]: https://github.com/notify-rs/notify/pull/700
 
-## debouncer-full 0.4.0
+## debouncer-full 0.6.0 (2025-08-03)
+- FEATURE: allow `FileIdCache` trait implementations to choose ownership of the returned file-ids [#664]
+- FEATURE: added support for the [`flume`](https://docs.rs/flume) crate [#680]
+- FIX: skip all `Modify` events right after a `Create` event, unless it's a rename event [#701]
 
-- CHANGE: Manage root folder paths for the file ID cache automatically. **breaking**
+[#664]: https://github.com/notify-rs/notify/pull/664
+[#680]: https://github.com/notify-rs/notify/pull/680
+[#701]: https://github.com/notify-rs/notify/pull/701
+
+## debouncer-mini 0.7.0 (2025-08-03)
+- FEATURE: added support for the [`flume`](https://docs.rs/flume) crate [#680]
+
+## file-id 0.2.3 (2025-08-03)
+- CHANGE: implement `AsRef<FileId>` for `FileId` [#664]
+
+## notify 8.1.0 (2025-07-03)
+- FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
+- FIX: kqueue-backend: do not double unwatch top-level directory when recursively unwatching [#683]
+- FIX: Return the crate error `PathNotFound` instead bubbling up the std::io error [#685]
+- FIX: fix server hangs when trashing folders on Windows [#674]
+
+## notify 8.0.0 (2025-01-10)
+
+- CHANGE: update notify-types to version 2.0.0
+- CHANGE: raise MSRV to 1.77 **breaking**
+- FEATURE: add config option to disable following symbolic links [#635]
+- FIX: unaligned access to FILE_NOTIFY_INFORMATION [#647] **breaking**
+
+[#635]: https://github.com/notify-rs/notify/pull/635
+[#647]: https://github.com/notify-rs/notify/pull/647
+
+## notify-types 2.0.0 (2025-01-10)
+
+- CHANGE: replace instant crate with web-time [#652] **breaking**
+- CHANGE: the web-time dependency is now behind the `web-time` feature **breaking**
+
+[#652]: https://github.com/notify-rs/notify/pull/652
+
+## debouncer-mini 0.6.0 (2025-01-10)
+
+- CHANGE: update notify to version 8.0.0
+
+## debouncer-full 0.5.0 (2025-01-10)
+
+- CHANGE: update notify to version 8.0.0
+- CHANGE: pass `web-time` feature to notify-types
+
+## notify-types 1.0.1 (2024-12-17)
+
+- FIX: `Event::kind` serialization with `serialization-compat-6` feature [#660]
+
+[#660]: https://github.com/notify-rs/notify/pull/660
+
+## file-id 0.2.2 (2024-10-25)
+
+- CHANGE: get file stats without read permission [#625]
+
+[#625]: https://github.com/notify-rs/notify/issues/625
+
+## notify 7.0.0 (2024-10-25)
+
+- CHANGE: raise MSRV to 1.72 [#569] [#610] **breaking**
+- CHANGE: move event type to notify-types crate [#559]
+- CHANGE: flatten serialization of events and use camelCase [#558]
+- CHANGE: remove internal use of crossbeam channels [#569] [#610]
+- CHANGE: rename feature `crossbeam` to `crossbeam-channel` and disable it by default [#610] **breaking**
+- CHANGE: upgrade mio to 1.0 [#623]
+- CHANGE: add log statements [#499]
+- FIX: prevent UB with illegal instruction for the windows backend [#604] [#607]
+- FIX: on Linux report deleted directories correctly [#545]
+- FIX: on Linux report access open events [#612]
+- FEATURE: enable kqueue on iOS [#533]
+- MISC: various minor doc updates and fixes [#535] [#536] [#543] [#565] [#592] [#595]
+- MISC: update inotify to 0.10 [#547]
+
+[#499]: https://github.com/notify-rs/notify/pull/499
+[#533]: https://github.com/notify-rs/notify/pull/533
+[#535]: https://github.com/notify-rs/notify/pull/535
+[#536]: https://github.com/notify-rs/notify/pull/536
+[#543]: https://github.com/notify-rs/notify/pull/543
+[#545]: https://github.com/notify-rs/notify/pull/545
+[#547]: https://github.com/notify-rs/notify/pull/547
+[#558]: https://github.com/notify-rs/notify/pull/558
+[#559]: https://github.com/notify-rs/notify/pull/559
+[#565]: https://github.com/notify-rs/notify/pull/565
+[#569]: https://github.com/notify-rs/notify/pull/569
+[#592]: https://github.com/notify-rs/notify/pull/592
+[#595]: https://github.com/notify-rs/notify/pull/595
+[#604]: https://github.com/notify-rs/notify/pull/604
+[#607]: https://github.com/notify-rs/notify/pull/607
+[#610]: https://github.com/notify-rs/notify/pull/610
+[#612]: https://github.com/notify-rs/notify/pull/612
+[#623]: https://github.com/notify-rs/notify/pull/623
+
+## notify-types 1.0.0 (2024-10-25)
+
+New crate containing public type definitions for the notify and debouncer crates. [#559]
+
+- CHANGE: the serialization format for events has been changed to be easier to use in environments like JavaScript;
+  the old behavior can be restored using the new feature flag `serialization-compat-6` [#558] [#568] **breaking**
+- CHANGE: use instant crate (which provides an `Instant` type that works in Wasm environments) [#570]
+
+[#558]: https://github.com/notify-rs/notify/pull/558
+[#559]: https://github.com/notify-rs/notify/pull/559
+[#568]: https://github.com/notify-rs/notify/pull/568
+[#570]: https://github.com/notify-rs/notify/pull/570
+
+## debouncer-mini 0.5.0 (2024-10-25)
+
+- CHANGE: update notify to version 7.0.0
+
+## debouncer-full 0.4.0 (2024-10-25)
+
+- CHANGE: update notify to version 7.0.0
+- CHANGE: manage root folder paths for the file ID cache automatically [#557] **breaking**
 
   ```rust
   debouncer.watcher().watch(path, RecursiveMode::Recursive)?;
@@ -19,8 +134,16 @@ v4 commits split out to branch `v4_maintenance` starting with `4.0.16`
   debouncer.watch(path, RecursiveMode::Recursive)?;
   ```
 
-- CHANGE: Add `RecommendedCache`, which automatically enables the file ID cache on Windows and MacOS
-  and disables it on Linux, where it is not needed.
+- CHANGE: add `RecommendedCache`, which automatically enables the file ID cache on Windows and MacOS
+  and disables it on Linux, where it is not needed [#557]
+
+[#557]: https://github.com/notify-rs/notify/pull/557
+
+## debouncer-full 0.3.2 (2024-09-29)
+
+- FIX: ordering of debounced events could lead to a panic with Rust 1.81.0 and above [#636]
+
+[#636]: https://github.com/notify-rs/notify/issues/636
 
 ## debouncer-full 0.3.1 (2023-08-21)
 
@@ -123,7 +246,7 @@ Newly introduced alternative debouncer with more features. [#480]
 
 - FEATURE: only emit a single `rename` event if the rename `From` and `To` events can be matched
 - FEATURE: merge multiple `rename` events
-- FEATURE: keep track of the file system IDs all files and stiches rename events together (FSevents, Windows)
+- FEATURE: keep track of the file system IDs all files and stitches rename events together (FSevents, Windows)
 - FEATURE: emit only one `remove` event when deleting a directory (inotify)
 - FEATURE: don't emit duplicate create events
 - FEATURE: don't emit `Modify` events after a `Create` event
