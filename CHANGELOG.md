@@ -1,4 +1,7 @@
 # Changelog
+## notify 9.0.0 (unreleased)
+
+- CHANGE: raise MSRV to 1.82 **breaking**
 
 ## notify 8.2.0 (2025-08-03)
 - FEATURE: notify user if inotify's `max_user_watches` has been reached [#698]
