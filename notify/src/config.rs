@@ -156,7 +156,7 @@ impl WatchPathConfig {
 /// See [`Watcher::update_paths`] for more information
 #[derive(Debug)]
 pub enum PathOp {
-    /// Path should be watcher
+    /// Path should be watched
     Watch(PathBuf, WatchPathConfig),
 
     /// Path should be unwatched

@@ -673,7 +673,7 @@ mod tests {
     fn update_paths_in_a_loop_with_errors() -> StdResult<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
         let existing_dir_1 = dir.path().join("existing_dir_1");
-        let not_existent_file = dir.path().join("noт_existent_dir");
+        let not_existent_file = dir.path().join("not_existent_file");
         let existing_dir_2 = dir.path().join("existing_dir_2");
 
         fs::create_dir(&existing_dir_1)?;
