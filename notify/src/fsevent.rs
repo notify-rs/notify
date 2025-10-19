@@ -353,7 +353,9 @@ impl FsEventWatcher {
             let mut err: cf::CFErrorRef = ptr::null_mut();
             let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
             if cf_path.is_null() {
-                cf::CFRelease(err as cf::CFRef);
+                if !err.is_null() {
+                    cf::CFRelease(err as cf::CFRef);
+                }
                 return Err(Error::watch_not_found().add_path(path.into()));
             }
 
@@ -614,38 +616,74 @@ impl Drop for FsEventWatcher {
     }
 }
 
-#[test]
-fn test_fsevent_watcher_drop() {
+#[cfg(test)]
+mod tests {
+    use crate::ErrorKind;
+
     use super::*;
-    use std::time::Duration;
 
-    let dir = tempfile::tempdir().unwrap();
+    #[test]
+    fn test_fsevent_watcher_drop() {
+        use super::*;
+        use std::time::Duration;
 
-    let (tx, rx) = std::sync::mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
 
-    {
-        let mut watcher = FsEventWatcher::new(tx, Default::default()).unwrap();
-        watcher.watch(dir.path(), RecursiveMode::Recursive).unwrap();
-        thread::sleep(Duration::from_millis(2000));
-        println!("is running -> {}", watcher.is_running());
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        {
+            let mut watcher = FsEventWatcher::new(tx, Default::default()).unwrap();
+            watcher.watch(dir.path(), RecursiveMode::Recursive).unwrap();
+            thread::sleep(Duration::from_millis(2000));
+            println!("is running -> {}", watcher.is_running());
+
+            thread::sleep(Duration::from_millis(1000));
+            watcher.unwatch(dir.path()).unwrap();
+            println!("is running -> {}", watcher.is_running());
+        }
 
         thread::sleep(Duration::from_millis(1000));
-        watcher.unwatch(dir.path()).unwrap();
-        println!("is running -> {}", watcher.is_running());
+
+        for res in rx {
+            let e = res.unwrap();
+            println!("debug => {:?} {:?}", e.kind, e.paths);
+        }
+
+        println!("in test: {} works", file!());
     }
 
-    thread::sleep(Duration::from_millis(1000));
-
-    for res in rx {
-        let e = res.unwrap();
-        println!("debug => {:?} {:?}", e.kind, e.paths);
+    #[test]
+    fn test_steam_context_info_send_and_sync() {
+        fn check_send<T: Send + Sync>() {}
+        check_send::<StreamContextInfo>();
     }
 
-    println!("in test: {} works", file!());
-}
+    #[test]
+    fn does_not_crash_with_empty_path() {
+        let mut watcher = FsEventWatcher::new(|_| {}, Default::default()).unwrap();
 
-#[test]
-fn test_steam_context_info_send_and_sync() {
-    fn check_send<T: Send + Sync>() {}
-    check_send::<StreamContextInfo>();
+        let watch_result = watcher.watch(Path::new(""), RecursiveMode::Recursive);
+        assert!(
+            matches!(
+                watch_result,
+                Err(Error {
+                    kind: ErrorKind::PathNotFound,
+                    paths: _
+                })
+            ),
+            "actual: {watch_result:#?}"
+        );
+
+        let unwatch_result = watcher.unwatch(Path::new(""));
+        assert!(
+            matches!(
+                unwatch_result,
+                Err(Error {
+                    kind: ErrorKind::WatchNotFound,
+                    paths: _
+                })
+            ),
+            "actual: {unwatch_result:#?}"
+        );
+    }
 }
