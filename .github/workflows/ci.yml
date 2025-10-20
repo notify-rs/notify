@@ -61,7 +61,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        rust: [stable, nightly, 1.77.2]
+        rust: [stable, nightly, 1.82]
         features: [""]
         include:
           # MacOS with fsevent
@@ -72,7 +72,7 @@ jobs:
             rust: nightly
             features: "--no-default-features --features macos_fsevent"
           - os: macos-latest
-            rust: 1.77.2
+            rust: 1.82
             features: "--no-default-features --features macos_fsevent"
           # MacOS with kqueue
           - os: macos-latest
@@ -82,7 +82,7 @@ jobs:
             rust: nightly
             features: "--no-default-features --features macos_kqueue"
           - os: macos-latest
-            rust: 1.77.2
+            rust: 1.82
             features: "--no-default-features --features macos_kqueue"
 
     steps:
