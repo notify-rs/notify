@@ -3,6 +3,12 @@
 
 - CHANGE: raise MSRV to 1.82 **breaking**
 
+## notify (unreleased)
+- FIX: Fix the bug that `FsEventWatcher` crashes when dealing with empty path [#718]
+
+[#718]: https://github.com/notify-rs/notify/pull/718
+
+
 ## notify 8.2.0 (2025-08-03)
 - FEATURE: notify user if inotify's `max_user_watches` has been reached [#698]
 - FIX: `INotifyWatcher` ignore events with unknown watch descriptors (instead of `EventMask::Q_OVERFLOW`) [#700]
