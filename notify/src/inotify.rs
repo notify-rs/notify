@@ -377,7 +377,9 @@ impl EventLoop {
         }
 
         for path in remove_watches {
-            self.remove_watch(path, true).ok();
+            if let Err(err) = self.remove_watch(path, true) {
+                log::warn!("Unable to remove the path from the watches: {err:?}");
+            }
         }
 
         for path in add_watches {
@@ -476,20 +478,16 @@ impl EventLoop {
             Some((w, _, is_recursive, _)) => {
                 if let Some(ref mut inotify) = self.inotify {
                     let mut inotify_watches = inotify.watches();
-                    log::trace!("removing inotify watch: {}", path.display());
+                    log::trace!("removing inotify watch for {path:?}, remove_recursive: {remove_recursive:?}");
 
-                    inotify_watches
-                        .remove(w.clone())
-                        .map_err(|e| Error::io(e).add_path(path.clone()))?;
+                    Self::remove_single_descriptor(&mut inotify_watches, w.clone());
                     self.paths.remove(&w);
 
                     if is_recursive || remove_recursive {
                         let mut remove_list = Vec::new();
                         for (w, p) in &self.paths {
                             if p.starts_with(&path) {
-                                inotify_watches
-                                    .remove(w.clone())
-                                    .map_err(|e| Error::io(e).add_path(p.into()))?;
+                                Self::remove_single_descriptor(&mut inotify_watches, w.clone());
                                 self.watches.remove(p);
                                 remove_list.push(w.clone());
                             }
@@ -502,6 +500,34 @@ impl EventLoop {
             }
         }
         Ok(())
+    }
+
+    /// As long as we use the `inotify` crate its behaviour is specified by the documentation of
+    /// a [`inotify::Watches::remove`] method:
+    /// ```text
+    /// Directly returns the error from the call to [inotify_rm_watch].
+    /// Returns an [io::Error] with [ErrorKind]::InvalidInput,
+    /// if the given WatchDescriptor did not originate from this [Inotify] instance.
+    /// ```
+    ///
+    /// inotify documentation says, that `inotify_rm_watch` may fail with two specific errors:
+    /// * EBADF - fd is not a valid file descriptor.
+    /// * EINVAL - The watch descriptor wd is not valid or fd is not an inotify file descriptor.
+    ///
+    /// Therefore, we can ignore this errors (and log it), because
+    /// * in the case, when we are removing a watch because of an caught `DELETE` or `DELETE_SELF` event we want the
+    ///   path to be not watched, and in error cases it's already done (unknown file descriptor == it is not watched)
+    /// * in the case, when user is trying to remove the watch, they can do nothing with that kind of an error,
+    ///   it's totally internal. BUT, if there are no "strange" states (like races between user call and internal call,
+    ///   when internal inotify file descriptor has already been invalidated, but the event still hasn't been handled)
+    ///   they will get an [`ErrorKind::WatchNotFound`] error and can deal with it
+    ///
+    /// Log level is info, because it is not a "real" error. Expectedly, it may occurred only by race condition
+    /// (like described above), in other cases it is a bug (but we aren't able to distinguish that states)
+    fn remove_single_descriptor(watches: &mut inotify::Watches, wd: WatchDescriptor) {
+        if let Err(err) = watches.remove(wd) {
+            log::info!("unable to remove watch descriptor from inotify: {err:?}");
+        }
     }
 
     fn remove_all_watches(&mut self) -> Result<()> {
@@ -760,6 +786,29 @@ mod tests {
             events.is_empty(),
             "expected no events without path, but got {events_len}. first 10: {:#?}",
             &events[..LOG_LEN.min(events_len)]
+        );
+    }
+
+    /// https://github.com/notify-rs/notify/issues/709
+    #[test]
+    fn remove_a_subdir_in_a_recursively_watched_parent() {
+        let tmpdir = tempfile::tempdir().expect("tmpdir");
+        let subdirectory_path_1 = tmpdir.path().join("subdir");
+        let subdirectory_path_2 = subdirectory_path_1.join("nested");
+        std::fs::create_dir(&subdirectory_path_1).expect("unable to create a subdir");
+        std::fs::create_dir(&subdirectory_path_2).expect("unable to create a nested dir");
+
+        let mut watcher =
+            INotifyWatcher::new(|_| (), Config::default()).expect("unable to create watcher");
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::Recursive)
+            .expect("unable to watch");
+        std::fs::remove_dir_all(&subdirectory_path_1).expect("unable to remove a subdir");
+        let unwatch_result = watcher.unwatch(tmpdir.path());
+
+        assert!(
+            matches!(unwatch_result, Ok(())),
+            "error: {unwatch_result:#?}"
         );
     }
 }
