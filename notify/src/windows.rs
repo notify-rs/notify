@@ -14,7 +14,7 @@ use std::env;
 use std::ffi::OsString;
 use std::os::raw::c_void;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 use std::ptr;
 use std::slice;
 use std::sync::{Arc, Mutex};
@@ -540,6 +540,36 @@ impl ReadDirectoryChangesWatcher {
                 "Input watch path is neither a file nor a directory.",
             ));
         }
+        let pb = pb.canonicalize().map_err(|e| Error::io(e).add_path(pb))?;
+        let pb = {
+            let mut comps = pb.components();
+            match comps.next() {
+                Some(Component::Prefix(p)) => match p.kind() {
+                    Prefix::VerbatimDisk(drive) => {
+                        // \\?\C:\ -> C:\
+                        let mut out = PathBuf::from(format!("{}:", drive as char));
+                        for c in comps {
+                            out.push(c.as_os_str());
+                        }
+                        out
+                    }
+                    Prefix::VerbatimUNC(server, share) => {
+                        // \\?\UNC\server\share\ -> \\server\share\
+                        let mut root = OsString::from(r"\\");
+                        root.push(server);
+                        root.push("\\");
+                        root.push(share);
+                        let mut out = PathBuf::from(root);
+                        for c in comps {
+                            out.push(c.as_os_str());
+                        }
+                        out
+                    }
+                    _ => pb,
+                },
+                _ => pb,
+            }
+        };
         self.send_action_require_ack(Action::Watch(pb.clone(), recursive_mode), &pb)
     }
 
@@ -600,3 +630,64 @@ impl Drop for ReadDirectoryChangesWatcher {
 unsafe impl Send for ReadDirectoryChangesWatcher {}
 // Because all public methods are `&mut self` it's also perfectly safe to share references.
 unsafe impl Sync for ReadDirectoryChangesWatcher {}
+
+/// https://github.com/notify-rs/notify/issues/687
+#[test]
+fn test_mixed_slashes_are_normalized() {
+    use crate::{Event, EventKind, ReadDirectoryChangesWatcher, RecursiveMode, Result, Watcher};
+    use std::fs::{self, File};
+    use std::path::Path;
+    use std::sync::{Arc, Mutex};
+    use tempfile::TempDir;
+
+    // Create a temporary directory
+    let temp_dir = TempDir::new().unwrap();
+    let subfolder_path = temp_dir.path().join("subfolder");
+    fs::create_dir_all(&subfolder_path).unwrap(); // Create the subfolder
+
+    let file_path = subfolder_path.join("dep.txt"); // Place dep.txt inside the subfolder
+
+    // Create the file
+    File::create(&file_path).unwrap();
+
+    // Use a Vec wrapped in Arc<Mutex<>> to collect events
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = events.clone();
+
+    // Create the event handler closure
+    let mut watcher = ReadDirectoryChangesWatcher::new(
+        move |event: Result<Event>| {
+            if let Ok(e) = event {
+                events_clone.lock().unwrap().push(e);
+            }
+        },
+        Default::default(),
+    )
+    .unwrap();
+
+    // Replace backslashes with forward slashes in the temp_dir path
+    let temp_dir_path = temp_dir.path().to_string_lossy().replace('\\', "/");
+    watcher
+        .watch(Path::new(&temp_dir_path), RecursiveMode::Recursive)
+        .unwrap();
+
+    // Modify the file to trigger the event
+    std::fs::write(&file_path, "New content").unwrap();
+
+    // Check the events received
+    let events_guard = events.lock().unwrap();
+    assert!(!events_guard.is_empty(), "No events received");
+
+    // Check the last event for mixed slashes
+    let last_event = events_guard.last().unwrap();
+    assert_eq!(last_event.kind, EventKind::Modify(ModifyKind::Any));
+
+    assert!(
+        last_event.paths.iter().any(|p| {
+            let path_str = p.to_string_lossy();
+            path_str.contains('\\') && !path_str.contains('/') && !path_str.starts_with("\\\\?\\")
+        }),
+        "Path \"{}\" should only contain Windows slashes and not start with \"\\\\?\\\"",
+        last_event.paths.last().unwrap().display()
+    );
+}
