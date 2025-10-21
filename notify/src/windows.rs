@@ -24,13 +24,14 @@ use windows_sys::Win32::Foundation::{
     INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, ReadDirectoryChangesW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED,
-    FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
-    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
-    FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_CHANGE_CREATION, FILE_NOTIFY_CHANGE_DIR_NAME,
-    FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SECURITY,
-    FILE_NOTIFY_CHANGE_SIZE, FILE_NOTIFY_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ,
-    FILE_SHARE_WRITE, OPEN_EXISTING,
+    CreateFileW, ReadDirectoryChangesExW, ReadDirectoryNotifyExtendedInformation,
+    FILE_ACTION_ADDED, FILE_ACTION_MODIFIED, FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME,
+    FILE_ACTION_RENAMED_OLD_NAME, FILE_ATTRIBUTE_DIRECTORY, FILE_FLAG_BACKUP_SEMANTICS,
+    FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_ATTRIBUTES,
+    FILE_NOTIFY_CHANGE_CREATION, FILE_NOTIFY_CHANGE_DIR_NAME, FILE_NOTIFY_CHANGE_FILE_NAME,
+    FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SECURITY, FILE_NOTIFY_CHANGE_SIZE,
+    FILE_NOTIFY_EXTENDED_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    OPEN_EXISTING,
 };
 use windows_sys::Win32::System::Threading::{
     CreateSemaphoreW, ReleaseSemaphore, WaitForSingleObjectEx, INFINITE,
@@ -305,7 +306,7 @@ fn start_read(
 
         // This is using an asynchronous call with a completion routine for receiving notifications
         // An I/O completion port would probably be more performant
-        let ret = ReadDirectoryChangesW(
+        let ret = ReadDirectoryChangesExW(
             handle,
             request.buffer.as_mut_ptr() as *mut c_void,
             BUF_SIZE,
@@ -314,6 +315,7 @@ fn start_read(
             &mut 0u32 as *mut u32, // not used for async reqs
             overlapped,
             Some(handle_event),
+            ReadDirectoryNotifyExtendedInformation,
         );
 
         if ret == 0 {
@@ -382,12 +384,13 @@ unsafe extern "system" fn handle_event(
     // In Wine, FILE_NOTIFY_INFORMATION structs are packed placed in the buffer;
     // they are aligned to 16bit (WCHAR) boundary instead of 32bit required by FILE_NOTIFY_INFORMATION.
     // Hence, we need to use `read_unaligned` here to avoid UB.
-    let mut cur_entry = ptr::read_unaligned(cur_offset as *const FILE_NOTIFY_INFORMATION);
+    let mut cur_entry = ptr::read_unaligned(cur_offset as *const FILE_NOTIFY_EXTENDED_INFORMATION);
     loop {
         // filename length is size in bytes, so / 2
         let len = cur_entry.FileNameLength as usize / 2;
         let encoded_path: &[u16] = slice::from_raw_parts(
-            cur_offset.offset(std::mem::offset_of!(FILE_NOTIFY_INFORMATION, FileName) as isize)
+            cur_offset
+                .offset(std::mem::offset_of!(FILE_NOTIFY_EXTENDED_INFORMATION, FileName) as isize)
                 as _,
             len,
         );
@@ -422,44 +425,49 @@ unsafe extern "system" fn handle_event(
 
             let event_handler = |res| emit_event(&request.event_handler, res);
 
-            if cur_entry.Action == FILE_ACTION_RENAMED_OLD_NAME {
-                let mode = RenameMode::From;
-                let kind = ModifyKind::Name(mode);
-                let kind = EventKind::Modify(kind);
-                let ev = newe.set_kind(kind);
-                event_handler(Ok(ev))
-            } else {
-                match cur_entry.Action {
-                    FILE_ACTION_RENAMED_NEW_NAME => {
-                        let kind = EventKind::Modify(ModifyKind::Name(RenameMode::To));
-                        let ev = newe.set_kind(kind);
-                        event_handler(Ok(ev));
-                    }
-                    FILE_ACTION_ADDED => {
-                        let kind = EventKind::Create(CreateKind::Any);
-                        let ev = newe.set_kind(kind);
-                        event_handler(Ok(ev));
-                    }
-                    FILE_ACTION_REMOVED => {
-                        let kind = EventKind::Remove(RemoveKind::Any);
-                        let ev = newe.set_kind(kind);
-                        event_handler(Ok(ev));
-                    }
-                    FILE_ACTION_MODIFIED => {
-                        let kind = EventKind::Modify(ModifyKind::Any);
-                        let ev = newe.set_kind(kind);
-                        event_handler(Ok(ev));
-                    }
-                    _ => (),
-                };
-            }
+            match cur_entry.Action {
+                FILE_ACTION_RENAMED_OLD_NAME => {
+                    let kind = EventKind::Modify(ModifyKind::Name(RenameMode::From));
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev))
+                }
+                FILE_ACTION_RENAMED_NEW_NAME => {
+                    let kind = EventKind::Modify(ModifyKind::Name(RenameMode::To));
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev));
+                }
+                FILE_ACTION_ADDED => {
+                    let kind = if (cur_entry.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 {
+                        EventKind::Create(CreateKind::Folder)
+                    } else {
+                        EventKind::Create(CreateKind::File)
+                    };
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev));
+                }
+                FILE_ACTION_REMOVED => {
+                    let kind = if (cur_entry.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 {
+                        EventKind::Remove(RemoveKind::Folder)
+                    } else {
+                        EventKind::Remove(RemoveKind::File)
+                    };
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev));
+                }
+                FILE_ACTION_MODIFIED => {
+                    let kind = EventKind::Modify(ModifyKind::Any);
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev));
+                }
+                _ => (),
+            };
         }
 
         if cur_entry.NextEntryOffset == 0 {
             break;
         }
         cur_offset = cur_offset.offset(cur_entry.NextEntryOffset as isize);
-        cur_entry = ptr::read_unaligned(cur_offset as *const FILE_NOTIFY_INFORMATION);
+        cur_entry = ptr::read_unaligned(cur_offset as *const FILE_NOTIFY_EXTENDED_INFORMATION);
     }
 }
 
