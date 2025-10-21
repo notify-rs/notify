@@ -528,19 +528,9 @@ impl ReadDirectoryChangesWatcher {
     }
 
     fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        let pb = if path.is_absolute() {
-            path.to_owned()
-        } else {
-            let p = env::current_dir().map_err(Error::io)?;
-            p.join(path)
-        };
-        // path must exist and be either a file or directory
-        if !pb.is_dir() && !pb.is_file() {
-            return Err(Error::generic(
-                "Input watch path is neither a file nor a directory.",
-            ));
-        }
-        let pb = pb.canonicalize().map_err(|e| Error::io(e).add_path(pb))?;
+        let pb = path
+            .canonicalize()
+            .map_err(|e| Error::io(e).add_path(path.to_path_buf()))?;
         let pb = {
             let mut comps = pb.components();
             match comps.next() {
@@ -634,60 +624,45 @@ unsafe impl Sync for ReadDirectoryChangesWatcher {}
 /// https://github.com/notify-rs/notify/issues/687
 #[test]
 fn test_mixed_slashes_are_normalized() {
-    use crate::{Event, EventKind, ReadDirectoryChangesWatcher, RecursiveMode, Result, Watcher};
+    use crate::{ReadDirectoryChangesWatcher, RecursiveMode, Watcher};
     use std::fs::{self, File};
     use std::path::Path;
-    use std::sync::{Arc, Mutex};
+    use std::sync::mpsc;
+    use std::time::Duration;
     use tempfile::TempDir;
 
-    // Create a temporary directory
     let temp_dir = TempDir::new().unwrap();
     let subfolder_path = temp_dir.path().join("subfolder");
-    fs::create_dir_all(&subfolder_path).unwrap(); // Create the subfolder
+    fs::create_dir_all(&subfolder_path).unwrap();
 
-    let file_path = subfolder_path.join("dep.txt"); // Place dep.txt inside the subfolder
+    let file_path = subfolder_path.join("dep.txt");
 
-    // Create the file
     File::create(&file_path).unwrap();
 
-    // Use a Vec wrapped in Arc<Mutex<>> to collect events
-    let events = Arc::new(Mutex::new(Vec::new()));
-    let events_clone = events.clone();
+    let (tx, rx) = mpsc::channel();
+    let mut watcher = ReadDirectoryChangesWatcher::new(tx, Default::default()).unwrap();
 
-    // Create the event handler closure
-    let mut watcher = ReadDirectoryChangesWatcher::new(
-        move |event: Result<Event>| {
-            if let Ok(e) = event {
-                events_clone.lock().unwrap().push(e);
-            }
-        },
-        Default::default(),
-    )
-    .unwrap();
-
-    // Replace backslashes with forward slashes in the temp_dir path
+    // Replace backslashes with forward slashes in the temp_dir path.
     let temp_dir_path = temp_dir.path().to_string_lossy().replace('\\', "/");
     watcher
         .watch(Path::new(&temp_dir_path), RecursiveMode::Recursive)
         .unwrap();
 
-    // Modify the file to trigger the event
-    std::fs::write(&file_path, "New content").unwrap();
+    // Remove the file to trigger the event
+    fs::remove_file(&file_path).unwrap();
 
     // Check the events received
-    let events_guard = events.lock().unwrap();
-    assert!(!events_guard.is_empty(), "No events received");
-
-    // Check the last event for mixed slashes
-    let last_event = events_guard.last().unwrap();
-    assert_eq!(last_event.kind, EventKind::Modify(ModifyKind::Any));
+    let event = rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("timeout")
+        .expect("unexpected error event");
 
     assert!(
-        last_event.paths.iter().any(|p| {
+        event.paths.iter().any(|p| {
             let path_str = p.to_string_lossy();
             path_str.contains('\\') && !path_str.contains('/') && !path_str.starts_with("\\\\?\\")
         }),
         "Path \"{}\" should only contain Windows slashes and not start with \"\\\\?\\\"",
-        last_event.paths.last().unwrap().display()
+        event.paths.last().unwrap().display()
     );
 }
