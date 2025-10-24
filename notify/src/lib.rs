@@ -294,49 +294,6 @@ pub enum WatcherKind {
     NullWatcher,
 }
 
-/// Providing methods for adding and removing paths to watch.
-///
-/// `Box<dyn PathsMut>` is created by [`Watcher::paths_mut`]. See its documentation for more.
-#[deprecated(
-    since = "9.0.0",
-    note = "paths_mut has been replaced with update_paths"
-)]
-pub trait PathsMut {
-    /// Add a new path to watch. See [`Watcher::watch`] for more.
-    fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
-
-    /// Remove a path from watching. See [`Watcher::unwatch`] for more.
-    fn remove(&mut self, path: &Path) -> Result<()>;
-
-    /// Ensure added/removed paths are applied.
-    fn commit(self: Box<Self>) -> Result<()>;
-}
-
-struct PathsMutInternal<'a, T: ?Sized> {
-    ops: Vec<PathOp>,
-    watcher: &'a mut T,
-}
-
-#[allow(deprecated)]
-impl<'a, T: Watcher + ?Sized> PathsMut for PathsMutInternal<'a, T> {
-    fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        self.ops.push(PathOp::Watch(
-            path.to_path_buf(),
-            WatchPathConfig::new(recursive_mode),
-        ));
-        Ok(())
-    }
-
-    fn remove(&mut self, path: &Path) -> Result<()> {
-        self.ops.push(PathOp::Unwatch(path.to_path_buf()));
-        Ok(())
-    }
-
-    fn commit(self: Box<Self>) -> Result<()> {
-        self.watcher.update_paths(self.ops).map_err(|v| v.source)
-    }
-}
-
 /// Type that can deliver file activity notifications
 ///
 /// `Watcher` is implemented per platform using the best implementation available on that platform.
@@ -371,19 +328,6 @@ pub trait Watcher {
     /// Returns an error in the case that `path` has not been watched or if removing the watch
     /// fails.
     fn unwatch(&mut self, path: &Path) -> Result<()>;
-
-    /// deprecated
-    #[deprecated(
-        since = "9.0.0",
-        note = "paths_mut has been replaced with update_paths"
-    )]
-    #[allow(deprecated)]
-    fn paths_mut<'me>(&'me mut self) -> Box<dyn PathsMut + 'me> {
-        Box::new(PathsMutInternal {
-            watcher: self,
-            ops: Default::default(),
-        })
-    }
 
     /// Add/remove paths to watch in batch.
     ///

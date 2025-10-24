@@ -3,7 +3,7 @@
 
 - CHANGE: raise MSRV to 1.82 **breaking**
 - FIX: Fix the bug that `FsEventWatcher` crashes when dealing with empty path [#718]
-- FEATURE: deprecate `Watcher::paths_mut` and introduce `update_paths` [#705]
+- FEATURE: remove `Watcher::paths_mut` and introduce `update_paths` [#705]
 
 [#718]: https://github.com/notify-rs/notify/pull/718
 [#705]: https://github.com/notify-rs/notify/pull/705
