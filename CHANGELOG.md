@@ -1,9 +1,7 @@
 # Changelog
+
 ## notify 9.0.0 (unreleased)
-
-- CHANGE: raise MSRV to 1.82 **breaking**
-
-## notify (unreleased)
+- CHANGE: raise MSRV to 1.85 **breaking**
 - FIX: Fix the bug that `FsEventWatcher` crashes when dealing with empty path [#718]
 
 [#718]: https://github.com/notify-rs/notify/pull/718

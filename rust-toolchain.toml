@@ -1,5 +1,5 @@
 [toolchain]
-channel = "1.82"
+channel = "1.85"
 profile = "minimal"
 components = [
   "clippy",
