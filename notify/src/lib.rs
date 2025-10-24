@@ -162,11 +162,12 @@
 
 #![deny(missing_docs)]
 
-pub use config::{Config, RecursiveMode};
-pub use error::{Error, ErrorKind, Result};
+pub use config::{Config, PathOp, RecursiveMode, WatchPathConfig};
+pub use error::{Error, ErrorKind, Result, UpdatePathsError};
 pub use notify_types::event::{self, Event, EventKind};
 use std::path::Path;
 
+pub(crate) type StdResult<T, E> = std::result::Result<T, E>;
 pub(crate) type Receiver<T> = std::sync::mpsc::Receiver<T>;
 pub(crate) type Sender<T> = std::sync::mpsc::Sender<T>;
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
@@ -293,23 +294,6 @@ pub enum WatcherKind {
     NullWatcher,
 }
 
-/// Providing methods for adding and removing paths to watch.
-///
-/// `Box<dyn PathsMut>` is created by [`Watcher::paths_mut`]. See its documentation for more.
-pub trait PathsMut {
-    /// Add a new path to watch. See [`Watcher::watch`] for more.
-    fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
-
-    /// Remove a path from watching. See [`Watcher::unwatch`] for more.
-    fn remove(&mut self, path: &Path) -> Result<()>;
-
-    /// Ensure added/removed paths are applied.
-    ///
-    /// The behaviour of dropping a [`PathsMut`] without calling [`commit`] is unspecified.
-    /// The implementation is free to ignore the changes or not, and may leave the watcher in a started or stopped state.
-    fn commit(self: Box<Self>) -> Result<()>;
-}
-
 /// Type that can deliver file activity notifications
 ///
 /// `Watcher` is implemented per platform using the best implementation available on that platform.
@@ -345,40 +329,40 @@ pub trait Watcher {
     /// fails.
     fn unwatch(&mut self, path: &Path) -> Result<()>;
 
-    /// Add/remove paths to watch.
+    /// Add/remove paths to watch in batch.
     ///
-    /// For some watcher implementations this method provides better performance than multiple calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
+    /// For some [`Watcher`] implementations this method provides better performance than multiple
+    /// calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
     ///
     /// # Examples
     ///
     /// ```
-    /// # use notify::{Watcher, RecursiveMode, Result};
-    /// # use std::path::Path;
-    /// # fn main() -> Result<()> {
-    /// # let many_paths_to_add = vec![];
-    /// let mut watcher = notify::recommended_watcher(|_event| { /* event handler */ })?;
-    /// let mut watcher_paths = watcher.paths_mut();
+    /// # use notify::{Watcher, RecursiveMode, PathOp};
+    /// # use std::path::{Path, PathBuf};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let many_paths_to_add: Vec<PathBuf> = vec![];
+    /// # let many_paths_to_remove: Vec<PathBuf> = vec![];
+    /// let mut watcher = notify::NullWatcher;
+    /// let mut batch = Vec::new();
+    ///
     /// for path in many_paths_to_add {
-    ///     watcher_paths.add(path, RecursiveMode::Recursive)?;
+    ///     batch.push(PathOp::watch_recursive(path));
     /// }
-    /// watcher_paths.commit()?;
+    ///
+    /// for path in many_paths_to_remove {
+    ///     batch.push(PathOp::unwatch(path));
+    /// }
+    ///
+    /// // real work is done there
+    /// watcher.update_paths(batch)?;
     /// # Ok(())
     /// # }
     /// ```
-    fn paths_mut<'me>(&'me mut self) -> Box<dyn PathsMut + 'me> {
-        struct DefaultPathsMut<'a, T: ?Sized>(&'a mut T);
-        impl<'a, T: Watcher + ?Sized> PathsMut for DefaultPathsMut<'a, T> {
-            fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-                self.0.watch(path, recursive_mode)
-            }
-            fn remove(&mut self, path: &Path) -> Result<()> {
-                self.0.unwatch(path)
-            }
-            fn commit(self: Box<Self>) -> Result<()> {
-                Ok(())
-            }
-        }
-        Box::new(DefaultPathsMut(self))
+    fn update_paths(&mut self, ops: Vec<PathOp>) -> StdResult<(), UpdatePathsError> {
+        update_paths(ops, |op| match op {
+            PathOp::Watch(path, config) => self.watch(&path, config.recursive_mode()),
+            PathOp::Unwatch(path) => self.unwatch(&path),
+        })
     }
 
     /// Configure the watcher at runtime.
@@ -440,6 +424,22 @@ where
 {
     // All recommended watchers currently implement `new`, so just call that.
     RecommendedWatcher::new(event_handler, Config::default())
+}
+
+pub(crate) fn update_paths<F>(ops: Vec<PathOp>, mut apply: F) -> StdResult<(), UpdatePathsError>
+where
+    F: FnMut(PathOp) -> Result<()>,
+{
+    let mut iter = ops.into_iter();
+    while let Some(op) = iter.next() {
+        if let Err(source) = apply(op) {
+            return Err(UpdatePathsError {
+                source,
+                remaining: iter.collect(),
+            });
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -542,7 +542,7 @@ mod tests {
     }
 
     #[test]
-    fn test_paths_mut() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn test_update_paths() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
 
         let dir_a = dir.path().join("a");
@@ -555,12 +555,16 @@ mod tests {
         let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
 
         // start watching a and b
-        {
-            let mut watcher_paths = watcher.paths_mut();
-            watcher_paths.add(&dir_a, RecursiveMode::Recursive)?;
-            watcher_paths.add(&dir_b, RecursiveMode::Recursive)?;
-            watcher_paths.commit()?;
-        }
+        watcher.update_paths(vec![
+            PathOp::Watch(
+                dir_a.clone(),
+                WatchPathConfig::new(RecursiveMode::Recursive),
+            ),
+            PathOp::Watch(
+                dir_b.clone(),
+                WatchPathConfig::new(RecursiveMode::Recursive),
+            ),
+        ])?;
 
         // create file1 in both a and b
         let a_file1 = dir_a.join("file1");
@@ -586,11 +590,7 @@ mod tests {
         assert!(b_file1_encountered, "Did not receive event of {b_file1:?}");
 
         // stop watching a
-        {
-            let mut watcher_paths = watcher.paths_mut();
-            watcher_paths.remove(&dir_a)?;
-            watcher_paths.commit()?;
-        }
+        watcher.update_paths(vec![PathOp::unwatch(&dir_a)])?;
 
         // create file2 in both a and b
         let a_file2 = dir_a.join("file2");
@@ -611,5 +611,53 @@ mod tests {
             }
         }
         panic!("Did not receive the event of {b_file2:?}");
+    }
+
+    #[test]
+    fn update_paths_in_a_loop_with_errors() -> StdResult<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+        let existing_dir_1 = dir.path().join("existing_dir_1");
+        let not_existent_file = dir.path().join("not_existent_file");
+        let existing_dir_2 = dir.path().join("existing_dir_2");
+
+        fs::create_dir(&existing_dir_1)?;
+        fs::create_dir(&existing_dir_2)?;
+
+        let mut paths_to_add = vec![
+            PathOp::watch_recursive(existing_dir_1.clone()),
+            PathOp::watch_recursive(not_existent_file.clone()),
+            PathOp::watch_recursive(existing_dir_2.clone()),
+        ];
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+
+        while !paths_to_add.is_empty() {
+            if let Err(e) = watcher.update_paths(std::mem::take(&mut paths_to_add)) {
+                paths_to_add = e.remaining;
+            }
+        }
+
+        fs::write(existing_dir_1.join("1"), "")?;
+        fs::write(&not_existent_file, "")?;
+        let waiting_path = existing_dir_2.join("1");
+        fs::write(&waiting_path, "")?;
+
+        for event in iter_with_timeout(&rx) {
+            let path = event
+                .paths
+                .first()
+                .unwrap_or_else(|| panic!("event must have a path: {event:?}"));
+            assert!(
+                path != &not_existent_file,
+                "unexpected {:?} event",
+                not_existent_file
+            );
+            if path == &waiting_path || path == &waiting_path.canonicalize()? {
+                return Ok(());
+            }
+        }
+
+        panic!("Did not receive the event of {waiting_path:?}");
     }
 }
