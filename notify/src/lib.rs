@@ -367,7 +367,7 @@ pub trait Watcher {
     /// ```
     fn paths_mut<'me>(&'me mut self) -> Box<dyn PathsMut + 'me> {
         struct DefaultPathsMut<'a, T: ?Sized>(&'a mut T);
-        impl<'a, T: Watcher + ?Sized> PathsMut for DefaultPathsMut<'a, T> {
+        impl<T: Watcher + ?Sized> PathsMut for DefaultPathsMut<'_, T> {
             fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
                 self.0.watch(path, recursive_mode)
             }
