@@ -10,7 +10,7 @@ categories = ["filesystem"]
 authors = [
   "Félix Saparelli <me@passcod.name>",
   "Daniel Faust <hessijames@gmail.com>",
-  "Aron Heinecke <Ox0p54r36@t-online.de>"
+  "Aron Heinecke <Ox0p54r36@t-online.de>",
 ]
 rust-version.workspace = true
 edition.workspace = true
@@ -21,7 +21,7 @@ repository.workspace = true
 default = ["macos_fsevent"]
 serde = ["notify-types/serde"]
 macos_kqueue = ["kqueue", "mio"]
-macos_fsevent = ["fsevent-sys"]
+macos_fsevent = ["objc2-core-foundation", "objc2-core-services"]
 serialization-compat-6 = ["notify-types/serialization-compat-6"]
 
 [dependencies]
@@ -38,12 +38,32 @@ mio.workspace = true
 
 [target.'cfg(target_os="macos")'.dependencies]
 bitflags.workspace = true
-fsevent-sys = { workspace = true, optional = true }
+objc2-core-foundation = { workspace = true, optional = true, features = [
+  "std",
+  "CFDate",
+  "CFString",
+  "CFArray",
+  "CFRunLoop",
+  "CFError",
+  "CFURL",
+] }
+objc2-core-services = { workspace = true, optional = true, features = [
+  "std",
+  "libc",
+  "FSEvents",
+] }
 kqueue = { workspace = true, optional = true }
 mio = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_System_Threading", "Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Security", "Win32_System_WindowsProgramming", "Win32_System_IO"] }
+windows-sys = { workspace = true, features = [
+  "Win32_System_Threading",
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_Security",
+  "Win32_System_WindowsProgramming",
+  "Win32_System_IO",
+] }
 
 [target.'cfg(any(target_os="freebsd", target_os="openbsd", target_os = "netbsd", target_os = "dragonflybsd", target_os = "ios"))'.dependencies]
 kqueue.workspace = true
