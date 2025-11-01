@@ -528,6 +528,12 @@ impl PollWatcher {
         Ok(())
     }
 
+    /// Returns a sender to initiate changes detection.
+    #[cfg(test)]
+    pub(crate) fn poll_sender(&self) -> Sender<()> {
+        self.message_channel.clone()
+    }
+
     /// Create a new [`PollWatcher`] with an scan event handler.
     ///
     /// `scan_fallback` is called on the initial scan with all files seen by the pollwatcher.
@@ -669,8 +675,69 @@ impl Drop for PollWatcher {
     }
 }
 
-#[test]
-fn poll_watcher_is_send_and_sync() {
-    fn check<T: Send + Sync>() {}
-    check::<PollWatcher>();
+#[cfg(test)]
+mod tests {
+    use notify_types::event::{CreateKind, DataChange, EventKind, ModifyKind, RemoveKind};
+
+    use super::PollWatcher;
+    use crate::test::*;
+
+    #[test]
+    fn poll_watcher_is_send_and_sync() {
+        fn check<T: Send + Sync>() {}
+        check::<PollWatcher>();
+    }
+
+    #[test]
+    fn create_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = poll_watcher();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("Unable to create");
+
+        rx.wait_exact([expected(EventKind::Create(CreateKind::Any), &path)]);
+    }
+
+    #[test]
+    fn create_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = poll_watcher();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("Unable to create");
+
+        rx.wait_exact([expected(EventKind::Create(CreateKind::Any), &path)]);
+    }
+
+    #[test]
+    fn modify_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = poll_watcher();
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("Unable to create");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::write(&path, b"123").expect("Unable to write");
+
+        rx.wait_exact([expected(
+            EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+            &path,
+        )]);
+    }
+
+    #[test]
+    fn remove_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = poll_watcher();
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("Unable to create");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::remove_file(&path).expect("Unable to remove");
+
+        rx.wait_exact([expected(EventKind::Remove(RemoveKind::Any), &path)]);
+    }
 }

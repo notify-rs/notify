@@ -223,6 +223,9 @@ pub mod poll;
 mod config;
 mod error;
 
+#[cfg(test)]
+pub(crate) mod test;
+
 /// The set of requirements for watcher event handling functions.
 ///
 /// # Example implementation
@@ -446,12 +449,17 @@ where
 mod tests {
     use std::{
         fs, iter,
+        sync::mpsc,
         time::{Duration, Instant},
     };
 
     use tempfile::tempdir;
 
-    use super::*;
+    use super::{
+        Config, Error, ErrorKind, Event, EventKind, NullWatcher, PollWatcher, RecommendedWatcher,
+        RecursiveMode, Result, Watcher, WatcherKind,
+    };
+    use crate::test::*;
 
     #[test]
     fn test_object_safe() {
@@ -478,7 +486,7 @@ mod tests {
         assert_debug_impl!(WatcherKind);
     }
 
-    fn iter_with_timeout(rx: &Receiver<Result<Event>>) -> impl Iterator<Item = Event> + '_ {
+    fn iter_with_timeout(rx: &mpsc::Receiver<Result<Event>>) -> impl Iterator<Item = Event> + '_ {
         // wait for up to 10 seconds for the events
         let deadline = Instant::now() + Duration::from_secs(10);
         iter::from_fn(move || {
@@ -611,5 +619,57 @@ mod tests {
             }
         }
         panic!("Did not receive the event of {b_file2:?}");
+    }
+
+    #[test]
+    fn create_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = recommended_channel();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        rx.wait_event(|e| matches!(e.kind, EventKind::Create(_)) && e.paths.first() == Some(&path));
+    }
+
+    #[test]
+    fn create_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = recommended_channel();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("create");
+
+        rx.wait_event(|e| matches!(e.kind, EventKind::Create(_)) && e.paths.first() == Some(&path));
+    }
+
+    #[test]
+    fn modify_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = recommended_channel();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::write(&path, b"123").expect("write");
+
+        rx.wait_event(|e| matches!(e.kind, EventKind::Modify(_)) && e.paths.first() == Some(&path));
+    }
+
+    #[test]
+    fn remove_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = recommended_channel();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::remove_file(&path).expect("remove");
+
+        rx.wait_event(|e| matches!(e.kind, EventKind::Remove(_)) && e.paths.first() == Some(&path));
     }
 }
