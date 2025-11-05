@@ -626,6 +626,7 @@ dependencies = [
  "mio",
  "nix",
  "notify-types",
+ "pretty_assertions",
  "serde_json",
  "tempfile",
  "trash",
