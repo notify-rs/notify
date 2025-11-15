@@ -284,9 +284,7 @@ impl PathsMut for FsEventPathsMut<'_> {
     }
 
     fn commit(self: Box<Self>) -> Result<()> {
-        // ignore return error: may be empty path list
-        let _ = self.0.run();
-        Ok(())
+        self.0.run()
     }
 }
 
@@ -308,16 +306,14 @@ impl FsEventWatcher {
     fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
         self.stop();
         let result = self.append_path(path, recursive_mode);
-        // ignore return error: may be empty path list
-        let _ = self.run();
+        self.run()?;
         result
     }
 
     fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
         self.stop();
         let result = self.remove_path(path);
-        // ignore return error: may be empty path list
-        let _ = self.run();
+        self.run()?;
         result
     }
 
@@ -412,8 +408,7 @@ impl FsEventWatcher {
 
     fn run(&mut self) -> Result<()> {
         if unsafe { cf::CFArrayGetCount(self.paths) } == 0 {
-            // TODO: Reconstruct and add paths to error
-            return Err(Error::path_not_found());
+            return Ok(());
         }
 
         // We need to associate the stream context with our callback in order to propagate events
@@ -473,11 +468,18 @@ impl FsEventWatcher {
                         cur_runloop,
                         cf::kCFRunLoopDefaultMode,
                     );
-                    fs::FSEventStreamStart(stream);
+                    if fs::FSEventStreamStart(stream) == 0 {
+                        fs::FSEventStreamInvalidate(stream);
+                        fs::FSEventStreamRelease(stream);
+                        rl_tx
+                            .send(Err(Error::generic("unable to start FSEvent stream")))
+                            .expect("Unable to send error for FSEventStreamStart");
+                        return;
+                    }
 
                     // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
                     rl_tx
-                        .send(CFSendWrapper(cur_runloop))
+                        .send(Ok(CFSendWrapper(cur_runloop)))
                         .expect("Unable to send runloop to watcher");
 
                     cf::CFRunLoopRun();
@@ -494,7 +496,8 @@ impl FsEventWatcher {
                 }
             })?;
         // block until runloop has been sent
-        self.runloop = Some((rl_rx.recv().unwrap().0, thread_handle));
+        let runloop_wrapper = rl_rx.recv().unwrap()?;
+        self.runloop = Some((runloop_wrapper.0, thread_handle));
 
         Ok(())
     }
@@ -1039,5 +1042,54 @@ mod tests {
             expected(&nested8).create_folder(),
             expected(&nested9).create_folder(),
         ]);
+    }
+
+    // fsevents seems to not allow watching more than 4096 paths at once.
+    // https://github.com/fsnotify/fsevents/issues/48
+    // Based on https://github.com/fsnotify/fsevents/commit/3899270de121c963202e6fed46aa31d5ec7b3908
+    //
+    // ```
+    // Copyright © The fsevents Authors. All rights reserved.
+    //
+    // Redistribution and use in source and binary forms, with or without
+    // modification, are permitted provided that the following conditions are
+    // met:
+    //
+    //    * Redistributions of source code must retain the above copyright
+    // notice, this list of conditions and the following disclaimer.
+    //    * Redistributions in binary form must reproduce the above
+    // copyright notice, this list of conditions and the following disclaimer
+    // in the documentation and/or other materials provided with the
+    // distribution.
+    //    * Neither the name of Google Inc. nor the names of its
+    // contributors may be used to endorse or promote products derived from
+    // this software without specific prior written permission.
+    //
+    // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+    // "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+    // LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+    // A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+    // OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+    // SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+    // LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+    // DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+    // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+    // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+    // ```
+    #[test]
+    fn error_properly_on_stream_start_failure() {
+        let tmpdir = testdir();
+        let (mut watcher, _rx) = watcher();
+
+        // use path_mut, otherwise it's too slow
+        let mut paths = watcher.watcher.paths_mut();
+        for i in 0..=4096 {
+            let path = tmpdir.path().join(format!("dir_{i}/subdir"));
+            std::fs::create_dir_all(&path).expect("create_dir");
+            paths.add(&path, RecursiveMode::NonRecursive).expect("add");
+        }
+        let result = paths.commit();
+        assert!(result.is_err());
     }
 }
