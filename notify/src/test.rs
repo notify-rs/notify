@@ -174,6 +174,60 @@ impl Receiver {
             self.timeout
         )
     }
+
+    /// Sleeps, while the parent directory of the provided path
+    /// does not contain the provided path in the [`std::fs::read_dir`] result.
+    ///
+    /// Errors will be ignored
+    ///
+    /// It is useful for the [`PollWatcher`], because on some file systems the directory
+    /// may contain a DirEntry after deletion
+    pub fn sleep_until_parent_contains(&self, path: impl AsRef<Path>) {
+        let path = path.as_ref();
+        let parent = path
+            .parent()
+            .expect("The path {path:?} does not have a parent");
+
+        assert!(
+            self.sleep_until(|| {
+                std::fs::read_dir(parent)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .any(|r| r.path() == path)
+            }),
+            "the path {parent:?} has not contained an expected entry {:?} after timeout {:?}",
+            path.file_name(),
+            self.timeout
+        )
+    }
+
+    /// Sleeps, while the parent directory of the provided path
+    /// contains the provided path in the [`std::fs::read_dir`] result.
+    ///
+    /// Errors will be ignored
+    ///
+    /// It is useful for the [`PollWatcher`], because on some file systems the directory
+    /// may contain a DirEntry after deletion
+    pub fn sleep_while_parent_contains(&self, path: impl AsRef<Path>) {
+        let path = path.as_ref();
+        let parent = path
+            .parent()
+            .expect("The path {path:?} does not have a parent");
+
+        assert!(
+            self.sleep_until(|| {
+                !std::fs::read_dir(parent)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .any(|r| r.path() == path)
+            }),
+            "the path {parent:?} has contained an expected entry {:?} yet after timeout {:?}",
+            path.file_name(),
+            self.timeout
+        )
+    }
 }
 
 /// Result of a `wait` call on a [`Receiver`]
