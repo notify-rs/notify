@@ -5,7 +5,7 @@
 //!
 //! [ref]: https://msdn.microsoft.com/en-us/library/windows/desktop/aa363950(v=vs.85).aspx
 
-use crate::{bounded, unbounded, BoundSender, Config, Receiver, Sender};
+use crate::{bounded, unbounded, BoundSender, Config, Receiver, Sender, WatchFilter};
 use crate::{event::*, WatcherKind};
 use crate::{Error, EventHandler, RecursiveMode, Result, Watcher};
 use std::alloc;
@@ -62,7 +62,7 @@ impl ReadDirectoryRequest {
 }
 
 enum Action {
-    Watch(PathBuf, RecursiveMode),
+    Watch(PathBuf, RecursiveMode, WatchFilter),
     Unwatch(PathBuf),
     Stop,
     Configure(Config, BoundSender<Result<bool>>),
@@ -85,7 +85,7 @@ struct ReadDirectoryChangesServer {
     event_handler: Arc<Mutex<dyn EventHandler>>,
     meta_tx: Sender<MetaEvent>,
     cmd_tx: Sender<Result<PathBuf>>,
-    watches: HashMap<PathBuf, WatchState>,
+    watches: HashMap<PathBuf, (WatchState, WatchFilter)>,
     wakeup_sem: HANDLE,
 }
 
@@ -127,14 +127,17 @@ impl ReadDirectoryChangesServer {
 
             while let Ok(action) = self.rx.try_recv() {
                 match action {
-                    Action::Watch(path, recursive_mode) => {
-                        let res = self.add_watch(path, recursive_mode.is_recursive());
-                        let _ = self.cmd_tx.send(res);
+                    Action::Watch(path, recursive_mode, watch_filter) => {
+                        let res = self.add_watch(path, recursive_mode.is_recursive(), watch_filter);
+                        let _ = match res {
+                            None => Ok(()),
+                            Some(res) => self.cmd_tx.send(res),
+                        };
                     }
                     Action::Unwatch(path) => self.remove_watch(path),
                     Action::Stop => {
                         stopped = true;
-                        for ws in self.watches.values() {
+                        for (ws, _) in self.watches.values() {
                             stop_watch(ws, &self.meta_tx);
                         }
                         break;
@@ -164,13 +167,22 @@ impl ReadDirectoryChangesServer {
         }
     }
 
-    fn add_watch(&mut self, path: PathBuf, is_recursive: bool) -> Result<PathBuf> {
+    fn add_watch(
+        &mut self,
+        path: PathBuf,
+        is_recursive: bool,
+        watch_filter: WatchFilter,
+    ) -> Option<Result<PathBuf>> {
+        if !watch_filter.should_watch(&path) {
+            return None;
+        }
+
         // path must exist and be either a file or directory
         if !path.is_dir() && !path.is_file() {
-            return Err(
-                Error::generic("Input watch path is neither a file nor a directory.")
-                    .add_path(path),
-            );
+            return Some(Err(Error::generic(
+                "Input watch path is neither a file nor a directory.",
+            )
+            .add_path(path)));
         }
 
         let (watching_file, dir_target) = {
@@ -200,7 +212,7 @@ impl ReadDirectoryChangesServer {
             );
 
             if handle == INVALID_HANDLE_VALUE {
-                return Err(if watching_file {
+                return Some(Err(if watching_file {
                     Error::generic(
                         "You attempted to watch a single file, but parent \
                          directory could not be opened.",
@@ -209,7 +221,7 @@ impl ReadDirectoryChangesServer {
                 } else {
                     // TODO: Call GetLastError for better error info?
                     Error::path_not_found().add_path(path)
-                });
+                }));
             }
         }
         let wf = if watching_file {
@@ -223,7 +235,9 @@ impl ReadDirectoryChangesServer {
             unsafe {
                 CloseHandle(handle);
             }
-            return Err(Error::generic("Failed to create semaphore for watch.").add_path(path));
+            return Some(Err(
+                Error::generic("Failed to create semaphore for watch.").add_path(path)
+            ));
         }
         let rd = ReadData {
             dir: dir_target,
@@ -235,13 +249,13 @@ impl ReadDirectoryChangesServer {
             dir_handle: handle,
             complete_sem: semaphore,
         };
-        self.watches.insert(path.clone(), ws);
+        self.watches.insert(path.clone(), (ws, watch_filter));
         start_read(&rd, self.event_handler.clone(), handle, self.tx.clone());
-        Ok(path)
+        Some(Ok(path))
     }
 
     fn remove_watch(&mut self, path: PathBuf) {
-        if let Some(ws) = self.watches.remove(&path) {
+        if let Some((ws, _)) = self.watches.remove(&path) {
             stop_watch(&ws, &self.meta_tx);
         }
     }
@@ -527,7 +541,12 @@ impl ReadDirectoryChangesWatcher {
         }
     }
 
-    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+    fn watch_inner(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> Result<()> {
         let pb = if path.is_absolute() {
             path.to_owned()
         } else {
@@ -540,7 +559,7 @@ impl ReadDirectoryChangesWatcher {
                 "Input watch path is neither a file nor a directory.",
             ));
         }
-        self.send_action_require_ack(Action::Watch(pb.clone(), recursive_mode), &pb)
+        self.send_action_require_ack(Action::Watch(pb.clone(), recursive_mode, watch_filter), &pb)
     }
 
     fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
@@ -568,8 +587,17 @@ impl Watcher for ReadDirectoryChangesWatcher {
         Self::create(event_handler, meta_tx)
     }
 
+    fn watch_filtered(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> crate::Result<()> {
+        self.watch_inner(path, recursive_mode, watch_filter)
+    }
+
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path, recursive_mode)
+        self.watch_inner(path, recursive_mode, WatchFilter::accept_all())
     }
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {
