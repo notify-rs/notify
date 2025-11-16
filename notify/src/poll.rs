@@ -700,7 +700,9 @@ mod tests {
         let path = tmpdir.path().join("entry");
         std::fs::File::create_new(&path).expect("Unable to create");
 
+        rx.sleep_until_parent_contains(&path);
         rx.sleep_until_exists(&path);
+
         rx.wait_ordered_exact([expected(&path).create_any()]);
     }
 
@@ -713,7 +715,9 @@ mod tests {
         let path = tmpdir.path().join("entry");
         std::fs::create_dir(&path).expect("Unable to create");
 
+        rx.sleep_until_parent_contains(&path);
         rx.sleep_until_exists(&path);
+
         rx.wait_ordered_exact([expected(&path).create_any()]);
     }
 
@@ -723,6 +727,8 @@ mod tests {
         let (mut watcher, mut rx) = watcher();
         let path = tmpdir.path().join("entry");
         std::fs::File::create_new(&path).expect("Unable to create");
+
+        rx.sleep_until_parent_contains(&path);
 
         watcher.watch_recursively(&tmpdir);
         std::fs::write(&path, b"123").expect("Unable to write");
@@ -741,10 +747,15 @@ mod tests {
         let path = tmpdir.path().join("entry");
         std::fs::File::create_new(&path).expect("Unable to create");
 
+        rx.sleep_until_parent_contains(&path);
+
         watcher.watch_recursively(&tmpdir);
+
         std::fs::remove_file(&path).expect("Unable to remove");
 
         rx.sleep_while_exists(&path);
+        rx.sleep_while_parent_contains(&path);
+
         rx.wait_ordered_exact([expected(&path).remove_any()]);
     }
 
@@ -756,11 +767,17 @@ mod tests {
         let new_path = tmpdir.path().join("new_entry");
         std::fs::File::create_new(&path).expect("Unable to create");
 
+        rx.sleep_until_parent_contains(&path);
+
         watcher.watch_recursively(&tmpdir);
+
         std::fs::rename(&path, &new_path).expect("Unable to remove");
 
         rx.sleep_while_exists(&path);
         rx.sleep_until_exists(&new_path);
+
+        rx.sleep_while_parent_contains(&path);
+        rx.sleep_until_parent_contains(&new_path);
 
         rx.wait_unordered_exact([
             expected(&path).remove_any(),
@@ -776,6 +793,8 @@ mod tests {
         let overwriting_file = tmpdir.path().join("overwriting_file");
         std::fs::write(&overwritten_file, "123").expect("write1");
 
+        rx.sleep_until_parent_contains(&overwritten_file);
+
         watcher.watch_nonrecursively(&tmpdir);
 
         std::fs::File::create(&overwriting_file).expect("create");
@@ -783,6 +802,8 @@ mod tests {
         std::fs::rename(&overwriting_file, &overwritten_file).expect("rename");
 
         rx.sleep_while_exists(&overwriting_file);
+        rx.sleep_while_parent_contains(&overwriting_file);
+
         assert!(
             rx.sleep_until(
                 || std::fs::read_to_string(&overwritten_file).is_ok_and(|cnt| cnt == "321")
