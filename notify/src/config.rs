@@ -194,4 +194,11 @@ mod tests {
         let config = Config::default().with_event_kinds(EventKindMask::empty());
         assert!(config.event_kinds().is_empty());
     }
+
+    #[test]
+    fn event_kind_mask_default_matches_config_default() {
+        // Verify cross-crate consistency: both defaults should be ALL
+        assert_eq!(EventKindMask::default(), Config::default().event_kinds());
+        assert_eq!(EventKindMask::default(), EventKindMask::ALL);
+    }
 }

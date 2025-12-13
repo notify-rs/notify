@@ -293,9 +293,9 @@ bitflags! {
     /// // Monitor everything including access events
     /// let all = EventKindMask::ALL;
     ///
-    /// // Default: excludes access events (matches current notify behavior)
+    /// // Default: includes all events (matches Config::default())
     /// let default = EventKindMask::default();
-    /// assert_eq!(default, EventKindMask::CORE);
+    /// assert_eq!(default, EventKindMask::ALL);
     /// ```
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -344,7 +344,7 @@ bitflags! {
 
 impl Default for EventKindMask {
     fn default() -> Self {
-        EventKindMask::CORE
+        EventKindMask::ALL
     }
 }
 
@@ -774,8 +774,8 @@ mod event_kind_mask_tests {
     use super::*;
 
     #[test]
-    fn default_is_core() {
-        assert_eq!(EventKindMask::default(), EventKindMask::CORE);
+    fn default_is_all() {
+        assert_eq!(EventKindMask::default(), EventKindMask::ALL);
     }
 
     #[test]

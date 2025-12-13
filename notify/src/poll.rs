@@ -66,6 +66,7 @@ mod data {
         event::{CreateKind, DataChange, Event, EventKind, MetadataKind, ModifyKind, RemoveKind},
         EventHandler,
     };
+    use notify_types::event::EventKindMask;
     use std::{
         cell::RefCell,
         collections::{hash_map::RandomState, HashMap},
@@ -105,6 +106,7 @@ mod data {
             event_handler: F,
             compare_content: bool,
             scan_emitter: Option<G>,
+            event_kinds: EventKindMask,
         ) -> Self
         where
             F: EventHandler,
@@ -120,7 +122,7 @@ mod data {
                 }
             };
             Self {
-                emitter: EventEmitter::new(event_handler),
+                emitter: EventEmitter::new(event_handler, event_kinds),
                 scan_emitter,
                 build_hasher: compare_content.then(RandomState::default),
                 now: Instant::now(),
@@ -460,25 +462,33 @@ mod data {
     }
 
     /// Thin wrapper for outer event handler, for easy to use.
-    struct EventEmitter(
+    struct EventEmitter {
         // Use `RefCell` to make sure `emit()` only need shared borrow of self (&self).
         // Use `Box` to make sure EventEmitter is Sized.
-        Box<RefCell<dyn EventHandler>>,
-    );
+        handler: Box<RefCell<dyn EventHandler>>,
+        /// Event kind filter - only events matching this mask are emitted.
+        event_kinds: EventKindMask,
+    }
 
     impl EventEmitter {
-        fn new<F: EventHandler>(event_handler: F) -> Self {
-            Self(Box::new(RefCell::new(event_handler)))
+        fn new<F: EventHandler>(event_handler: F, event_kinds: EventKindMask) -> Self {
+            Self {
+                handler: Box::new(RefCell::new(event_handler)),
+                event_kinds,
+            }
         }
 
-        /// Emit single event.
+        /// Emit single event (errors always pass through).
         fn emit(&self, event: crate::Result<Event>) {
-            self.0.borrow_mut().handle_event(event);
+            self.handler.borrow_mut().handle_event(event);
         }
 
-        /// Emit event.
+        /// Emit event, filtered by event_kinds mask.
         fn emit_ok(&self, event: Event) {
-            self.emit(Ok(event))
+            // Only emit if the event kind matches the configured mask
+            if self.event_kinds.matches(&event.kind) {
+                self.emit(Ok(event))
+            }
         }
 
         /// Emit io error event.
@@ -552,8 +562,12 @@ impl PollWatcher {
         config: Config,
         scan_callback: Option<G>,
     ) -> crate::Result<PollWatcher> {
-        let data_builder =
-            DataBuilder::new(event_handler, config.compare_contents(), scan_callback);
+        let data_builder = DataBuilder::new(
+            event_handler,
+            config.compare_contents(),
+            scan_callback,
+            config.event_kinds(),
+        );
 
         let (tx, rx) = unbounded();
 
@@ -812,5 +826,60 @@ mod tests {
         );
 
         rx.wait_unordered([expected(&overwritten_file).modify_data_any()]);
+    }
+
+    #[test]
+    fn poll_watcher_respects_event_kind_mask() {
+        use crate::{Config, Watcher};
+        use notify_types::event::EventKindMask;
+
+        let tmpdir = testdir();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        // Create watcher with CREATE-only mask (no MODIFY events)
+        let config = Config::default()
+            .with_event_kinds(EventKindMask::CREATE)
+            .with_compare_contents(true)
+            .with_manual_polling();
+
+        let mut watcher = PollWatcher::new(tx, config).expect("create watcher");
+        watcher
+            .watch(tmpdir.path(), crate::RecursiveMode::Recursive)
+            .expect("watch");
+
+        let path = tmpdir.path().join("test_file");
+
+        // Create a file - should generate CREATE event
+        std::fs::write(&path, "initial").expect("write initial");
+        watcher.poll().expect("poll 1");
+
+        // Small delay to let events propagate
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        // Modify the file - should NOT generate event (filtered by mask)
+        std::fs::write(&path, "modified content").expect("write modified");
+        watcher.poll().expect("poll 2");
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        // Collect all events
+        let events: Vec<_> = rx
+            .try_iter()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Should have CREATE event
+        assert!(
+            events.iter().any(|e| e.kind.is_create()),
+            "Expected CREATE event, got: {:?}",
+            events
+        );
+
+        // Should NOT have MODIFY event (filtered out)
+        assert!(
+            !events.iter().any(|e| e.kind.is_modify()),
+            "Should not receive MODIFY events with CREATE-only mask, got: {:?}",
+            events
+        );
     }
 }
