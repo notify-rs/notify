@@ -278,9 +278,9 @@ bitflags! {
     /// A bitmask specifying which event kinds to monitor.
     ///
     /// This type allows fine-grained control over which filesystem events are reported.
-    /// On backends that support kernel-level filtering (inotify, kqueue), the mask is
-    /// translated to native flags for optimal performance. On other backends (Windows,
-    /// FSEvents, PollWatcher), filtering is applied in userspace.
+    /// On backends that support kernel-level filtering (inotify), the mask is
+    /// translated to native flags for optimal performance. On other backends (kqueue,
+    /// Windows, FSEvents, PollWatcher), filtering is applied in userspace.
     ///
     /// # Examples
     ///

@@ -121,9 +121,9 @@ impl Config {
     ///
     /// This allows you to control which types of filesystem events are delivered
     /// to your event handler. On backends that support kernel-level filtering
-    /// (inotify, kqueue), the mask is translated to native flags for optimal
-    /// performance. On other backends (Windows, FSEvents, PollWatcher), filtering
-    /// is applied in userspace.
+    /// (inotify), the mask is translated to native flags for optimal
+    /// performance. On other backends (kqueue, Windows, FSEvents, PollWatcher),
+    /// filtering is applied in userspace.
     ///
     /// The default is [`EventKindMask::ALL`], which includes all events.
     /// Use [`EventKindMask::CORE`] to exclude access events.
