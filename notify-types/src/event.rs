@@ -6,6 +6,8 @@ use std::{
     path::PathBuf,
 };
 
+use bitflags::bitflags;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -269,6 +271,144 @@ impl EventKind {
     /// Indicates whether an event is an Other variant.
     pub fn is_other(&self) -> bool {
         matches!(self, EventKind::Other)
+    }
+}
+
+bitflags! {
+    /// A bitmask specifying which event kinds to monitor.
+    ///
+    /// This type allows fine-grained control over which filesystem events are reported.
+    /// On backends that support kernel-level filtering (inotify, kqueue), the mask is
+    /// translated to native flags for optimal performance. On other backends (Windows,
+    /// FSEvents, PollWatcher), filtering is applied in userspace.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use notify_types::event::EventKindMask;
+    ///
+    /// // Monitor only file creations and deletions
+    /// let mask = EventKindMask::CREATE | EventKindMask::REMOVE;
+    ///
+    /// // Monitor everything including access events
+    /// let all = EventKindMask::ALL;
+    ///
+    /// // Default: excludes access events (matches current notify behavior)
+    /// let default = EventKindMask::default();
+    /// assert_eq!(default, EventKindMask::CORE);
+    /// ```
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct EventKindMask: u32 {
+        /// Monitor file/folder creation events.
+        const CREATE = 0b0000_0001;
+
+        /// Monitor file/folder removal events.
+        const REMOVE = 0b0000_0010;
+
+        /// Monitor data modification events (content/size changes).
+        const MODIFY_DATA = 0b0000_0100;
+
+        /// Monitor metadata modification events (permissions, timestamps, etc).
+        const MODIFY_META = 0b0000_1000;
+
+        /// Monitor name/rename events.
+        const MODIFY_NAME = 0b0001_0000;
+
+        /// Monitor file open events.
+        const ACCESS_OPEN = 0b0010_0000;
+
+        /// Monitor file close events after writing.
+        /// This fires when a file opened for writing is closed.
+        const ACCESS_CLOSE = 0b0100_0000;
+
+        /// Monitor file close events after read-only access.
+        /// This fires when a file opened for reading (not writing) is closed.
+        /// Note: This can be very noisy and may cause queue overflow on busy systems.
+        const ACCESS_CLOSE_NOWRITE = 0b1000_0000;
+
+        /// All modify events (data, metadata, and name changes).
+        const ALL_MODIFY = Self::MODIFY_DATA.bits() | Self::MODIFY_META.bits() | Self::MODIFY_NAME.bits();
+
+        /// All access events (open, close-write, and close-nowrite).
+        const ALL_ACCESS = Self::ACCESS_OPEN.bits() | Self::ACCESS_CLOSE.bits() | Self::ACCESS_CLOSE_NOWRITE.bits();
+
+        /// Core events: create, remove, and all modify events.
+        /// This is the default and matches the current notify behavior (no access events).
+        const CORE = Self::CREATE.bits() | Self::REMOVE.bits() | Self::ALL_MODIFY.bits();
+
+        /// All events including access events.
+        const ALL = Self::CORE.bits() | Self::ALL_ACCESS.bits();
+    }
+}
+
+impl Default for EventKindMask {
+    fn default() -> Self {
+        EventKindMask::CORE
+    }
+}
+
+impl EventKindMask {
+    /// Returns whether the given event kind matches this mask.
+    ///
+    /// `EventKind::Any` and `EventKind::Other` always pass regardless of the mask,
+    /// as they represent meta-events that should not be filtered.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use notify_types::event::{EventKindMask, EventKind, CreateKind, AccessKind, AccessMode};
+    ///
+    /// let mask = EventKindMask::CREATE;
+    /// assert!(mask.matches(&EventKind::Create(CreateKind::File)));
+    /// assert!(!mask.matches(&EventKind::Access(AccessKind::Open(AccessMode::Read))));
+    ///
+    /// // Any and Other always pass
+    /// let empty = EventKindMask::empty();
+    /// assert!(empty.matches(&EventKind::Any));
+    /// assert!(empty.matches(&EventKind::Other));
+    /// ```
+    pub fn matches(&self, kind: &EventKind) -> bool {
+        match kind {
+            // Meta-events always pass
+            EventKind::Any | EventKind::Other => true,
+
+            // Create events
+            EventKind::Create(_) => self.intersects(EventKindMask::CREATE),
+
+            // Remove events
+            EventKind::Remove(_) => self.intersects(EventKindMask::REMOVE),
+
+            // Modify events - check subkind
+            EventKind::Modify(modify_kind) => match modify_kind {
+                ModifyKind::Data(_) => self.intersects(EventKindMask::MODIFY_DATA),
+                ModifyKind::Metadata(_) => self.intersects(EventKindMask::MODIFY_META),
+                ModifyKind::Name(_) => self.intersects(EventKindMask::MODIFY_NAME),
+                // ModifyKind::Any and ModifyKind::Other pass if any modify flag is set
+                ModifyKind::Any | ModifyKind::Other => self.intersects(EventKindMask::ALL_MODIFY),
+            },
+
+            // Access events - check subkind
+            EventKind::Access(access_kind) => match access_kind {
+                AccessKind::Open(_) => self.intersects(EventKindMask::ACCESS_OPEN),
+                // Close after write
+                AccessKind::Close(AccessMode::Write) => {
+                    self.intersects(EventKindMask::ACCESS_CLOSE)
+                }
+                // Close after read-only (no write)
+                AccessKind::Close(AccessMode::Read) => {
+                    self.intersects(EventKindMask::ACCESS_CLOSE_NOWRITE)
+                }
+                // Close with unknown mode - match if either close flag is set
+                AccessKind::Close(_) => {
+                    self.intersects(EventKindMask::ACCESS_CLOSE | EventKindMask::ACCESS_CLOSE_NOWRITE)
+                }
+                // AccessKind::Read, Any, and Other pass if any access flag is set
+                AccessKind::Read | AccessKind::Any | AccessKind::Other => {
+                    self.intersects(EventKindMask::ALL_ACCESS)
+                }
+            },
+        }
     }
 }
 
@@ -626,6 +766,183 @@ impl Hash for Event {
         self.flag().hash(state);
         self.info().hash(state);
         self.source().hash(state);
+    }
+}
+
+#[cfg(test)]
+mod event_kind_mask_tests {
+    use super::*;
+
+    #[test]
+    fn default_is_core() {
+        assert_eq!(EventKindMask::default(), EventKindMask::CORE);
+    }
+
+    #[test]
+    fn matches_create_events() {
+        let mask = EventKindMask::CREATE;
+        assert!(mask.matches(&EventKind::Create(CreateKind::File)));
+        assert!(mask.matches(&EventKind::Create(CreateKind::Folder)));
+        assert!(mask.matches(&EventKind::Create(CreateKind::Any)));
+        assert!(mask.matches(&EventKind::Create(CreateKind::Other)));
+        assert!(!mask.matches(&EventKind::Remove(RemoveKind::File)));
+    }
+
+    #[test]
+    fn matches_remove_events() {
+        let mask = EventKindMask::REMOVE;
+        assert!(mask.matches(&EventKind::Remove(RemoveKind::File)));
+        assert!(mask.matches(&EventKind::Remove(RemoveKind::Folder)));
+        assert!(mask.matches(&EventKind::Remove(RemoveKind::Any)));
+        assert!(!mask.matches(&EventKind::Create(CreateKind::File)));
+    }
+
+    #[test]
+    fn matches_access_open_events() {
+        let mask = EventKindMask::ACCESS_OPEN;
+        assert!(mask.matches(&EventKind::Access(AccessKind::Open(AccessMode::Any))));
+        assert!(mask.matches(&EventKind::Access(AccessKind::Open(AccessMode::Read))));
+        assert!(mask.matches(&EventKind::Access(AccessKind::Open(AccessMode::Write))));
+        assert!(!mask.matches(&EventKind::Access(AccessKind::Close(AccessMode::Write))));
+        assert!(!mask.matches(&EventKind::Create(CreateKind::File)));
+    }
+
+    #[test]
+    fn matches_access_close_events() {
+        // ACCESS_CLOSE only matches Close(Write), not Close(Read)
+        let mask = EventKindMask::ACCESS_CLOSE;
+        assert!(mask.matches(&EventKind::Access(AccessKind::Close(AccessMode::Write))));
+        assert!(mask.matches(&EventKind::Access(AccessKind::Close(AccessMode::Any)))); // Any could be write
+        assert!(!mask.matches(&EventKind::Access(AccessKind::Close(AccessMode::Read)))); // Read goes to NOWRITE
+        assert!(!mask.matches(&EventKind::Access(AccessKind::Open(AccessMode::Any))));
+    }
+
+    #[test]
+    fn matches_access_close_nowrite_events() {
+        // ACCESS_CLOSE_NOWRITE matches Close(Read) - files opened read-only
+        let mask = EventKindMask::ACCESS_CLOSE_NOWRITE;
+        assert!(mask.matches(&EventKind::Access(AccessKind::Close(AccessMode::Read))));
+        assert!(mask.matches(&EventKind::Access(AccessKind::Close(AccessMode::Any)))); // Any could be read
+        assert!(!mask.matches(&EventKind::Access(AccessKind::Close(AccessMode::Write)))); // Write goes to ACCESS_CLOSE
+        assert!(!mask.matches(&EventKind::Access(AccessKind::Open(AccessMode::Any))));
+    }
+
+    #[test]
+    fn combined_close_masks_match_both() {
+        // When both ACCESS_CLOSE and ACCESS_CLOSE_NOWRITE are set, match both
+        let mask = EventKindMask::ACCESS_CLOSE | EventKindMask::ACCESS_CLOSE_NOWRITE;
+        assert!(mask.matches(&EventKind::Access(AccessKind::Close(AccessMode::Write))));
+        assert!(mask.matches(&EventKind::Access(AccessKind::Close(AccessMode::Read))));
+        assert!(mask.matches(&EventKind::Access(AccessKind::Close(AccessMode::Any))));
+    }
+
+    #[test]
+    fn all_access_matches_open_close_read_any_other() {
+        let mask = EventKindMask::ALL_ACCESS;
+        assert!(mask.matches(&EventKind::Access(AccessKind::Open(AccessMode::Read))));
+        assert!(mask.matches(&EventKind::Access(AccessKind::Close(AccessMode::Write))));
+        assert!(mask.matches(&EventKind::Access(AccessKind::Read)));
+        assert!(mask.matches(&EventKind::Access(AccessKind::Any)));
+        assert!(mask.matches(&EventKind::Access(AccessKind::Other)));
+    }
+
+    #[test]
+    fn matches_modify_data_events() {
+        let mask = EventKindMask::MODIFY_DATA;
+        assert!(mask.matches(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
+        assert!(mask.matches(&EventKind::Modify(ModifyKind::Data(DataChange::Size))));
+        assert!(mask.matches(&EventKind::Modify(ModifyKind::Data(DataChange::Content))));
+        assert!(!mask.matches(&EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any))));
+        assert!(!mask.matches(&EventKind::Modify(ModifyKind::Name(RenameMode::From))));
+    }
+
+    #[test]
+    fn matches_modify_metadata_events() {
+        let mask = EventKindMask::MODIFY_META;
+        assert!(mask.matches(&EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any))));
+        assert!(mask.matches(&EventKind::Modify(ModifyKind::Metadata(
+            MetadataKind::Permissions
+        ))));
+        assert!(!mask.matches(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
+    }
+
+    #[test]
+    fn matches_modify_name_events() {
+        let mask = EventKindMask::MODIFY_NAME;
+        assert!(mask.matches(&EventKind::Modify(ModifyKind::Name(RenameMode::From))));
+        assert!(mask.matches(&EventKind::Modify(ModifyKind::Name(RenameMode::To))));
+        assert!(mask.matches(&EventKind::Modify(ModifyKind::Name(RenameMode::Both))));
+        assert!(!mask.matches(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
+    }
+
+    #[test]
+    fn all_modify_matches_data_meta_name() {
+        let mask = EventKindMask::ALL_MODIFY;
+        assert!(mask.matches(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
+        assert!(mask.matches(&EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any))));
+        assert!(mask.matches(&EventKind::Modify(ModifyKind::Name(RenameMode::From))));
+        assert!(mask.matches(&EventKind::Modify(ModifyKind::Any)));
+        assert!(mask.matches(&EventKind::Modify(ModifyKind::Other)));
+    }
+
+    #[test]
+    fn any_and_other_always_pass() {
+        let empty = EventKindMask::empty();
+        assert!(empty.matches(&EventKind::Any));
+        assert!(empty.matches(&EventKind::Other));
+    }
+
+    #[test]
+    fn core_excludes_access() {
+        let core = EventKindMask::CORE;
+        assert!(core.matches(&EventKind::Create(CreateKind::File)));
+        assert!(core.matches(&EventKind::Remove(RemoveKind::File)));
+        assert!(core.matches(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
+        assert!(core.matches(&EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any))));
+        assert!(core.matches(&EventKind::Modify(ModifyKind::Name(RenameMode::From))));
+        assert!(!core.matches(&EventKind::Access(AccessKind::Open(AccessMode::Any))));
+        assert!(!core.matches(&EventKind::Access(AccessKind::Close(AccessMode::Write))));
+    }
+
+    #[test]
+    fn empty_mask_only_passes_any_other() {
+        let empty = EventKindMask::empty();
+        assert!(empty.matches(&EventKind::Any));
+        assert!(empty.matches(&EventKind::Other));
+        assert!(!empty.matches(&EventKind::Create(CreateKind::File)));
+        assert!(!empty.matches(&EventKind::Remove(RemoveKind::File)));
+        assert!(!empty.matches(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
+        assert!(!empty.matches(&EventKind::Access(AccessKind::Open(AccessMode::Any))));
+    }
+
+    #[test]
+    fn bitwise_or_combines_masks() {
+        let mask = EventKindMask::CREATE | EventKindMask::REMOVE;
+        assert!(mask.matches(&EventKind::Create(CreateKind::File)));
+        assert!(mask.matches(&EventKind::Remove(RemoveKind::Folder)));
+        assert!(!mask.matches(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
+        assert!(!mask.matches(&EventKind::Access(AccessKind::Open(AccessMode::Any))));
+    }
+
+    #[test]
+    fn all_matches_everything() {
+        let all = EventKindMask::ALL;
+        assert!(all.matches(&EventKind::Any));
+        assert!(all.matches(&EventKind::Other));
+        assert!(all.matches(&EventKind::Create(CreateKind::File)));
+        assert!(all.matches(&EventKind::Remove(RemoveKind::File)));
+        assert!(all.matches(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
+        assert!(all.matches(&EventKind::Access(AccessKind::Open(AccessMode::Any))));
+        assert!(all.matches(&EventKind::Access(AccessKind::Close(AccessMode::Write))));
+    }
+
+    #[test]
+    fn access_read_and_any_match_with_all_access() {
+        // Edge case: AccessKind::Read and AccessKind::Any should match if ALL_ACCESS is set
+        let mask = EventKindMask::ALL_ACCESS;
+        assert!(mask.matches(&EventKind::Access(AccessKind::Read)));
+        assert!(mask.matches(&EventKind::Access(AccessKind::Any)));
+        assert!(mask.matches(&EventKind::Access(AccessKind::Other)));
     }
 }
 
