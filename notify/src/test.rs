@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use notify_types::event::Event;
+use notify_types::event::{Event, EventKindMask};
 
 use crate::{Config, Error, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher, WatcherKind};
 use pretty_assertions::assert_eq;
@@ -267,11 +267,25 @@ pub struct ChannelConfig {
     watcher_config: Config,
 }
 
+impl ChannelConfig {
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub fn with_watcher_config(mut self, config: Config) -> Self {
+        self.watcher_config = config;
+        self
+    }
+}
+
 impl Default for ChannelConfig {
     fn default() -> Self {
         Self {
             timeout: Receiver::DEFAULT_TIMEOUT,
-            watcher_config: Default::default(),
+            // Use CORE to exclude access events by default in tests,
+            // matching the original test behavior before EventKindMask was added
+            watcher_config: Config::default().with_event_kinds(EventKindMask::CORE),
         }
     }
 }
