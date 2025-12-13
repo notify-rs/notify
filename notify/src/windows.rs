@@ -49,6 +49,7 @@ struct ReadData {
 
 struct ReadDirectoryRequest {
     event_handler: Arc<Mutex<dyn EventHandler>>,
+    event_kinds: EventKindMask,
     buffer: [u8; BUF_SIZE as usize],
     handle: HANDLE,
     data: ReadData,
@@ -83,6 +84,7 @@ struct ReadDirectoryChangesServer {
     tx: Sender<Action>,
     rx: Receiver<Action>,
     event_handler: Arc<Mutex<dyn EventHandler>>,
+    event_kinds: EventKindMask,
     meta_tx: Sender<MetaEvent>,
     cmd_tx: Sender<Result<PathBuf>>,
     watches: HashMap<PathBuf, WatchState>,
@@ -92,6 +94,7 @@ struct ReadDirectoryChangesServer {
 impl ReadDirectoryChangesServer {
     fn start(
         event_handler: Arc<Mutex<dyn EventHandler>>,
+        event_kinds: EventKindMask,
         meta_tx: Sender<MetaEvent>,
         cmd_tx: Sender<Result<PathBuf>>,
         wakeup_sem: HANDLE,
@@ -109,6 +112,7 @@ impl ReadDirectoryChangesServer {
                         tx,
                         rx: action_rx,
                         event_handler,
+                        event_kinds,
                         meta_tx,
                         cmd_tx,
                         watches: HashMap::new(),
@@ -236,7 +240,7 @@ impl ReadDirectoryChangesServer {
             complete_sem: semaphore,
         };
         self.watches.insert(path.clone(), ws);
-        start_read(&rd, self.event_handler.clone(), handle, self.tx.clone());
+        start_read(&rd, self.event_handler.clone(), self.event_kinds, handle, self.tx.clone());
         Ok(path)
     }
 
@@ -270,11 +274,13 @@ fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
 fn start_read(
     rd: &ReadData,
     event_handler: Arc<Mutex<dyn EventHandler>>,
+    event_kinds: EventKindMask,
     handle: HANDLE,
     action_tx: Sender<Action>,
 ) {
     let request = Box::new(ReadDirectoryRequest {
         event_handler,
+        event_kinds,
         handle,
         buffer: [0u8; BUF_SIZE as usize],
         data: rd.clone(),
@@ -371,6 +377,7 @@ unsafe extern "system" fn handle_event(
     start_read(
         &request.data,
         request.event_handler.clone(),
+        request.event_kinds,
         request.handle,
         request.action_tx,
     );
@@ -420,7 +427,18 @@ unsafe extern "system" fn handle_event(
                 }
             }
 
-            let event_handler = |res| emit_event(&request.event_handler, res);
+            // Filter events based on EventKindMask
+            let event_kinds = request.event_kinds;
+            let event_handler = |res: Result<Event>| {
+                match &res {
+                    // Errors always pass through
+                    Err(_) => emit_event(&request.event_handler, res),
+                    // OK events only if they match the mask
+                    Ok(e) if event_kinds.matches(&e.kind) => emit_event(&request.event_handler, res),
+                    // Event filtered out
+                    Ok(_) => {}
+                }
+            };
 
             if cur_entry.Action == FILE_ACTION_RENAMED_OLD_NAME {
                 let mode = RenameMode::From;
@@ -474,6 +492,7 @@ pub struct ReadDirectoryChangesWatcher {
 impl ReadDirectoryChangesWatcher {
     pub fn create(
         event_handler: Arc<Mutex<dyn EventHandler>>,
+        event_kinds: EventKindMask,
         meta_tx: Sender<MetaEvent>,
     ) -> Result<ReadDirectoryChangesWatcher> {
         let (cmd_tx, cmd_rx) = unbounded();
@@ -484,7 +503,7 @@ impl ReadDirectoryChangesWatcher {
         }
 
         let action_tx =
-            ReadDirectoryChangesServer::start(event_handler, meta_tx, cmd_tx, wakeup_sem);
+            ReadDirectoryChangesServer::start(event_handler, event_kinds, meta_tx, cmd_tx, wakeup_sem);
 
         Ok(ReadDirectoryChangesWatcher {
             tx: action_tx,
@@ -560,12 +579,12 @@ impl ReadDirectoryChangesWatcher {
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
-    fn new<F: EventHandler>(event_handler: F, _config: Config) -> Result<Self> {
+    fn new<F: EventHandler>(event_handler: F, config: Config) -> Result<Self> {
         // create dummy channel for meta event
         // TODO: determine the original purpose of this - can we remove it?
         let (meta_tx, _) = unbounded();
         let event_handler = Arc::new(Mutex::new(event_handler));
-        Self::create(event_handler, meta_tx)
+        Self::create(event_handler, config.event_kinds(), meta_tx)
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
