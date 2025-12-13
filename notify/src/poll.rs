@@ -832,6 +832,7 @@ mod tests {
     fn poll_watcher_respects_event_kind_mask() {
         use crate::{Config, Watcher};
         use notify_types::event::EventKindMask;
+        use std::time::Duration;
 
         let tmpdir = testdir();
         let (tx, rx) = std::sync::mpsc::channel();
@@ -853,33 +854,30 @@ mod tests {
         std::fs::write(&path, "initial").expect("write initial");
         watcher.poll().expect("poll 1");
 
-        // Small delay to let events propagate
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        // Wait for CREATE event (use blocking recv with timeout)
+        let event = rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("should receive CREATE event")
+            .expect("event should not be an error");
+        assert!(
+            event.kind.is_create(),
+            "Expected CREATE event, got: {:?}",
+            event
+        );
 
         // Modify the file - should NOT generate event (filtered by mask)
         std::fs::write(&path, "modified content").expect("write modified");
         watcher.poll().expect("poll 2");
 
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        // Give poll thread time to process, then verify no MODIFY events
+        std::thread::sleep(Duration::from_millis(100));
 
-        // Collect all events
-        let events: Vec<_> = rx
-            .try_iter()
-            .filter_map(|r| r.ok())
-            .collect();
-
-        // Should have CREATE event
+        // Should have no more events (MODIFY was filtered out)
+        let remaining: Vec<_> = rx.try_iter().filter_map(|r| r.ok()).collect();
         assert!(
-            events.iter().any(|e| e.kind.is_create()),
-            "Expected CREATE event, got: {:?}",
-            events
-        );
-
-        // Should NOT have MODIFY event (filtered out)
-        assert!(
-            !events.iter().any(|e| e.kind.is_modify()),
+            !remaining.iter().any(|e| e.kind.is_modify()),
             "Should not receive MODIFY events with CREATE-only mask, got: {:?}",
-            events
+            remaining
         );
     }
 }
