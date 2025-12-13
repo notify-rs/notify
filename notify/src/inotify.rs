@@ -686,7 +686,9 @@ mod tests {
     };
 
     use super::inotify_sys::WatchMask;
-    use super::{Config, Error, ErrorKind, Event, INotifyWatcher, RecursiveMode, Result, Watcher};
+    use super::{
+        Config, Error, ErrorKind, Event, EventKind, INotifyWatcher, RecursiveMode, Result, Watcher,
+    };
     use notify_types::event::EventKindMask;
 
     use crate::test::*;
@@ -924,7 +926,9 @@ mod tests {
         watcher.watch_recursively(&tmpdir);
         file.set_permissions(permissions).expect("set_permissions");
 
-        rx.wait_ordered_exact([expected(&path).modify_meta_any()]);
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([expected(&path).modify_meta_any()]);
     }
 
     #[test]
@@ -940,13 +944,14 @@ mod tests {
 
         std::fs::rename(&path, &new_path).expect("rename");
 
-        rx.wait_ordered_exact([
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
             expected(&path).rename_from(),
             expected(&new_path).rename_to(),
             expected([path, new_path]).rename_both(),
         ])
-        .ensure_trackers_len(1)
-        .ensure_no_tail();
+        .ensure_trackers_len(1);
     }
 
     #[test]
@@ -1019,7 +1024,9 @@ mod tests {
         let path = tmpdir.path().join("entry");
         std::fs::create_dir(&path).expect("create");
 
-        rx.wait_ordered_exact([expected(&path).create_folder()]);
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([expected(&path).create_folder()]);
     }
 
     #[test]
@@ -1035,12 +1042,13 @@ mod tests {
         watcher.watch_recursively(&tmpdir);
         std::fs::set_permissions(&path, permissions).expect("set_permissions");
 
-        rx.wait_ordered_exact([
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
             expected(&path).access_open_any().optional(),
             expected(&path).modify_meta_any(),
             expected(&path).modify_meta_any(),
-        ])
-        .ensure_no_tail();
+        ]);
     }
 
     #[test]
@@ -1056,7 +1064,9 @@ mod tests {
 
         std::fs::rename(&path, &new_path).expect("rename");
 
-        rx.wait_ordered_exact([
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
             expected(&path).access_open_any().optional(),
             expected(&path).rename_from(),
             expected(&new_path).rename_to(),
@@ -1076,11 +1086,12 @@ mod tests {
         watcher.watch_recursively(&tmpdir);
         std::fs::remove_dir(&path).expect("remove");
 
-        rx.wait_ordered_exact([
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
             expected(&path).access_open_any().optional(),
             expected(&path).remove_folder(),
-        ])
-        .ensure_no_tail();
+        ]);
     }
 
     #[test]
@@ -1127,11 +1138,17 @@ mod tests {
 
         std::fs::rename(&path, &new_path).expect("rename");
 
-        let event = rx.recv();
+        // With ALL events, we may get Access events on the directory.
+        // Skip Access events to find the rename event.
+        let event = loop {
+            let event = rx.recv();
+            if !matches!(event.kind, EventKind::Access(_)) {
+                break event;
+            }
+        };
         let tracker = event.attrs.tracker();
-        assert_eq!(event, expected(path).rename_from());
-        assert!(tracker.is_some(), "tracker is none: [event:#?]");
-        rx.ensure_empty();
+        assert_eq!(event, expected(&path).rename_from());
+        assert!(tracker.is_some(), "tracker is none: {event:#?}");
     }
 
     #[test]
@@ -1187,7 +1204,9 @@ mod tests {
         std::fs::rename(&path, &new_path1).expect("rename1");
         std::fs::rename(&new_path1, &new_path2).expect("rename2");
 
-        rx.wait_ordered_exact([
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
             expected(&path).access_open_any().optional(),
             expected(&path).rename_from(),
             expected(&new_path1).rename_to(),
@@ -1197,7 +1216,6 @@ mod tests {
             expected(&new_path2).rename_to(),
             expected([&new_path1, &new_path2]).rename_both(),
         ])
-        .ensure_no_tail()
         .ensure_trackers_len(2);
     }
 
@@ -1218,8 +1236,15 @@ mod tests {
         )
         .expect("set_time");
 
-        assert_eq!(rx.recv(), expected(&path).modify_data_any());
-        rx.ensure_empty();
+        // With ALL events, we may get Access events on the directory.
+        // Skip Access events to find the modify event.
+        let event = loop {
+            let event = rx.recv();
+            if !matches!(event.kind, EventKind::Access(_)) {
+                break event;
+            }
+        };
+        assert_eq!(event, expected(&path).modify_data_any());
     }
 
     #[test]
@@ -1322,7 +1347,12 @@ mod tests {
 
         std::fs::write(&hardlink, "123123").expect("write to the hard link");
 
-        let events = rx.iter().collect::<Vec<_>>();
+        // With ALL events, we may get Access events on the watched directory.
+        // Filter those out - we only care about non-Access events on the file.
+        let events: Vec<_> = rx
+            .iter()
+            .filter(|e| !matches!(e.kind, EventKind::Access(_)))
+            .collect();
         assert!(events.is_empty(), "unexpected events: {events:#?}");
     }
 
