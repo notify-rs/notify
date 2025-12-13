@@ -5,7 +5,7 @@
 //! pieces of kernel code termed filters.
 
 use super::event::*;
-use super::{Config, Error, EventHandler, RecursiveMode, Result, Watcher};
+use super::{Config, Error, EventHandler, EventKindMask, RecursiveMode, Result, Watcher};
 use crate::{unbounded, Receiver, Sender};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
 use std::collections::HashMap;
@@ -35,6 +35,7 @@ struct EventLoop {
     event_handler: Box<dyn EventHandler>,
     watches: HashMap<PathBuf, bool>,
     follow_symlinks: bool,
+    event_kinds: EventKindMask,
 }
 
 /// Watcher implementation based on inotify
@@ -55,6 +56,7 @@ impl EventLoop {
         kqueue: kqueue::Watcher,
         event_handler: Box<dyn EventHandler>,
         follow_symlinks: bool,
+        event_kinds: EventKindMask,
     ) -> Result<Self> {
         let (event_loop_tx, event_loop_rx) = unbounded::<EventLoopMsg>();
         let poll = mio::Poll::new()?;
@@ -76,6 +78,7 @@ impl EventLoop {
             event_handler,
             watches: HashMap::new(),
             follow_symlinks,
+            event_kinds,
         };
         Ok(event_loop)
     }
@@ -276,7 +279,14 @@ impl EventLoop {
                         #[allow(unreachable_patterns)]
                         _ => Ok(Event::new(EventKind::Other)),
                     };
-                    self.event_handler.handle_event(event);
+                    // Filter events based on EventKindMask
+                    // Errors always pass through, OK events only if they match the mask
+                    match &event {
+                        Ok(e) if !self.event_kinds.matches(&e.kind) => {
+                            // Event filtered out
+                        }
+                        _ => self.event_handler.handle_event(event),
+                    }
                 }
                 // as we don't add any other EVFILTER to kqueue we should never get here
                 kqueue::Event { ident: _, data: _ } => unreachable!(),
@@ -378,9 +388,10 @@ impl KqueueWatcher {
     fn from_event_handler(
         event_handler: Box<dyn EventHandler>,
         follow_symlinks: bool,
+        event_kinds: EventKindMask,
     ) -> Result<Self> {
         let kqueue = kqueue::Watcher::new()?;
-        let event_loop = EventLoop::new(kqueue, event_handler, follow_symlinks)?;
+        let event_loop = EventLoop::new(kqueue, event_handler, follow_symlinks, event_kinds)?;
         let channel = event_loop.event_loop_tx.clone();
         let waker = event_loop.event_loop_waker.clone();
         event_loop.run();
@@ -433,7 +444,11 @@ impl KqueueWatcher {
 impl Watcher for KqueueWatcher {
     /// Create a new watcher.
     fn new<F: EventHandler>(event_handler: F, config: Config) -> Result<Self> {
-        Self::from_event_handler(Box::new(event_handler), config.follow_symlinks())
+        Self::from_event_handler(
+            Box::new(event_handler),
+            config.follow_symlinks(),
+            config.event_kinds(),
+        )
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
@@ -835,5 +850,52 @@ mod tests {
             expected(&nested8).create_folder(),
             expected(&nested9).create_folder(),
         ]);
+    }
+
+    #[test]
+    fn kqueue_watcher_respects_event_kind_mask() {
+        use crate::Watcher;
+        use notify_types::event::EventKindMask;
+
+        let tmpdir = testdir();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        // Create watcher with CREATE-only mask (no MODIFY events)
+        let config = Config::default().with_event_kinds(EventKindMask::CREATE);
+
+        let mut watcher = KqueueWatcher::new(tx, config).expect("create watcher");
+        watcher
+            .watch(tmpdir.path(), crate::RecursiveMode::Recursive)
+            .expect("watch");
+
+        let path = tmpdir.path().join("test_file");
+
+        // Create a file - should generate CREATE event
+        std::fs::File::create_new(&path).expect("create");
+
+        // Small delay to let events propagate
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Modify the file - should NOT generate event (filtered by mask)
+        std::fs::write(&path, "modified content").expect("write modified");
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Collect all events
+        let events: Vec<_> = rx.try_iter().filter_map(|r| r.ok()).collect();
+
+        // Should have CREATE event
+        assert!(
+            events.iter().any(|e| e.kind.is_create()),
+            "Expected CREATE event, got: {:?}",
+            events
+        );
+
+        // Should NOT have MODIFY event (filtered out)
+        assert!(
+            !events.iter().any(|e| e.kind.is_modify()),
+            "Should not receive MODIFY events with CREATE-only mask, got: {:?}",
+            events
+        );
     }
 }
