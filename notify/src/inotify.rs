@@ -25,10 +25,14 @@ const MESSAGE: mio::Token = mio::Token(1);
 
 /// Convert an EventKindMask to the corresponding inotify WatchMask.
 ///
-/// This enables kernel-level event filtering by only registering for the
-/// event types the user requested.
-fn event_kind_mask_to_watch_mask(mask: EventKindMask) -> WatchMask {
+/// When `is_recursive` is true, CREATE and MOVED_TO are always included
+/// to enable tracking of newly created subdirectories.
+fn event_kind_mask_to_watch_mask(mask: EventKindMask, is_recursive: bool) -> WatchMask {
     let mut watch_mask = WatchMask::empty();
+
+    if is_recursive {
+        watch_mask |= WatchMask::CREATE | WatchMask::MOVED_TO;
+    }
 
     if mask.intersects(EventKindMask::CREATE) {
         watch_mask |= WatchMask::CREATE | WatchMask::MOVED_TO;
@@ -403,8 +407,11 @@ impl EventLoop {
                                 );
                             }
 
+                            // Filter events based on EventKindMask before delivery
                             for ev in evs {
-                                self.event_handler.handle_event(Ok(ev));
+                                if self.event_kind_mask.matches(&ev.kind) {
+                                    self.event_handler.handle_event(Ok(ev));
+                                }
                             }
                         }
 
@@ -473,7 +480,7 @@ impl EventLoop {
         watch_self: bool,
     ) -> Result<()> {
         // Build watch mask from configured event kinds for kernel-level filtering
-        let mut watchmask = event_kind_mask_to_watch_mask(self.event_kind_mask);
+        let mut watchmask = event_kind_mask_to_watch_mask(self.event_kind_mask, is_recursive);
 
         if watch_self {
             watchmask.insert(WatchMask::DELETE_SELF);
@@ -1457,7 +1464,7 @@ mod tests {
         use super::event_kind_mask_to_watch_mask;
 
         let mask = EventKindMask::CORE;
-        let watch_mask = event_kind_mask_to_watch_mask(mask);
+        let watch_mask = event_kind_mask_to_watch_mask(mask, false);
 
         // CORE includes CREATE, REMOVE, MODIFY_DATA, MODIFY_META, MODIFY_NAME
         assert!(watch_mask.intersects(WatchMask::CREATE));
@@ -1480,7 +1487,7 @@ mod tests {
         use super::event_kind_mask_to_watch_mask;
 
         let mask = EventKindMask::ALL;
-        let watch_mask = event_kind_mask_to_watch_mask(mask);
+        let watch_mask = event_kind_mask_to_watch_mask(mask, false);
 
         // ALL includes everything from CORE plus ACCESS
         assert!(watch_mask.intersects(WatchMask::OPEN));
@@ -1493,7 +1500,7 @@ mod tests {
         use super::event_kind_mask_to_watch_mask;
 
         let mask = EventKindMask::empty();
-        let watch_mask = event_kind_mask_to_watch_mask(mask);
+        let watch_mask = event_kind_mask_to_watch_mask(mask, false);
 
         // Empty mask should produce empty watch mask
         assert!(watch_mask.is_empty());
@@ -1505,7 +1512,7 @@ mod tests {
 
         // ACCESS_CLOSE only maps to CLOSE_WRITE (not CLOSE_NOWRITE)
         let mask = EventKindMask::ACCESS_OPEN | EventKindMask::ACCESS_CLOSE;
-        let watch_mask = event_kind_mask_to_watch_mask(mask);
+        let watch_mask = event_kind_mask_to_watch_mask(mask, false);
 
         assert!(watch_mask.intersects(WatchMask::OPEN));
         assert!(watch_mask.intersects(WatchMask::CLOSE_WRITE));
@@ -1524,10 +1531,63 @@ mod tests {
 
         // ALL_ACCESS includes OPEN, CLOSE_WRITE, and CLOSE_NOWRITE
         let mask = EventKindMask::ALL_ACCESS;
-        let watch_mask = event_kind_mask_to_watch_mask(mask);
+        let watch_mask = event_kind_mask_to_watch_mask(mask, false);
 
         assert!(watch_mask.intersects(WatchMask::OPEN));
         assert!(watch_mask.intersects(WatchMask::CLOSE_WRITE));
         assert!(watch_mask.intersects(WatchMask::CLOSE_NOWRITE));
+    }
+
+    #[test]
+    fn event_kind_mask_to_watch_mask_recursive_includes_create() {
+        use super::event_kind_mask_to_watch_mask;
+
+        // Recursive mode includes CREATE|MOVED_TO even without CREATE in mask
+        let watch_mask = event_kind_mask_to_watch_mask(EventKindMask::MODIFY_DATA, true);
+        assert!(watch_mask.intersects(WatchMask::CREATE));
+        assert!(watch_mask.intersects(WatchMask::MOVED_TO));
+        assert!(watch_mask.intersects(WatchMask::MODIFY));
+
+        // Empty mask with recursive still includes CREATE|MOVED_TO
+        let watch_mask = event_kind_mask_to_watch_mask(EventKindMask::empty(), true);
+        assert!(watch_mask.intersects(WatchMask::CREATE));
+        assert!(watch_mask.intersects(WatchMask::MOVED_TO));
+        assert!(!watch_mask.intersects(WatchMask::MODIFY));
+
+        // Non-recursive mode does not include CREATE when not requested
+        let watch_mask = event_kind_mask_to_watch_mask(EventKindMask::MODIFY_DATA, false);
+        assert!(!watch_mask.intersects(WatchMask::CREATE));
+        assert!(!watch_mask.intersects(WatchMask::MOVED_TO));
+        assert!(watch_mask.intersects(WatchMask::MODIFY));
+    }
+
+    /// Recursive watches with MODIFY-only mask still track new subdirectories.
+    #[test]
+    fn recursive_watch_tracks_subdirs_without_create_mask() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = channel_with_config::<INotifyWatcher>(
+            ChannelConfig::default()
+                .with_timeout(std::time::Duration::from_secs(2))
+                .with_watcher_config(Config::default().with_event_kinds(EventKindMask::MODIFY_DATA)),
+        );
+        watcher.watch_recursively(&tmpdir);
+
+        let subdir = tmpdir.path().join("subdir");
+        std::fs::create_dir(&subdir).expect("create subdir");
+
+        // Wait for watch to be added on new subdirectory
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        let file_path = subdir.join("file.txt");
+        let mut file = std::fs::File::create_new(&file_path).expect("create file");
+
+        use std::io::Write;
+        file.write_all(b"hello").expect("write");
+        file.flush().expect("flush");
+        drop(file);
+
+        // Receives MODIFY from subdir (tracking works), no CREATE events (filtered)
+        rx.wait_ordered_exact([expected(&file_path).modify_data()])
+            .ensure_no_tail();
     }
 }

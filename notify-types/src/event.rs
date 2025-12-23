@@ -400,9 +400,8 @@ impl EventKindMask {
                     self.intersects(EventKindMask::ACCESS_CLOSE_NOWRITE)
                 }
                 // Close with unknown mode - match if either close flag is set
-                AccessKind::Close(_) => {
-                    self.intersects(EventKindMask::ACCESS_CLOSE | EventKindMask::ACCESS_CLOSE_NOWRITE)
-                }
+                AccessKind::Close(_) => self
+                    .intersects(EventKindMask::ACCESS_CLOSE | EventKindMask::ACCESS_CLOSE_NOWRITE),
                 // AccessKind::Read, Any, and Other pass if any access flag is set
                 AccessKind::Read | AccessKind::Any | AccessKind::Other => {
                     self.intersects(EventKindMask::ALL_ACCESS)
