@@ -240,7 +240,13 @@ impl ReadDirectoryChangesServer {
             complete_sem: semaphore,
         };
         self.watches.insert(path.clone(), ws);
-        start_read(&rd, self.event_handler.clone(), self.event_kinds, handle, self.tx.clone());
+        start_read(
+            &rd,
+            self.event_handler.clone(),
+            self.event_kinds,
+            handle,
+            self.tx.clone(),
+        );
         Ok(path)
     }
 
@@ -434,7 +440,9 @@ unsafe extern "system" fn handle_event(
                     // Errors always pass through
                     Err(_) => emit_event(&request.event_handler, res),
                     // OK events only if they match the mask
-                    Ok(e) if event_kinds.matches(&e.kind) => emit_event(&request.event_handler, res),
+                    Ok(e) if event_kinds.matches(&e.kind) => {
+                        emit_event(&request.event_handler, res)
+                    }
                     // Event filtered out
                     Ok(_) => {}
                 }
@@ -502,8 +510,13 @@ impl ReadDirectoryChangesWatcher {
             return Err(Error::generic("Failed to create wakeup semaphore."));
         }
 
-        let action_tx =
-            ReadDirectoryChangesServer::start(event_handler, event_kinds, meta_tx, cmd_tx, wakeup_sem);
+        let action_tx = ReadDirectoryChangesServer::start(
+            event_handler,
+            event_kinds,
+            meta_tx,
+            cmd_tx,
+            wakeup_sem,
+        );
 
         Ok(ReadDirectoryChangesWatcher {
             tx: action_tx,
