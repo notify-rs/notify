@@ -3,8 +3,10 @@
 ## notify 9.0.0 (unreleased)
 - CHANGE: raise MSRV to 1.85 **breaking**
 - FIX: Fix the bug that `FsEventWatcher` crashes when dealing with empty path [#718]
+- FIX: Enable Windows to determine File or Folder in events [#722]
 
 [#718]: https://github.com/notify-rs/notify/pull/718
+[#722]: https://github.com/notify-rs/notify/pull/722
 
 
 ## notify 8.2.0 (2025-08-03)
