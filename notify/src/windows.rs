@@ -800,9 +800,13 @@ unsafe impl Sync for ReadDirectoryChangesWatcher {}
 pub mod tests {
     use tempfile::tempdir;
 
-    use crate::{test::*, ReadDirectoryChangesWatcher, RecursiveMode, Watcher};
+    use crate::{
+        test::*, windows::DirectoryReaderKind, ReadDirectoryChangesWatcher, RecursiveMode, Watcher,
+    };
 
     use std::time::Duration;
+
+    use super::available_directory_reader_kind;
 
     fn watcher() -> (TestWatcher<ReadDirectoryChangesWatcher>, Receiver) {
         channel()
@@ -841,8 +845,16 @@ pub mod tests {
         let path = tmpdir.path().join("entry");
         std::fs::File::create_new(&path).expect("create");
 
-        rx.wait_ordered_exact([expected(&path).create_any()])
-            .ensure_no_tail();
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([expected(&path).create_file()])
+                    .ensure_no_tail();
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([expected(&path).create_any()])
+                    .ensure_no_tail();
+            }
+        }
     }
 
     #[test]
@@ -908,8 +920,16 @@ pub mod tests {
 
         std::fs::remove_file(&file).expect("remove");
 
-        rx.wait_ordered_exact([expected(&file).remove_any()])
-            .ensure_no_tail();
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([expected(&file).remove_file()])
+                    .ensure_no_tail();
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([expected(&file).remove_any()])
+                    .ensure_no_tail();
+            }
+        }
     }
 
     #[test]
@@ -923,7 +943,14 @@ pub mod tests {
 
         std::fs::remove_file(&file).expect("remove");
 
-        rx.wait_ordered_exact([expected(&file).remove_any()]);
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([expected(&file).remove_file()]);
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([expected(&file).remove_any()]);
+            }
+        }
     }
 
     #[test]
@@ -940,14 +967,28 @@ pub mod tests {
         std::fs::write(&overwriting_file, "321").expect("write2");
         std::fs::rename(&overwriting_file, &overwritten_file).expect("rename");
 
-        rx.wait_ordered_exact([
-            expected(&overwriting_file).create_any(),
-            expected(&overwriting_file).modify_any().multiple(),
-            expected(&overwritten_file).remove_any(),
-            expected(&overwriting_file).rename_from(),
-            expected(&overwritten_file).rename_to(),
-        ])
-        .ensure_no_tail();
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([
+                    expected(&overwriting_file).create_file(),
+                    expected(&overwriting_file).modify_any().multiple(),
+                    expected(&overwritten_file).remove(),
+                    expected(&overwriting_file).rename_from(),
+                    expected(&overwritten_file).rename_to(),
+                ])
+                .ensure_no_tail();
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([
+                    expected(&overwriting_file).create_any(),
+                    expected(&overwriting_file).modify_any().multiple(),
+                    expected(&overwritten_file).remove_any(),
+                    expected(&overwriting_file).rename_from(),
+                    expected(&overwritten_file).rename_to(),
+                ])
+                .ensure_no_tail();
+            }
+        }
     }
 
     #[test]
@@ -959,8 +1000,16 @@ pub mod tests {
         let path = tmpdir.path().join("entry");
         std::fs::create_dir(&path).expect("create");
 
-        rx.wait_ordered_exact([expected(&path).create_any()])
-            .ensure_no_tail();
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([expected(&path).create_folder()])
+                    .ensure_no_tail();
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([expected(&path).create_any()])
+                    .ensure_no_tail();
+            }
+        }
     }
 
     #[test]
@@ -1011,8 +1060,16 @@ pub mod tests {
         watcher.watch_recursively(&tmpdir);
         std::fs::remove_dir(&path).expect("remove");
 
-        rx.wait_ordered_exact([expected(&path).remove_any()])
-            .ensure_no_tail();
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([expected(&path).remove_folder()])
+                    .ensure_no_tail();
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([expected(&path).remove_any()])
+                    .ensure_no_tail();
+            }
+        }
     }
 
     #[test]
@@ -1054,7 +1111,14 @@ pub mod tests {
         std::fs::rename(&path, &new_path).expect("rename");
 
         let event = rx.recv();
-        assert_eq!(event, expected(path).remove_any());
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                assert_eq!(event, expected(path).remove_file());
+            }
+            DirectoryReaderKind::Standard => {
+                assert_eq!(event, expected(path).remove_any());
+            }
+        }
         rx.ensure_empty();
     }
 
@@ -1075,15 +1139,30 @@ pub mod tests {
         std::fs::write(&new_path, b"1").expect("write 3");
         std::fs::remove_file(&new_path).expect("remove");
 
-        rx.wait_ordered_exact([
-            expected(&file1).create_any(),
-            expected(&file1).modify_any().multiple(),
-            expected(&file2).modify_any().multiple(),
-            expected(&file1).rename_from(),
-            expected(&new_path).rename_to(),
-            expected(&new_path).modify_any().multiple(),
-            expected(&new_path).remove_any(),
-        ]);
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([
+                    expected(&file1).create_file(),
+                    expected(&file1).modify_any().multiple(),
+                    expected(&file2).modify_any().multiple(),
+                    expected(&file1).rename_from(),
+                    expected(&new_path).rename_to(),
+                    expected(&new_path).modify_any().multiple(),
+                    expected(&new_path).remove_file(),
+                ]);
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([
+                    expected(&file1).create_any(),
+                    expected(&file1).modify_any().multiple(),
+                    expected(&file2).modify_any().multiple(),
+                    expected(&file1).rename_from(),
+                    expected(&new_path).rename_to(),
+                    expected(&new_path).modify_any().multiple(),
+                    expected(&new_path).remove_any(),
+                ]);
+            }
+        }
     }
 
     #[test]
@@ -1186,17 +1265,35 @@ pub mod tests {
         watcher.watch_recursively(&tmpdir);
 
         std::fs::create_dir_all(&nested9).expect("create_dir_all");
-        rx.wait_ordered_exact([
-            expected(&nested1).create_any(),
-            expected(&nested2).create_any(),
-            expected(&nested3).create_any(),
-            expected(&nested4).create_any(),
-            expected(&nested5).create_any(),
-            expected(&nested6).create_any(),
-            expected(&nested7).create_any(),
-            expected(&nested8).create_any(),
-            expected(&nested9).create_any(),
-        ])
-        .ensure_no_tail();
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([
+                    expected(&nested1).create_folder(),
+                    expected(&nested2).create_folder(),
+                    expected(&nested3).create_folder(),
+                    expected(&nested4).create_folder(),
+                    expected(&nested5).create_folder(),
+                    expected(&nested6).create_folder(),
+                    expected(&nested7).create_folder(),
+                    expected(&nested8).create_folder(),
+                    expected(&nested9).create_folder(),
+                ])
+                .ensure_no_tail();
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([
+                    expected(&nested1).create_any(),
+                    expected(&nested2).create_any(),
+                    expected(&nested3).create_any(),
+                    expected(&nested4).create_any(),
+                    expected(&nested5).create_any(),
+                    expected(&nested6).create_any(),
+                    expected(&nested7).create_any(),
+                    expected(&nested8).create_any(),
+                    expected(&nested9).create_any(),
+                ])
+                .ensure_no_tail();
+            }
+        }
     }
 }
