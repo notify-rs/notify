@@ -277,7 +277,8 @@ impl<'a> FsEventPathsMut<'a> {
 }
 impl PathsMut for FsEventPathsMut<'_> {
     fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        self.0.append_path(path, recursive_mode)
+        self.0
+            .append_path(path, recursive_mode, WatchFilter::accept_all())
     }
 
     fn remove(&mut self, path: &Path) -> Result<()> {
