@@ -315,7 +315,7 @@ impl WatchFilter {
         WatchFilter(None)
     }
 
-    /// A fitler to limit the paths that get watched.
+    /// A filter to limit the paths that get watched.
     ///
     /// Only paths for which `filter` returns `true` will be watched.
     pub fn with_filter(filter: Arc<FilterFn>) -> WatchFilter {
@@ -323,7 +323,7 @@ impl WatchFilter {
     }
 
     fn should_watch(&self, path: &Path) -> bool {
-        self.0.as_ref().map_or(true, |f| f(path))
+        self.0.as_ref().is_none_or(|f| f(path))
     }
 }
 
