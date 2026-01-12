@@ -5,7 +5,7 @@
 //! will return events for the directory itself, and for files inside the directory.
 
 use super::event::*;
-use super::{Config, Error, ErrorKind, EventHandler, RecursiveMode, Result, Watcher};
+use super::{Config, Error, ErrorKind, EventHandler, RecursiveMode, Result, WatchFilter, Watcher};
 use crate::{bounded, unbounded, BoundSender, Receiver, Sender};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
@@ -37,7 +37,7 @@ struct EventLoop {
     inotify: Option<Inotify>,
     event_handler: Box<dyn EventHandler>,
     /// PathBuf -> (WatchDescriptor, WatchMask, is_recursive, is_dir)
-    watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool)>,
+    watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool, WatchFilter)>,
     paths: HashMap<WatchDescriptor, PathBuf>,
     rename_event: Option<Event>,
     follow_links: bool,
@@ -51,7 +51,7 @@ pub struct INotifyWatcher {
 }
 
 enum EventLoopMsg {
-    AddWatch(PathBuf, RecursiveMode, Sender<Result<()>>),
+    AddWatch(PathBuf, RecursiveMode, WatchFilter, Sender<Result<()>>),
     RemoveWatch(PathBuf, Sender<Result<()>>),
     Shutdown,
     Configure(Config, BoundSender<Result<bool>>),
@@ -61,14 +61,14 @@ enum EventLoopMsg {
 fn add_watch_by_event(
     path: &PathBuf,
     event: &inotify_sys::Event<&OsStr>,
-    watches: &HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool)>,
-    add_watches: &mut Vec<PathBuf>,
+    watches: &HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool, WatchFilter)>,
+    add_watches: &mut Vec<(PathBuf, WatchFilter)>,
 ) {
     if event.mask.contains(EventMask::ISDIR) {
         if let Some(parent_path) = path.parent() {
-            if let Some(&(_, _, is_recursive, _)) = watches.get(parent_path) {
+            if let Some(&(_, _, is_recursive, _, ref filter)) = watches.get(parent_path) {
                 if is_recursive {
-                    add_watches.push(path.to_owned());
+                    add_watches.push((path.to_owned(), filter.clone()));
                 }
             }
         }
@@ -78,7 +78,7 @@ fn add_watch_by_event(
 #[inline]
 fn remove_watch_by_event(
     path: &PathBuf,
-    watches: &HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool)>,
+    watches: &HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool, WatchFilter)>,
     remove_watches: &mut Vec<PathBuf>,
 ) {
     if watches.contains_key(path) {
@@ -168,8 +168,13 @@ impl EventLoop {
     fn handle_messages(&mut self) {
         while let Ok(msg) = self.event_loop_rx.try_recv() {
             match msg {
-                EventLoopMsg::AddWatch(path, recursive_mode, tx) => {
-                    let _ = tx.send(self.add_watch(path, recursive_mode.is_recursive(), true));
+                EventLoopMsg::AddWatch(path, recursive_mode, watch_filter, tx) => {
+                    let _ = tx.send(self.add_watch(
+                        path,
+                        recursive_mode.is_recursive(),
+                        true,
+                        watch_filter,
+                    ));
                 }
                 EventLoopMsg::RemoveWatch(path, tx) => {
                     let _ = tx.send(self.remove_watch(path, false));
@@ -304,8 +309,8 @@ impl EventLoop {
                             }
                             if event.mask.contains(EventMask::DELETE_SELF) {
                                 let remove_kind = match self.watches.get(&path) {
-                                    Some(&(_, _, _, true)) => RemoveKind::Folder,
-                                    Some(&(_, _, _, false)) => RemoveKind::File,
+                                    Some(&(_, _, _, true, _)) => RemoveKind::Folder,
+                                    Some(&(_, _, _, false, _)) => RemoveKind::File,
                                     None => RemoveKind::Other,
                                 };
                                 evs.push(
@@ -382,8 +387,8 @@ impl EventLoop {
             }
         }
 
-        for path in add_watches {
-            if let Err(add_watch_error) = self.add_watch(path, true, false) {
+        for (path, filter) in add_watches {
+            if let Err(add_watch_error) = self.add_watch(path, true, false, filter) {
                 // The handler should be notified if we have reached the limit.
                 // Otherwise, the user might expect that a recursive watch
                 // is continuing to work correctly, but it's not.
@@ -399,19 +404,35 @@ impl EventLoop {
         }
     }
 
-    fn add_watch(&mut self, path: PathBuf, is_recursive: bool, mut watch_self: bool) -> Result<()> {
+    fn add_watch(
+        &mut self,
+        path: PathBuf,
+        is_recursive: bool,
+        mut watch_self: bool,
+        watch_filter: WatchFilter,
+    ) -> Result<()> {
+        if !watch_filter.should_watch(&path) {
+            return Ok(());
+        }
+
         // If the watch is not recursive, or if we determine (by stat'ing the path to get its
         // metadata) that the watched path is not a directory, add a single path watch.
         if !is_recursive || !metadata(&path).map_err(Error::io_watch)?.is_dir() {
-            return self.add_single_watch(path, false, true);
+            return self.add_single_watch(path, false, true, WatchFilter::accept_all());
         }
 
         for entry in WalkDir::new(path)
             .follow_links(self.follow_links)
             .into_iter()
             .filter_map(filter_dir)
+            .filter(|e| watch_filter.should_watch(e.path()))
         {
-            self.add_single_watch(entry.into_path(), is_recursive, watch_self)?;
+            self.add_single_watch(
+                entry.into_path(),
+                is_recursive,
+                watch_self,
+                watch_filter.clone(),
+            )?;
             watch_self = false;
         }
 
@@ -423,6 +444,7 @@ impl EventLoop {
         path: PathBuf,
         is_recursive: bool,
         watch_self: bool,
+        watch_filter: WatchFilter,
     ) -> Result<()> {
         let mut watchmask = WatchMask::ATTRIB
             | WatchMask::CREATE
@@ -438,7 +460,7 @@ impl EventLoop {
             watchmask.insert(WatchMask::MOVE_SELF);
         }
 
-        if let Some(&(_, old_watchmask, _, _)) = self.watches.get(&path) {
+        if let Some(&(_, old_watchmask, _, _, _)) = self.watches.get(&path) {
             watchmask.insert(old_watchmask);
             watchmask.insert(WatchMask::MASK_ADD);
         }
@@ -461,8 +483,16 @@ impl EventLoop {
                 Ok(w) => {
                     watchmask.remove(WatchMask::MASK_ADD);
                     let is_dir = metadata(&path).map_err(Error::io)?.is_dir();
-                    self.watches
-                        .insert(path.clone(), (w.clone(), watchmask, is_recursive, is_dir));
+                    self.watches.insert(
+                        path.clone(),
+                        (
+                            w.clone(),
+                            watchmask,
+                            is_recursive,
+                            is_dir,
+                            watch_filter.clone(),
+                        ),
+                    );
                     self.paths.insert(w, path);
                     Ok(())
                 }
@@ -475,7 +505,7 @@ impl EventLoop {
     fn remove_watch(&mut self, path: PathBuf, remove_recursive: bool) -> Result<()> {
         match self.watches.remove(&path) {
             None => return Err(Error::watch_not_found().add_path(path)),
-            Some((w, _, is_recursive, _)) => {
+            Some((w, _, is_recursive, _, _)) => {
                 if let Some(ref mut inotify) = self.inotify {
                     let mut inotify_watches = inotify.watches();
                     log::trace!("removing inotify watch for {path:?}, remove_recursive: {remove_recursive:?}");
@@ -570,7 +600,12 @@ impl INotifyWatcher {
         Ok(INotifyWatcher { channel, waker })
     }
 
-    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+    fn watch_inner(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> Result<()> {
         let pb = if path.is_absolute() {
             path.to_owned()
         } else {
@@ -578,7 +613,7 @@ impl INotifyWatcher {
             p.join(path)
         };
         let (tx, rx) = unbounded();
-        let msg = EventLoopMsg::AddWatch(pb, recursive_mode, tx);
+        let msg = EventLoopMsg::AddWatch(pb, recursive_mode, watch_filter, tx);
 
         // we expect the event loop to live and reply => unwraps must not panic
         self.channel.send(msg).unwrap();
@@ -609,8 +644,13 @@ impl Watcher for INotifyWatcher {
         Self::from_event_handler(Box::new(event_handler), config.follow_symlinks())
     }
 
-    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path, recursive_mode)
+    fn watch_filtered(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> Result<()> {
+        self.watch_inner(path, recursive_mode, watch_filter)
     }
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {
