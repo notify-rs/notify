@@ -1,7 +1,7 @@
 # Changelog
 
 ## notify 9.0.0 (unreleased)
-- CHANGE: raise MSRV to 1.82 **breaking**
+- CHANGE: raise MSRV to 1.85 **breaking**
 - FIX: Fix the bug that `FsEventWatcher` crashes when dealing with empty path [#718]
 - FIX: Fix the bug that `INotifyWatcher` keeps watching deleted paths [#720]
 
