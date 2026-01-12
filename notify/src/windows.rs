@@ -1,9 +1,11 @@
 #![allow(missing_docs)]
 //! Watcher implementation for Windows' directory management APIs
 //!
-//! For more information see the [ReadDirectoryChangesW reference][ref].
+//! For more information see the [ReadDirectoryChangesW reference][ref1]
+//! and the [ReadDirectoryChangesExW reference][ref2].
 //!
-//! [ref]: https://msdn.microsoft.com/en-us/library/windows/desktop/aa363950(v=vs.85).aspx
+//! [ref1]: https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesw
+//! [ref2]: https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesexw
 
 use crate::{bounded, unbounded, BoundSender, Config, Receiver, Sender};
 use crate::{event::*, WatcherKind};
