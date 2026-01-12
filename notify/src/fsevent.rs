@@ -84,8 +84,8 @@ impl fmt::Debug for FsEventWatcher {
     }
 }
 
-// CFMutableArrayRef is a type alias to *mut libc::c_void, so FsEventWatcher is not Send/Sync
-// automatically. It's Send because the pointer is not used in other threads.
+// FsEventWatcher is not Send/Sync automatically.
+// It's Send because the pointer is not used in other threads.
 unsafe impl Send for FsEventWatcher {}
 
 // It's Sync because all methods that change the mutable state use `&mut self`.
@@ -440,6 +440,7 @@ impl FsEventWatcher {
         // Wrapper to help send FSEventStreamRef types across threads.
         struct FSEventStreamSendWrapper(fs::FSEventStreamRef);
 
+        // TODO: Write docs for the safety of this impl.
         // SAFETY: Unclear?
         unsafe impl Send for FSEventStreamSendWrapper {}
 
@@ -456,13 +457,16 @@ impl FsEventWatcher {
                 let stream = stream.0;
 
                 unsafe {
-                    let cur_runloop = cf::CFRunLoop::current().unwrap();
+                    // Safety:
+                    // This may panic if OOM occurs.
+                    // Related: https://github.com/madsmtm/objc2/issues/797
+                    let cur_runloop = cf::CFRunLoop::current().expect("Failed to get current runloop");
 
                     #[allow(deprecated)]
                     fs::FSEventStreamScheduleWithRunLoop(
                         stream,
                         &cur_runloop,
-                        cf::kCFRunLoopDefaultMode.unwrap(),
+                        cf::kCFRunLoopDefaultMode.expect("Failed to get default runloop mode"),
                     );
                     fs::FSEventStreamStart(stream);
 
