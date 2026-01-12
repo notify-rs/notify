@@ -1,0 +1,107 @@
+name: Bug Report
+description: Report a bug in the notify workspace
+title: "[Bug]: "
+labels: ["bug"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please provide the essential details below.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      options:
+        - label: I searched existing issues to avoid duplicates
+          required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component is affected by this bug?
+      options:
+        - notify (core library)
+        - notify-debouncer-full
+        - notify-debouncer-mini
+        - file-id
+        - Multiple components (specify below)
+        - Unsure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - BSD
+        - Other (specify below)
+    validations:
+      required: true
+
+  - type: input
+    id: notify-version
+    attributes:
+      label: Notify Version
+      description: Version of notify (and related crates) you're using
+      placeholder: e.g., notify = "6.1.1", notify-debouncer-full = "0.3.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Notify Backend
+      description: Which backend is being used?
+      options:
+        - Unknown/Auto-detected
+        - inotify (Linux)
+        - fsevents (macOS)
+        - kqueue (macOS/BSD)
+        - ReadDirectoryChangesW (Windows)
+        - polling (all platforms)
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Report
+      description: Use the template below to describe your issue (remove sections that don't apply)
+      value: |
+        ## What happened?
+        <!-- Clear description of the bug and what you expected to happen instead -->
+
+
+        ## Steps to reproduce
+        <!-- Detailed steps to reproduce the issue -->
+
+
+        ## Environment details
+        <!-- Any relevant details like filesystem type, container environment, etc. -->
+
+
+        ## Error messages or logs
+        <!-- Include any error messages, stack traces, or relevant log output -->
+
+
+        ## Minimal code example
+        <!-- Provide a minimal code snippet that reproduces the issue -->
+        ```rust
+        use notify::{Watcher, RecommendedWatcher, Result};
+
+        fn main() -> Result<()> {
+            // Your minimal reproduction case here
+            Ok(())
+        }
+        ```
+    validations:
+      required: true
