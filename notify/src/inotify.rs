@@ -818,6 +818,8 @@ mod tests {
             matches!(unwatch_result, Ok(())),
             "error: {unwatch_result:#?}"
         );
+    }
+
     #[test]
     fn create_file() {
         let tmpdir = testdir();
