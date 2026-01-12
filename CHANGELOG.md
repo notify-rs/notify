@@ -1,27 +1,40 @@
 # Changelog
 
-## notify 8.2.0 (unreleased)
-- FEATURE: notify a user if the `max_user_watches` has been reached implicitly (`INotifyWatcher`) [#698]
-- FIX: `INotifyWatcher` ignores events with unknown watch descriptors (instead of `EventMask::Q_OVERFLOW`) [#700]
+## notify 9.0.0 (unreleased)
+- CHANGE: raise MSRV to 1.85 **breaking**
+- FIX: Fix the bug that `FsEventWatcher` crashes when dealing with empty path [#718]
+- FIX: Fix the bug that `INotifyWatcher` keeps watching deleted paths [#720]
+
+[#718]: https://github.com/notify-rs/notify/pull/718
+[#720]: https://github.com/notify-rs/notify/pull/720
+
+## notify 8.2.0 (2025-08-03)
+- FEATURE: notify user if inotify's `max_user_watches` has been reached [#698]
+- FIX: `INotifyWatcher` ignore events with unknown watch descriptors (instead of `EventMask::Q_OVERFLOW`) [#700]
 
 [#698]: https://github.com/notify-rs/notify/pull/698
 [#700]: https://github.com/notify-rs/notify/pull/700
+
+## debouncer-full 0.6.0 (2025-08-03)
+- FEATURE: allow `FileIdCache` trait implementations to choose ownership of the returned file-ids [#664]
+- FEATURE: added support for the [`flume`](https://docs.rs/flume) crate [#680]
+- FIX: skip all `Modify` events right after a `Create` event, unless it's a rename event [#701]
+
+[#664]: https://github.com/notify-rs/notify/pull/664
+[#680]: https://github.com/notify-rs/notify/pull/680
+[#701]: https://github.com/notify-rs/notify/pull/701
+
+## debouncer-mini 0.7.0 (2025-08-03)
+- FEATURE: added support for the [`flume`](https://docs.rs/flume) crate [#680]
+
+## file-id 0.2.3 (2025-08-03)
+- CHANGE: implement `AsRef<FileId>` for `FileId` [#664]
 
 ## notify 8.1.0 (2025-07-03)
 - FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
 - FIX: kqueue-backend: do not double unwatch top-level directory when recursively unwatching [#683]
 - FIX: Return the crate error `PathNotFound` instead bubbling up the std::io error [#685]
 - FIX: fix server hangs when trashing folders on Windows [#674]
-
-## debouncer-full 0.6.0 (unreleased)
-- FEATURE: allow `FileIdCache` trait implementations to choose ownership of the returned file-ids
-- FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
-
-## debouncer-mini 0.7.0 (unreleased)
-- FEATURE: added support for the [`flume`](https://docs.rs/flume) crate
-
-## file-id 0.2.3 (unreleased)
-- CHANGE: implement `AsRef<FileId>` for `FileId`
 
 ## notify 8.0.0 (2025-01-10)
 

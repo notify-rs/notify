@@ -226,18 +226,18 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             let mut kind_index = HashMap::new();
 
             while let Some(event) = queue.events.pop_front() {
+                // remove previous event of the same kind
+                if let Some(idx) = kind_index.get(&event.kind).copied() {
+                    events_expired.remove(idx);
+
+                    kind_index.values_mut().for_each(|i| {
+                        if *i > idx {
+                            *i -= 1
+                        }
+                    })
+                }
+
                 if now.saturating_duration_since(event.time) >= self.timeout {
-                    // remove previous event of the same kind
-                    if let Some(idx) = kind_index.get(&event.kind).copied() {
-                        events_expired.remove(idx);
-
-                        kind_index.values_mut().for_each(|i| {
-                            if *i > idx {
-                                *i -= 1
-                            }
-                        })
-                    }
-
                     kind_index.insert(event.kind, events_expired.len());
 
                     events_expired.push(event);
@@ -509,9 +509,15 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         let path = &event.paths[0];
 
         if let Some(queue) = self.queues.get_mut(path) {
-            // skip duplicate create events and modifications right after creation
+            // Skip duplicate create events and modifications right after creation.
+            // This code relies on backends never emitting a `Modify` event with kind other than `Name` for a rename event.
             if match event.kind {
-                EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Metadata(_))
+                EventKind::Modify(
+                    ModifyKind::Any
+                    | ModifyKind::Data(_)
+                    | ModifyKind::Metadata(_)
+                    | ModifyKind::Other,
+                )
                 | EventKind::Create(_) => !queue.was_created(),
                 _ => true,
             } {
@@ -639,16 +645,14 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
         Some(v) => {
             if v > timeout {
                 return Err(Error::new(ErrorKind::Generic(format!(
-                    "Invalid tick_rate, tick rate {:?} > {:?} timeout!",
-                    v, timeout
+                    "Invalid tick_rate, tick rate {v:?} > {timeout:?} timeout!"
                 ))));
             }
             v
         }
         None => timeout.checked_div(tick_div).ok_or_else(|| {
             Error::new(ErrorKind::Generic(format!(
-                "Failed to calculate tick as {:?}/{}!",
-                timeout, tick_div
+                "Failed to calculate tick as {timeout:?}/{tick_div}!"
             )))
         })?,
     };
@@ -782,6 +786,7 @@ mod tests {
             "add_create_event_after_remove_event",
             "add_create_dir_event_twice",
             "add_event_with_no_paths_is_ok",
+            "add_modify_any_event_after_create_event",
             "add_modify_content_event_after_create_event",
             "add_rename_from_event",
             "add_rename_from_event_after_create_event",
@@ -807,6 +812,7 @@ mod tests {
             "add_remove_event_after_create_and_modify_event",
             "add_remove_parent_event_after_remove_child_event",
             "add_errors",
+            "debounce_modify_events",
             "emit_continuous_modify_content_events",
             "emit_events_in_chronological_order",
             "emit_events_with_a_prepended_rename_event",
@@ -868,7 +874,7 @@ mod tests {
             state
                 .errors
                 .iter()
-                .map(|e| format!("{:?}", e))
+                .map(|e| format!("{e:?}"))
                 .collect::<Vec<_>>(),
             expected_errors
                 .iter()

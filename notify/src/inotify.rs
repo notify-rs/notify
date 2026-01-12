@@ -377,7 +377,9 @@ impl EventLoop {
         }
 
         for path in remove_watches {
-            self.remove_watch(path, true).ok();
+            if let Err(err) = self.remove_watch(path, true) {
+                log::warn!("Unable to remove the path from the watches: {err:?}");
+            }
         }
 
         for path in add_watches {
@@ -476,20 +478,16 @@ impl EventLoop {
             Some((w, _, is_recursive, _)) => {
                 if let Some(ref mut inotify) = self.inotify {
                     let mut inotify_watches = inotify.watches();
-                    log::trace!("removing inotify watch: {}", path.display());
+                    log::trace!("removing inotify watch for {path:?}, remove_recursive: {remove_recursive:?}");
 
-                    inotify_watches
-                        .remove(w.clone())
-                        .map_err(|e| Error::io(e).add_path(path.clone()))?;
+                    Self::remove_single_descriptor(&mut inotify_watches, w.clone());
                     self.paths.remove(&w);
 
                     if is_recursive || remove_recursive {
                         let mut remove_list = Vec::new();
                         for (w, p) in &self.paths {
                             if p.starts_with(&path) {
-                                inotify_watches
-                                    .remove(w.clone())
-                                    .map_err(|e| Error::io(e).add_path(p.into()))?;
+                                Self::remove_single_descriptor(&mut inotify_watches, w.clone());
                                 self.watches.remove(p);
                                 remove_list.push(w.clone());
                             }
@@ -502,6 +500,34 @@ impl EventLoop {
             }
         }
         Ok(())
+    }
+
+    /// As long as we use the `inotify` crate its behaviour is specified by the documentation of
+    /// a [`inotify::Watches::remove`] method:
+    /// ```text
+    /// Directly returns the error from the call to [inotify_rm_watch].
+    /// Returns an [io::Error] with [ErrorKind]::InvalidInput,
+    /// if the given WatchDescriptor did not originate from this [Inotify] instance.
+    /// ```
+    ///
+    /// inotify documentation says, that `inotify_rm_watch` may fail with two specific errors:
+    /// * EBADF - fd is not a valid file descriptor.
+    /// * EINVAL - The watch descriptor wd is not valid or fd is not an inotify file descriptor.
+    ///
+    /// Therefore, we can ignore this errors (and log it), because
+    /// * in the case, when we are removing a watch because of an caught `DELETE` or `DELETE_SELF` event we want the
+    ///   path to be not watched, and in error cases it's already done (unknown file descriptor == it is not watched)
+    /// * in the case, when user is trying to remove the watch, they can do nothing with that kind of an error,
+    ///   it's totally internal. BUT, if there are no "strange" states (like races between user call and internal call,
+    ///   when internal inotify file descriptor has already been invalidated, but the event still hasn't been handled)
+    ///   they will get an [`ErrorKind::WatchNotFound`] error and can deal with it
+    ///
+    /// Log level is info, because it is not a "real" error. Expectedly, it may occurred only by race condition
+    /// (like described above), in other cases it is a bug (but we aren't able to distinguish that states)
+    fn remove_single_descriptor(watches: &mut inotify::Watches, wd: WatchDescriptor) {
+        if let Err(err) = watches.remove(wd) {
+            log::info!("unable to remove watch descriptor from inotify: {err:?}");
+        }
     }
 
     fn remove_all_watches(&mut self) -> Result<()> {
@@ -614,11 +640,19 @@ impl Drop for INotifyWatcher {
 #[cfg(test)]
 mod tests {
     use std::{
-        sync::{atomic::AtomicBool, mpsc},
-        thread::available_parallelism,
+        path::{Path, PathBuf},
+        sync::{atomic::AtomicBool, mpsc, Arc},
+        thread::{self, available_parallelism},
+        time::Duration,
     };
 
-    use super::*;
+    use super::{Config, Error, ErrorKind, Event, INotifyWatcher, RecursiveMode, Result, Watcher};
+
+    use crate::test::*;
+
+    fn watcher() -> (TestWatcher<INotifyWatcher>, Receiver) {
+        channel()
+    }
 
     #[test]
     fn inotify_watcher_is_send_and_sync() {
@@ -761,5 +795,500 @@ mod tests {
             "expected no events without path, but got {events_len}. first 10: {:#?}",
             &events[..LOG_LEN.min(events_len)]
         );
+    }
+
+    /// https://github.com/notify-rs/notify/issues/709
+    #[test]
+    fn remove_a_subdir_in_a_recursively_watched_parent() {
+        let tmpdir = tempfile::tempdir().expect("tmpdir");
+        let subdirectory_path_1 = tmpdir.path().join("subdir");
+        let subdirectory_path_2 = subdirectory_path_1.join("nested");
+        std::fs::create_dir(&subdirectory_path_1).expect("unable to create a subdir");
+        std::fs::create_dir(&subdirectory_path_2).expect("unable to create a nested dir");
+
+        let mut watcher =
+            INotifyWatcher::new(|_| (), Config::default()).expect("unable to create watcher");
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::Recursive)
+            .expect("unable to watch");
+        std::fs::remove_dir_all(&subdirectory_path_1).expect("unable to remove a subdir");
+        let unwatch_result = watcher.unwatch(tmpdir.path());
+
+        assert!(
+            matches!(unwatch_result, Ok(())),
+            "error: {unwatch_result:#?}"
+        );
+    }
+
+    #[test]
+    fn create_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        rx.wait_ordered_exact([
+            expected(&path).create_file(),
+            expected(&path).access_open_any(),
+            expected(&path).access_close_write(),
+        ]);
+    }
+
+    #[test]
+    fn write_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::write(&path, b"123").expect("write");
+
+        rx.wait_ordered_exact([
+            expected(&path).access_open_any(),
+            expected(&path).modify_data_any().multiple(),
+            expected(&path).access_close_write(),
+        ])
+        .ensure_no_tail();
+    }
+
+    #[test]
+    fn chmod_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        let file = std::fs::File::create_new(&path).expect("create");
+        let mut permissions = file.metadata().expect("metadata").permissions();
+        permissions.set_readonly(true);
+
+        watcher.watch_recursively(&tmpdir);
+        file.set_permissions(permissions).expect("set_permissions");
+
+        rx.wait_ordered_exact([expected(&path).modify_meta_any()]);
+    }
+
+    #[test]
+    fn rename_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        let new_path = tmpdir.path().join("renamed");
+
+        std::fs::rename(&path, &new_path).expect("rename");
+
+        rx.wait_ordered_exact([
+            expected(&path).rename_from(),
+            expected(&new_path).rename_to(),
+            expected([path, new_path]).rename_both(),
+        ])
+        .ensure_trackers_len(1)
+        .ensure_no_tail();
+    }
+
+    #[test]
+    fn delete_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let file = tmpdir.path().join("file");
+        std::fs::write(&file, "").expect("write");
+
+        watcher.watch_nonrecursively(&tmpdir);
+
+        std::fs::remove_file(&file).expect("remove");
+
+        rx.wait_ordered_exact([expected(&file).remove_file()]);
+    }
+
+    #[test]
+    fn delete_self_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let file = tmpdir.path().join("file");
+        std::fs::write(&file, "").expect("write");
+
+        watcher.watch_nonrecursively(&file);
+
+        std::fs::remove_file(&file).expect("remove");
+
+        rx.wait_ordered_exact([
+            expected(&file).modify_meta_any(),
+            expected(&file).remove_file(),
+        ]);
+    }
+
+    #[test]
+    fn create_write_overwrite() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let overwritten_file = tmpdir.path().join("overwritten_file");
+        let overwriting_file = tmpdir.path().join("overwriting_file");
+        std::fs::write(&overwritten_file, "123").expect("write1");
+
+        watcher.watch_nonrecursively(&tmpdir);
+
+        std::fs::File::create(&overwriting_file).expect("create");
+        std::fs::write(&overwriting_file, "321").expect("write2");
+        std::fs::rename(&overwriting_file, &overwritten_file).expect("rename");
+
+        rx.wait_ordered_exact([
+            expected(&overwriting_file).create_file(),
+            expected(&overwriting_file).access_open_any(),
+            expected(&overwriting_file).access_close_write(),
+            expected(&overwriting_file).access_open_any(),
+            expected(&overwriting_file).modify_data_any().multiple(),
+            expected(&overwriting_file).access_close_write(),
+            expected(&overwriting_file).rename_from(),
+            expected(&overwritten_file).rename_to(),
+            expected([overwriting_file, overwritten_file]).rename_both(),
+        ])
+        .ensure_no_tail()
+        .ensure_trackers_len(1);
+    }
+
+    #[test]
+    fn create_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("create");
+
+        rx.wait_ordered_exact([expected(&path).create_folder()]);
+    }
+
+    #[test]
+    fn chmod_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("create_dir");
+        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
+        permissions.set_readonly(true);
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::set_permissions(&path, permissions).expect("set_permissions");
+
+        rx.wait_ordered_exact([
+            expected(&path).access_open_any().optional(),
+            expected(&path).modify_meta_any(),
+            expected(&path).modify_meta_any(),
+        ])
+        .ensure_no_tail();
+    }
+
+    #[test]
+    fn rename_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        let new_path = tmpdir.path().join("new_path");
+        std::fs::create_dir(&path).expect("create_dir");
+
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::rename(&path, &new_path).expect("rename");
+
+        rx.wait_ordered_exact([
+            expected(&path).access_open_any().optional(),
+            expected(&path).rename_from(),
+            expected(&new_path).rename_to(),
+            expected([path, new_path]).rename_both(),
+        ])
+        .ensure_trackers_len(1);
+    }
+
+    #[test]
+    fn delete_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("create_dir");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::remove_dir(&path).expect("remove");
+
+        rx.wait_ordered_exact([
+            expected(&path).access_open_any().optional(),
+            expected(&path).remove_folder(),
+        ])
+        .ensure_no_tail();
+    }
+
+    #[test]
+    fn rename_dir_twice() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        let new_path = tmpdir.path().join("new_path");
+        let new_path2 = tmpdir.path().join("new_path2");
+        std::fs::create_dir(&path).expect("create_dir");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::rename(&path, &new_path).expect("rename");
+        std::fs::rename(&new_path, &new_path2).expect("rename2");
+
+        rx.wait_ordered_exact([
+            expected(&path).access_open_any().optional(),
+            expected(&path).rename_from(),
+            expected(&new_path).rename_to(),
+            expected([&path, &new_path]).rename_both(),
+            expected(&new_path).access_open_any().optional(),
+            expected(&new_path).rename_from(),
+            expected(&new_path2).rename_to(),
+            expected([&new_path, &new_path2]).rename_both(),
+        ])
+        .ensure_trackers_len(2);
+    }
+
+    #[test]
+    fn move_out_of_watched_dir() {
+        let tmpdir = testdir();
+        let subdir = tmpdir.path().join("subdir");
+        let (mut watcher, mut rx) = watcher();
+
+        let path = subdir.join("entry");
+        std::fs::create_dir_all(&subdir).expect("create_dir_all");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&subdir);
+        let new_path = tmpdir.path().join("entry");
+
+        std::fs::rename(&path, &new_path).expect("rename");
+
+        let event = rx.recv();
+        let tracker = event.attrs.tracker();
+        assert_eq!(event, expected(path).rename_from());
+        assert!(tracker.is_some(), "tracker is none: [event:#?]");
+        rx.ensure_empty();
+    }
+
+    #[test]
+    fn create_write_write_rename_write_remove() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let file1 = tmpdir.path().join("entry");
+        let file2 = tmpdir.path().join("entry2");
+        std::fs::File::create_new(&file2).expect("create file2");
+        let new_path = tmpdir.path().join("renamed");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::write(&file1, "123").expect("write 1");
+        std::fs::write(&file2, "321").expect("write 2");
+        std::fs::rename(&file1, &new_path).expect("rename");
+        std::fs::write(&new_path, b"1").expect("write 3");
+        std::fs::remove_file(&new_path).expect("remove");
+
+        rx.wait_ordered_exact([
+            expected(&file1).create_file(),
+            expected(&file1).access_open_any(),
+            expected(&file1).modify_data_any().multiple(),
+            expected(&file1).access_close_write(),
+            expected(&file2).access_open_any(),
+            expected(&file2).modify_data_any().multiple(),
+            expected(&file2).access_close_write(),
+            expected(&file1).access_open_any().optional(),
+            expected(&file1).rename_from(),
+            expected(&new_path).rename_to(),
+            expected([&file1, &new_path]).rename_both(),
+            expected(&new_path).access_open_any(),
+            expected(&new_path).modify_data_any().multiple(),
+            expected(&new_path).access_close_write(),
+            expected(&new_path).remove_file(),
+        ]);
+    }
+
+    #[test]
+    fn rename_twice() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        let new_path1 = tmpdir.path().join("renamed1");
+        let new_path2 = tmpdir.path().join("renamed2");
+
+        std::fs::rename(&path, &new_path1).expect("rename1");
+        std::fs::rename(&new_path1, &new_path2).expect("rename2");
+
+        rx.wait_ordered_exact([
+            expected(&path).access_open_any().optional(),
+            expected(&path).rename_from(),
+            expected(&new_path1).rename_to(),
+            expected([&path, &new_path1]).rename_both(),
+            expected(&new_path1).access_open_any().optional(),
+            expected(&new_path1).rename_from(),
+            expected(&new_path2).rename_to(),
+            expected([&new_path1, &new_path2]).rename_both(),
+        ])
+        .ensure_no_tail()
+        .ensure_trackers_len(2);
+    }
+
+    #[test]
+    fn set_file_mtime() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        let file = std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+
+        file.set_modified(
+            std::time::SystemTime::now()
+                .checked_sub(Duration::from_secs(60 * 60))
+                .expect("time"),
+        )
+        .expect("set_time");
+
+        assert_eq!(rx.recv(), expected(&path).modify_data_any());
+        rx.ensure_empty();
+    }
+
+    #[test]
+    fn write_file_non_recursive_watch() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_nonrecursively(&path);
+
+        std::fs::write(&path, b"123").expect("write");
+
+        rx.wait_ordered_exact([
+            expected(&path).access_open_any(),
+            expected(&path).modify_data_any().multiple(),
+            expected(&path).access_close_write(),
+        ])
+        .ensure_no_tail();
+    }
+
+    #[test]
+    fn watch_recursively_then_unwatch_child_stops_events_from_child() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let subdir = tmpdir.path().join("subdir");
+        let file = subdir.join("file");
+        std::fs::create_dir(&subdir).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::File::create(&file).expect("create");
+
+        rx.wait_ordered_exact([
+            expected(&subdir).access_open_any().optional(),
+            expected(&file).create_file(),
+            expected(&file).access_open_any(),
+            expected(&file).access_close_write(),
+        ])
+        .ensure_no_tail();
+
+        watcher.watcher.unwatch(&subdir).expect("unwatch");
+
+        std::fs::write(&file, b"123").expect("write");
+
+        std::fs::remove_dir_all(&subdir).expect("remove_dir_all");
+
+        rx.wait_ordered_exact([
+            expected(&subdir).access_open_any().optional(),
+            expected(&subdir).remove_folder(),
+        ])
+        .ensure_no_tail();
+    }
+
+    #[test]
+    fn write_to_a_hardlink_pointed_to_the_watched_file_triggers_an_event() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let subdir = tmpdir.path().join("subdir");
+        let file = subdir.join("file");
+        let hardlink = tmpdir.path().join("hardlink");
+
+        std::fs::create_dir(&subdir).expect("create");
+        std::fs::write(&file, "").expect("file");
+        std::fs::hard_link(&file, &hardlink).expect("hardlink");
+
+        watcher.watch_nonrecursively(&file);
+
+        std::fs::write(&hardlink, "123123").expect("write to the hard link");
+
+        rx.wait_ordered_exact([
+            expected(&file).access_open_any(),
+            expected(&file).modify_data_any().multiple(),
+            expected(&file).access_close_write(),
+        ]);
+    }
+
+    #[test]
+    fn write_to_a_hardlink_pointed_to_the_file_in_the_watched_dir_doesnt_trigger_an_event() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let subdir = tmpdir.path().join("subdir");
+        let file = subdir.join("file");
+        let hardlink = tmpdir.path().join("hardlink");
+
+        std::fs::create_dir(&subdir).expect("create");
+        std::fs::write(&file, "").expect("file");
+        std::fs::hard_link(&file, &hardlink).expect("hardlink");
+
+        watcher.watch_nonrecursively(&subdir);
+
+        std::fs::write(&hardlink, "123123").expect("write to the hard link");
+
+        let events = rx.iter().collect::<Vec<_>>();
+        assert!(events.is_empty(), "unexpected events: {events:#?}");
+    }
+
+    #[test]
+    #[ignore = "see https://github.com/notify-rs/notify/issues/727"]
+    fn recursive_creation() {
+        let tmpdir = testdir();
+        let nested1 = tmpdir.path().join("1");
+        let nested2 = tmpdir.path().join("1/2");
+        let nested3 = tmpdir.path().join("1/2/3");
+        let nested4 = tmpdir.path().join("1/2/3/4");
+        let nested5 = tmpdir.path().join("1/2/3/4/5");
+        let nested6 = tmpdir.path().join("1/2/3/4/5/6");
+        let nested7 = tmpdir.path().join("1/2/3/4/5/6/7");
+        let nested8 = tmpdir.path().join("1/2/3/4/5/6/7/8");
+        let nested9 = tmpdir.path().join("1/2/3/4/5/6/7/8/9");
+
+        let (mut watcher, mut rx) = watcher();
+
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::create_dir_all(&nested9).expect("create_dir_all");
+        rx.wait_ordered([
+            expected(&nested1).create_folder(),
+            expected(&nested2).create_folder(),
+            expected(&nested3).create_folder(),
+            expected(&nested4).create_folder(),
+            expected(&nested5).create_folder(),
+            expected(&nested6).create_folder(),
+            expected(&nested7).create_folder(),
+            expected(&nested8).create_folder(),
+            expected(&nested9).create_folder(),
+        ]);
     }
 }
