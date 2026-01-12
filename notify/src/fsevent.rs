@@ -460,7 +460,8 @@ impl FsEventWatcher {
                     // Safety:
                     // This may panic if OOM occurs.
                     // Related: https://github.com/madsmtm/objc2/issues/797
-                    let cur_runloop = cf::CFRunLoop::current().expect("Failed to get current runloop");
+                    let cur_runloop =
+                        cf::CFRunLoop::current().expect("Failed to get current runloop");
 
                     #[allow(deprecated)]
                     fs::FSEventStreamScheduleWithRunLoop(
