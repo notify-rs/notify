@@ -1,9 +1,12 @@
 use std::{path::Path, time::Duration};
 
-use notify::RecursiveMode;
-use notify_debouncer_mini::new_debouncer;
+use notify::{EventKindMask, RecommendedWatcher, RecursiveMode};
+use notify_debouncer_mini::{new_debouncer_opt, Config};
 
-/// Example for debouncer mini
+/// Example for debouncer mini with event filtering.
+///
+/// This demonstrates using Config::with_notify_config() to pass a custom notify::Config
+/// that filters events at the kernel level (on Linux), reducing noise.
 fn main() {
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("debouncer_mini=trace"),
@@ -29,11 +32,16 @@ fn main() {
         }
     });
 
-    // setup debouncer
+    // setup debouncer with custom event filtering
     let (tx, rx) = std::sync::mpsc::channel();
 
-    // No specific tickrate, max debounce time 1 seconds
-    let mut debouncer = new_debouncer(Duration::from_secs(1), tx).unwrap();
+    // Configure debouncer with notify config that excludes access events
+    // CORE mask: CREATE, REMOVE, MODIFY_DATA, MODIFY_META, MODIFY_NAME
+    let config = Config::default()
+        .with_timeout(Duration::from_secs(1))
+        .with_notify_config(notify::Config::default().with_event_kinds(EventKindMask::CORE));
+
+    let mut debouncer = new_debouncer_opt::<_, RecommendedWatcher>(config, tx).unwrap();
 
     debouncer
         .watcher()

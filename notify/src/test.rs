@@ -267,11 +267,25 @@ pub struct ChannelConfig {
     watcher_config: Config,
 }
 
+impl ChannelConfig {
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub fn with_watcher_config(mut self, config: Config) -> Self {
+        self.watcher_config = config;
+        self
+    }
+}
+
 impl Default for ChannelConfig {
     fn default() -> Self {
         Self {
             timeout: Receiver::DEFAULT_TIMEOUT,
-            watcher_config: Default::default(),
+            // Use Config::default() which uses EventKindMask::ALL,
+            // ensuring tests cover all event types including Access events
+            watcher_config: Config::default(),
         }
     }
 }
