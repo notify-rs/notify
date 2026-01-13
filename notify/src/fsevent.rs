@@ -464,7 +464,7 @@ impl FsEventWatcher {
                         &cur_runloop,
                         cf::kCFRunLoopDefaultMode.expect("Failed to get default runloop mode"),
                     );
-                    if fs::FSEventStreamStart(stream) == 0 {
+                    if !fs::FSEventStreamStart(stream) {
                         fs::FSEventStreamInvalidate(stream);
                         fs::FSEventStreamRelease(stream);
                         rl_tx
