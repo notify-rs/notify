@@ -43,6 +43,13 @@ impl ScanEventHandler for crossbeam_channel::Sender<ScanEvent> {
     }
 }
 
+#[cfg(feature = "flume")]
+impl ScanEventHandler for flume::Sender<ScanEvent> {
+    fn handle_event(&mut self, event: ScanEvent) {
+        let _ = self.send(event);
+    }
+}
+
 impl ScanEventHandler for std::sync::mpsc::Sender<ScanEvent> {
     fn handle_event(&mut self, event: ScanEvent) {
         let _ = self.send(event);
@@ -59,7 +66,6 @@ mod data {
         event::{CreateKind, DataChange, Event, EventKind, MetadataKind, ModifyKind, RemoveKind},
         EventHandler,
     };
-    use filetime::FileTime;
     use std::{
         cell::RefCell,
         collections::{hash_map::RandomState, HashMap},
@@ -73,6 +79,13 @@ mod data {
     use walkdir::WalkDir;
 
     use super::ScanEventHandler;
+
+    fn system_time_to_seconds(time: std::time::SystemTime) -> i64 {
+        match time.duration_since(std::time::SystemTime::UNIX_EPOCH) {
+            Ok(d) => d.as_secs() as i64,
+            Err(e) => -(e.duration().as_secs() as i64),
+        }
+    }
 
     /// Builder for [`WatchData`] & [`PathData`].
     pub(super) struct DataBuilder {
@@ -282,6 +295,7 @@ mod data {
                     Ok(entry) => Some(entry),
                     Err(err) => {
                         log::warn!("walkdir error scanning {err:?}");
+
                         if let Some(io_error) = err.io_error() {
                             // clone an io::Error, so we have to create a new one.
                             let new_io_error = io::Error::new(io_error.kind(), err.to_string());
@@ -349,7 +363,7 @@ mod data {
             let metadata = meta_path.metadata();
 
             PathData {
-                mtime: FileTime::from_last_modification_time(metadata).seconds(),
+                mtime: metadata.modified().map_or(0, system_time_to_seconds),
                 hash: data_builder
                     .build_hasher
                     .as_ref()
@@ -515,6 +529,12 @@ impl PollWatcher {
         Ok(())
     }
 
+    /// Returns a sender to initiate changes detection.
+    #[cfg(test)]
+    pub(crate) fn poll_sender(&self) -> Sender<()> {
+        self.message_channel.clone()
+    }
+
     /// Create a new [`PollWatcher`] with an scan event handler.
     ///
     /// `scan_fallback` is called on the initial scan with all files seen by the pollwatcher.
@@ -656,8 +676,141 @@ impl Drop for PollWatcher {
     }
 }
 
-#[test]
-fn poll_watcher_is_send_and_sync() {
-    fn check<T: Send + Sync>() {}
-    check::<PollWatcher>();
+#[cfg(test)]
+mod tests {
+    use super::PollWatcher;
+    use crate::test::*;
+
+    fn watcher() -> (TestWatcher<PollWatcher>, Receiver) {
+        poll_watcher_channel()
+    }
+
+    #[test]
+    fn poll_watcher_is_send_and_sync() {
+        fn check<T: Send + Sync>() {}
+        check::<PollWatcher>();
+    }
+
+    #[test]
+    fn create_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("Unable to create");
+
+        rx.sleep_until_parent_contains(&path);
+        rx.sleep_until_exists(&path);
+
+        rx.wait_ordered_exact([expected(&path).create_any()]);
+    }
+
+    #[test]
+    fn create_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("Unable to create");
+
+        rx.sleep_until_parent_contains(&path);
+        rx.sleep_until_exists(&path);
+
+        rx.wait_ordered_exact([expected(&path).create_any()]);
+    }
+
+    #[test]
+    fn modify_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("Unable to create");
+
+        rx.sleep_until_parent_contains(&path);
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::write(&path, b"123").expect("Unable to write");
+
+        assert!(
+            rx.sleep_until(|| std::fs::read_to_string(&path).is_ok_and(|content| content == "123")),
+            "the file wasn't modified"
+        );
+        rx.wait_ordered_exact([expected(&path).modify_data_any()]);
+    }
+
+    #[test]
+    fn remove_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("Unable to create");
+
+        rx.sleep_until_parent_contains(&path);
+
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::remove_file(&path).expect("Unable to remove");
+
+        rx.sleep_while_exists(&path);
+        rx.sleep_while_parent_contains(&path);
+
+        rx.wait_ordered_exact([expected(&path).remove_any()]);
+    }
+
+    #[test]
+    fn rename_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let path = tmpdir.path().join("entry");
+        let new_path = tmpdir.path().join("new_entry");
+        std::fs::File::create_new(&path).expect("Unable to create");
+
+        rx.sleep_until_parent_contains(&path);
+
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::rename(&path, &new_path).expect("Unable to remove");
+
+        rx.sleep_while_exists(&path);
+        rx.sleep_until_exists(&new_path);
+
+        rx.sleep_while_parent_contains(&path);
+        rx.sleep_until_parent_contains(&new_path);
+
+        rx.wait_unordered_exact([
+            expected(&path).remove_any(),
+            expected(&new_path).create_any(),
+        ]);
+    }
+
+    #[test]
+    fn create_write_overwrite() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let overwritten_file = tmpdir.path().join("overwritten_file");
+        let overwriting_file = tmpdir.path().join("overwriting_file");
+        std::fs::write(&overwritten_file, "123").expect("write1");
+
+        rx.sleep_until_parent_contains(&overwritten_file);
+
+        watcher.watch_nonrecursively(&tmpdir);
+
+        std::fs::File::create(&overwriting_file).expect("create");
+        std::fs::write(&overwriting_file, "321").expect("write2");
+        std::fs::rename(&overwriting_file, &overwritten_file).expect("rename");
+
+        rx.sleep_while_exists(&overwriting_file);
+        rx.sleep_while_parent_contains(&overwriting_file);
+
+        assert!(
+            rx.sleep_until(
+                || std::fs::read_to_string(&overwritten_file).is_ok_and(|cnt| cnt == "321")
+            ),
+            "file {overwritten_file:?} was not replaced"
+        );
+
+        rx.wait_unordered([expected(&overwritten_file).modify_data_any()]);
+    }
 }

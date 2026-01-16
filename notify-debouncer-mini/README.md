@@ -8,6 +8,8 @@ Tiny debouncer for [notify]. Filters incoming events and emits only one event pe
 
 - `crossbeam-channel` passed down to notify, off by default
 
+- `flume` passed down to notify, off by default
+
 - `serde` for serde support of event types, off by default
 
 - `serialization-compat-6` passed down to notify, off by default

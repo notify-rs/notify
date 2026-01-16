@@ -27,6 +27,16 @@
 //! let file_id = file_id::get_high_res_file_id(file.path()).unwrap();
 //! println!("{file_id:?}");
 //! ```
+//!
+//! ## Example (Not Following Symlinks/Reparse Points)
+//!
+//! ```
+//! let file = tempfile::NamedTempFile::new().unwrap();
+//!
+//! // Get file ID without following symlinks
+//! let file_id = file_id::get_file_id_no_follow(file.path()).unwrap();
+//! println!("{file_id:?}");
+//! ```
 use std::{fs, io, path::Path};
 
 #[cfg(feature = "serde")]
@@ -122,10 +132,28 @@ pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     Ok(FileId::new_inode(metadata.dev(), metadata.ino()))
 }
 
+/// Get the `FileId` for the file or directory at `path` without following symlinks
+#[cfg(target_family = "unix")]
+pub fn get_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = fs::symlink_metadata(path.as_ref())?;
+
+    Ok(FileId::new_inode(metadata.dev(), metadata.ino()))
+}
+
 /// Get the `FileId` for the file or directory at `path`
 #[cfg(target_family = "windows")]
 pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     let file = open_file(path)?;
+
+    unsafe { get_file_info_ex(&file).or_else(|_| get_file_info(&file)) }
+}
+
+/// Get the `FileId` for the file or directory at `path` without following symlinks/reparse points
+#[cfg(target_family = "windows")]
+pub fn get_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
+    let file = open_file_no_follow(path)?;
 
     unsafe { get_file_info_ex(&file).or_else(|_| get_file_info(&file)) }
 }
@@ -138,10 +166,26 @@ pub fn get_low_res_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     unsafe { get_file_info(&file) }
 }
 
+/// Get the `FileId` with the low resolution variant for the file or directory at `path` without following symlinks/reparse points
+#[cfg(target_family = "windows")]
+pub fn get_low_res_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
+    let file = open_file_no_follow(path)?;
+
+    unsafe { get_file_info(&file) }
+}
+
 /// Get the `FileId` with the high resolution variant for the file or directory at `path`
 #[cfg(target_family = "windows")]
 pub fn get_high_res_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     let file = open_file(path)?;
+
+    unsafe { get_file_info_ex(&file) }
+}
+
+/// Get the `FileId` with the high resolution variant for the file or directory at `path` without following symlinks/reparse points
+#[cfg(target_family = "windows")]
+pub fn get_high_res_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
+    let file = open_file_no_follow(path)?;
 
     unsafe { get_file_info_ex(&file) }
 }
@@ -200,5 +244,18 @@ fn open_file<P: AsRef<Path>>(path: P) -> io::Result<fs::File> {
     OpenOptions::new()
         .access_mode(0)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+}
+
+#[cfg(target_family = "windows")]
+fn open_file_no_follow<P: AsRef<Path>>(path: P) -> io::Result<fs::File> {
+    use std::{fs::OpenOptions, os::windows::fs::OpenOptionsExt};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+    };
+
+    OpenOptions::new()
+        .access_mode(0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)
 }

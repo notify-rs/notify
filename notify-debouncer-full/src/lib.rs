@@ -52,6 +52,7 @@
 //! - `serde` passed down to notify-types, off by default
 //! - `web-time` passed down to notify-types, off by default
 //! - `crossbeam-channel` passed down to notify, off by default
+//! - `flume` passed down to notify, off by default
 //! - `macos_fsevent` passed down to notify, off by default
 //! - `macos_kqueue` passed down to notify, off by default
 //! - `serialization-compat-6` passed down to notify, off by default
@@ -138,6 +139,13 @@ impl DebounceEventHandler for crossbeam_channel::Sender<DebounceEventResult> {
     }
 }
 
+#[cfg(feature = "flume")]
+impl DebounceEventHandler for flume::Sender<DebounceEventResult> {
+    fn handle_event(&mut self, event: DebounceEventResult) {
+        let _ = self.send(event);
+    }
+}
+
 impl DebounceEventHandler for std::sync::mpsc::Sender<DebounceEventResult> {
     fn handle_event(&mut self, event: DebounceEventResult) {
         let _ = self.send(event);
@@ -161,7 +169,7 @@ struct Queue {
 
 impl Queue {
     fn was_created(&self) -> bool {
-        self.events.front().map_or(false, |event| {
+        self.events.front().is_some_and(|event| {
             matches!(
                 event.kind,
                 EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(RenameMode::To))
@@ -170,7 +178,7 @@ impl Queue {
     }
 
     fn was_removed(&self) -> bool {
-        self.events.front().map_or(false, |event| {
+        self.events.front().is_some_and(|event| {
             matches!(
                 event.kind,
                 EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(RenameMode::From))
@@ -224,18 +232,18 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             let mut kind_index = HashMap::new();
 
             while let Some(event) = queue.events.pop_front() {
+                // remove previous event of the same kind
+                if let Some(idx) = kind_index.get(&event.kind).copied() {
+                    events_expired.remove(idx);
+
+                    kind_index.values_mut().for_each(|i| {
+                        if *i > idx {
+                            *i -= 1
+                        }
+                    })
+                }
+
                 if now.saturating_duration_since(event.time) >= self.timeout {
-                    // remove previous event of the same kind
-                    if let Some(idx) = kind_index.get(&event.kind).copied() {
-                        events_expired.remove(idx);
-
-                        kind_index.values_mut().for_each(|i| {
-                            if *i > idx {
-                                *i -= 1
-                            }
-                        })
-                    }
-
                     kind_index.insert(event.kind, events_expired.len());
 
                     events_expired.push(event);
@@ -277,7 +285,13 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             return;
         }
 
-        let path = &event.paths[0];
+        let path = match event.paths.first() {
+            Some(path) => path,
+            None => {
+                log::info!("skipping event with no paths: {event:?}");
+                return;
+            }
+        };
 
         match &event.kind {
             EventKind::Create(_) => {
@@ -501,9 +515,15 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         let path = &event.paths[0];
 
         if let Some(queue) = self.queues.get_mut(path) {
-            // skip duplicate create events and modifications right after creation
+            // Skip duplicate create events and modifications right after creation.
+            // This code relies on backends never emitting a `Modify` event with kind other than `Name` for a rename event.
             if match event.kind {
-                EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Metadata(_))
+                EventKind::Modify(
+                    ModifyKind::Any
+                    | ModifyKind::Data(_)
+                    | ModifyKind::Metadata(_)
+                    | ModifyKind::Other,
+                )
                 | EventKind::Create(_) => !queue.was_created(),
                 _ => true,
             } {
@@ -631,16 +651,14 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
         Some(v) => {
             if v > timeout {
                 return Err(Error::new(ErrorKind::Generic(format!(
-                    "Invalid tick_rate, tick rate {:?} > {:?} timeout!",
-                    v, timeout
+                    "Invalid tick_rate, tick rate {v:?} > {timeout:?} timeout!"
                 ))));
             }
             v
         }
         None => timeout.checked_div(tick_div).ok_or_else(|| {
             Error::new(ErrorKind::Generic(format!(
-                "Failed to calculate tick as {:?}/{}!",
-                timeout, tick_div
+                "Failed to calculate tick as {timeout:?}/{tick_div}!"
             )))
         })?,
     };
@@ -773,6 +791,8 @@ mod tests {
             "add_create_event",
             "add_create_event_after_remove_event",
             "add_create_dir_event_twice",
+            "add_event_with_no_paths_is_ok",
+            "add_modify_any_event_after_create_event",
             "add_modify_content_event_after_create_event",
             "add_rename_from_event",
             "add_rename_from_event_after_create_event",
@@ -798,6 +818,7 @@ mod tests {
             "add_remove_event_after_create_and_modify_event",
             "add_remove_parent_event_after_remove_child_event",
             "add_errors",
+            "debounce_modify_events",
             "emit_continuous_modify_content_events",
             "emit_events_in_chronological_order",
             "emit_events_with_a_prepended_rename_event",
@@ -859,7 +880,7 @@ mod tests {
             state
                 .errors
                 .iter()
-                .map(|e| format!("{:?}", e))
+                .map(|e| format!("{e:?}"))
                 .collect::<Vec<_>>(),
             expected_errors
                 .iter()
@@ -903,21 +924,36 @@ mod tests {
     fn integration() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
 
+        // set up the watcher
         let (tx, rx) = std::sync::mpsc::channel();
-
         let mut debouncer = new_debouncer(Duration::from_millis(10), None, tx)?;
-
         debouncer.watch(dir.path(), RecursiveMode::Recursive)?;
 
-        fs::write(dir.path().join("file.txt"), b"Lorem ipsum")?;
+        // create a new file
+        let file_path = dir.path().join("file.txt");
+        fs::write(&file_path, b"Lorem ipsum")?;
 
-        let events = rx
-            .recv_timeout(Duration::from_secs(10))
-            .expect("no events received")
-            .expect("received an error");
+        println!("waiting for event at {}", file_path.display());
 
-        assert!(!events.is_empty(), "received empty event list");
+        // wait for up to 10 seconds for the create event, ignore all other events
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while deadline > Instant::now() {
+            let events = rx
+                .recv_timeout(deadline - Instant::now())
+                .expect("did not receive expected event")
+                .expect("received an error");
 
-        Ok(())
+            for event in events {
+                if event.event.paths == vec![file_path.clone()]
+                    || event.event.paths == vec![file_path.canonicalize()?]
+                {
+                    return Ok(());
+                }
+
+                println!("unexpected event: {event:?}");
+            }
+        }
+
+        panic!("did not receive expected event");
     }
 }

@@ -18,7 +18,7 @@ _Cross-platform filesystem notification library for Rust._
 - [Examples][examples]
 - [Changelog][changelog]
 - [Upgrading notify from v4](UPGRADING_V4_TO_V5.md)
-- Minimum supported Rust version: **1.77**
+- Minimum supported Rust version: **1.85**
 
 As used by: [alacritty], [cargo watch], [cobalt], [deno], [docket], [mdBook],
 [rust-analyzer], [watchexec], [watchfiles], [xi-editor],
@@ -71,8 +71,8 @@ Originally created by [Félix Saparelli] and awesome [contributors].
 [deno]: https://github.com/denoland/deno
 [docket]: https://iwillspeak.github.io/docket/
 [notify-docs]: https://docs.rs/notify/latest/notify/
-[notify-types-docs]: https://docs.rs/notify-types/latest/notify-types/
-[file-id-docs]: https://docs.rs/file-id/latest/file-id/
+[notify-types-docs]: https://docs.rs/notify-types/
+[file-id-docs]: https://docs.rs/file-id/latest/file_id/
 [fsnotify]: https://github.com/fsnotify/fsnotify
 [handlebars-iron]: https://github.com/sunng87/handlebars-iron
 [hotwatch]: https://github.com/francesca64/hotwatch

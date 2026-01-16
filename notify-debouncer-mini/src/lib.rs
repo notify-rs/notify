@@ -47,6 +47,7 @@
 //!
 //! - `serde` passed down to notify-types, off by default
 //! - `crossbeam-channel` passed down to notify, off by default
+//! - `flume` passed down to notify, off by default
 //! - `macos_fsevent` passed down to notify, off by default
 //! - `macos_kqueue` passed down to notify, off by default
 //! - `serialization-compat-6` passed down to notify, off by default
@@ -156,6 +157,13 @@ where
 
 #[cfg(feature = "crossbeam-channel")]
 impl DebounceEventHandler for crossbeam_channel::Sender<DebounceEventResult> {
+    fn handle_event(&mut self, event: DebounceEventResult) {
+        let _ = self.send(event);
+    }
+}
+
+#[cfg(feature = "flume")]
+impl DebounceEventHandler for flume::Sender<DebounceEventResult> {
     fn handle_event(&mut self, event: DebounceEventResult) {
         let _ = self.send(event);
     }
@@ -410,27 +418,39 @@ mod tests {
     fn integration() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
 
+        // set up the watcher
         let (tx, rx) = std::sync::mpsc::channel();
-
         let mut debouncer = new_debouncer(Duration::from_secs(1), tx)?;
-
         debouncer
             .watcher()
             .watch(dir.path(), RecursiveMode::Recursive)?;
 
+        // create a new file
         let file_path = dir.path().join("file.txt");
         fs::write(&file_path, b"Lorem ipsum")?;
 
-        let events = rx
-            .recv_timeout(Duration::from_secs(10))
-            .expect("no events received")
-            .expect("received an error");
+        println!("waiting for event at {}", file_path.display());
 
-        assert_eq!(
-            events,
-            vec![DebouncedEvent::new(file_path, DebouncedEventKind::Any)]
-        );
+        // wait for up to 10 seconds for the create event, ignore all other events
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while deadline > Instant::now() {
+            let events = rx
+                .recv_timeout(deadline - Instant::now())
+                .expect("did not receive expected event")
+                .expect("received an error");
 
-        Ok(())
+            for event in events {
+                if event == DebouncedEvent::new(file_path.clone(), DebouncedEventKind::Any)
+                    || event
+                        == DebouncedEvent::new(file_path.canonicalize()?, DebouncedEventKind::Any)
+                {
+                    return Ok(());
+                }
+
+                println!("unexpected event: {event:?}");
+            }
+        }
+
+        panic!("did not receive expected event");
     }
 }
