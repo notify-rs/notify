@@ -67,6 +67,9 @@ mod time;
 #[cfg(test)]
 mod testing;
 
+#[cfg(not(target_family = "wasm"))]
+mod file_id_map;
+
 use std::{
     cmp::Reverse,
     collections::{BinaryHeap, HashMap, VecDeque},
@@ -80,7 +83,10 @@ use std::{
 
 use time::now;
 
-pub use cache::{FileIdCache, FileIdMap, NoCache, RecommendedCache};
+pub use cache::{FileIdCache, NoCache, RecommendedCache};
+
+#[cfg(not(target_family = "wasm"))]
+pub use file_id_map::FileIdMap;
 
 pub use file_id;
 pub use notify;
