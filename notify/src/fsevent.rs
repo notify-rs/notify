@@ -18,13 +18,14 @@ use crate::event::*;
 use crate::{
     unbounded, Config, Error, EventHandler, PathsMut, RecursiveMode, Result, Sender, Watcher,
 };
-use objc2_core_foundation as cf;
-use objc2_core_services as fs;
+use fsevent_sys as fs;
+use fsevent_sys::core_foundation as cf;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fmt;
+use std::os::raw;
 use std::path::{Path, PathBuf};
-use std::ptr::{self, NonNull};
+use std::ptr;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -61,12 +62,12 @@ bitflags::bitflags! {
 
 /// FSEvents-based `Watcher` implementation
 pub struct FsEventWatcher {
-    paths: cf::CFRetained<cf::CFMutableArray<cf::CFString>>,
+    paths: cf::CFMutableArrayRef,
     since_when: fs::FSEventStreamEventId,
     latency: cf::CFTimeInterval,
     flags: fs::FSEventStreamCreateFlags,
     event_handler: Arc<Mutex<dyn EventHandler>>,
-    runloop: Option<(cf::CFRetained<cf::CFRunLoop>, thread::JoinHandle<()>)>,
+    runloop: Option<(cf::CFRunLoopRef, thread::JoinHandle<()>)>,
     recursive_info: HashMap<PathBuf, bool>,
 }
 
@@ -84,8 +85,8 @@ impl fmt::Debug for FsEventWatcher {
     }
 }
 
-// FsEventWatcher is not Send/Sync automatically.
-// It's Send because the pointer is not used in other threads.
+// CFMutableArrayRef is a type alias to *mut libc::c_void, so FsEventWatcher is not Send/Sync
+// automatically. It's Send because the pointer is not used in other threads.
 unsafe impl Send for FsEventWatcher {}
 
 // It's Sync because all methods that change the mutable state use `&mut self`.
@@ -247,7 +248,7 @@ struct StreamContextInfo {
 }
 
 // Free the context when the stream created by `FSEventStreamCreate` is released.
-unsafe extern "C-unwind" fn release_context(info: *const libc::c_void) {
+extern "C" fn release_context(info: *const libc::c_void) {
     // Safety:
     // - The [documentation] for `FSEventStreamContext` states that `release` is only
     //   called when the stream is deallocated, so it is safe to convert `info` back into a
@@ -259,6 +260,11 @@ unsafe extern "C-unwind" fn release_context(info: *const libc::c_void) {
             info as *const StreamContextInfo as *mut StreamContextInfo,
         ));
     }
+}
+
+extern "C" {
+    /// Indicates whether the run loop is waiting for an event.
+    fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> cf::Boolean;
 }
 
 struct FsEventPathsMut<'a>(&'a mut FsEventWatcher);
@@ -285,7 +291,9 @@ impl PathsMut for FsEventPathsMut<'_> {
 impl FsEventWatcher {
     fn from_event_handler(event_handler: Arc<Mutex<dyn EventHandler>>) -> Result<Self> {
         Ok(FsEventWatcher {
-            paths: cf::CFMutableArray::empty(),
+            paths: unsafe {
+                cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
+            },
             since_when: fs::kFSEventStreamEventIdSinceNow,
             latency: 0.0,
             flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
@@ -320,11 +328,15 @@ impl FsEventWatcher {
         }
 
         if let Some((runloop, thread_handle)) = self.runloop.take() {
-            while !runloop.is_waiting() {
-                thread::yield_now();
-            }
+            unsafe {
+                let runloop = runloop as *mut raw::c_void;
 
-            runloop.stop();
+                while CFRunLoopIsWaiting(runloop) == 0 {
+                    thread::yield_now();
+                }
+
+                cf::CFRunLoopStop(runloop);
+            }
 
             // Wait for the thread to shut down.
             thread_handle.join().expect("thread to shut down");
@@ -332,31 +344,33 @@ impl FsEventWatcher {
     }
 
     fn remove_path(&mut self, path: &Path) -> Result<()> {
-        let mut err: *mut cf::CFError = ptr::null_mut();
-        let Some(cf_path) = (unsafe { path_to_cfstring_ref(path, &mut err) }) else {
-            if let Some(err) = NonNull::new(err) {
-                let _ = unsafe { cf::CFRetained::from_raw(err) };
+        let str_path = path.to_str().unwrap();
+        unsafe {
+            let mut err: cf::CFErrorRef = ptr::null_mut();
+            let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
+            if cf_path.is_null() {
+                if !err.is_null() {
+                    cf::CFRelease(err as cf::CFRef);
+                }
+                return Err(Error::watch_not_found().add_path(path.into()));
             }
-            return Err(Error::watch_not_found().add_path(path.into()));
-        };
 
-        let mut to_remove = Vec::new();
-        for (idx, item) in self.paths.iter().enumerate() {
-            if item.compare(
-                Some(&cf_path),
-                cf::CFStringCompareFlags::CompareCaseInsensitive,
-            ) == cf::CFComparisonResult::CompareEqualTo
-            {
-                to_remove.push(idx as cf::CFIndex);
+            let mut to_remove = Vec::new();
+            for idx in 0..cf::CFArrayGetCount(self.paths) {
+                let item = cf::CFArrayGetValueAtIndex(self.paths, idx);
+                if cf::CFStringCompare(item, cf_path, cf::kCFCompareCaseInsensitive)
+                    == cf::kCFCompareEqualTo
+                {
+                    to_remove.push(idx);
+                }
+            }
+
+            cf::CFRelease(cf_path);
+
+            for idx in to_remove.iter().rev() {
+                cf::CFArrayRemoveValueAtIndex(self.paths, *idx);
             }
         }
-
-        for idx in to_remove.iter().rev() {
-            unsafe {
-                cf::CFMutableArray::remove_value_at_index(Some(self.paths.as_opaque()), *idx)
-            };
-        }
-
         let p = if let Ok(canonicalized_path) = path.canonicalize() {
             canonicalized_path
         } else {
@@ -374,24 +388,26 @@ impl FsEventWatcher {
             return Err(Error::path_not_found().add_path(path.into()));
         }
         let canonical_path = path.to_path_buf().canonicalize()?;
-        let mut err: *mut cf::CFError = ptr::null_mut();
-        let Some(cf_path) = (unsafe { path_to_cfstring_ref(path, &mut err) }) else {
-            if let Some(err) = NonNull::new(err) {
-                let _ = unsafe { cf::CFRetained::from_raw(err) };
+        let str_path = path.to_str().unwrap();
+        unsafe {
+            let mut err: cf::CFErrorRef = ptr::null_mut();
+            let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
+            if cf_path.is_null() {
+                // Most likely the directory was deleted, or permissions changed,
+                // while the above code was running.
+                cf::CFRelease(err as cf::CFRef);
+                return Err(Error::path_not_found().add_path(path.into()));
             }
-            // Most likely the directory was deleted, or permissions changed,
-            // while the above code was running.
-            return Err(Error::path_not_found().add_path(path.into()));
-        };
-        self.paths.append(&cf_path);
-
+            cf::CFArrayAppendValue(self.paths, cf_path);
+            cf::CFRelease(cf_path);
+        }
         self.recursive_info
             .insert(canonical_path, recursive_mode.is_recursive());
         Ok(())
     }
 
     fn run(&mut self) -> Result<()> {
-        if self.paths.is_empty() {
+        if unsafe { cf::CFArrayGetCount(self.paths) } == 0 {
             return Ok(());
         }
 
@@ -409,38 +425,31 @@ impl FsEventWatcher {
             info: context as *mut libc::c_void,
             retain: None,
             release: Some(release_context),
-            copyDescription: None,
+            copy_description: None,
         };
 
         let stream = unsafe {
             fs::FSEventStreamCreate(
                 cf::kCFAllocatorDefault,
-                Some(callback),
-                &stream_context as *const _ as *mut _,
-                self.paths.as_opaque(),
+                callback,
+                &stream_context,
+                self.paths,
                 self.since_when,
                 self.latency,
                 self.flags,
             )
         };
 
-        // Wrapper to help send CFRunLoop types across threads.
-        struct CFRunLoopSendWrapper(cf::CFRetained<cf::CFRunLoop>);
+        // Wrapper to help send CFRef types across threads.
+        struct CFSendWrapper(cf::CFRef);
 
         // Safety:
-        // - According to the Apple documentation, it's safe to move `CFRunLoop`s across threads.
+        // - According to the Apple documentation, it's safe to move `CFRef`s across threads.
         //   https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/ThreadSafetySummary/ThreadSafetySummary.html
-        unsafe impl Send for CFRunLoopSendWrapper {}
-
-        // Wrapper to help send FSEventStreamRef types across threads.
-        struct FSEventStreamSendWrapper(fs::FSEventStreamRef);
-
-        // TODO: Write docs for the safety of this impl.
-        // SAFETY: Unclear?
-        unsafe impl Send for FSEventStreamSendWrapper {}
+        unsafe impl Send for CFSendWrapper {}
 
         // move into thread
-        let stream = FSEventStreamSendWrapper(stream);
+        let stream = CFSendWrapper(stream);
 
         // channel to pass runloop around
         let (rl_tx, rl_rx) = unbounded();
@@ -452,17 +461,12 @@ impl FsEventWatcher {
                 let stream = stream.0;
 
                 unsafe {
-                    // Safety:
-                    // This may panic if OOM occurs.
-                    // Related: https://github.com/madsmtm/objc2/issues/797
-                    let cur_runloop =
-                        cf::CFRunLoop::current().expect("Failed to get current runloop");
+                    let cur_runloop = cf::CFRunLoopGetCurrent();
 
-                    #[allow(deprecated)]
                     fs::FSEventStreamScheduleWithRunLoop(
                         stream,
-                        &cur_runloop,
-                        cf::kCFRunLoopDefaultMode.expect("Failed to get default runloop mode"),
+                        cur_runloop,
+                        cf::kCFRunLoopDefaultMode,
                     );
                     if !fs::FSEventStreamStart(stream) {
                         fs::FSEventStreamInvalidate(stream);
@@ -475,10 +479,10 @@ impl FsEventWatcher {
 
                     // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
                     rl_tx
-                        .send(Ok(CFRunLoopSendWrapper(cur_runloop)))
+                        .send(Ok(CFSendWrapper(cur_runloop)))
                         .expect("Unable to send runloop to watcher");
 
-                    cf::CFRunLoop::run();
+                    cf::CFRunLoopRun();
                     fs::FSEventStreamStop(stream);
                     // There are edge-cases, when many events are pending,
                     // despite the stream being stopped, that the stream's
@@ -504,13 +508,13 @@ impl FsEventWatcher {
     }
 }
 
-unsafe extern "C-unwind" fn callback(
-    stream_ref: fs::ConstFSEventStreamRef,
+extern "C" fn callback(
+    stream_ref: fs::FSEventStreamRef,
     info: *mut libc::c_void,
-    num_events: libc::size_t,                          // size_t numEvents
-    event_paths: NonNull<libc::c_void>,                // void *eventPaths
-    event_flags: NonNull<fs::FSEventStreamEventFlags>, // const FSEventStreamEventFlags eventFlags[]
-    event_ids: NonNull<fs::FSEventStreamEventId>,      // const FSEventStreamEventId eventIds[]
+    num_events: libc::size_t,                        // size_t numEvents
+    event_paths: *mut libc::c_void,                  // void *eventPaths
+    event_flags: *const fs::FSEventStreamEventFlags, // const FSEventStreamEventFlags eventFlags[]
+    event_ids: *const fs::FSEventStreamEventId,      // const FSEventStreamEventId eventIds[]
 ) {
     unsafe {
         callback_impl(
@@ -525,14 +529,14 @@ unsafe extern "C-unwind" fn callback(
 }
 
 unsafe fn callback_impl(
-    _stream_ref: fs::ConstFSEventStreamRef,
+    _stream_ref: fs::FSEventStreamRef,
     info: *mut libc::c_void,
-    num_events: libc::size_t,                          // size_t numEvents
-    event_paths: NonNull<libc::c_void>,                // void *eventPaths
-    event_flags: NonNull<fs::FSEventStreamEventFlags>, // const FSEventStreamEventFlags eventFlags[]
-    _event_ids: NonNull<fs::FSEventStreamEventId>,     // const FSEventStreamEventId eventIds[]
+    num_events: libc::size_t,                        // size_t numEvents
+    event_paths: *mut libc::c_void,                  // void *eventPaths
+    event_flags: *const fs::FSEventStreamEventFlags, // const FSEventStreamEventFlags eventFlags[]
+    _event_ids: *const fs::FSEventStreamEventId,     // const FSEventStreamEventId eventIds[]
 ) {
-    let event_paths = event_paths.as_ptr() as *const *const libc::c_char;
+    let event_paths = event_paths as *const *const libc::c_char;
     let info = info as *const StreamContextInfo;
     let event_handler = &(*info).event_handler;
 
@@ -542,7 +546,7 @@ unsafe fn callback_impl(
             .expect("Invalid UTF8 string.");
         let path = PathBuf::from(path);
 
-        let flag = *event_flags.as_ptr().add(p);
+        let flag = *event_flags.add(p);
         let flag = StreamFlags::from_bits(flag).unwrap_or_else(|| {
             panic!("Unable to decode StreamFlags: {}", flag);
         });
@@ -609,44 +613,10 @@ impl Watcher for FsEventWatcher {
 impl Drop for FsEventWatcher {
     fn drop(&mut self) {
         self.stop();
-    }
-}
-
-/// Grabbed from <https://docs.rs/fsevent-sys/4.1.0/src/fsevent_sys/core_foundation.rs.html#149-230>.
-///
-/// TODO: Could we simplify this?
-unsafe fn path_to_cfstring_ref(
-    source: &Path,
-    err: &mut *mut cf::CFError,
-) -> Option<cf::CFRetained<cf::CFString>> {
-    let url = cf::CFURL::from_file_path(source)?;
-
-    let mut placeholder = url.absolute_url()?;
-
-    let imaginary = cf::CFMutableArray::empty();
-
-    while !unsafe { placeholder.resource_is_reachable(err) } {
-        if let Some(child) = placeholder.last_path_component() {
-            imaginary.insert(0, &*child);
+        unsafe {
+            cf::CFRelease(self.paths);
         }
-
-        placeholder = cf::CFURL::new_copy_deleting_last_path_component(None, Some(&placeholder))?;
     }
-
-    let url = unsafe { cf::CFURL::new_file_reference_url(None, Some(&placeholder), err) }?;
-
-    let mut placeholder = unsafe { cf::CFURL::new_file_path_url(None, Some(&url), err) }?;
-
-    for component in imaginary {
-        placeholder = cf::CFURL::new_copy_appending_path_component(
-            None,
-            Some(&placeholder),
-            Some(&component),
-            false,
-        )?;
-    }
-
-    placeholder.file_system_path(cf::CFURLPathStyle::CFURLPOSIXPathStyle)
 }
 
 #[cfg(test)]
