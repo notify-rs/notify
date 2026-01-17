@@ -28,7 +28,10 @@ We follow these MSRV rules:
 - MSRV bumps do NOT require a major release and may happen in minor releases.
 - The MSRV may be updated when needed, but support for the current stable Rust release and the previous two stable releases (N, N-1, N-2) is always guaranteed.
   - For example, if the current stable version is 1.85, we guarantee support for 1.85, 1.84, and 1.83, so the minimum supported Rust version will be **at most** 1.83.
-- MSRV is bumped only when required by dependencies or when adopting new stable Rust features.
+- MSRV is bumped only when needed, e.g.:
+  - required by dependencies
+  - any serious bug is found (including security-related)
+  - adopting new stable Rust features
 - Every MSRV bump is documented in the release notes when it happens.
 
 [docs]: https://docs.rs/notify-debouncer-full
