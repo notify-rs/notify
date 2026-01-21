@@ -1568,7 +1568,9 @@ mod tests {
         let (mut watcher, mut rx) = channel_with_config::<INotifyWatcher>(
             ChannelConfig::default()
                 .with_timeout(std::time::Duration::from_secs(2))
-                .with_watcher_config(Config::default().with_event_kinds(EventKindMask::MODIFY_DATA)),
+                .with_watcher_config(
+                    Config::default().with_event_kinds(EventKindMask::MODIFY_DATA),
+                ),
         );
         watcher.watch_recursively(&tmpdir);
 
