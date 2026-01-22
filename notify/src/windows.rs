@@ -1,9 +1,11 @@
 #![allow(missing_docs)]
 //! Watcher implementation for Windows' directory management APIs
 //!
-//! For more information see the [ReadDirectoryChangesW reference][ref].
+//! For more information see the [ReadDirectoryChangesW reference][ref1]
+//! and the [ReadDirectoryChangesExW reference][ref2].
 //!
-//! [ref]: https://msdn.microsoft.com/en-us/library/windows/desktop/aa363950(v=vs.85).aspx
+//! [ref1]: https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesw
+//! [ref2]: https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesexw
 
 use crate::{bounded, unbounded, BoundSender, Config, Receiver, Sender};
 use crate::{event::*, WatcherKind};
@@ -20,18 +22,20 @@ use std::slice;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ACCESS_DENIED, ERROR_OPERATION_ABORTED, ERROR_SUCCESS, HANDLE,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_OPERATION_ABORTED, ERROR_SUCCESS, HANDLE, HMODULE,
     INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, ReadDirectoryChangesW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED,
+    CreateFileW, ReadDirectoryChangesExW, ReadDirectoryChangesW,
+    ReadDirectoryNotifyExtendedInformation, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED,
     FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
-    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
-    FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_CHANGE_CREATION, FILE_NOTIFY_CHANGE_DIR_NAME,
-    FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SECURITY,
-    FILE_NOTIFY_CHANGE_SIZE, FILE_NOTIFY_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ,
-    FILE_SHARE_WRITE, OPEN_EXISTING,
+    FILE_ATTRIBUTE_DIRECTORY, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED,
+    FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_CHANGE_CREATION,
+    FILE_NOTIFY_CHANGE_DIR_NAME, FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE,
+    FILE_NOTIFY_CHANGE_SECURITY, FILE_NOTIFY_CHANGE_SIZE, FILE_NOTIFY_EXTENDED_INFORMATION,
+    FILE_NOTIFY_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
+use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows_sys::Win32::System::Threading::{
     CreateSemaphoreW, ReleaseSemaphore, WaitForSingleObjectEx, INFINITE,
 };
@@ -39,10 +43,17 @@ use windows_sys::Win32::System::IO::{CancelIo, OVERLAPPED};
 
 const BUF_SIZE: u32 = 16384;
 
+#[derive(Clone, Copy)]
+enum DirectoryReaderKind {
+    Standard,
+    Extended,
+}
+
 #[derive(Clone)]
 struct ReadData {
     dir: PathBuf,          // directory that is being watched
     file: Option<PathBuf>, // if a file is being watched, this is its full path
+    directory_reader: DirectoryReaderKind,
     complete_sem: HANDLE,
     is_recursive: bool,
 }
@@ -88,6 +99,7 @@ struct ReadDirectoryChangesServer {
     meta_tx: Sender<MetaEvent>,
     cmd_tx: Sender<Result<PathBuf>>,
     watches: HashMap<PathBuf, WatchState>,
+    reader_kind: DirectoryReaderKind,
     wakeup_sem: HANDLE,
 }
 
@@ -116,6 +128,7 @@ impl ReadDirectoryChangesServer {
                         meta_tx,
                         cmd_tx,
                         watches: HashMap::new(),
+                        reader_kind: available_directory_reader_kind(),
                         wakeup_sem,
                     };
                     server.run();
@@ -232,6 +245,7 @@ impl ReadDirectoryChangesServer {
         let rd = ReadData {
             dir: dir_target,
             file: wf,
+            directory_reader: self.reader_kind,
             complete_sem: semaphore,
             is_recursive,
         };
@@ -277,6 +291,22 @@ fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
     let _ = meta_tx.send(MetaEvent::SingleWatchComplete);
 }
 
+fn available_directory_reader_kind() -> DirectoryReaderKind {
+    unsafe {
+        let module: HMODULE = GetModuleHandleW(windows_sys::w!("kernel32.dll"));
+        if module.is_null() {
+            return DirectoryReaderKind::Standard;
+        }
+
+        let func_ptr = GetProcAddress(module, windows_sys::s!("ReadDirectoryChangesExW"));
+        if func_ptr.is_some() {
+            DirectoryReaderKind::Extended
+        } else {
+            DirectoryReaderKind::Standard
+        }
+    }
+}
+
 fn start_read(
     rd: &ReadData,
     event_handler: Arc<Mutex<dyn EventHandler>>,
@@ -315,28 +345,198 @@ fn start_read(
         let request = Box::leak(request);
         (*overlapped).hEvent = request as *mut _ as _;
 
-        // This is using an asynchronous call with a completion routine for receiving notifications
-        // An I/O completion port would probably be more performant
-        let ret = ReadDirectoryChangesW(
-            handle,
-            request.buffer.as_mut_ptr() as *mut c_void,
-            BUF_SIZE,
-            monitor_subdir,
-            flags,
-            &mut 0u32 as *mut u32, // not used for async reqs
-            overlapped,
-            Some(handle_event),
-        );
+        match rd.directory_reader {
+            DirectoryReaderKind::Extended => {
+                // This is using an asynchronous call with a completion routine for receiving notifications
+                // An I/O completion port would probably be more performant
+                let ret = ReadDirectoryChangesExW(
+                    handle,
+                    request.buffer.as_mut_ptr() as *mut c_void,
+                    BUF_SIZE,
+                    monitor_subdir,
+                    flags,
+                    &mut 0u32 as *mut u32, // not used for async reqs
+                    overlapped,
+                    Some(handle_extended_event),
+                    ReadDirectoryNotifyExtendedInformation,
+                );
 
-        if ret == 0 {
-            // error reading. retransmute request memory to allow drop.
-            // Because of the error, ownership of the `overlapped` alloc was not passed
-            // over to `ReadDirectoryChangesW`.
-            // So we can claim ownership back.
-            let _overlapped = Box::from_raw(overlapped);
-            let request = Box::from_raw(request);
-            ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+                if ret == 0 {
+                    // error reading. retransmute request memory to allow drop.
+                    // Because of the error, ownership of the `overlapped` alloc was not passed
+                    // over to `ReadDirectoryChangesExW`.
+                    // So we can claim ownership back.
+                    let _overlapped = Box::from_raw(overlapped);
+                    let request = Box::from_raw(request);
+                    ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+                }
+            }
+            DirectoryReaderKind::Standard => {
+                // This is using an asynchronous call with a completion routine for receiving notifications
+                // An I/O completion port would probably be more performant
+                let ret = ReadDirectoryChangesW(
+                    handle,
+                    request.buffer.as_mut_ptr() as *mut c_void,
+                    BUF_SIZE,
+                    monitor_subdir,
+                    flags,
+                    &mut 0u32 as *mut u32, // not used for async reqs
+                    overlapped,
+                    Some(handle_event),
+                );
+
+                if ret == 0 {
+                    // error reading. retransmute request memory to allow drop.
+                    // Because of the error, ownership of the `overlapped` alloc was not passed
+                    // over to `ReadDirectoryChangesW`.
+                    // So we can claim ownership back.
+                    let _overlapped = Box::from_raw(overlapped);
+                    let request = Box::from_raw(request);
+                    ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+                }
+            }
         }
+    }
+}
+
+unsafe extern "system" fn handle_extended_event(
+    error_code: u32,
+    _bytes_written: u32,
+    overlapped: *mut OVERLAPPED,
+) {
+    let overlapped: Box<OVERLAPPED> = Box::from_raw(overlapped);
+    let request: Box<ReadDirectoryRequest> = Box::from_raw(overlapped.hEvent as *mut _);
+
+    match error_code {
+        ERROR_OPERATION_ABORTED => {
+            // received when dir is unwatched or watcher is shutdown; return and let overlapped/request get drop-cleaned
+            ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+            return;
+        }
+        ERROR_ACCESS_DENIED => {
+            // This could happen when the watched directory is deleted or trashed, first check if it's the case.
+            // If so, unwatch the directory and return, otherwise, continue to handle the event.
+            if !request.data.dir.exists() {
+                request.unwatch();
+                ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+                return;
+            }
+        }
+        ERROR_SUCCESS => {
+            // Success, continue to handle the event
+        }
+        _ => {
+            // Some unidentified error occurred, log and unwatch the directory, then return.
+            log::error!(
+                "unknown error in ReadDirectoryChangesExW for directory {}: {}",
+                request.data.dir.display(),
+                error_code
+            );
+            request.unwatch();
+            ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+            return;
+        }
+    }
+
+    // Get the next request queued up as soon as possible
+    start_read(
+        &request.data,
+        request.event_handler.clone(),
+        request.handle,
+        request.action_tx,
+    );
+
+    // The FILE_NOTIFY_EXTENDED_INFORMATION struct has a variable length due to the variable length
+    // string as its last member. Each struct contains an offset for getting the next entry in
+    // the buffer.
+    let mut cur_offset: *const u8 = request.buffer.as_ptr();
+    // In Wine, FILE_NOTIFY_EXTENDED_INFORMATION structs are packed placed in the buffer;
+    // they are aligned to 16bit (WCHAR) boundary instead of 32bit required by FILE_NOTIFY_EXTENDED_INFORMATION.
+    // Hence, we need to use `read_unaligned` here to avoid UB.
+    let mut cur_entry = ptr::read_unaligned(cur_offset as *const FILE_NOTIFY_EXTENDED_INFORMATION);
+    loop {
+        // filename length is size in bytes, so / 2
+        let len = cur_entry.FileNameLength as usize / 2;
+        let encoded_path: &[u16] = slice::from_raw_parts(
+            cur_offset
+                .offset(std::mem::offset_of!(FILE_NOTIFY_EXTENDED_INFORMATION, FileName) as isize)
+                as _,
+            len,
+        );
+        // prepend root to get a full path
+        let path = request
+            .data
+            .dir
+            .join(PathBuf::from(OsString::from_wide(encoded_path)));
+
+        // if we are watching a single file, ignore the event unless the path is exactly
+        // the watched file
+        let skip = match request.data.file {
+            None => false,
+            Some(ref watch_path) => *watch_path != path,
+        };
+
+        if !skip {
+            log::trace!(
+                "Event: path = `{}`, action = {:?}",
+                path.display(),
+                cur_entry.Action
+            );
+
+            let newe = Event::new(EventKind::Any).add_path(path);
+
+            fn emit_event(event_handler: &Mutex<dyn EventHandler>, res: Result<Event>) {
+                if let Ok(mut guard) = event_handler.lock() {
+                    let f: &mut dyn EventHandler = &mut *guard;
+                    f.handle_event(res);
+                }
+            }
+
+            let event_handler = |res| emit_event(&request.event_handler, res);
+
+            match cur_entry.Action {
+                FILE_ACTION_RENAMED_OLD_NAME => {
+                    let kind = EventKind::Modify(ModifyKind::Name(RenameMode::From));
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev))
+                }
+                FILE_ACTION_RENAMED_NEW_NAME => {
+                    let kind = EventKind::Modify(ModifyKind::Name(RenameMode::To));
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev));
+                }
+                FILE_ACTION_ADDED => {
+                    let kind = if (cur_entry.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 {
+                        EventKind::Create(CreateKind::Folder)
+                    } else {
+                        EventKind::Create(CreateKind::File)
+                    };
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev));
+                }
+                FILE_ACTION_REMOVED => {
+                    let kind = if (cur_entry.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 {
+                        EventKind::Remove(RemoveKind::Folder)
+                    } else {
+                        EventKind::Remove(RemoveKind::File)
+                    };
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev));
+                }
+                FILE_ACTION_MODIFIED => {
+                    let kind = EventKind::Modify(ModifyKind::Any);
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev));
+                }
+                _ => (),
+            };
+        }
+
+        if cur_entry.NextEntryOffset == 0 {
+            break;
+        }
+        cur_offset = cur_offset.offset(cur_entry.NextEntryOffset as isize);
+        cur_entry = ptr::read_unaligned(cur_offset as *const FILE_NOTIFY_EXTENDED_INFORMATION);
     }
 }
 
@@ -448,37 +648,34 @@ unsafe extern "system" fn handle_event(
                 }
             };
 
-            if cur_entry.Action == FILE_ACTION_RENAMED_OLD_NAME {
-                let mode = RenameMode::From;
-                let kind = ModifyKind::Name(mode);
-                let kind = EventKind::Modify(kind);
-                let ev = newe.set_kind(kind);
-                event_handler(Ok(ev))
-            } else {
-                match cur_entry.Action {
-                    FILE_ACTION_RENAMED_NEW_NAME => {
-                        let kind = EventKind::Modify(ModifyKind::Name(RenameMode::To));
-                        let ev = newe.set_kind(kind);
-                        event_handler(Ok(ev));
-                    }
-                    FILE_ACTION_ADDED => {
-                        let kind = EventKind::Create(CreateKind::Any);
-                        let ev = newe.set_kind(kind);
-                        event_handler(Ok(ev));
-                    }
-                    FILE_ACTION_REMOVED => {
-                        let kind = EventKind::Remove(RemoveKind::Any);
-                        let ev = newe.set_kind(kind);
-                        event_handler(Ok(ev));
-                    }
-                    FILE_ACTION_MODIFIED => {
-                        let kind = EventKind::Modify(ModifyKind::Any);
-                        let ev = newe.set_kind(kind);
-                        event_handler(Ok(ev));
-                    }
-                    _ => (),
-                };
-            }
+            match cur_entry.Action {
+                FILE_ACTION_RENAMED_OLD_NAME => {
+                    let kind = EventKind::Modify(ModifyKind::Name(RenameMode::From));
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev))
+                }
+                FILE_ACTION_RENAMED_NEW_NAME => {
+                    let kind = EventKind::Modify(ModifyKind::Name(RenameMode::To));
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev));
+                }
+                FILE_ACTION_ADDED => {
+                    let kind = EventKind::Create(CreateKind::Any);
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev));
+                }
+                FILE_ACTION_REMOVED => {
+                    let kind = EventKind::Remove(RemoveKind::Any);
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev));
+                }
+                FILE_ACTION_MODIFIED => {
+                    let kind = EventKind::Modify(ModifyKind::Any);
+                    let ev = newe.set_kind(kind);
+                    event_handler(Ok(ev));
+                }
+                _ => (),
+            };
         }
 
         if cur_entry.NextEntryOffset == 0 {
@@ -637,9 +834,13 @@ unsafe impl Sync for ReadDirectoryChangesWatcher {}
 pub mod tests {
     use tempfile::tempdir;
 
-    use crate::{test::*, ReadDirectoryChangesWatcher, RecursiveMode, Watcher};
+    use crate::{
+        test::*, windows::DirectoryReaderKind, ReadDirectoryChangesWatcher, RecursiveMode, Watcher,
+    };
 
     use std::time::Duration;
+
+    use super::available_directory_reader_kind;
 
     fn watcher() -> (TestWatcher<ReadDirectoryChangesWatcher>, Receiver) {
         channel()
@@ -678,8 +879,16 @@ pub mod tests {
         let path = tmpdir.path().join("entry");
         std::fs::File::create_new(&path).expect("create");
 
-        rx.wait_ordered_exact([expected(&path).create_any()])
-            .ensure_no_tail();
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([expected(&path).create_file()])
+                    .ensure_no_tail();
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([expected(&path).create_any()])
+                    .ensure_no_tail();
+            }
+        }
     }
 
     #[test]
@@ -745,8 +954,16 @@ pub mod tests {
 
         std::fs::remove_file(&file).expect("remove");
 
-        rx.wait_ordered_exact([expected(&file).remove_any()])
-            .ensure_no_tail();
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([expected(&file).remove_file()])
+                    .ensure_no_tail();
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([expected(&file).remove_any()])
+                    .ensure_no_tail();
+            }
+        }
     }
 
     #[test]
@@ -760,7 +977,14 @@ pub mod tests {
 
         std::fs::remove_file(&file).expect("remove");
 
-        rx.wait_ordered_exact([expected(&file).remove_any()]);
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([expected(&file).remove_file()]);
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([expected(&file).remove_any()]);
+            }
+        }
     }
 
     #[test]
@@ -777,14 +1001,28 @@ pub mod tests {
         std::fs::write(&overwriting_file, "321").expect("write2");
         std::fs::rename(&overwriting_file, &overwritten_file).expect("rename");
 
-        rx.wait_ordered_exact([
-            expected(&overwriting_file).create_any(),
-            expected(&overwriting_file).modify_any().multiple(),
-            expected(&overwritten_file).remove_any(),
-            expected(&overwriting_file).rename_from(),
-            expected(&overwritten_file).rename_to(),
-        ])
-        .ensure_no_tail();
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([
+                    expected(&overwriting_file).create_file(),
+                    expected(&overwriting_file).modify_any().multiple(),
+                    expected(&overwritten_file).remove(),
+                    expected(&overwriting_file).rename_from(),
+                    expected(&overwritten_file).rename_to(),
+                ])
+                .ensure_no_tail();
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([
+                    expected(&overwriting_file).create_any(),
+                    expected(&overwriting_file).modify_any().multiple(),
+                    expected(&overwritten_file).remove_any(),
+                    expected(&overwriting_file).rename_from(),
+                    expected(&overwritten_file).rename_to(),
+                ])
+                .ensure_no_tail();
+            }
+        }
     }
 
     #[test]
@@ -796,8 +1034,16 @@ pub mod tests {
         let path = tmpdir.path().join("entry");
         std::fs::create_dir(&path).expect("create");
 
-        rx.wait_ordered_exact([expected(&path).create_any()])
-            .ensure_no_tail();
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([expected(&path).create_folder()])
+                    .ensure_no_tail();
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([expected(&path).create_any()])
+                    .ensure_no_tail();
+            }
+        }
     }
 
     #[test]
@@ -848,8 +1094,16 @@ pub mod tests {
         watcher.watch_recursively(&tmpdir);
         std::fs::remove_dir(&path).expect("remove");
 
-        rx.wait_ordered_exact([expected(&path).remove_any()])
-            .ensure_no_tail();
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([expected(&path).remove_folder()])
+                    .ensure_no_tail();
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([expected(&path).remove_any()])
+                    .ensure_no_tail();
+            }
+        }
     }
 
     #[test]
@@ -891,7 +1145,14 @@ pub mod tests {
         std::fs::rename(&path, &new_path).expect("rename");
 
         let event = rx.recv();
-        assert_eq!(event, expected(path).remove_any());
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                assert_eq!(event, expected(path).remove_file());
+            }
+            DirectoryReaderKind::Standard => {
+                assert_eq!(event, expected(path).remove_any());
+            }
+        }
         rx.ensure_empty();
     }
 
@@ -912,15 +1173,30 @@ pub mod tests {
         std::fs::write(&new_path, b"1").expect("write 3");
         std::fs::remove_file(&new_path).expect("remove");
 
-        rx.wait_ordered_exact([
-            expected(&file1).create_any(),
-            expected(&file1).modify_any().multiple(),
-            expected(&file2).modify_any().multiple(),
-            expected(&file1).rename_from(),
-            expected(&new_path).rename_to(),
-            expected(&new_path).modify_any().multiple(),
-            expected(&new_path).remove_any(),
-        ]);
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([
+                    expected(&file1).create_file(),
+                    expected(&file1).modify_any().multiple(),
+                    expected(&file2).modify_any().multiple(),
+                    expected(&file1).rename_from(),
+                    expected(&new_path).rename_to(),
+                    expected(&new_path).modify_any().multiple(),
+                    expected(&new_path).remove_file(),
+                ]);
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([
+                    expected(&file1).create_any(),
+                    expected(&file1).modify_any().multiple(),
+                    expected(&file2).modify_any().multiple(),
+                    expected(&file1).rename_from(),
+                    expected(&new_path).rename_to(),
+                    expected(&new_path).modify_any().multiple(),
+                    expected(&new_path).remove_any(),
+                ]);
+            }
+        }
     }
 
     #[test]
@@ -1023,17 +1299,35 @@ pub mod tests {
         watcher.watch_recursively(&tmpdir);
 
         std::fs::create_dir_all(&nested9).expect("create_dir_all");
-        rx.wait_ordered_exact([
-            expected(&nested1).create_any(),
-            expected(&nested2).create_any(),
-            expected(&nested3).create_any(),
-            expected(&nested4).create_any(),
-            expected(&nested5).create_any(),
-            expected(&nested6).create_any(),
-            expected(&nested7).create_any(),
-            expected(&nested8).create_any(),
-            expected(&nested9).create_any(),
-        ])
-        .ensure_no_tail();
+        match available_directory_reader_kind() {
+            DirectoryReaderKind::Extended => {
+                rx.wait_ordered_exact([
+                    expected(&nested1).create_folder(),
+                    expected(&nested2).create_folder(),
+                    expected(&nested3).create_folder(),
+                    expected(&nested4).create_folder(),
+                    expected(&nested5).create_folder(),
+                    expected(&nested6).create_folder(),
+                    expected(&nested7).create_folder(),
+                    expected(&nested8).create_folder(),
+                    expected(&nested9).create_folder(),
+                ])
+                .ensure_no_tail();
+            }
+            DirectoryReaderKind::Standard => {
+                rx.wait_ordered_exact([
+                    expected(&nested1).create_any(),
+                    expected(&nested2).create_any(),
+                    expected(&nested3).create_any(),
+                    expected(&nested4).create_any(),
+                    expected(&nested5).create_any(),
+                    expected(&nested6).create_any(),
+                    expected(&nested7).create_any(),
+                    expected(&nested8).create_any(),
+                    expected(&nested9).create_any(),
+                ])
+                .ensure_no_tail();
+            }
+        }
     }
 }
