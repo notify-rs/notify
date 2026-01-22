@@ -16,7 +16,8 @@
 
 use crate::event::*;
 use crate::{
-    unbounded, Config, Error, EventHandler, PathsMut, RecursiveMode, Result, Sender, Watcher,
+    unbounded, Config, Error, EventHandler, EventKindMask, PathsMut, RecursiveMode, Result, Sender,
+    Watcher,
 };
 use objc2_core_foundation as cf;
 use objc2_core_services as fs;
@@ -68,6 +69,7 @@ pub struct FsEventWatcher {
     event_handler: Arc<Mutex<dyn EventHandler>>,
     runloop: Option<(cf::CFRetained<cf::CFRunLoop>, thread::JoinHandle<()>)>,
     recursive_info: HashMap<PathBuf, bool>,
+    event_kinds: EventKindMask,
 }
 
 impl fmt::Debug for FsEventWatcher {
@@ -244,6 +246,7 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
 struct StreamContextInfo {
     event_handler: Arc<Mutex<dyn EventHandler>>,
     recursive_info: HashMap<PathBuf, bool>,
+    event_kinds: EventKindMask,
 }
 
 // Free the context when the stream created by `FSEventStreamCreate` is released.
@@ -283,7 +286,10 @@ impl PathsMut for FsEventPathsMut<'_> {
 }
 
 impl FsEventWatcher {
-    fn from_event_handler(event_handler: Arc<Mutex<dyn EventHandler>>) -> Result<Self> {
+    fn from_event_handler(
+        event_handler: Arc<Mutex<dyn EventHandler>>,
+        event_kinds: EventKindMask,
+    ) -> Result<Self> {
         Ok(FsEventWatcher {
             paths: cf::CFMutableArray::empty(),
             since_when: fs::kFSEventStreamEventIdSinceNow,
@@ -292,6 +298,7 @@ impl FsEventWatcher {
             event_handler,
             runloop: None,
             recursive_info: HashMap::new(),
+            event_kinds,
         })
     }
 
@@ -402,6 +409,7 @@ impl FsEventWatcher {
         let context = Box::into_raw(Box::new(StreamContextInfo {
             event_handler: self.event_handler.clone(),
             recursive_info: self.recursive_info.clone(),
+            event_kinds: self.event_kinds,
         }));
 
         let stream_context = fs::FSEventStreamContext {
@@ -571,6 +579,10 @@ unsafe fn callback_impl(
         for ev in translate_flags(flag, true).into_iter() {
             // TODO: precise
             let ev = ev.add_path(path.clone());
+            // Filter events based on EventKindMask
+            if !(*info).event_kinds.matches(&ev.kind) {
+                continue; // Skip events that don't match the mask
+            }
             let mut event_handler = event_handler.lock().expect("lock not to be poisoned");
             event_handler.handle_event(Ok(ev));
         }
@@ -579,8 +591,8 @@ unsafe fn callback_impl(
 
 impl Watcher for FsEventWatcher {
     /// Create a new watcher.
-    fn new<F: EventHandler>(event_handler: F, _config: Config) -> Result<Self> {
-        Self::from_event_handler(Arc::new(Mutex::new(event_handler)))
+    fn new<F: EventHandler>(event_handler: F, config: Config) -> Result<Self> {
+        Self::from_event_handler(Arc::new(Mutex::new(event_handler)), config.event_kinds())
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
@@ -1072,6 +1084,53 @@ mod tests {
             expected(&nested8).create_folder(),
             expected(&nested9).create_folder(),
         ]);
+    }
+
+    #[test]
+    fn fsevent_watcher_respects_event_kind_mask() {
+        use crate::Watcher;
+        use notify_types::event::EventKindMask;
+
+        let tmpdir = testdir();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        // Create watcher with CREATE-only mask (no MODIFY events)
+        let config = Config::default().with_event_kinds(EventKindMask::CREATE);
+
+        let mut watcher = FsEventWatcher::new(tx, config).expect("create watcher");
+        watcher
+            .watch(tmpdir.path(), crate::RecursiveMode::Recursive)
+            .expect("watch");
+
+        let path = tmpdir.path().join("test_file");
+
+        // Create a file - should generate CREATE event
+        std::fs::File::create_new(&path).expect("create");
+
+        // Small delay to let events propagate
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Modify the file - should NOT generate event (filtered by mask)
+        std::fs::write(&path, "modified content").expect("write modified");
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Collect all events
+        let events: Vec<_> = rx.try_iter().filter_map(|r| r.ok()).collect();
+
+        // Should have CREATE event
+        assert!(
+            events.iter().any(|e| e.kind.is_create()),
+            "Expected CREATE event, got: {:?}",
+            events
+        );
+
+        // Should NOT have MODIFY event (filtered out)
+        assert!(
+            !events.iter().any(|e| e.kind.is_modify()),
+            "Should not receive MODIFY events with CREATE-only mask, got: {:?}",
+            events
+        );
     }
 
     // fsevents seems to not allow watching more than 4096 paths at once.
