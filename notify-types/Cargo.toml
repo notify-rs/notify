@@ -15,8 +15,10 @@ repository.workspace = true
 
 [features]
 serialization-compat-6 = []
+serde = ["dep:serde", "bitflags/serde"]
 
 [dependencies]
+bitflags = "2"
 serde = { workspace = true, optional = true }
 web-time = { workspace = true, optional = true }
 
