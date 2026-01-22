@@ -4,9 +4,10 @@
 - CHANGE: raise MSRV to 1.85 **breaking**
 - FIX: Fix the bug that `FsEventWatcher` crashes when dealing with empty path [#718]
 - FIX: Fix the bug that `INotifyWatcher` keeps watching deleted paths [#720]
-
+- FIX: Fixed ordering where `FsEventWatcher` emitted `Remove` events non-terminally [#747]
 [#718]: https://github.com/notify-rs/notify/pull/718
 [#720]: https://github.com/notify-rs/notify/pull/720
+[#747]: https://github.com/notify-rs/notify/pull/747
 
 ## notify 8.2.0 (2025-08-03)
 - FEATURE: notify user if inotify's `max_user_watches` has been reached [#698]

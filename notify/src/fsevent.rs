@@ -171,25 +171,6 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
         });
     }
 
-    if flags.contains(StreamFlags::ITEM_REMOVED) {
-        evs.push(if flags.contains(StreamFlags::IS_DIR) {
-            Event::new(EventKind::Remove(RemoveKind::Folder))
-        } else if flags.contains(StreamFlags::IS_FILE) {
-            Event::new(EventKind::Remove(RemoveKind::File))
-        } else {
-            let e = Event::new(EventKind::Remove(RemoveKind::Other));
-            if flags.contains(StreamFlags::IS_SYMLINK) {
-                e.set_info("is: symlink")
-            } else if flags.contains(StreamFlags::IS_HARDLINK) {
-                e.set_info("is: hardlink")
-            } else if flags.contains(StreamFlags::ITEM_CLONED) {
-                e.set_info("is: clone")
-            } else {
-                Event::new(EventKind::Remove(RemoveKind::Any))
-            }
-        });
-    }
-
     // FSEvents provides no mechanism to associate the old and new sides of a
     // rename event.
     if flags.contains(StreamFlags::ITEM_RENAMED) {
@@ -232,6 +213,25 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
         evs.push(Event::new(EventKind::Modify(ModifyKind::Data(
             DataChange::Content,
         ))));
+    }
+
+    if flags.contains(StreamFlags::ITEM_REMOVED) {
+        evs.push(if flags.contains(StreamFlags::IS_DIR) {
+            Event::new(EventKind::Remove(RemoveKind::Folder))
+        } else if flags.contains(StreamFlags::IS_FILE) {
+            Event::new(EventKind::Remove(RemoveKind::File))
+        } else {
+            let e = Event::new(EventKind::Remove(RemoveKind::Other));
+            if flags.contains(StreamFlags::IS_SYMLINK) {
+                e.set_info("is: symlink")
+            } else if flags.contains(StreamFlags::IS_HARDLINK) {
+                e.set_info("is: hardlink")
+            } else if flags.contains(StreamFlags::ITEM_CLONED) {
+                e.set_info("is: clone")
+            } else {
+                Event::new(EventKind::Remove(RemoveKind::Any))
+            }
+        });
     }
 
     if flags.contains(StreamFlags::OWN_EVENT) {
@@ -1150,5 +1150,33 @@ mod tests {
         }
         let result = paths.commit();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn rename_then_remove_remove_event_must_be_the_last_one() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        let new_path1 = tmpdir.path().join("renamed1");
+        let new_path2 = tmpdir.path().join("renamed2");
+
+        std::fs::rename(&path, &new_path1).expect("rename1");
+        std::fs::rename(&new_path1, &new_path2).expect("rename2");
+
+        std::fs::remove_file(&new_path2).expect("remove_file");
+
+        loop {
+            let ev = rx.recv();
+            if matches!(ev.kind, EventKind::Remove(RemoveKind::File)) {
+                assert_eq!(&ev.paths, &[new_path2]);
+                break;
+            }
+        }
+
+        rx.ensure_empty();
     }
 }
