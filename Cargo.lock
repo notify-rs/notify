@@ -254,7 +254,7 @@ version = "0.2.3"
 dependencies = [
  "serde",
  "tempfile",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -626,7 +626,7 @@ dependencies = [
  "tempfile",
  "trash",
  "walkdir",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
