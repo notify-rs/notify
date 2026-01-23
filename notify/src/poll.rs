@@ -743,6 +743,7 @@ mod tests {
         std::fs::File::create_new(&path).expect("Unable to create");
 
         rx.sleep_until_parent_contains(&path);
+        rx.sleep_until_exists(&path);
 
         watcher.watch_recursively(&tmpdir);
         std::fs::write(&path, b"123").expect("Unable to write");
@@ -762,6 +763,7 @@ mod tests {
         std::fs::File::create_new(&path).expect("Unable to create");
 
         rx.sleep_until_parent_contains(&path);
+        rx.sleep_until_exists(&path);
 
         watcher.watch_recursively(&tmpdir);
 
@@ -782,6 +784,7 @@ mod tests {
         std::fs::File::create_new(&path).expect("Unable to create");
 
         rx.sleep_until_parent_contains(&path);
+        rx.sleep_until_exists(&path);
 
         watcher.watch_recursively(&tmpdir);
 
