@@ -1,5 +1,17 @@
 # Changelog
 
+## debouncer-full 0.7.0 (2026-01-23)
+
+> [!IMPORTANT]
+> The MSRV policy has been changed since this release.
+> Check out README for details.
+
+- FEATURE: support wasm build [#673]
+- FIX: events within the timeout were not deduplicated, causing `event_handler` to be called multiple times for events that should have been merged [#711]
+
+[#673]: https://github.com/notify-rs/notify/pull/673
+[#711]: https://github.com/notify-rs/notify/pull/711
+
 ## debouncer-full 0.6.0 (2025-08-03)
 - FEATURE: allow `FileIdCache` trait implementations to choose ownership of the returned file-ids [#664]
 - FEATURE: added support for the [`flume`](https://docs.rs/flume) crate [#680]
