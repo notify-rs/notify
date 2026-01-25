@@ -1,5 +1,11 @@
 # Changelog
 
+## notify-types 2.1.0 (2026-01-25)
+
+- FEATURE: add `EventKindMask` for filtering filesystem events [#736]
+
+[#736]: https://github.com/notify-rs/notify/pull/736
+
 ## notify-types 2.0.0 (2025-01-10)
 
 - CHANGE: replace instant crate with web-time [#652] **breaking**

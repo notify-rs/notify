@@ -657,7 +657,7 @@ dependencies = [
 
 [[package]]
 name = "notify-types"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "bitflags 2.10.0",
  "insta",
