@@ -1,6 +1,6 @@
 [package]
 name = "notify-types"
-version = "2.0.0"
+version = "2.1.0"
 description = "Types used by the notify crate"
 documentation = "https://docs.rs/notify-types"
 readme = "../README.md"

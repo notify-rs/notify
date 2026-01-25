@@ -39,7 +39,7 @@ nix = "0.30.0"
 notify = { version = "9.0.0-rc.1", path = "notify" }
 notify-debouncer-full = { version = "0.7.0", path = "notify-debouncer-full" }
 notify-debouncer-mini = { version = "0.7.0", path = "notify-debouncer-mini" }
-notify-types = { version = "2.0.0", path = "notify-types" }
+notify-types = { version = "2.1.0", path = "notify-types" }
 pretty_assertions = "1.3.0"
 rand = "0.9.0"
 rstest = "0.26.0"
