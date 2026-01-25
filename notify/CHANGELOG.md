@@ -1,12 +1,26 @@
 # Changelog
 
 ## notify 9.0.0 (unreleased)
+
+## notify 9.0.0-rc.1 (2026-01-25)
+
+> [!IMPORTANT]
+> The MSRV policy has been changed since this release.
+> Check out README for details.
+
 - CHANGE: raise MSRV to 1.85 **breaking**
+- CHANGE: [macOS] replace `fsevent-sys` with `objc2-core-foundation` and `objc2-core-services` [#726]
+- FEATURE: add `EventKindMask` for filtering filesystem events [#736]
 - FIX: Fix the bug that `FsEventWatcher` crashes when dealing with empty path [#718]
 - FIX: Fix the bug that `INotifyWatcher` keeps watching deleted paths [#720]
 - FIX: Fixed ordering where `FsEventWatcher` emitted `Remove` events non-terminally [#747]
+- FIX: [macOS] throw `FsEventWatcher` stream start error properly [#733]
+
 [#718]: https://github.com/notify-rs/notify/pull/718
 [#720]: https://github.com/notify-rs/notify/pull/720
+[#726]: https://github.com/notify-rs/notify/pull/726
+[#733]: https://github.com/notify-rs/notify/pull/733
+[#736]: https://github.com/notify-rs/notify/pull/736
 [#747]: https://github.com/notify-rs/notify/pull/747
 
 ## notify 8.2.0 (2025-08-03)
