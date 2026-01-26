@@ -272,6 +272,20 @@ impl EventHandler for flume::Sender<Result<Event>> {
     }
 }
 
+#[cfg(feature = "futures")]
+impl EventHandler for futures::channel::mpsc::UnboundedSender<Result<Event>> {
+    fn handle_event(&mut self, event: Result<Event>) {
+        let _ = self.unbounded_send(event);
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl EventHandler for tokio::sync::mpsc::UnboundedSender<Result<Event>> {
+    fn handle_event(&mut self, event: Result<Event>) {
+        let _ = self.send(event);
+    }
+}
+
 impl EventHandler for std::sync::mpsc::Sender<Result<Event>> {
     fn handle_event(&mut self, event: Result<Event>) {
         let _ = self.send(event);
@@ -652,5 +666,48 @@ mod tests {
         std::fs::remove_file(&path).expect("remove");
 
         rx.wait_unordered([expected(path).remove()]);
+    }
+
+    #[cfg(feature = "futures")]
+    #[tokio::test]
+    async fn futures_unbounded_sender_as_handler() {
+        use crate::recommended_watcher;
+        use futures::StreamExt;
+
+        let tmpdir = testdir();
+        let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        let mut watcher = recommended_watcher(tx).unwrap();
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::NonRecursive)
+            .unwrap();
+
+        std::fs::create_dir(tmpdir.path().join("1")).unwrap();
+
+        tokio::time::timeout(Duration::from_secs(5), rx.next())
+            .await
+            .expect("timeout")
+            .expect("No event")
+            .expect("Error");
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn tokio_unbounded_sender_as_handler() {
+        use crate::recommended_watcher;
+
+        let tmpdir = testdir();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut watcher = recommended_watcher(tx).unwrap();
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::NonRecursive)
+            .unwrap();
+
+        std::fs::create_dir(tmpdir.path().join("1")).unwrap();
+
+        tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("timeout")
+            .expect("No event")
+            .expect("Error");
     }
 }
