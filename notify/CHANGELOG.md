@@ -15,6 +15,7 @@
 - FIX: Fix the bug that `INotifyWatcher` keeps watching deleted paths [#720]
 - FIX: Fixed ordering where `FsEventWatcher` emitted `Remove` events non-terminally [#747]
 - FIX: [macOS] throw `FsEventWatcher` stream start error properly [#733]
+- FEATURE: impl `EventHandler` for `futures::channel::mpsc::UnboundedSender` and `tokio::sync::mpsc::UnboundedSender` behind the `futures` and `tokio` feature flags [#767]
 
 [#718]: https://github.com/notify-rs/notify/pull/718
 [#720]: https://github.com/notify-rs/notify/pull/720
@@ -22,6 +23,7 @@
 [#733]: https://github.com/notify-rs/notify/pull/733
 [#736]: https://github.com/notify-rs/notify/pull/736
 [#747]: https://github.com/notify-rs/notify/pull/747
+[#767]: https://github.com/notify-rs/notify/pull/767
 
 ## notify 8.2.0 (2025-08-03)
 - FEATURE: notify user if inotify's `max_user_watches` has been reached [#698]

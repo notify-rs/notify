@@ -1,5 +1,11 @@
 # Changelog
 
+## debouncer-mini 0.7.1 (unreleased)
+
+- FEATURE: impl `EventHandler` for `futures::channel::mpsc::UnboundedSender` and `tokio::sync::mpsc::UnboundedSender` behind the `futures` and `tokio` feature flags [#767]
+
+[#767]: https://github.com/notify-rs/notify/pull/767
+
 ## debouncer-mini 0.7.0 (2025-08-03)
 - FEATURE: added support for the [`flume`](https://docs.rs/flume) crate [#680]
 
