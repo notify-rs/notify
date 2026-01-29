@@ -1,6 +1,7 @@
 #![allow(dead_code)] // not all helpers are used for all targets
 
 use std::{
+    collections::HashSet,
     fmt::Debug,
     ops::Deref,
     path::{Path, PathBuf},
@@ -10,6 +11,7 @@ use std::{
 };
 
 use notify_types::event::Event;
+use walkdir::WalkDir;
 
 use crate::{Config, Error, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher, WatcherKind};
 use pretty_assertions::assert_eq;
@@ -155,6 +157,39 @@ impl Receiver {
     #[must_use]
     pub fn sleep_until<F: FnMut() -> bool>(&self, check: F) -> bool {
         sleep_until(check, self.timeout)
+    }
+
+    pub fn sleep_until_walkdir_returns_set<Q>(
+        &self,
+        root: impl AsRef<Path>,
+        paths: impl IntoIterator<Item = Q>,
+    ) where
+        Q: AsRef<Path>,
+    {
+        let mut actual = HashSet::new();
+        let expected: HashSet<PathBuf> = paths
+            .into_iter()
+            .map(|p| p.as_ref().to_path_buf())
+            .collect();
+        let walkdir_set_eq = self.sleep_until(|| {
+            actual.clear();
+            WalkDir::new(root.as_ref())
+                .follow_links(true)
+                .min_depth(1)
+                .into_iter()
+                .filter_map(|v| v.ok())
+                .map(|v| v.into_path())
+                .for_each(|path| {
+                    actual.insert(path);
+                });
+
+            actual == expected
+        });
+
+        assert!(
+            walkdir_set_eq,
+            "Walkdir returns unexpected result: {actual:?}"
+        )
     }
 
     pub fn sleep_until_exists(&self, path: impl AsRef<Path>) {
