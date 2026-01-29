@@ -692,10 +692,6 @@ impl Drop for PollWatcher {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
-    use walkdir::WalkDir;
-
     use super::PollWatcher;
     use crate::test::*;
 
@@ -720,6 +716,7 @@ mod tests {
 
         rx.sleep_until_parent_contains(&path);
         rx.sleep_until_exists(&path);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
 
         rx.wait_ordered_exact([expected(&path).create_any()]);
     }
@@ -735,6 +732,7 @@ mod tests {
 
         rx.sleep_until_parent_contains(&path);
         rx.sleep_until_exists(&path);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
 
         rx.wait_ordered_exact([expected(&path).create_any()]);
     }
@@ -748,6 +746,7 @@ mod tests {
 
         rx.sleep_until_parent_contains(&path);
         rx.sleep_until_exists(&path);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
 
         watcher.watch_recursively(&tmpdir);
         std::fs::write(&path, b"123").expect("Unable to write");
@@ -768,6 +767,7 @@ mod tests {
 
         rx.sleep_until_parent_contains(&path);
         rx.sleep_until_exists(&path);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
 
         watcher.watch_recursively(&tmpdir);
 
@@ -775,6 +775,7 @@ mod tests {
 
         rx.sleep_while_exists(&path);
         rx.sleep_while_parent_contains(&path);
+        rx.sleep_until_walkdir_returns_set::<&str>(tmpdir.path(), []);
 
         rx.wait_ordered_exact([expected(&path).remove_any()]);
     }
@@ -789,6 +790,7 @@ mod tests {
 
         rx.sleep_until_parent_contains(&path);
         rx.sleep_until_exists(&path);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
 
         watcher.watch_recursively(&tmpdir);
 
@@ -800,24 +802,7 @@ mod tests {
         rx.sleep_while_parent_contains(&path);
         rx.sleep_until_parent_contains(&new_path);
 
-        let mut last_set = None;
-        let walkdir_set_eq = rx.sleep_until(|| {
-            let set = WalkDir::new(tmpdir.path())
-                .follow_links(true)
-                .min_depth(1)
-                .into_iter()
-                .filter_map(|v| v.ok())
-                .map(|v| v.into_path())
-                .collect::<HashSet<_>>();
-
-            let res = set == [new_path.clone()].into();
-            last_set = Some(set);
-            res
-        });
-        assert!(
-            walkdir_set_eq,
-            "According to walkdir the directory state is strange: {last_set:#?}"
-        );
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&new_path]);
 
         rx.wait_unordered_exact([
             expected(&path).remove_any(),
@@ -835,6 +820,7 @@ mod tests {
 
         rx.sleep_until_parent_contains(&overwritten_file);
         rx.sleep_until_exists(&overwritten_file);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [overwritten_file.clone()]);
 
         watcher.watch_nonrecursively(&tmpdir);
 
@@ -844,6 +830,7 @@ mod tests {
 
         rx.sleep_while_exists(&overwriting_file);
         rx.sleep_while_parent_contains(&overwriting_file);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [overwritten_file.clone()]);
 
         assert!(
             rx.sleep_until(
