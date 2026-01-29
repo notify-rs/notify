@@ -19,6 +19,7 @@ task:
         RUST_VERSION: 1.85
 
   setup_script:
+    - pkg install -y ca_root_nss
     - rm -f rust-toolchain.toml
     - curl https://sh.rustup.rs -sSf | sh -s -- -y --profile=minimal --default-toolchain ${RUST_VERSION}
     - . $HOME/.cargo/env
