@@ -994,7 +994,7 @@ mod tests {
             .expect("error");
     }
 
-    #[cfg(feature = "futures")]
+    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn tokio_unbounded_sender_as_handler() {
         let dir = tempdir().unwrap();
