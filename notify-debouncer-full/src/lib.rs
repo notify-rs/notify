@@ -95,7 +95,8 @@ pub use notify_types::debouncer_full::DebouncedEvent;
 use file_id::FileId;
 use notify::{
     event::{ModifyKind, RemoveKind, RenameMode},
-    Error, ErrorKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher, WatcherKind,
+    Error, ErrorKind, Event, EventKind, PathOp, RecommendedWatcher, RecursiveMode,
+    UpdatePathsError, Watcher, WatcherKind,
 };
 
 /// The set of requirements for watcher debounce event handling functions.
@@ -627,6 +628,56 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         Ok(())
     }
 
+    /// Add/remove paths to watch in batch.
+    ///
+    /// For some [`Watcher`] implementations this method provides better performance than multiple
+    /// calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use notify::{Watcher, RecursiveMode, PathOp};
+    /// # use notify_debouncer_full::{RecommendedCache, new_debouncer_opt};
+    /// # use std::path::{Path, PathBuf};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let mut debouncer = new_debouncer_opt::<_, notify::NullWatcher, _>(
+    /// #     std::time::Duration::from_secs(1),
+    /// #     None,
+    /// #     |e| {},
+    /// #     RecommendedCache::new(),
+    /// #     Default::default()
+    /// # )?;
+    /// debouncer.update_paths([
+    ///     PathOp::watch_recursive("path/to/file"),
+    ///     PathOp::unwatch("path/to/file2"),
+    /// ])?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn update_paths<Op: Into<PathOp>>(
+        &mut self,
+        ops: impl IntoIterator<Item = Op>,
+    ) -> std::result::Result<(), UpdatePathsError> {
+        //         timeout,
+        // tick_rate,
+        // event_handler,
+        // RecommendedCache::new(),
+        // notify::Config::default(),
+        let ops: Vec<_> = ops.into_iter().map(Into::into).collect();
+        let res = self.watcher.update_paths(ops.clone());
+        let updated_paths = match res.as_ref() {
+            Ok(()) => &ops[..],
+            Err(e) => &ops[..ops.len() - e.remaining.len()],
+        };
+        for op in updated_paths {
+            match op {
+                PathOp::Watch(path, config) => self.add_root(path, config.recursive_mode()),
+                PathOp::Unwatch(path) => self.remove_root(path),
+            }
+        }
+        res
+    }
+
     pub fn configure(&mut self, option: notify::Config) -> notify::Result<bool> {
         self.watcher.configure(option)
     }
@@ -1013,5 +1064,61 @@ mod tests {
             .expect("timeout")
             .expect("No event")
             .expect("error");
+    }
+
+    #[test]
+    fn update_paths() -> Result<(), Box<dyn std::error::Error>> {
+        let dir1 = tempdir()?;
+        let dir2 = tempdir()?;
+
+        // set up the watcher
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut debouncer = new_debouncer(Duration::from_millis(10), None, tx)?;
+        debouncer.update_paths([
+            PathOp::watch_recursive(dir1.path()),
+            PathOp::watch_recursive(dir2.path()),
+        ])?;
+
+        // create a new file
+        let file_path1 = dir1.path().join("file.txt");
+        let file_path2 = dir2.path().join("file.txt");
+        fs::write(&file_path1, b"Lorem ipsum1")?;
+        fs::write(&file_path2, b"Lorem ipsum1")?;
+
+        println!(
+            "waiting for events at {:?} and {:?}",
+            file_path1, file_path2
+        );
+
+        // wait for up to 10 seconds for the create event, ignore all other events
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut received = (false, false);
+        while deadline > Instant::now() {
+            let events = rx
+                .recv_timeout(deadline - Instant::now())
+                .expect("did not receive expected event")
+                .expect("received an error");
+
+            for event in events {
+                println!("event {event:?}");
+                if event.event.paths == vec![file_path1.clone()]
+                    || event.event.paths == vec![file_path1.canonicalize()?]
+                {
+                    received.0 = true;
+                }
+
+                if event.event.paths == vec![file_path2.clone()]
+                    || event.event.paths == vec![file_path2.canonicalize()?]
+                {
+                    received.1 = true;
+                }
+
+                if received == (true, true) {
+                    return Ok(());
+                }
+            }
+        }
+
+        panic!("did not receive expected event");
     }
 }

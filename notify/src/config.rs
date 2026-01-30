@@ -169,7 +169,7 @@ impl Default for Config {
 ///
 /// This contains some settings that may relate to only one specific backend,
 /// such as to correctly configure each backend regardless of what is selected during runtime.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WatchPathConfig {
     recursive_mode: RecursiveMode,
 }
@@ -195,7 +195,7 @@ impl WatchPathConfig {
 /// An operation to apply to a watcher
 ///
 /// See [`Watcher::update_paths`] for more information
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PathOp {
     /// Path should be watched
     Watch(PathBuf, WatchPathConfig),
