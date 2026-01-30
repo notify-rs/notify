@@ -547,6 +547,8 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_windows_trash_dir() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        use crate::recommended_watcher;
+
         let dir = tempdir()?;
         let child_dir = dir.path().join("child");
         fs::create_dir(&child_dir)?;
