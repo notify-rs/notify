@@ -1,7 +1,7 @@
 //! Configuration types
 
-use std::{path::PathBuf, time::Duration};
 use notify_types::event::EventKindMask;
+use std::{path::PathBuf, time::Duration};
 
 /// Indicates whether only the provided directory or its sub-directories as well should be watched
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]

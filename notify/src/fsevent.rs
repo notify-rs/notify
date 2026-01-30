@@ -15,7 +15,9 @@
 #![allow(non_upper_case_globals, dead_code)]
 
 use crate::{event::*, PathOp};
-use crate::{unbounded, Config, Error, EventHandler, EventKindMask, RecursiveMode, Result, Sender, Watcher};
+use crate::{
+    unbounded, Config, Error, EventHandler, EventKindMask, RecursiveMode, Result, Sender, Watcher,
+};
 use objc2_core_foundation as cf;
 use objc2_core_services as fs;
 use std::collections::HashMap;
@@ -261,32 +263,6 @@ unsafe extern "C-unwind" fn release_context(info: *const libc::c_void) {
     }
 }
 
-extern "C" {
-    /// Indicates whether the run loop is waiting for an event.
-    fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> cf::Boolean;
-}
-
-struct FsEventPathsMut<'a>(&'a mut FsEventWatcher);
-impl<'a> FsEventPathsMut<'a> {
-    fn new(watcher: &'a mut FsEventWatcher) -> Self {
-        watcher.stop();
-        Self(watcher)
-    }
-}
-impl PathsMut for FsEventPathsMut<'_> {
-    fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        self.0.append_path(path, recursive_mode)
-    }
-
-    fn remove(&mut self, path: &Path) -> Result<()> {
-        self.0.remove_path(path)
-    }
-
-    fn commit(self: Box<Self>) -> Result<()> {
-        self.0.run()
-    }
-}
-
 impl FsEventWatcher {
     fn from_event_handler(
         event_handler: Arc<Mutex<dyn EventHandler>>,
@@ -326,13 +302,19 @@ impl FsEventWatcher {
     ) -> crate::StdResult<(), crate::UpdatePathsError> {
         self.stop();
 
-        let result = crate::update_paths(ops, |op| match op {
+        let mut result = crate::update_paths(ops, |op| match op {
             crate::PathOp::Watch(path, config) => self.append_path(&path, config.recursive_mode()),
             crate::PathOp::Unwatch(path) => self.remove_path(&path),
         });
 
-        // ignore return error: may be empty path list
-        let _ = self.run();
+        self.run().map_err(|e| crate::UpdatePathsError {
+            source: e,
+            remaining: result
+                .as_mut()
+                .err()
+                .map(|v| std::mem::take(&mut v.remaining))
+                .unwrap_or_default(),
+        })?;
 
         result
     }
@@ -686,7 +668,7 @@ unsafe fn path_to_cfstring_ref(
 mod tests {
     use std::time::Duration;
 
-    use crate::ErrorKind;
+    use crate::{ErrorKind, WatchPathConfig};
 
     use super::*;
     use crate::test::*;
@@ -1162,15 +1144,18 @@ mod tests {
         let tmpdir = testdir();
         let (mut watcher, _rx) = watcher();
 
-        // use path_mut, otherwise it's too slow
-        let mut paths = watcher.watcher.paths_mut();
+        let mut paths = Vec::new();
+
         for i in 0..=4096 {
             let path = tmpdir.path().join(format!("dir_{i}/subdir"));
             std::fs::create_dir_all(&path).expect("create_dir");
-            paths.add(&path, RecursiveMode::NonRecursive).expect("add");
+            paths.push(PathOp::Watch(
+                path,
+                WatchPathConfig::new(RecursiveMode::NonRecursive),
+            ));
         }
-        let result = paths.commit();
-        assert!(result.is_err());
+
+        assert!(watcher.watcher.update_paths(paths).is_err());
     }
 
     #[test]

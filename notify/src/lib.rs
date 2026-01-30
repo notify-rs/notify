@@ -470,8 +470,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        Config, Error, ErrorKind, Event, NullWatcher, PollWatcher, RecommendedWatcher,
-        RecursiveMode, Result, Watcher, WatcherKind, PathOp, WatchPathConfig, StdResult
+        Config, Error, ErrorKind, Event, NullWatcher, PathOp, PollWatcher, RecommendedWatcher,
+        RecursiveMode, Result, StdResult, WatchPathConfig, Watcher, WatcherKind,
     };
     use crate::test::*;
 
