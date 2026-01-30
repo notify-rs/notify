@@ -9,6 +9,7 @@ use super::{Config, Error, ErrorKind, EventHandler, RecursiveMode, Result, Watch
 use crate::{bounded, unbounded, BoundSender, Receiver, Sender};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
+use notify_types::event::EventKindMask;
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;
@@ -21,6 +22,55 @@ use walkdir::WalkDir;
 
 const INOTIFY: mio::Token = mio::Token(0);
 const MESSAGE: mio::Token = mio::Token(1);
+
+/// Convert an EventKindMask to the corresponding inotify WatchMask.
+///
+/// When `is_recursive` is true, CREATE and MOVED_TO are always included
+/// to enable tracking of newly created subdirectories.
+fn event_kind_mask_to_watch_mask(mask: EventKindMask, is_recursive: bool) -> WatchMask {
+    let mut watch_mask = WatchMask::empty();
+
+    if is_recursive {
+        watch_mask |= WatchMask::CREATE | WatchMask::MOVED_TO;
+    }
+
+    if mask.intersects(EventKindMask::CREATE) {
+        watch_mask |= WatchMask::CREATE | WatchMask::MOVED_TO;
+    }
+
+    if mask.intersects(EventKindMask::REMOVE) {
+        watch_mask |= WatchMask::DELETE | WatchMask::MOVED_FROM;
+    }
+
+    if mask.intersects(EventKindMask::MODIFY_DATA) {
+        // Note: CLOSE_WRITE is intentionally NOT included here because it generates
+        // Access(Close(Write)) events, not Modify events. Users who want CLOSE_WRITE
+        // events should use ACCESS_CLOSE.
+        watch_mask |= WatchMask::MODIFY;
+    }
+
+    if mask.intersects(EventKindMask::MODIFY_META) {
+        watch_mask |= WatchMask::ATTRIB;
+    }
+
+    if mask.intersects(EventKindMask::MODIFY_NAME) {
+        watch_mask |= WatchMask::MOVE_SELF;
+    }
+
+    if mask.intersects(EventKindMask::ACCESS_OPEN) {
+        watch_mask |= WatchMask::OPEN;
+    }
+
+    if mask.intersects(EventKindMask::ACCESS_CLOSE) {
+        watch_mask |= WatchMask::CLOSE_WRITE;
+    }
+
+    if mask.intersects(EventKindMask::ACCESS_CLOSE_NOWRITE) {
+        watch_mask |= WatchMask::CLOSE_NOWRITE;
+    }
+
+    watch_mask
+}
 
 // The EventLoop will set up a mio::Poll and use it to wait for the following:
 //
@@ -41,6 +91,7 @@ struct EventLoop {
     paths: HashMap<WatchDescriptor, PathBuf>,
     rename_event: Option<Event>,
     follow_links: bool,
+    event_kind_mask: EventKindMask,
 }
 
 /// Watcher implementation based on inotify
@@ -90,7 +141,7 @@ impl EventLoop {
     pub fn new(
         inotify: Inotify,
         event_handler: Box<dyn EventHandler>,
-        follow_links: bool,
+        config: &Config,
     ) -> Result<Self> {
         let (event_loop_tx, event_loop_rx) = unbounded::<EventLoopMsg>();
         let poll = mio::Poll::new()?;
@@ -113,7 +164,8 @@ impl EventLoop {
             watches: HashMap::new(),
             paths: HashMap::new(),
             rename_event: None,
-            follow_links,
+            follow_links: config.follow_symlinks(),
+            event_kind_mask: config.event_kinds(),
         };
         Ok(event_loop)
     }
@@ -355,8 +407,11 @@ impl EventLoop {
                                 );
                             }
 
+                            // Filter events based on EventKindMask before delivery
                             for ev in evs {
-                                self.event_handler.handle_event(Ok(ev));
+                                if self.event_kind_mask.matches(&ev.kind) {
+                                    self.event_handler.handle_event(Ok(ev));
+                                }
                             }
                         }
 
@@ -377,7 +432,9 @@ impl EventLoop {
         }
 
         for path in remove_watches {
-            self.remove_watch(path, true).ok();
+            if let Err(err) = self.remove_watch(path, true) {
+                log::warn!("Unable to remove the path from the watches: {err:?}");
+            }
         }
 
         for path in add_watches {
@@ -422,14 +479,8 @@ impl EventLoop {
         is_recursive: bool,
         watch_self: bool,
     ) -> Result<()> {
-        let mut watchmask = WatchMask::ATTRIB
-            | WatchMask::CREATE
-            | WatchMask::OPEN
-            | WatchMask::DELETE
-            | WatchMask::CLOSE_WRITE
-            | WatchMask::MODIFY
-            | WatchMask::MOVED_FROM
-            | WatchMask::MOVED_TO;
+        // Build watch mask from configured event kinds for kernel-level filtering
+        let mut watchmask = event_kind_mask_to_watch_mask(self.event_kind_mask, is_recursive);
 
         if watch_self {
             watchmask.insert(WatchMask::DELETE_SELF);
@@ -476,20 +527,16 @@ impl EventLoop {
             Some((w, _, is_recursive, _)) => {
                 if let Some(ref mut inotify) = self.inotify {
                     let mut inotify_watches = inotify.watches();
-                    log::trace!("removing inotify watch: {}", path.display());
+                    log::trace!("removing inotify watch for {path:?}, remove_recursive: {remove_recursive:?}");
 
-                    inotify_watches
-                        .remove(w.clone())
-                        .map_err(|e| Error::io(e).add_path(path.clone()))?;
+                    Self::remove_single_descriptor(&mut inotify_watches, w.clone());
                     self.paths.remove(&w);
 
                     if is_recursive || remove_recursive {
                         let mut remove_list = Vec::new();
                         for (w, p) in &self.paths {
                             if p.starts_with(&path) {
-                                inotify_watches
-                                    .remove(w.clone())
-                                    .map_err(|e| Error::io(e).add_path(p.into()))?;
+                                Self::remove_single_descriptor(&mut inotify_watches, w.clone());
                                 self.watches.remove(p);
                                 remove_list.push(w.clone());
                             }
@@ -502,6 +549,34 @@ impl EventLoop {
             }
         }
         Ok(())
+    }
+
+    /// As long as we use the `inotify` crate its behaviour is specified by the documentation of
+    /// a [`inotify::Watches::remove`] method:
+    /// ```text
+    /// Directly returns the error from the call to [inotify_rm_watch].
+    /// Returns an [io::Error] with [ErrorKind]::InvalidInput,
+    /// if the given WatchDescriptor did not originate from this [Inotify] instance.
+    /// ```
+    ///
+    /// inotify documentation says, that `inotify_rm_watch` may fail with two specific errors:
+    /// * EBADF - fd is not a valid file descriptor.
+    /// * EINVAL - The watch descriptor wd is not valid or fd is not an inotify file descriptor.
+    ///
+    /// Therefore, we can ignore this errors (and log it), because
+    /// * in the case, when we are removing a watch because of an caught `DELETE` or `DELETE_SELF` event we want the
+    ///   path to be not watched, and in error cases it's already done (unknown file descriptor == it is not watched)
+    /// * in the case, when user is trying to remove the watch, they can do nothing with that kind of an error,
+    ///   it's totally internal. BUT, if there are no "strange" states (like races between user call and internal call,
+    ///   when internal inotify file descriptor has already been invalidated, but the event still hasn't been handled)
+    ///   they will get an [`ErrorKind::WatchNotFound`] error and can deal with it
+    ///
+    /// Log level is info, because it is not a "real" error. Expectedly, it may occurred only by race condition
+    /// (like described above), in other cases it is a bug (but we aren't able to distinguish that states)
+    fn remove_single_descriptor(watches: &mut inotify::Watches, wd: WatchDescriptor) {
+        if let Err(err) = watches.remove(wd) {
+            log::info!("unable to remove watch descriptor from inotify: {err:?}");
+        }
     }
 
     fn remove_all_watches(&mut self) -> Result<()> {
@@ -532,12 +607,9 @@ fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry
 }
 
 impl INotifyWatcher {
-    fn from_event_handler(
-        event_handler: Box<dyn EventHandler>,
-        follow_links: bool,
-    ) -> Result<Self> {
+    fn from_event_handler(event_handler: Box<dyn EventHandler>, config: &Config) -> Result<Self> {
         let inotify = Inotify::init()?;
-        let event_loop = EventLoop::new(inotify, event_handler, follow_links)?;
+        let event_loop = EventLoop::new(inotify, event_handler, config)?;
         let channel = event_loop.event_loop_tx.clone();
         let waker = event_loop.event_loop_waker.clone();
         event_loop.run();
@@ -580,7 +652,7 @@ impl INotifyWatcher {
 impl Watcher for INotifyWatcher {
     /// Create a new watcher.
     fn new<F: EventHandler>(event_handler: F, config: Config) -> Result<Self> {
-        Self::from_event_handler(Box::new(event_handler), config.follow_symlinks())
+        Self::from_event_handler(Box::new(event_handler), &config)
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
@@ -614,11 +686,33 @@ impl Drop for INotifyWatcher {
 #[cfg(test)]
 mod tests {
     use std::{
-        sync::{atomic::AtomicBool, mpsc},
-        thread::available_parallelism,
+        path::{Path, PathBuf},
+        sync::{atomic::AtomicBool, mpsc, Arc},
+        thread::{self, available_parallelism},
+        time::Duration,
     };
 
-    use super::*;
+    use super::inotify_sys::WatchMask;
+    use super::{
+        Config, Error, ErrorKind, Event, EventKind, INotifyWatcher, RecursiveMode, Result, Watcher,
+    };
+    use notify_types::event::EventKindMask;
+
+    use crate::test::*;
+
+    fn watcher() -> (TestWatcher<INotifyWatcher>, Receiver) {
+        channel()
+    }
+
+    /// Create a watcher configured to receive ALL events including Access events.
+    /// Use this for tests that verify Access event behavior.
+    fn watcher_with_all_events() -> (TestWatcher<INotifyWatcher>, Receiver) {
+        channel_with_config(
+            ChannelConfig::default()
+                .with_timeout(std::time::Duration::from_secs(1))
+                .with_watcher_config(Config::default().with_event_kinds(EventKindMask::ALL)),
+        )
+    }
 
     #[test]
     fn inotify_watcher_is_send_and_sync() {
@@ -709,6 +803,8 @@ mod tests {
     fn race_condition_on_unwatch_and_pending_events_with_deleted_descriptor() {
         let tmpdir = tempfile::tempdir().expect("tmpdir");
         let (tx, rx) = mpsc::channel();
+        // Use CORE to exclude access events - the parallel threads opening files
+        // would otherwise flood the queue with OPEN events causing Rescan
         let mut inotify = INotifyWatcher::new(
             move |e: Result<Event>| {
                 let e = match e {
@@ -717,7 +813,7 @@ mod tests {
                 };
                 let _ = tx.send(e);
             },
-            Config::default(),
+            Config::default().with_event_kinds(EventKindMask::CORE),
         )
         .expect("inotify creation");
 
@@ -761,5 +857,739 @@ mod tests {
             "expected no events without path, but got {events_len}. first 10: {:#?}",
             &events[..LOG_LEN.min(events_len)]
         );
+    }
+
+    /// https://github.com/notify-rs/notify/issues/709
+    #[test]
+    fn remove_a_subdir_in_a_recursively_watched_parent() {
+        let tmpdir = tempfile::tempdir().expect("tmpdir");
+        let subdirectory_path_1 = tmpdir.path().join("subdir");
+        let subdirectory_path_2 = subdirectory_path_1.join("nested");
+        std::fs::create_dir(&subdirectory_path_1).expect("unable to create a subdir");
+        std::fs::create_dir(&subdirectory_path_2).expect("unable to create a nested dir");
+
+        let mut watcher =
+            INotifyWatcher::new(|_| (), Config::default()).expect("unable to create watcher");
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::Recursive)
+            .expect("unable to watch");
+        std::fs::remove_dir_all(&subdirectory_path_1).expect("unable to remove a subdir");
+        let unwatch_result = watcher.unwatch(tmpdir.path());
+
+        assert!(
+            matches!(unwatch_result, Ok(())),
+            "error: {unwatch_result:#?}"
+        );
+    }
+
+    #[test]
+    fn create_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher_with_all_events();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
+            expected(&path).create_file(),
+            expected(&path).access_open_any(),
+            expected(&path).access_close_write(),
+        ]);
+    }
+
+    #[test]
+    fn write_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher_with_all_events();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::write(&path, b"123").expect("write");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
+            expected(&path).access_open_any(),
+            expected(&path).modify_data_any().multiple(),
+            expected(&path).access_close_write(),
+        ]);
+    }
+
+    #[test]
+    fn chmod_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        let file = std::fs::File::create_new(&path).expect("create");
+        let mut permissions = file.metadata().expect("metadata").permissions();
+        permissions.set_readonly(true);
+
+        watcher.watch_recursively(&tmpdir);
+        file.set_permissions(permissions).expect("set_permissions");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([expected(&path).modify_meta_any()]);
+    }
+
+    #[test]
+    fn rename_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        let new_path = tmpdir.path().join("renamed");
+
+        std::fs::rename(&path, &new_path).expect("rename");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
+            expected(&path).rename_from(),
+            expected(&new_path).rename_to(),
+            expected([path, new_path]).rename_both(),
+        ])
+        .ensure_trackers_len(1);
+    }
+
+    #[test]
+    fn delete_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let file = tmpdir.path().join("file");
+        std::fs::write(&file, "").expect("write");
+
+        watcher.watch_nonrecursively(&tmpdir);
+
+        std::fs::remove_file(&file).expect("remove");
+
+        rx.wait_ordered_exact([expected(&file).remove_file()]);
+    }
+
+    #[test]
+    fn delete_self_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let file = tmpdir.path().join("file");
+        std::fs::write(&file, "").expect("write");
+
+        watcher.watch_nonrecursively(&file);
+
+        std::fs::remove_file(&file).expect("remove");
+
+        rx.wait_ordered_exact([
+            expected(&file).modify_meta_any(),
+            expected(&file).remove_file(),
+        ]);
+    }
+
+    #[test]
+    fn create_write_overwrite() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher_with_all_events();
+        let overwritten_file = tmpdir.path().join("overwritten_file");
+        let overwriting_file = tmpdir.path().join("overwriting_file");
+        std::fs::write(&overwritten_file, "123").expect("write1");
+
+        watcher.watch_nonrecursively(&tmpdir);
+
+        std::fs::File::create(&overwriting_file).expect("create");
+        std::fs::write(&overwriting_file, "321").expect("write2");
+        std::fs::rename(&overwriting_file, &overwritten_file).expect("rename");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
+            expected(&overwriting_file).create_file(),
+            expected(&overwriting_file).access_open_any(),
+            expected(&overwriting_file).access_close_write(),
+            expected(&overwriting_file).access_open_any(),
+            expected(&overwriting_file).modify_data_any().multiple(),
+            expected(&overwriting_file).access_close_write(),
+            expected(&overwriting_file).rename_from(),
+            expected(&overwritten_file).rename_to(),
+            expected([overwriting_file, overwritten_file]).rename_both(),
+        ])
+        .ensure_trackers_len(1);
+    }
+
+    #[test]
+    fn create_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("create");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([expected(&path).create_folder()]);
+    }
+
+    #[test]
+    fn chmod_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("create_dir");
+        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
+        permissions.set_readonly(true);
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::set_permissions(&path, permissions).expect("set_permissions");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
+            expected(&path).access_open_any().optional(),
+            expected(&path).modify_meta_any(),
+            expected(&path).modify_meta_any(),
+        ]);
+    }
+
+    #[test]
+    fn rename_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        let new_path = tmpdir.path().join("new_path");
+        std::fs::create_dir(&path).expect("create_dir");
+
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::rename(&path, &new_path).expect("rename");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
+            expected(&path).access_open_any().optional(),
+            expected(&path).rename_from(),
+            expected(&new_path).rename_to(),
+            expected([path, new_path]).rename_both(),
+        ])
+        .ensure_trackers_len(1);
+    }
+
+    #[test]
+    fn delete_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("create_dir");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::remove_dir(&path).expect("remove");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
+            expected(&path).access_open_any().optional(),
+            expected(&path).remove_folder(),
+        ]);
+    }
+
+    #[test]
+    fn rename_dir_twice() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        let new_path = tmpdir.path().join("new_path");
+        let new_path2 = tmpdir.path().join("new_path2");
+        std::fs::create_dir(&path).expect("create_dir");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::rename(&path, &new_path).expect("rename");
+        std::fs::rename(&new_path, &new_path2).expect("rename2");
+
+        // Use wait_ordered (not _exact) because we may get extra events
+        // due to directory traversal/rescan on rename
+        rx.wait_ordered([
+            expected(&path).access_open_any().optional(),
+            expected(&path).rename_from(),
+            expected(&new_path).rename_to(),
+            expected([&path, &new_path]).rename_both(),
+            expected(&new_path).access_open_any().optional(),
+            expected(&new_path).rename_from(),
+            expected(&new_path2).rename_to(),
+            expected([&new_path, &new_path2]).rename_both(),
+        ])
+        .ensure_trackers_len(2);
+    }
+
+    #[test]
+    fn move_out_of_watched_dir() {
+        let tmpdir = testdir();
+        let subdir = tmpdir.path().join("subdir");
+        let (mut watcher, mut rx) = watcher();
+
+        let path = subdir.join("entry");
+        std::fs::create_dir_all(&subdir).expect("create_dir_all");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&subdir);
+        let new_path = tmpdir.path().join("entry");
+
+        std::fs::rename(&path, &new_path).expect("rename");
+
+        // With ALL events, we may get Access events on the directory.
+        // Skip Access events to find the rename event.
+        let event = loop {
+            let event = rx.recv();
+            if !matches!(event.kind, EventKind::Access(_)) {
+                break event;
+            }
+        };
+        let tracker = event.attrs.tracker();
+        assert_eq!(event, expected(&path).rename_from());
+        assert!(tracker.is_some(), "tracker is none: {event:#?}");
+    }
+
+    #[test]
+    fn create_write_write_rename_write_remove() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher_with_all_events();
+
+        let file1 = tmpdir.path().join("entry");
+        let file2 = tmpdir.path().join("entry2");
+        std::fs::File::create_new(&file2).expect("create file2");
+        let new_path = tmpdir.path().join("renamed");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::write(&file1, "123").expect("write 1");
+        std::fs::write(&file2, "321").expect("write 2");
+        std::fs::rename(&file1, &new_path).expect("rename");
+        std::fs::write(&new_path, b"1").expect("write 3");
+        std::fs::remove_file(&new_path).expect("remove");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
+            expected(&file1).create_file(),
+            expected(&file1).access_open_any(),
+            expected(&file1).modify_data_any().multiple(),
+            expected(&file1).access_close_write(),
+            expected(&file2).access_open_any(),
+            expected(&file2).modify_data_any().multiple(),
+            expected(&file2).access_close_write(),
+            expected(&file1).access_open_any().optional(),
+            expected(&file1).rename_from(),
+            expected(&new_path).rename_to(),
+            expected([&file1, &new_path]).rename_both(),
+            expected(&new_path).access_open_any(),
+            expected(&new_path).modify_data_any().multiple(),
+            expected(&new_path).access_close_write(),
+            expected(&new_path).remove_file(),
+        ]);
+    }
+
+    #[test]
+    fn rename_twice() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        let new_path1 = tmpdir.path().join("renamed1");
+        let new_path2 = tmpdir.path().join("renamed2");
+
+        std::fs::rename(&path, &new_path1).expect("rename1");
+        std::fs::rename(&new_path1, &new_path2).expect("rename2");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
+            expected(&path).access_open_any().optional(),
+            expected(&path).rename_from(),
+            expected(&new_path1).rename_to(),
+            expected([&path, &new_path1]).rename_both(),
+            expected(&new_path1).access_open_any().optional(),
+            expected(&new_path1).rename_from(),
+            expected(&new_path2).rename_to(),
+            expected([&new_path1, &new_path2]).rename_both(),
+        ])
+        .ensure_trackers_len(2);
+    }
+
+    #[test]
+    fn set_file_mtime() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        let file = std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+
+        file.set_modified(
+            std::time::SystemTime::now()
+                .checked_sub(Duration::from_secs(60 * 60))
+                .expect("time"),
+        )
+        .expect("set_time");
+
+        // With ALL events, we may get Access events on the directory.
+        // Skip Access events to find the modify event.
+        let event = loop {
+            let event = rx.recv();
+            if !matches!(event.kind, EventKind::Access(_)) {
+                break event;
+            }
+        };
+        assert_eq!(event, expected(&path).modify_data_any());
+    }
+
+    #[test]
+    fn write_file_non_recursive_watch() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher_with_all_events();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_nonrecursively(&path);
+
+        std::fs::write(&path, b"123").expect("write");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
+            expected(&path).access_open_any(),
+            expected(&path).modify_data_any().multiple(),
+            expected(&path).access_close_write(),
+        ]);
+    }
+
+    #[test]
+    fn watch_recursively_then_unwatch_child_stops_events_from_child() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher_with_all_events();
+
+        let subdir = tmpdir.path().join("subdir");
+        let file = subdir.join("file");
+        std::fs::create_dir(&subdir).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::File::create(&file).expect("create");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
+            expected(&subdir).access_open_any().optional(),
+            expected(&file).create_file(),
+            expected(&file).access_open_any(),
+            expected(&file).access_close_write(),
+        ]);
+
+        watcher.watcher.unwatch(&subdir).expect("unwatch");
+
+        std::fs::write(&file, b"123").expect("write");
+
+        std::fs::remove_dir_all(&subdir).expect("remove_dir_all");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
+            expected(&subdir).access_open_any().optional(),
+            expected(&subdir).remove_folder(),
+        ]);
+    }
+
+    #[test]
+    fn write_to_a_hardlink_pointed_to_the_watched_file_triggers_an_event() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher_with_all_events();
+
+        let subdir = tmpdir.path().join("subdir");
+        let file = subdir.join("file");
+        let hardlink = tmpdir.path().join("hardlink");
+
+        std::fs::create_dir(&subdir).expect("create");
+        std::fs::write(&file, "").expect("file");
+        std::fs::hard_link(&file, &hardlink).expect("hardlink");
+
+        watcher.watch_nonrecursively(&file);
+
+        std::fs::write(&hardlink, "123123").expect("write to the hard link");
+
+        // Use wait_ordered (not _exact) because with ALL events we may get
+        // directory access events that are timing-dependent
+        rx.wait_ordered([
+            expected(&file).access_open_any(),
+            expected(&file).modify_data_any().multiple(),
+            expected(&file).access_close_write(),
+        ]);
+    }
+
+    #[test]
+    fn write_to_a_hardlink_pointed_to_the_file_in_the_watched_dir_doesnt_trigger_an_event() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let subdir = tmpdir.path().join("subdir");
+        let file = subdir.join("file");
+        let hardlink = tmpdir.path().join("hardlink");
+
+        std::fs::create_dir(&subdir).expect("create");
+        std::fs::write(&file, "").expect("file");
+        std::fs::hard_link(&file, &hardlink).expect("hardlink");
+
+        watcher.watch_nonrecursively(&subdir);
+
+        std::fs::write(&hardlink, "123123").expect("write to the hard link");
+
+        // With ALL events, we may get Access events on the watched directory.
+        // Filter those out - we only care about non-Access events on the file.
+        let events: Vec<_> = rx
+            .iter()
+            .filter(|e| !matches!(e.kind, EventKind::Access(_)))
+            .collect();
+        assert!(events.is_empty(), "unexpected events: {events:#?}");
+    }
+
+    #[test]
+    #[ignore = "see https://github.com/notify-rs/notify/issues/727"]
+    fn recursive_creation() {
+        let tmpdir = testdir();
+        let nested1 = tmpdir.path().join("1");
+        let nested2 = tmpdir.path().join("1/2");
+        let nested3 = tmpdir.path().join("1/2/3");
+        let nested4 = tmpdir.path().join("1/2/3/4");
+        let nested5 = tmpdir.path().join("1/2/3/4/5");
+        let nested6 = tmpdir.path().join("1/2/3/4/5/6");
+        let nested7 = tmpdir.path().join("1/2/3/4/5/6/7");
+        let nested8 = tmpdir.path().join("1/2/3/4/5/6/7/8");
+        let nested9 = tmpdir.path().join("1/2/3/4/5/6/7/8/9");
+
+        let (mut watcher, mut rx) = watcher();
+
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::create_dir_all(&nested9).expect("create_dir_all");
+        rx.wait_ordered([
+            expected(&nested1).create_folder(),
+            expected(&nested2).create_folder(),
+            expected(&nested3).create_folder(),
+            expected(&nested4).create_folder(),
+            expected(&nested5).create_folder(),
+            expected(&nested6).create_folder(),
+            expected(&nested7).create_folder(),
+            expected(&nested8).create_folder(),
+            expected(&nested9).create_folder(),
+        ]);
+    }
+
+    // ============================================================
+    // EventKindMask filtering tests
+    // ============================================================
+
+    /// Test that CORE config does not produce Access events.
+    #[test]
+    fn event_kind_mask_core_config_no_access_events() {
+        let tmpdir = testdir();
+        // Use explicit CORE mask to exclude access events
+        let (mut watcher, mut rx) = channel_with_config::<INotifyWatcher>(
+            ChannelConfig::default()
+                .with_timeout(std::time::Duration::from_secs(1))
+                .with_watcher_config(Config::default().with_event_kinds(EventKindMask::CORE)),
+        );
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        // With CORE config, we should only get create event, no access events
+        rx.wait_ordered_exact([expected(&path).create_file()])
+            .ensure_no_tail();
+    }
+
+    /// Test that EventKindMask::ALL config produces Access events.
+    #[test]
+    fn event_kind_mask_all_config_produces_access_events() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher_with_all_events();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        // With ALL config, we should get create + access events
+        // Use wait_ordered (not _exact) because we may get directory access events too
+        rx.wait_ordered([
+            expected(&path).create_file(),
+            expected(&path).access_open_any(),
+            expected(&path).access_close_write(),
+        ]);
+    }
+
+    /// Test that CREATE | REMOVE only mask filters out Modify events.
+    #[test]
+    fn event_kind_mask_create_remove_only_no_modify() {
+        let tmpdir = testdir();
+        let mask = EventKindMask::CREATE | EventKindMask::REMOVE;
+        let (mut watcher, mut rx) = channel_with_config::<INotifyWatcher>(
+            ChannelConfig::default()
+                .with_timeout(std::time::Duration::from_secs(1))
+                .with_watcher_config(Config::default().with_event_kinds(mask)),
+        );
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::write(&path, b"123").expect("write");
+
+        // With CREATE | REMOVE mask, we should only get create event, no modify events
+        rx.wait_ordered_exact([expected(&path).create_file()])
+            .ensure_no_tail();
+    }
+
+    /// Test unit tests for event_kind_mask_to_watch_mask helper function.
+    #[test]
+    fn event_kind_mask_to_watch_mask_core() {
+        use super::event_kind_mask_to_watch_mask;
+
+        let mask = EventKindMask::CORE;
+        let watch_mask = event_kind_mask_to_watch_mask(mask, false);
+
+        // CORE includes CREATE, REMOVE, MODIFY_DATA, MODIFY_META, MODIFY_NAME
+        assert!(watch_mask.intersects(WatchMask::CREATE));
+        assert!(watch_mask.intersects(WatchMask::MOVED_TO));
+        assert!(watch_mask.intersects(WatchMask::DELETE));
+        assert!(watch_mask.intersects(WatchMask::MOVED_FROM));
+        assert!(watch_mask.intersects(WatchMask::MODIFY));
+        assert!(watch_mask.intersects(WatchMask::ATTRIB));
+        assert!(watch_mask.intersects(WatchMask::MOVE_SELF));
+
+        // CORE does NOT include ACCESS (OPEN, CLOSE_WRITE, CLOSE_NOWRITE)
+        // Note: CLOSE_WRITE generates Access events, not Modify events
+        assert!(!watch_mask.intersects(WatchMask::OPEN));
+        assert!(!watch_mask.intersects(WatchMask::CLOSE_WRITE));
+        assert!(!watch_mask.intersects(WatchMask::CLOSE_NOWRITE));
+    }
+
+    #[test]
+    fn event_kind_mask_to_watch_mask_all() {
+        use super::event_kind_mask_to_watch_mask;
+
+        let mask = EventKindMask::ALL;
+        let watch_mask = event_kind_mask_to_watch_mask(mask, false);
+
+        // ALL includes everything from CORE plus ACCESS
+        assert!(watch_mask.intersects(WatchMask::OPEN));
+        assert!(watch_mask.intersects(WatchMask::CLOSE_WRITE));
+        assert!(watch_mask.intersects(WatchMask::CLOSE_NOWRITE));
+    }
+
+    #[test]
+    fn event_kind_mask_to_watch_mask_empty() {
+        use super::event_kind_mask_to_watch_mask;
+
+        let mask = EventKindMask::empty();
+        let watch_mask = event_kind_mask_to_watch_mask(mask, false);
+
+        // Empty mask should produce empty watch mask
+        assert!(watch_mask.is_empty());
+    }
+
+    #[test]
+    fn event_kind_mask_to_watch_mask_access_only() {
+        use super::event_kind_mask_to_watch_mask;
+
+        // ACCESS_CLOSE only maps to CLOSE_WRITE (not CLOSE_NOWRITE)
+        let mask = EventKindMask::ACCESS_OPEN | EventKindMask::ACCESS_CLOSE;
+        let watch_mask = event_kind_mask_to_watch_mask(mask, false);
+
+        assert!(watch_mask.intersects(WatchMask::OPEN));
+        assert!(watch_mask.intersects(WatchMask::CLOSE_WRITE));
+        assert!(!watch_mask.intersects(WatchMask::CLOSE_NOWRITE));
+
+        // Should NOT have create/modify/remove
+        assert!(!watch_mask.intersects(WatchMask::CREATE));
+        assert!(!watch_mask.intersects(WatchMask::DELETE));
+        assert!(!watch_mask.intersects(WatchMask::MODIFY));
+        assert!(!watch_mask.intersects(WatchMask::ATTRIB));
+    }
+
+    #[test]
+    fn event_kind_mask_to_watch_mask_all_access() {
+        use super::event_kind_mask_to_watch_mask;
+
+        // ALL_ACCESS includes OPEN, CLOSE_WRITE, and CLOSE_NOWRITE
+        let mask = EventKindMask::ALL_ACCESS;
+        let watch_mask = event_kind_mask_to_watch_mask(mask, false);
+
+        assert!(watch_mask.intersects(WatchMask::OPEN));
+        assert!(watch_mask.intersects(WatchMask::CLOSE_WRITE));
+        assert!(watch_mask.intersects(WatchMask::CLOSE_NOWRITE));
+    }
+
+    #[test]
+    fn event_kind_mask_to_watch_mask_recursive_includes_create() {
+        use super::event_kind_mask_to_watch_mask;
+
+        // Recursive mode includes CREATE|MOVED_TO even without CREATE in mask
+        let watch_mask = event_kind_mask_to_watch_mask(EventKindMask::MODIFY_DATA, true);
+        assert!(watch_mask.intersects(WatchMask::CREATE));
+        assert!(watch_mask.intersects(WatchMask::MOVED_TO));
+        assert!(watch_mask.intersects(WatchMask::MODIFY));
+
+        // Empty mask with recursive still includes CREATE|MOVED_TO
+        let watch_mask = event_kind_mask_to_watch_mask(EventKindMask::empty(), true);
+        assert!(watch_mask.intersects(WatchMask::CREATE));
+        assert!(watch_mask.intersects(WatchMask::MOVED_TO));
+        assert!(!watch_mask.intersects(WatchMask::MODIFY));
+
+        // Non-recursive mode does not include CREATE when not requested
+        let watch_mask = event_kind_mask_to_watch_mask(EventKindMask::MODIFY_DATA, false);
+        assert!(!watch_mask.intersects(WatchMask::CREATE));
+        assert!(!watch_mask.intersects(WatchMask::MOVED_TO));
+        assert!(watch_mask.intersects(WatchMask::MODIFY));
+    }
+
+    /// Recursive watches with MODIFY-only mask still track new subdirectories.
+    #[test]
+    fn recursive_watch_tracks_subdirs_without_create_mask() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = channel_with_config::<INotifyWatcher>(
+            ChannelConfig::default()
+                .with_timeout(std::time::Duration::from_secs(2))
+                .with_watcher_config(
+                    Config::default().with_event_kinds(EventKindMask::MODIFY_DATA),
+                ),
+        );
+        watcher.watch_recursively(&tmpdir);
+
+        let subdir = tmpdir.path().join("subdir");
+        std::fs::create_dir(&subdir).expect("create subdir");
+
+        // Wait for watch to be added on new subdirectory
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        let file_path = subdir.join("file.txt");
+        let mut file = std::fs::File::create_new(&file_path).expect("create file");
+
+        use std::io::Write;
+        file.write_all(b"hello").expect("write");
+        file.flush().expect("flush");
+        drop(file);
+
+        // Receives MODIFY from subdir (tracking works), no CREATE events (filtered)
+        rx.wait_ordered_exact([expected(&file_path).modify_data()])
+            .ensure_no_tail();
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "notify-debouncer-full"
-version = "0.6.0"
+version = "0.7.0"
 description = "notify event debouncer optimized for ease of use"
 documentation = "https://docs.rs/notify-debouncer-full"
 authors = ["Daniel Faust <hessijames@gmail.com>"]
@@ -21,12 +21,16 @@ flume = ["dep:flume", "notify/flume"]
 macos_fsevent = ["notify/macos_fsevent"]
 macos_kqueue = ["notify/macos_kqueue"]
 serialization-compat-6 = ["notify/serialization-compat-6"]
+tokio = ["dep:tokio"]
+futures = ["dep:futures"]
 
 [dependencies]
 notify.workspace = true
 notify-types.workspace = true
 crossbeam-channel = { workspace = true, optional = true }
 flume = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
 file-id.workspace = true
 walkdir.workspace = true
 log.workspace = true
@@ -38,3 +42,4 @@ serde.workspace = true
 deser-hjson.workspace = true
 rand.workspace = true
 tempfile.workspace = true
+tokio = { workspace = true, default-features = true, features = ["time", "rt", "macros"] }

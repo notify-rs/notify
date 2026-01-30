@@ -66,6 +66,7 @@ mod data {
         event::{CreateKind, DataChange, Event, EventKind, MetadataKind, ModifyKind, RemoveKind},
         EventHandler,
     };
+    use notify_types::event::EventKindMask;
     use std::{
         cell::RefCell,
         collections::{hash_map::RandomState, HashMap},
@@ -105,6 +106,7 @@ mod data {
             event_handler: F,
             compare_content: bool,
             scan_emitter: Option<G>,
+            event_kinds: EventKindMask,
         ) -> Self
         where
             F: EventHandler,
@@ -120,7 +122,7 @@ mod data {
                 }
             };
             Self {
-                emitter: EventEmitter::new(event_handler),
+                emitter: EventEmitter::new(event_handler, event_kinds),
                 scan_emitter,
                 build_hasher: compare_content.then(RandomState::default),
                 now: Instant::now(),
@@ -295,6 +297,7 @@ mod data {
                     Ok(entry) => Some(entry),
                     Err(err) => {
                         log::warn!("walkdir error scanning {err:?}");
+
                         if let Some(io_error) = err.io_error() {
                             // clone an io::Error, so we have to create a new one.
                             let new_io_error = io::Error::new(io_error.kind(), err.to_string());
@@ -459,25 +462,33 @@ mod data {
     }
 
     /// Thin wrapper for outer event handler, for easy to use.
-    struct EventEmitter(
+    struct EventEmitter {
         // Use `RefCell` to make sure `emit()` only need shared borrow of self (&self).
         // Use `Box` to make sure EventEmitter is Sized.
-        Box<RefCell<dyn EventHandler>>,
-    );
+        handler: Box<RefCell<dyn EventHandler>>,
+        /// Event kind filter - only events matching this mask are emitted.
+        event_kinds: EventKindMask,
+    }
 
     impl EventEmitter {
-        fn new<F: EventHandler>(event_handler: F) -> Self {
-            Self(Box::new(RefCell::new(event_handler)))
+        fn new<F: EventHandler>(event_handler: F, event_kinds: EventKindMask) -> Self {
+            Self {
+                handler: Box::new(RefCell::new(event_handler)),
+                event_kinds,
+            }
         }
 
-        /// Emit single event.
+        /// Emit single event (errors always pass through).
         fn emit(&self, event: crate::Result<Event>) {
-            self.0.borrow_mut().handle_event(event);
+            self.handler.borrow_mut().handle_event(event);
         }
 
-        /// Emit event.
+        /// Emit event, filtered by event_kinds mask.
         fn emit_ok(&self, event: Event) {
-            self.emit(Ok(event))
+            // Only emit if the event kind matches the configured mask
+            if self.event_kinds.matches(&event.kind) {
+                self.emit(Ok(event))
+            }
         }
 
         /// Emit io error event.
@@ -528,6 +539,12 @@ impl PollWatcher {
         Ok(())
     }
 
+    /// Returns a sender to initiate changes detection.
+    #[cfg(test)]
+    pub(crate) fn poll_sender(&self) -> Sender<()> {
+        self.message_channel.clone()
+    }
+
     /// Create a new [`PollWatcher`] with an scan event handler.
     ///
     /// `scan_fallback` is called on the initial scan with all files seen by the pollwatcher.
@@ -545,8 +562,12 @@ impl PollWatcher {
         config: Config,
         scan_callback: Option<G>,
     ) -> crate::Result<PollWatcher> {
-        let data_builder =
-            DataBuilder::new(event_handler, config.compare_contents(), scan_callback);
+        let data_builder = DataBuilder::new(
+            event_handler,
+            config.compare_contents(),
+            scan_callback,
+            config.event_kinds(),
+        );
 
         let (tx, rx) = unbounded();
 
@@ -669,8 +690,208 @@ impl Drop for PollWatcher {
     }
 }
 
-#[test]
-fn poll_watcher_is_send_and_sync() {
-    fn check<T: Send + Sync>() {}
-    check::<PollWatcher>();
+#[cfg(test)]
+mod tests {
+    use super::PollWatcher;
+    use crate::test::*;
+
+    fn watcher() -> (TestWatcher<PollWatcher>, Receiver) {
+        poll_watcher_channel()
+    }
+
+    #[test]
+    fn poll_watcher_is_send_and_sync() {
+        fn check<T: Send + Sync>() {}
+        check::<PollWatcher>();
+    }
+
+    #[test]
+    fn create_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("Unable to create");
+
+        rx.sleep_until_parent_contains(&path);
+        rx.sleep_until_exists(&path);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
+
+        rx.wait_ordered_exact([expected(&path).create_any()]);
+    }
+
+    #[test]
+    fn create_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("Unable to create");
+
+        rx.sleep_until_parent_contains(&path);
+        rx.sleep_until_exists(&path);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
+
+        rx.wait_ordered_exact([expected(&path).create_any()]);
+    }
+
+    #[test]
+    fn modify_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("Unable to create");
+
+        rx.sleep_until_parent_contains(&path);
+        rx.sleep_until_exists(&path);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::write(&path, b"123").expect("Unable to write");
+
+        assert!(
+            rx.sleep_until(|| std::fs::read_to_string(&path).is_ok_and(|content| content == "123")),
+            "the file wasn't modified"
+        );
+        rx.wait_ordered_exact([expected(&path).modify_data_any()]);
+    }
+
+    #[test]
+    fn remove_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("Unable to create");
+
+        rx.sleep_until_parent_contains(&path);
+        rx.sleep_until_exists(&path);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
+
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::remove_file(&path).expect("Unable to remove");
+
+        rx.sleep_while_exists(&path);
+        rx.sleep_while_parent_contains(&path);
+        rx.sleep_until_walkdir_returns_set::<&str>(tmpdir.path(), []);
+
+        rx.wait_ordered_exact([expected(&path).remove_any()]);
+    }
+
+    #[test]
+    fn rename_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let path = tmpdir.path().join("entry");
+        let new_path = tmpdir.path().join("new_entry");
+        std::fs::File::create_new(&path).expect("Unable to create");
+
+        rx.sleep_until_parent_contains(&path);
+        rx.sleep_until_exists(&path);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
+
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::rename(&path, &new_path).expect("Unable to remove");
+
+        rx.sleep_while_exists(&path);
+        rx.sleep_until_exists(&new_path);
+
+        rx.sleep_while_parent_contains(&path);
+        rx.sleep_until_parent_contains(&new_path);
+
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&new_path]);
+
+        rx.wait_unordered_exact([
+            expected(&path).remove_any(),
+            expected(&new_path).create_any(),
+        ]);
+    }
+
+    #[test]
+    fn create_write_overwrite() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let overwritten_file = tmpdir.path().join("overwritten_file");
+        let overwriting_file = tmpdir.path().join("overwriting_file");
+        std::fs::write(&overwritten_file, "123").expect("write1");
+
+        rx.sleep_until_parent_contains(&overwritten_file);
+        rx.sleep_until_exists(&overwritten_file);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [overwritten_file.clone()]);
+
+        watcher.watch_nonrecursively(&tmpdir);
+
+        std::fs::File::create(&overwriting_file).expect("create");
+        std::fs::write(&overwriting_file, "321").expect("write2");
+        std::fs::rename(&overwriting_file, &overwritten_file).expect("rename");
+
+        rx.sleep_while_exists(&overwriting_file);
+        rx.sleep_while_parent_contains(&overwriting_file);
+        rx.sleep_until_walkdir_returns_set(tmpdir.path(), [overwritten_file.clone()]);
+
+        assert!(
+            rx.sleep_until(
+                || std::fs::read_to_string(&overwritten_file).is_ok_and(|cnt| cnt == "321")
+            ),
+            "file {overwritten_file:?} was not replaced"
+        );
+
+        rx.wait_unordered([expected(&overwritten_file).modify_data_any()]);
+    }
+
+    #[test]
+    fn poll_watcher_respects_event_kind_mask() {
+        use crate::{Config, Watcher};
+        use notify_types::event::EventKindMask;
+        use std::time::Duration;
+
+        let tmpdir = testdir();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        // Create watcher with CREATE-only mask (no MODIFY events)
+        let config = Config::default()
+            .with_event_kinds(EventKindMask::CREATE)
+            .with_compare_contents(true)
+            .with_manual_polling();
+
+        let mut watcher = PollWatcher::new(tx, config).expect("create watcher");
+        watcher
+            .watch(tmpdir.path(), crate::RecursiveMode::Recursive)
+            .expect("watch");
+
+        let path = tmpdir.path().join("test_file");
+
+        // Create a file - should generate CREATE event
+        std::fs::write(&path, "initial").expect("write initial");
+        watcher.poll().expect("poll 1");
+
+        // Wait for CREATE event (use blocking recv with timeout)
+        let event = rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("should receive CREATE event")
+            .expect("event should not be an error");
+        assert!(
+            event.kind.is_create(),
+            "Expected CREATE event, got: {:?}",
+            event
+        );
+
+        // Modify the file - should NOT generate event (filtered by mask)
+        std::fs::write(&path, "modified content").expect("write modified");
+        watcher.poll().expect("poll 2");
+
+        // Give poll thread time to process, then verify no MODIFY events
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Should have no more events (MODIFY was filtered out)
+        let remaining: Vec<_> = rx.try_iter().filter_map(|r| r.ok()).collect();
+        assert!(
+            !remaining.iter().any(|e| e.kind.is_modify()),
+            "Should not receive MODIFY events with CREATE-only mask, got: {:?}",
+            remaining
+        );
+    }
 }

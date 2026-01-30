@@ -12,7 +12,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify-debouncer-full = "0.5.0"
+//! notify-debouncer-full = "0.7.0"
 //! ```
 //!
 //! In case you want to select specific features of notify,
@@ -20,7 +20,7 @@
 //! Otherwise you can just use the re-export of notify from debouncer-full.
 //!
 //! ```toml
-//! notify-debouncer-full = "0.5.0"
+//! notify-debouncer-full = "0.7.0"
 //! notify = { version = "..", features = [".."] }
 //! ```
 //!
@@ -67,6 +67,9 @@ mod time;
 #[cfg(test)]
 mod testing;
 
+#[cfg(not(target_family = "wasm"))]
+mod file_id_map;
+
 use std::{
     cmp::Reverse,
     collections::{BinaryHeap, HashMap, VecDeque},
@@ -80,7 +83,10 @@ use std::{
 
 use time::now;
 
-pub use cache::{FileIdCache, FileIdMap, NoCache, RecommendedCache};
+pub use cache::{FileIdCache, NoCache, RecommendedCache};
+
+#[cfg(not(target_family = "wasm"))]
+pub use file_id_map::FileIdMap;
 
 pub use file_id;
 pub use notify;
@@ -135,6 +141,20 @@ impl DebounceEventHandler for crossbeam_channel::Sender<DebounceEventResult> {
 
 #[cfg(feature = "flume")]
 impl DebounceEventHandler for flume::Sender<DebounceEventResult> {
+    fn handle_event(&mut self, event: DebounceEventResult) {
+        let _ = self.send(event);
+    }
+}
+
+#[cfg(feature = "futures")]
+impl DebounceEventHandler for futures::channel::mpsc::UnboundedSender<DebounceEventResult> {
+    fn handle_event(&mut self, event: DebounceEventResult) {
+        let _ = self.unbounded_send(event);
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl DebounceEventHandler for tokio::sync::mpsc::UnboundedSender<DebounceEventResult> {
     fn handle_event(&mut self, event: DebounceEventResult) {
         let _ = self.send(event);
     }
@@ -949,5 +969,49 @@ mod tests {
         }
 
         panic!("did not receive expected event");
+    }
+
+    #[cfg(feature = "futures")]
+    #[tokio::test]
+    async fn futures_unbounded_sender_as_handler() {
+        use futures::StreamExt;
+
+        let dir = tempdir().unwrap();
+
+        let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        let mut debouncer = new_debouncer(Duration::from_millis(10), None, tx).unwrap();
+        debouncer
+            .watch(dir.path(), RecursiveMode::Recursive)
+            .unwrap();
+
+        let file_path = dir.path().join("file.txt");
+        fs::write(&file_path, b"Lorem ipsum").unwrap();
+
+        tokio::time::timeout(Duration::from_secs(10), rx.next())
+            .await
+            .expect("timeout")
+            .expect("No event")
+            .expect("error");
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn tokio_unbounded_sender_as_handler() {
+        let dir = tempdir().unwrap();
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut debouncer = new_debouncer(Duration::from_millis(10), None, tx).unwrap();
+        debouncer
+            .watch(dir.path(), RecursiveMode::Recursive)
+            .unwrap();
+
+        let file_path = dir.path().join("file.txt");
+        fs::write(&file_path, b"Lorem ipsum").unwrap();
+
+        tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("timeout")
+            .expect("No event")
+            .expect("error");
     }
 }

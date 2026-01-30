@@ -1,5 +1,5 @@
 freebsd_instance:
-  image_family: freebsd-14-2
+  image_family: freebsd-14-3
 
 env:
   CARGO_TERM_COLOR: always
@@ -8,17 +8,18 @@ env:
 task:
   name: FreeBSD
   matrix:
-    - name: FreeBSD 14.0 - Rust stable
+    - name: FreeBSD 14.3 - Rust stable
       env:
         RUST_VERSION: stable
-    - name: FreeBSD 14.0 - Rust nightly
+    - name: FreeBSD 14.3 - Rust nightly
       env:
         RUST_VERSION: nightly
-    - name: FreeBSD 14.0 - Rust 1.82 (MSRV)
+    - name: FreeBSD 14.3 - Rust 1.85 (MSRV)
       env:
-        RUST_VERSION: 1.82
+        RUST_VERSION: 1.85
 
   setup_script:
+    - pkg install -y ca_root_nss
     - rm -f rust-toolchain.toml
     - curl https://sh.rustup.rs -sSf | sh -s -- -y --profile=minimal --default-toolchain ${RUST_VERSION}
     - . $HOME/.cargo/env

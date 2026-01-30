@@ -15,15 +15,14 @@
 #![allow(non_upper_case_globals, dead_code)]
 
 use crate::{event::*, PathOp};
-use crate::{unbounded, Config, Error, EventHandler, RecursiveMode, Result, Sender, Watcher};
-use fsevent_sys as fs;
-use fsevent_sys::core_foundation as cf;
+use crate::{unbounded, Config, Error, EventHandler, EventKindMask, RecursiveMode, Result, Sender, Watcher};
+use objc2_core_foundation as cf;
+use objc2_core_services as fs;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fmt;
-use std::os::raw;
 use std::path::{Path, PathBuf};
-use std::ptr;
+use std::ptr::{self, NonNull};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -60,13 +59,14 @@ bitflags::bitflags! {
 
 /// FSEvents-based `Watcher` implementation
 pub struct FsEventWatcher {
-    paths: cf::CFMutableArrayRef,
+    paths: cf::CFRetained<cf::CFMutableArray<cf::CFString>>,
     since_when: fs::FSEventStreamEventId,
     latency: cf::CFTimeInterval,
     flags: fs::FSEventStreamCreateFlags,
     event_handler: Arc<Mutex<dyn EventHandler>>,
-    runloop: Option<(cf::CFRunLoopRef, thread::JoinHandle<()>)>,
+    runloop: Option<(cf::CFRetained<cf::CFRunLoop>, thread::JoinHandle<()>)>,
     recursive_info: HashMap<PathBuf, bool>,
+    event_kinds: EventKindMask,
 }
 
 impl fmt::Debug for FsEventWatcher {
@@ -83,8 +83,8 @@ impl fmt::Debug for FsEventWatcher {
     }
 }
 
-// CFMutableArrayRef is a type alias to *mut libc::c_void, so FsEventWatcher is not Send/Sync
-// automatically. It's Send because the pointer is not used in other threads.
+// FsEventWatcher is not Send/Sync automatically.
+// It's Send because the pointer is not used in other threads.
 unsafe impl Send for FsEventWatcher {}
 
 // It's Sync because all methods that change the mutable state use `&mut self`.
@@ -168,25 +168,6 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
         });
     }
 
-    if flags.contains(StreamFlags::ITEM_REMOVED) {
-        evs.push(if flags.contains(StreamFlags::IS_DIR) {
-            Event::new(EventKind::Remove(RemoveKind::Folder))
-        } else if flags.contains(StreamFlags::IS_FILE) {
-            Event::new(EventKind::Remove(RemoveKind::File))
-        } else {
-            let e = Event::new(EventKind::Remove(RemoveKind::Other));
-            if flags.contains(StreamFlags::IS_SYMLINK) {
-                e.set_info("is: symlink")
-            } else if flags.contains(StreamFlags::IS_HARDLINK) {
-                e.set_info("is: hardlink")
-            } else if flags.contains(StreamFlags::ITEM_CLONED) {
-                e.set_info("is: clone")
-            } else {
-                Event::new(EventKind::Remove(RemoveKind::Any))
-            }
-        });
-    }
-
     // FSEvents provides no mechanism to associate the old and new sides of a
     // rename event.
     if flags.contains(StreamFlags::ITEM_RENAMED) {
@@ -231,6 +212,25 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
         ))));
     }
 
+    if flags.contains(StreamFlags::ITEM_REMOVED) {
+        evs.push(if flags.contains(StreamFlags::IS_DIR) {
+            Event::new(EventKind::Remove(RemoveKind::Folder))
+        } else if flags.contains(StreamFlags::IS_FILE) {
+            Event::new(EventKind::Remove(RemoveKind::File))
+        } else {
+            let e = Event::new(EventKind::Remove(RemoveKind::Other));
+            if flags.contains(StreamFlags::IS_SYMLINK) {
+                e.set_info("is: symlink")
+            } else if flags.contains(StreamFlags::IS_HARDLINK) {
+                e.set_info("is: hardlink")
+            } else if flags.contains(StreamFlags::ITEM_CLONED) {
+                e.set_info("is: clone")
+            } else {
+                Event::new(EventKind::Remove(RemoveKind::Any))
+            }
+        });
+    }
+
     if flags.contains(StreamFlags::OWN_EVENT) {
         for ev in &mut evs {
             *ev = std::mem::take(ev).set_process_id(std::process::id());
@@ -243,10 +243,11 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
 struct StreamContextInfo {
     event_handler: Arc<Mutex<dyn EventHandler>>,
     recursive_info: HashMap<PathBuf, bool>,
+    event_kinds: EventKindMask,
 }
 
 // Free the context when the stream created by `FSEventStreamCreate` is released.
-extern "C" fn release_context(info: *const libc::c_void) {
+unsafe extern "C-unwind" fn release_context(info: *const libc::c_void) {
     // Safety:
     // - The [documentation] for `FSEventStreamContext` states that `release` is only
     //   called when the stream is deallocated, so it is safe to convert `info` back into a
@@ -265,34 +266,57 @@ extern "C" {
     fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> cf::Boolean;
 }
 
+struct FsEventPathsMut<'a>(&'a mut FsEventWatcher);
+impl<'a> FsEventPathsMut<'a> {
+    fn new(watcher: &'a mut FsEventWatcher) -> Self {
+        watcher.stop();
+        Self(watcher)
+    }
+}
+impl PathsMut for FsEventPathsMut<'_> {
+    fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.0.append_path(path, recursive_mode)
+    }
+
+    fn remove(&mut self, path: &Path) -> Result<()> {
+        self.0.remove_path(path)
+    }
+
+    fn commit(self: Box<Self>) -> Result<()> {
+        self.0.run()
+    }
+}
+
 impl FsEventWatcher {
-    fn from_event_handler(event_handler: Arc<Mutex<dyn EventHandler>>) -> Result<Self> {
+    fn from_event_handler(
+        event_handler: Arc<Mutex<dyn EventHandler>>,
+        event_kinds: EventKindMask,
+    ) -> Result<Self> {
         Ok(FsEventWatcher {
-            paths: unsafe {
-                cf::CFArrayCreateMutable(cf::kCFAllocatorDefault, 0, &cf::kCFTypeArrayCallBacks)
-            },
+            paths: cf::CFMutableArray::empty(),
             since_when: fs::kFSEventStreamEventIdSinceNow,
             latency: 0.0,
-            flags: fs::kFSEventStreamCreateFlagFileEvents | fs::kFSEventStreamCreateFlagNoDefer,
+            flags: fs::kFSEventStreamCreateFlagFileEvents
+                | fs::kFSEventStreamCreateFlagNoDefer
+                | fs::kFSEventStreamCreateFlagWatchRoot,
             event_handler,
             runloop: None,
             recursive_info: HashMap::new(),
+            event_kinds,
         })
     }
 
     fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
         self.stop();
         let result = self.append_path(path, recursive_mode);
-        // ignore return error: may be empty path list
-        let _ = self.run();
+        self.run()?;
         result
     }
 
     fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
         self.stop();
         let result = self.remove_path(path);
-        // ignore return error: may be empty path list
-        let _ = self.run();
+        self.run()?;
         result
     }
 
@@ -324,15 +348,11 @@ impl FsEventWatcher {
         }
 
         if let Some((runloop, thread_handle)) = self.runloop.take() {
-            unsafe {
-                let runloop = runloop as *mut raw::c_void;
-
-                while CFRunLoopIsWaiting(runloop) == 0 {
-                    thread::yield_now();
-                }
-
-                cf::CFRunLoopStop(runloop);
+            while !runloop.is_waiting() {
+                thread::yield_now();
             }
+
+            runloop.stop();
 
             // Wait for the thread to shut down.
             thread_handle.join().expect("thread to shut down");
@@ -340,33 +360,31 @@ impl FsEventWatcher {
     }
 
     fn remove_path(&mut self, path: &Path) -> Result<()> {
-        let str_path = path.to_str().unwrap();
-        unsafe {
-            let mut err: cf::CFErrorRef = ptr::null_mut();
-            let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
-            if cf_path.is_null() {
-                if !err.is_null() {
-                    cf::CFRelease(err as cf::CFRef);
-                }
-                return Err(Error::watch_not_found().add_path(path.into()));
+        let mut err: *mut cf::CFError = ptr::null_mut();
+        let Some(cf_path) = (unsafe { path_to_cfstring_ref(path, &mut err) }) else {
+            if let Some(err) = NonNull::new(err) {
+                let _ = unsafe { cf::CFRetained::from_raw(err) };
             }
+            return Err(Error::watch_not_found().add_path(path.into()));
+        };
 
-            let mut to_remove = Vec::new();
-            for idx in 0..cf::CFArrayGetCount(self.paths) {
-                let item = cf::CFArrayGetValueAtIndex(self.paths, idx);
-                if cf::CFStringCompare(item, cf_path, cf::kCFCompareCaseInsensitive)
-                    == cf::kCFCompareEqualTo
-                {
-                    to_remove.push(idx);
-                }
-            }
-
-            cf::CFRelease(cf_path);
-
-            for idx in to_remove.iter().rev() {
-                cf::CFArrayRemoveValueAtIndex(self.paths, *idx);
+        let mut to_remove = Vec::new();
+        for (idx, item) in self.paths.iter().enumerate() {
+            if item.compare(
+                Some(&cf_path),
+                cf::CFStringCompareFlags::CompareCaseInsensitive,
+            ) == cf::CFComparisonResult::CompareEqualTo
+            {
+                to_remove.push(idx as cf::CFIndex);
             }
         }
+
+        for idx in to_remove.iter().rev() {
+            unsafe {
+                cf::CFMutableArray::remove_value_at_index(Some(self.paths.as_opaque()), *idx)
+            };
+        }
+
         let p = if let Ok(canonicalized_path) = path.canonicalize() {
             canonicalized_path
         } else {
@@ -384,28 +402,25 @@ impl FsEventWatcher {
             return Err(Error::path_not_found().add_path(path.into()));
         }
         let canonical_path = path.to_path_buf().canonicalize()?;
-        let str_path = path.to_str().unwrap();
-        unsafe {
-            let mut err: cf::CFErrorRef = ptr::null_mut();
-            let cf_path = cf::str_path_to_cfstring_ref(str_path, &mut err);
-            if cf_path.is_null() {
-                // Most likely the directory was deleted, or permissions changed,
-                // while the above code was running.
-                cf::CFRelease(err as cf::CFRef);
-                return Err(Error::path_not_found().add_path(path.into()));
+        let mut err: *mut cf::CFError = ptr::null_mut();
+        let Some(cf_path) = (unsafe { path_to_cfstring_ref(path, &mut err) }) else {
+            if let Some(err) = NonNull::new(err) {
+                let _ = unsafe { cf::CFRetained::from_raw(err) };
             }
-            cf::CFArrayAppendValue(self.paths, cf_path);
-            cf::CFRelease(cf_path);
-        }
+            // Most likely the directory was deleted, or permissions changed,
+            // while the above code was running.
+            return Err(Error::path_not_found().add_path(path.into()));
+        };
+        self.paths.append(&cf_path);
+
         self.recursive_info
             .insert(canonical_path, recursive_mode.is_recursive());
         Ok(())
     }
 
     fn run(&mut self) -> Result<()> {
-        if unsafe { cf::CFArrayGetCount(self.paths) } == 0 {
-            // TODO: Reconstruct and add paths to error
-            return Err(Error::path_not_found());
+        if self.paths.is_empty() {
+            return Ok(());
         }
 
         // We need to associate the stream context with our callback in order to propagate events
@@ -415,6 +430,7 @@ impl FsEventWatcher {
         let context = Box::into_raw(Box::new(StreamContextInfo {
             event_handler: self.event_handler.clone(),
             recursive_info: self.recursive_info.clone(),
+            event_kinds: self.event_kinds,
         }));
 
         let stream_context = fs::FSEventStreamContext {
@@ -422,31 +438,38 @@ impl FsEventWatcher {
             info: context as *mut libc::c_void,
             retain: None,
             release: Some(release_context),
-            copy_description: None,
+            copyDescription: None,
         };
 
         let stream = unsafe {
             fs::FSEventStreamCreate(
                 cf::kCFAllocatorDefault,
-                callback,
-                &stream_context,
-                self.paths,
+                Some(callback),
+                &stream_context as *const _ as *mut _,
+                self.paths.as_opaque(),
                 self.since_when,
                 self.latency,
                 self.flags,
             )
         };
 
-        // Wrapper to help send CFRef types across threads.
-        struct CFSendWrapper(cf::CFRef);
+        // Wrapper to help send CFRunLoop types across threads.
+        struct CFRunLoopSendWrapper(cf::CFRetained<cf::CFRunLoop>);
 
         // Safety:
-        // - According to the Apple documentation, it's safe to move `CFRef`s across threads.
+        // - According to the Apple documentation, it's safe to move `CFRunLoop`s across threads.
         //   https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/ThreadSafetySummary/ThreadSafetySummary.html
-        unsafe impl Send for CFSendWrapper {}
+        unsafe impl Send for CFRunLoopSendWrapper {}
+
+        // Wrapper to help send FSEventStreamRef types across threads.
+        struct FSEventStreamSendWrapper(fs::FSEventStreamRef);
+
+        // TODO: Write docs for the safety of this impl.
+        // SAFETY: Unclear?
+        unsafe impl Send for FSEventStreamSendWrapper {}
 
         // move into thread
-        let stream = CFSendWrapper(stream);
+        let stream = FSEventStreamSendWrapper(stream);
 
         // channel to pass runloop around
         let (rl_tx, rl_rx) = unbounded();
@@ -458,21 +481,33 @@ impl FsEventWatcher {
                 let stream = stream.0;
 
                 unsafe {
-                    let cur_runloop = cf::CFRunLoopGetCurrent();
+                    // Safety:
+                    // This may panic if OOM occurs.
+                    // Related: https://github.com/madsmtm/objc2/issues/797
+                    let cur_runloop =
+                        cf::CFRunLoop::current().expect("Failed to get current runloop");
 
+                    #[allow(deprecated)]
                     fs::FSEventStreamScheduleWithRunLoop(
                         stream,
-                        cur_runloop,
-                        cf::kCFRunLoopDefaultMode,
+                        &cur_runloop,
+                        cf::kCFRunLoopDefaultMode.expect("Failed to get default runloop mode"),
                     );
-                    fs::FSEventStreamStart(stream);
+                    if !fs::FSEventStreamStart(stream) {
+                        fs::FSEventStreamInvalidate(stream);
+                        fs::FSEventStreamRelease(stream);
+                        rl_tx
+                            .send(Err(Error::generic("unable to start FSEvent stream")))
+                            .expect("Unable to send error for FSEventStreamStart");
+                        return;
+                    }
 
                     // the calling to CFRunLoopRun will be terminated by CFRunLoopStop call in drop()
                     rl_tx
-                        .send(CFSendWrapper(cur_runloop))
+                        .send(Ok(CFRunLoopSendWrapper(cur_runloop)))
                         .expect("Unable to send runloop to watcher");
 
-                    cf::CFRunLoopRun();
+                    cf::CFRunLoop::run();
                     fs::FSEventStreamStop(stream);
                     // There are edge-cases, when many events are pending,
                     // despite the stream being stopped, that the stream's
@@ -486,7 +521,8 @@ impl FsEventWatcher {
                 }
             })?;
         // block until runloop has been sent
-        self.runloop = Some((rl_rx.recv().unwrap().0, thread_handle));
+        let runloop_wrapper = rl_rx.recv().unwrap()?;
+        self.runloop = Some((runloop_wrapper.0, thread_handle));
 
         Ok(())
     }
@@ -497,13 +533,13 @@ impl FsEventWatcher {
     }
 }
 
-extern "C" fn callback(
-    stream_ref: fs::FSEventStreamRef,
+unsafe extern "C-unwind" fn callback(
+    stream_ref: fs::ConstFSEventStreamRef,
     info: *mut libc::c_void,
-    num_events: libc::size_t,                        // size_t numEvents
-    event_paths: *mut libc::c_void,                  // void *eventPaths
-    event_flags: *const fs::FSEventStreamEventFlags, // const FSEventStreamEventFlags eventFlags[]
-    event_ids: *const fs::FSEventStreamEventId,      // const FSEventStreamEventId eventIds[]
+    num_events: libc::size_t,                          // size_t numEvents
+    event_paths: NonNull<libc::c_void>,                // void *eventPaths
+    event_flags: NonNull<fs::FSEventStreamEventFlags>, // const FSEventStreamEventFlags eventFlags[]
+    event_ids: NonNull<fs::FSEventStreamEventId>,      // const FSEventStreamEventId eventIds[]
 ) {
     unsafe {
         callback_impl(
@@ -518,14 +554,14 @@ extern "C" fn callback(
 }
 
 unsafe fn callback_impl(
-    _stream_ref: fs::FSEventStreamRef,
+    _stream_ref: fs::ConstFSEventStreamRef,
     info: *mut libc::c_void,
-    num_events: libc::size_t,                        // size_t numEvents
-    event_paths: *mut libc::c_void,                  // void *eventPaths
-    event_flags: *const fs::FSEventStreamEventFlags, // const FSEventStreamEventFlags eventFlags[]
-    _event_ids: *const fs::FSEventStreamEventId,     // const FSEventStreamEventId eventIds[]
+    num_events: libc::size_t,                          // size_t numEvents
+    event_paths: NonNull<libc::c_void>,                // void *eventPaths
+    event_flags: NonNull<fs::FSEventStreamEventFlags>, // const FSEventStreamEventFlags eventFlags[]
+    _event_ids: NonNull<fs::FSEventStreamEventId>,     // const FSEventStreamEventId eventIds[]
 ) {
-    let event_paths = event_paths as *const *const libc::c_char;
+    let event_paths = event_paths.as_ptr() as *const *const libc::c_char;
     let info = info as *const StreamContextInfo;
     let event_handler = &(*info).event_handler;
 
@@ -535,7 +571,7 @@ unsafe fn callback_impl(
             .expect("Invalid UTF8 string.");
         let path = PathBuf::from(path);
 
-        let flag = *event_flags.add(p);
+        let flag = *event_flags.as_ptr().add(p);
         let flag = StreamFlags::from_bits(flag).unwrap_or_else(|| {
             panic!("Unable to decode StreamFlags: {}", flag);
         });
@@ -564,6 +600,10 @@ unsafe fn callback_impl(
         for ev in translate_flags(flag, true).into_iter() {
             // TODO: precise
             let ev = ev.add_path(path.clone());
+            // Filter events based on EventKindMask
+            if !(*info).event_kinds.matches(&ev.kind) {
+                continue; // Skip events that don't match the mask
+            }
             let mut event_handler = event_handler.lock().expect("lock not to be poisoned");
             event_handler.handle_event(Ok(ev));
         }
@@ -572,8 +612,8 @@ unsafe fn callback_impl(
 
 impl Watcher for FsEventWatcher {
     /// Create a new watcher.
-    fn new<F: EventHandler>(event_handler: F, _config: Config) -> Result<Self> {
-        Self::from_event_handler(Arc::new(Mutex::new(event_handler)))
+    fn new<F: EventHandler>(event_handler: F, config: Config) -> Result<Self> {
+        Self::from_event_handler(Arc::new(Mutex::new(event_handler)), config.event_kinds())
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
@@ -602,17 +642,58 @@ impl Watcher for FsEventWatcher {
 impl Drop for FsEventWatcher {
     fn drop(&mut self) {
         self.stop();
-        unsafe {
-            cf::CFRelease(self.paths);
-        }
     }
+}
+
+/// Grabbed from <https://docs.rs/fsevent-sys/4.1.0/src/fsevent_sys/core_foundation.rs.html#149-230>.
+///
+/// TODO: Could we simplify this?
+unsafe fn path_to_cfstring_ref(
+    source: &Path,
+    err: &mut *mut cf::CFError,
+) -> Option<cf::CFRetained<cf::CFString>> {
+    let url = cf::CFURL::from_file_path(source)?;
+
+    let mut placeholder = url.absolute_url()?;
+
+    let imaginary = cf::CFMutableArray::empty();
+
+    while !unsafe { placeholder.resource_is_reachable(err) } {
+        if let Some(child) = placeholder.last_path_component() {
+            imaginary.insert(0, &*child);
+        }
+
+        placeholder = cf::CFURL::new_copy_deleting_last_path_component(None, Some(&placeholder))?;
+    }
+
+    let url = unsafe { cf::CFURL::new_file_reference_url(None, Some(&placeholder), err) }?;
+
+    let mut placeholder = unsafe { cf::CFURL::new_file_path_url(None, Some(&url), err) }?;
+
+    for component in imaginary {
+        placeholder = cf::CFURL::new_copy_appending_path_component(
+            None,
+            Some(&placeholder),
+            Some(&component),
+            false,
+        )?;
+    }
+
+    placeholder.file_system_path(cf::CFURLPathStyle::CFURLPOSIXPathStyle)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use crate::ErrorKind;
 
     use super::*;
+    use crate::test::*;
+
+    fn watcher() -> (TestWatcher<FsEventWatcher>, Receiver) {
+        channel()
+    }
 
     #[test]
     fn test_fsevent_watcher_drop() {
@@ -677,5 +758,446 @@ mod tests {
             ),
             "actual: {unwatch_result:#?}"
         );
+    }
+
+    #[test]
+    fn create_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        rx.wait_unordered([expected(path).create_file()]);
+    }
+
+    #[test]
+    fn write_file() {
+        let tmpdir = testdir();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        let (mut watcher, mut rx) = watcher();
+
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::write(&path, b"123").expect("write");
+
+        rx.wait_unordered([expected(&path).modify_data_content()]);
+    }
+
+    #[test]
+    fn chmod_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        let file = std::fs::File::create_new(&path).expect("create");
+        let mut permissions = file.metadata().expect("metadata").permissions();
+        permissions.set_readonly(true);
+
+        watcher.watch_recursively(&tmpdir);
+        file.set_permissions(permissions).expect("set_permissions");
+
+        rx.wait_unordered([expected(&path).modify_meta_owner()]);
+    }
+
+    #[test]
+    fn rename_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        let new_path = tmpdir.path().join("renamed");
+
+        std::fs::rename(&path, &new_path).expect("rename");
+
+        rx.wait_unordered([expected(path).rename_any(), expected(new_path).rename_any()]);
+    }
+
+    #[test]
+    fn delete_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let file = tmpdir.path().join("file");
+        std::fs::write(&file, "").expect("write");
+
+        watcher.watch_nonrecursively(&tmpdir);
+
+        std::fs::remove_file(&file).expect("remove");
+
+        rx.wait_unordered([expected(&file).remove_file()]);
+    }
+
+    #[test]
+    fn delete_self_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let file = tmpdir.path().join("file");
+        std::fs::write(&file, "").expect("write");
+
+        watcher.watch_nonrecursively(&file);
+
+        std::fs::remove_file(&file).expect("remove");
+
+        rx.wait_unordered([expected(file).remove_file()]);
+    }
+
+    #[test]
+    fn create_write_overwrite() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let overwritten_file = tmpdir.path().join("overwritten_file");
+        let overwriting_file = tmpdir.path().join("overwriting_file");
+        std::fs::write(&overwritten_file, "123").expect("write1");
+
+        watcher.watch_nonrecursively(&tmpdir);
+
+        std::fs::File::create(&overwriting_file).expect("create");
+        std::fs::write(&overwriting_file, "321").expect("write2");
+        std::fs::rename(&overwriting_file, &overwritten_file).expect("rename");
+
+        rx.wait_unordered([
+            expected(&overwriting_file).create(),
+            expected(&overwriting_file).modify_data_content().multiple(),
+            expected(&overwriting_file).rename_any(),
+            expected(&overwritten_file).rename_any(),
+        ]);
+    }
+
+    #[test]
+    fn create_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("create");
+
+        rx.wait_unordered([expected(&path).create_folder()]);
+    }
+
+    #[test]
+    fn chmod_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("create_dir");
+        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
+        permissions.set_readonly(true);
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::set_permissions(&path, permissions).expect("set_permissions");
+
+        rx.wait_unordered([expected(&path).modify_meta_owner()]);
+    }
+
+    #[test]
+    fn rename_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        let new_path = tmpdir.path().join("new_path");
+        std::fs::create_dir(&path).expect("create_dir");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::rename(&path, &new_path).expect("rename");
+
+        rx.wait_ordered([
+            expected(&path).rename_any(),
+            expected(&new_path).rename_any(),
+        ]);
+    }
+
+    #[test]
+    fn delete_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("create_dir");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::remove_dir(&path).expect("remove");
+
+        rx.wait_unordered([expected(path).remove_folder()]);
+    }
+
+    #[test]
+    fn rename_dir_twice() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        let new_path = tmpdir.path().join("new_path");
+        let new_path2 = tmpdir.path().join("new_path2");
+        std::fs::create_dir(&path).expect("create_dir");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::rename(&path, &new_path).expect("rename");
+        std::fs::rename(&new_path, &new_path2).expect("rename2");
+
+        rx.wait_unordered([
+            expected(&path).rename_any(),
+            expected(&new_path).rename_any(),
+            expected(&new_path2).rename_any(),
+        ]);
+    }
+
+    #[test]
+    fn move_out_of_watched_dir() {
+        let tmpdir = testdir();
+        let subdir = tmpdir.path().join("subdir");
+        let (mut watcher, mut rx) = watcher();
+
+        let path = subdir.join("entry");
+        std::fs::create_dir_all(&subdir).expect("create_dir_all");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&subdir);
+        let new_path = tmpdir.path().join("entry");
+
+        std::fs::rename(&path, &new_path).expect("rename");
+
+        rx.wait_unordered([expected(path).rename_any()]);
+    }
+
+    #[test]
+    #[ignore = "https://github.com/notify-rs/notify/issues/729"]
+    fn create_write_write_rename_write_remove() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let file1 = tmpdir.path().join("entry");
+        let file2 = tmpdir.path().join("entry2");
+        std::fs::File::create_new(&file2).expect("create file2");
+        let new_path = tmpdir.path().join("renamed");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::write(&file1, "123").expect("write 1");
+        std::fs::write(&file2, "321").expect("write 2");
+        std::fs::rename(&file1, &new_path).expect("rename");
+        std::fs::write(&new_path, b"1").expect("write 3");
+        std::fs::remove_file(&new_path).expect("remove");
+
+        rx.wait_ordered([
+            expected(&file1).create_file(),
+            expected(&file1).modify_data_content(),
+            expected(&file2).modify_data_content(),
+            expected(&file1).rename_any(),
+            expected(&new_path).rename_any(),
+            expected(&new_path).modify_data_content(),
+            expected(&new_path).remove_file(),
+        ]);
+    }
+
+    #[test]
+    fn rename_twice() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        let new_path1 = tmpdir.path().join("renamed1");
+        let new_path2 = tmpdir.path().join("renamed2");
+
+        std::fs::rename(&path, &new_path1).expect("rename1");
+        std::fs::rename(&new_path1, &new_path2).expect("rename2");
+
+        rx.wait_unordered([
+            expected(&path).rename_any(),
+            expected(&new_path1).rename_any(),
+            expected(&new_path2).rename_any(),
+        ]);
+    }
+
+    #[test]
+    fn set_file_mtime() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        let file = std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+
+        file.set_modified(
+            std::time::SystemTime::now()
+                .checked_sub(Duration::from_secs(60 * 60))
+                .expect("time"),
+        )
+        .expect("set_time");
+
+        rx.wait_unordered([expected(&path).modify_meta_any()]);
+    }
+
+    #[test]
+    fn write_file_non_recursive_watch() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_nonrecursively(&path);
+
+        std::fs::write(&path, b"123").expect("write");
+
+        rx.wait_unordered([expected(path).modify_data_content()]);
+    }
+
+    #[test]
+    fn write_to_a_hardlink_pointed_to_the_watched_file_triggers_an_event() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let subdir = tmpdir.path().join("subdir");
+        let file = subdir.join("file");
+        let hardlink = tmpdir.path().join("hardlink");
+
+        std::fs::create_dir(&subdir).expect("create");
+        std::fs::write(&file, "").expect("file");
+        std::fs::hard_link(&file, &hardlink).expect("hardlink");
+
+        watcher.watch_nonrecursively(&file);
+
+        std::fs::write(&hardlink, "123123").expect("write to the hard link");
+
+        rx.wait_unordered([expected(file).modify_data_content()]);
+    }
+
+    #[test]
+    fn recursive_creation() {
+        let tmpdir = testdir();
+        let nested1 = tmpdir.path().join("1");
+        let nested2 = tmpdir.path().join("1/2");
+        let nested3 = tmpdir.path().join("1/2/3");
+        let nested4 = tmpdir.path().join("1/2/3/4");
+        let nested5 = tmpdir.path().join("1/2/3/4/5");
+        let nested6 = tmpdir.path().join("1/2/3/4/5/6");
+        let nested7 = tmpdir.path().join("1/2/3/4/5/6/7");
+        let nested8 = tmpdir.path().join("1/2/3/4/5/6/7/8");
+        let nested9 = tmpdir.path().join("1/2/3/4/5/6/7/8/9");
+
+        let (mut watcher, mut rx) = watcher();
+
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::create_dir_all(&nested9).expect("create_dir_all");
+
+        rx.wait_ordered([
+            expected(&nested1).create_folder(),
+            expected(&nested2).create_folder(),
+            expected(&nested3).create_folder(),
+            expected(&nested4).create_folder(),
+            expected(&nested5).create_folder(),
+            expected(&nested6).create_folder(),
+            expected(&nested7).create_folder(),
+            expected(&nested8).create_folder(),
+            expected(&nested9).create_folder(),
+        ]);
+    }
+
+    #[test]
+    fn fsevent_watcher_respects_event_kind_mask() {
+        use crate::Watcher;
+        use notify_types::event::EventKindMask;
+
+        let tmpdir = testdir();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        // Create watcher with CREATE-only mask (no MODIFY events)
+        let config = Config::default().with_event_kinds(EventKindMask::CREATE);
+
+        let mut watcher = FsEventWatcher::new(tx, config).expect("create watcher");
+        watcher
+            .watch(tmpdir.path(), crate::RecursiveMode::Recursive)
+            .expect("watch");
+
+        let path = tmpdir.path().join("test_file");
+
+        // Create a file - should generate CREATE event
+        std::fs::File::create_new(&path).expect("create");
+
+        // Small delay to let events propagate
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Modify the file - should NOT generate event (filtered by mask)
+        std::fs::write(&path, "modified content").expect("write modified");
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Collect all events
+        let events: Vec<_> = rx.try_iter().filter_map(|r| r.ok()).collect();
+
+        // Should have CREATE event
+        assert!(
+            events.iter().any(|e| e.kind.is_create()),
+            "Expected CREATE event, got: {:?}",
+            events
+        );
+
+        // Should NOT have MODIFY event (filtered out)
+        assert!(
+            !events.iter().any(|e| e.kind.is_modify()),
+            "Should not receive MODIFY events with CREATE-only mask, got: {:?}",
+            events
+        );
+    }
+
+    // fsevents seems to not allow watching more than 4096 paths at once.
+    // https://github.com/fsnotify/fsevents/issues/48
+    // Based on https://github.com/fsnotify/fsevents/commit/3899270de121c963202e6fed46aa31d5ec7b3908
+    #[test]
+    fn error_properly_on_stream_start_failure() {
+        let tmpdir = testdir();
+        let (mut watcher, _rx) = watcher();
+
+        // use path_mut, otherwise it's too slow
+        let mut paths = watcher.watcher.paths_mut();
+        for i in 0..=4096 {
+            let path = tmpdir.path().join(format!("dir_{i}/subdir"));
+            std::fs::create_dir_all(&path).expect("create_dir");
+            paths.add(&path, RecursiveMode::NonRecursive).expect("add");
+        }
+        let result = paths.commit();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rename_then_remove_remove_event_must_be_the_last_one() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        let new_path1 = tmpdir.path().join("renamed1");
+        let new_path2 = tmpdir.path().join("renamed2");
+
+        std::fs::rename(&path, &new_path1).expect("rename1");
+        std::fs::rename(&new_path1, &new_path2).expect("rename2");
+
+        std::fs::remove_file(&new_path2).expect("remove_file");
+
+        loop {
+            let ev = rx.recv();
+            if matches!(ev.kind, EventKind::Remove(RemoveKind::File)) {
+                assert_eq!(&ev.paths, &[new_path2]);
+                break;
+            }
+        }
+
+        rx.ensure_empty();
     }
 }

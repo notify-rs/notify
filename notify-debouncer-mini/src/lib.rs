@@ -169,6 +169,20 @@ impl DebounceEventHandler for flume::Sender<DebounceEventResult> {
     }
 }
 
+#[cfg(feature = "futures")]
+impl DebounceEventHandler for futures::channel::mpsc::UnboundedSender<DebounceEventResult> {
+    fn handle_event(&mut self, event: DebounceEventResult) {
+        let _ = self.unbounded_send(event);
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl DebounceEventHandler for tokio::sync::mpsc::UnboundedSender<DebounceEventResult> {
+    fn handle_event(&mut self, event: DebounceEventResult) {
+        let _ = self.send(event);
+    }
+}
+
 impl DebounceEventHandler for std::sync::mpsc::Sender<DebounceEventResult> {
     fn handle_event(&mut self, event: DebounceEventResult) {
         let _ = self.send(event);
@@ -452,5 +466,51 @@ mod tests {
         }
 
         panic!("did not receive expected event");
+    }
+
+    #[cfg(feature = "futures")]
+    #[tokio::test]
+    async fn futures_unbounded_sender_as_handler() {
+        use futures::StreamExt;
+
+        let dir = tempdir().unwrap();
+
+        let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        let mut debouncer = new_debouncer(Duration::from_secs(1), tx).unwrap();
+        debouncer
+            .watcher
+            .watch(dir.path(), RecursiveMode::Recursive)
+            .unwrap();
+
+        let file_path = dir.path().join("file.txt");
+        fs::write(&file_path, b"Lorem ipsum").unwrap();
+
+        tokio::time::timeout(Duration::from_secs(10), rx.next())
+            .await
+            .expect("timeout")
+            .expect("No event")
+            .expect("error");
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn tokio_unbounded_sender_as_handler() {
+        let dir = tempdir().unwrap();
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut debouncer = new_debouncer(Duration::from_secs(1), tx).unwrap();
+        debouncer
+            .watcher
+            .watch(dir.path(), RecursiveMode::Recursive)
+            .unwrap();
+
+        let file_path = dir.path().join("file.txt");
+        fs::write(&file_path, b"Lorem ipsum").unwrap();
+
+        tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("timeout")
+            .expect("No event")
+            .expect("error");
     }
 }

@@ -1,0 +1,54 @@
+name: Feature Request
+description: Suggest a new feature
+title: "[Feature]: "
+labels: ["enhancement"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea for a new feature? Tell us about it!
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      options:
+        - label: I searched existing issues and this feature doesn't exist
+          required: true
+
+  - type: textarea
+    id: feature-request
+    attributes:
+      label: Feature Request
+      description: Describe your feature request using the template below (remove sections that don't apply)
+      value: |
+        ## Problem
+        <!-- What problem does this solve? What need or frustration would this feature address? -->
+
+
+        ## Proposed Solution
+        <!-- How would you like this feature to work? -->
+
+
+        ## Use Case
+        <!-- How would you use this feature in practice? -->
+
+
+        ## Alternatives
+        <!-- What workarounds are you using now? -->
+
+
+        ## Code Example (optional)
+        <!-- Show how the feature might be used -->
+        ```rust
+        use notify::{Watcher, RecommendedWatcher, Result};
+
+        fn example() -> Result<()> {
+            // Your proposed API here
+            Ok(())
+        }
+        ```
+    validations:
+      required: true

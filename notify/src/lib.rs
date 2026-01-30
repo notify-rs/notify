@@ -164,7 +164,7 @@
 
 pub use config::{Config, PathOp, RecursiveMode, WatchPathConfig};
 pub use error::{Error, ErrorKind, Result, UpdatePathsError};
-pub use notify_types::event::{self, Event, EventKind};
+pub use notify_types::event::{self, Event, EventKind, EventKindMask};
 use std::path::Path;
 
 pub(crate) type StdResult<T, E> = std::result::Result<T, E>;
@@ -224,6 +224,9 @@ pub mod poll;
 mod config;
 mod error;
 
+#[cfg(test)]
+pub(crate) mod test;
+
 /// The set of requirements for watcher event handling functions.
 ///
 /// # Example implementation
@@ -265,6 +268,20 @@ impl EventHandler for crossbeam_channel::Sender<Result<Event>> {
 
 #[cfg(feature = "flume")]
 impl EventHandler for flume::Sender<Result<Event>> {
+    fn handle_event(&mut self, event: Result<Event>) {
+        let _ = self.send(event);
+    }
+}
+
+#[cfg(feature = "futures")]
+impl EventHandler for futures::channel::mpsc::UnboundedSender<Result<Event>> {
+    fn handle_event(&mut self, event: Result<Event>) {
+        let _ = self.unbounded_send(event);
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl EventHandler for tokio::sync::mpsc::UnboundedSender<Result<Event>> {
     fn handle_event(&mut self, event: Result<Event>) {
         let _ = self.send(event);
     }
@@ -446,12 +463,17 @@ where
 mod tests {
     use std::{
         fs, iter,
+        sync::mpsc,
         time::{Duration, Instant},
     };
 
     use tempfile::tempdir;
 
-    use super::*;
+    use super::{
+        Config, Error, ErrorKind, Event, NullWatcher, PollWatcher, RecommendedWatcher,
+        RecursiveMode, Result, Watcher, WatcherKind, PathOp, WatchPathConfig, StdResult
+    };
+    use crate::test::*;
 
     #[test]
     fn test_object_safe() {
@@ -478,7 +500,7 @@ mod tests {
         assert_debug_impl!(WatcherKind);
     }
 
-    fn iter_with_timeout(rx: &Receiver<Result<Event>>) -> impl Iterator<Item = Event> + '_ {
+    fn iter_with_timeout(rx: &mpsc::Receiver<Result<Event>>) -> impl Iterator<Item = Event> + '_ {
         // wait for up to 10 seconds for the events
         let deadline = Instant::now() + Duration::from_secs(10);
         iter::from_fn(move || {
@@ -659,5 +681,100 @@ mod tests {
         }
 
         panic!("Did not receive the event of {waiting_path:?}");
+    }
+
+    #[test]
+    fn create_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = recommended_channel();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        rx.wait_unordered([expected(path).create()]);
+    }
+
+    #[test]
+    fn create_dir() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = recommended_channel();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::create_dir(&path).expect("create");
+
+        rx.wait_unordered([expected(path).create()]);
+    }
+
+    #[test]
+    fn modify_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = recommended_channel();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::write(&path, b"123").expect("write");
+
+        rx.wait_unordered([expected(path).modify()]);
+    }
+
+    #[test]
+    fn remove_file() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = recommended_channel();
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        watcher.watch_recursively(&tmpdir);
+        std::fs::remove_file(&path).expect("remove");
+
+        rx.wait_unordered([expected(path).remove()]);
+    }
+
+    #[cfg(feature = "futures")]
+    #[tokio::test]
+    async fn futures_unbounded_sender_as_handler() {
+        use crate::recommended_watcher;
+        use futures::StreamExt;
+
+        let tmpdir = testdir();
+        let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        let mut watcher = recommended_watcher(tx).unwrap();
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::NonRecursive)
+            .unwrap();
+
+        std::fs::create_dir(tmpdir.path().join("1")).unwrap();
+
+        tokio::time::timeout(Duration::from_secs(5), rx.next())
+            .await
+            .expect("timeout")
+            .expect("No event")
+            .expect("Error");
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn tokio_unbounded_sender_as_handler() {
+        use crate::recommended_watcher;
+
+        let tmpdir = testdir();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut watcher = recommended_watcher(tx).unwrap();
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::NonRecursive)
+            .unwrap();
+
+        std::fs::create_dir(tmpdir.path().join("1")).unwrap();
+
+        tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("timeout")
+            .expect("No event")
+            .expect("Error");
     }
 }

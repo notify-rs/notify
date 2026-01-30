@@ -1,6 +1,7 @@
 //! Configuration types
 
 use std::{path::PathBuf, time::Duration};
+use notify_types::event::EventKindMask;
 
 /// Indicates whether only the provided directory or its sub-directories as well should be watched
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -44,6 +45,9 @@ pub struct Config {
     compare_contents: bool,
 
     follow_symlinks: bool,
+
+    /// See [Config::with_event_kinds]
+    event_kinds: EventKindMask,
 }
 
 impl Config {
@@ -112,6 +116,42 @@ impl Config {
     pub fn follow_symlinks(&self) -> bool {
         self.follow_symlinks
     }
+
+    /// Filter which event kinds are monitored.
+    ///
+    /// This allows you to control which types of filesystem events are delivered
+    /// to your event handler. On backends that support kernel-level filtering
+    /// (inotify), the mask is translated to native flags for optimal
+    /// performance. On other backends (kqueue, Windows, FSEvents, PollWatcher),
+    /// filtering is applied in userspace.
+    ///
+    /// The default is [`EventKindMask::ALL`], which includes all events.
+    /// Use [`EventKindMask::CORE`] to exclude access events.
+    ///
+    /// This can't be changed during runtime.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use notify::{Config, EventKindMask};
+    ///
+    /// // Only monitor file creation and deletion
+    /// let config = Config::default()
+    ///     .with_event_kinds(EventKindMask::CREATE | EventKindMask::REMOVE);
+    ///
+    /// // Monitor everything including access events
+    /// let config_all = Config::default()
+    ///     .with_event_kinds(EventKindMask::ALL);
+    /// ```
+    pub fn with_event_kinds(mut self, event_kinds: EventKindMask) -> Self {
+        self.event_kinds = event_kinds;
+        self
+    }
+
+    /// Returns current setting
+    pub fn event_kinds(&self) -> EventKindMask {
+        self.event_kinds
+    }
 }
 
 impl Default for Config {
@@ -120,6 +160,7 @@ impl Default for Config {
             poll_interval: Some(Duration::from_secs(30)),
             compare_contents: false,
             follow_symlinks: true,
+            event_kinds: EventKindMask::ALL,
         }
     }
 }
@@ -180,5 +221,43 @@ impl PathOp {
     /// Unwatch the path
     pub fn unwatch<P: Into<PathBuf>>(path: P) -> Self {
         Self::Unwatch(path.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notify_types::event::EventKindMask;
+
+    #[test]
+    fn config_default_event_kinds_is_all() {
+        let config = Config::default();
+        assert_eq!(config.event_kinds(), EventKindMask::ALL);
+    }
+
+    #[test]
+    fn config_with_event_kinds() {
+        let mask = EventKindMask::CREATE | EventKindMask::REMOVE;
+        let config = Config::default().with_event_kinds(mask);
+        assert_eq!(config.event_kinds(), mask);
+    }
+
+    #[test]
+    fn config_with_all_events_includes_access() {
+        let config = Config::default().with_event_kinds(EventKindMask::ALL);
+        assert!(config.event_kinds().intersects(EventKindMask::ALL_ACCESS));
+    }
+
+    #[test]
+    fn config_with_empty_mask() {
+        let config = Config::default().with_event_kinds(EventKindMask::empty());
+        assert!(config.event_kinds().is_empty());
+    }
+
+    #[test]
+    fn event_kind_mask_default_matches_config_default() {
+        // Verify cross-crate consistency: both defaults should be ALL
+        assert_eq!(EventKindMask::default(), Config::default().event_kinds());
+        assert_eq!(EventKindMask::default(), EventKindMask::ALL);
     }
 }
