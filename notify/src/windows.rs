@@ -14,7 +14,7 @@ use std::env;
 use std::ffi::OsString;
 use std::os::raw::c_void;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 use std::ptr;
 use std::slice;
 use std::sync::{Arc, Mutex};
@@ -560,18 +560,38 @@ impl ReadDirectoryChangesWatcher {
     }
 
     fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        let pb = if path.is_absolute() {
-            path.to_owned()
-        } else {
-            let p = env::current_dir().map_err(Error::io)?;
-            p.join(path)
+        let pb = path
+            .canonicalize()
+            .map_err(|e| Error::io(e).add_path(path.to_path_buf()))?;
+        let pb = {
+            let mut comps = pb.components();
+            match comps.next() {
+                Some(Component::Prefix(p)) => match p.kind() {
+                    Prefix::VerbatimDisk(drive) => {
+                        // \\?\C:\ -> C:\
+                        let mut out = PathBuf::from(format!("{}:", drive as char));
+                        for c in comps {
+                            out.push(c.as_os_str());
+                        }
+                        out
+                    }
+                    Prefix::VerbatimUNC(server, share) => {
+                        // \\?\UNC\server\share\ -> \\server\share\
+                        let mut root = OsString::from(r"\\");
+                        root.push(server);
+                        root.push("\\");
+                        root.push(share);
+                        let mut out = PathBuf::from(root);
+                        for c in comps {
+                            out.push(c.as_os_str());
+                        }
+                        out
+                    }
+                    _ => pb,
+                },
+                _ => pb,
+            }
         };
-        // path must exist and be either a file or directory
-        if !pb.is_dir() && !pb.is_file() {
-            return Err(Error::generic(
-                "Input watch path is neither a file nor a directory.",
-            ));
-        }
         self.send_action_require_ack(Action::Watch(pb.clone(), recursive_mode), &pb)
     }
 
@@ -1035,5 +1055,53 @@ pub mod tests {
             expected(&nested9).create_any(),
         ])
         .ensure_no_tail();
+    }
+
+    /// https://github.com/notify-rs/notify/issues/687
+    #[test]
+    fn test_mixed_slashes_are_normalized() {
+        use crate::{ReadDirectoryChangesWatcher, RecursiveMode, Watcher};
+        use std::fs::{self, File};
+        use std::path::Path;
+        use std::sync::mpsc;
+        use std::time::Duration;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let subfolder_path = temp_dir.path().join("subfolder");
+        fs::create_dir_all(&subfolder_path).unwrap();
+
+        let file_path = subfolder_path.join("dep.txt");
+
+        File::create(&file_path).unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        let mut watcher = ReadDirectoryChangesWatcher::new(tx, Default::default()).unwrap();
+
+        // Replace backslashes with forward slashes in the temp_dir path.
+        let temp_dir_path = temp_dir.path().to_string_lossy().replace('\\', "/");
+        watcher
+            .watch(Path::new(&temp_dir_path), RecursiveMode::Recursive)
+            .unwrap();
+
+        // Remove the file to trigger the event
+        fs::remove_file(&file_path).unwrap();
+
+        // Check the events received
+        let event = rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("timeout")
+            .expect("unexpected error event");
+
+        assert!(
+            event.paths.iter().any(|p| {
+                let path_str = p.to_string_lossy();
+                path_str.contains('\\')
+                    && !path_str.contains('/')
+                    && !path_str.starts_with("\\\\?\\")
+            }),
+            "Path \"{}\" should only contain Windows slashes and not start with \"\\\\?\\\"",
+            event.paths.last().unwrap().display()
+        );
     }
 }
