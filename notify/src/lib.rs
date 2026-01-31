@@ -377,8 +377,10 @@ pub trait Watcher {
     /// ```
     fn update_paths(&mut self, ops: Vec<PathOp>) -> StdResult<(), UpdatePathsError> {
         update_paths(ops, |op| match op {
-            PathOp::Watch(path, config) => self.watch(&path, config.recursive_mode()),
-            PathOp::Unwatch(path) => self.unwatch(&path),
+            PathOp::Watch(path, config) => self
+                .watch(&path, config.recursive_mode())
+                .map_err(|e| (PathOp::Watch(path, config), e)),
+            PathOp::Unwatch(path) => self.unwatch(&path).map_err(|e| (PathOp::Unwatch(path), e)),
         })
     }
 
@@ -445,13 +447,14 @@ where
 
 pub(crate) fn update_paths<F>(ops: Vec<PathOp>, mut apply: F) -> StdResult<(), UpdatePathsError>
 where
-    F: FnMut(PathOp) -> Result<()>,
+    F: FnMut(PathOp) -> StdResult<(), (PathOp, Error)>,
 {
     let mut iter = ops.into_iter();
     while let Some(op) = iter.next() {
-        if let Err(source) = apply(op) {
+        if let Err((error_op, source)) = apply(op) {
             return Err(UpdatePathsError {
                 source,
+                origin: Some(error_op),
                 remaining: iter.collect(),
             });
         }
@@ -463,6 +466,7 @@ where
 mod tests {
     use std::{
         fs, iter,
+        path::{Path, PathBuf},
         sync::mpsc,
         time::{Duration, Instant},
     };
@@ -778,5 +782,29 @@ mod tests {
             .expect("timeout")
             .expect("No event")
             .expect("Error");
+    }
+
+    #[test]
+    fn update_paths_error_contains_errored_path() {
+        let err = super::update_paths(
+            [
+                PathOp::unwatch("1"),
+                PathOp::unwatch("2"),
+                PathOp::unwatch("3"),
+            ]
+            .into(),
+            |op| {
+                if op.as_path() == Path::new("2") {
+                    Err((op, super::Error::path_not_found()))
+                } else {
+                    Ok(())
+                }
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            &err.into_iter().map(PathOp::into_path).collect::<Vec<_>>(),
+            &[PathBuf::from("2"), PathBuf::from("3"),]
+        )
     }
 }

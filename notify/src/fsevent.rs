@@ -302,21 +302,31 @@ impl FsEventWatcher {
     ) -> crate::StdResult<(), crate::UpdatePathsError> {
         self.stop();
 
-        let mut result = crate::update_paths(ops, |op| match op {
-            crate::PathOp::Watch(path, config) => self.append_path(&path, config.recursive_mode()),
-            crate::PathOp::Unwatch(path) => self.remove_path(&path),
+        let result = crate::update_paths(ops, |op| match op {
+            crate::PathOp::Watch(path, config) => self
+                .append_path(&path, config.recursive_mode())
+                .map_err(|e| (PathOp::Watch(path, config), e)),
+            crate::PathOp::Unwatch(path) => self
+                .remove_path(&path)
+                .map_err(|e| (PathOp::Unwatch(path), e)),
         });
 
-        self.run().map_err(|e| crate::UpdatePathsError {
-            source: e,
-            remaining: result
-                .as_mut()
-                .err()
-                .map(|v| std::mem::take(&mut v.remaining))
-                .unwrap_or_default(),
-        })?;
-
-        result
+        match self.run() {
+            Err(run_error) => match result {
+                Ok(()) => Err(crate::UpdatePathsError {
+                    source: run_error,
+                    origin: None,
+                    remaining: Default::default(),
+                }),
+                Err(path_op_error) => {
+                    log::error!(
+                        "Unable to run fsevents watcher after updating paths error: {run_error:?}"
+                    );
+                    Err(path_op_error)
+                }
+            },
+            Ok(()) => result,
+        }
     }
 
     #[inline]

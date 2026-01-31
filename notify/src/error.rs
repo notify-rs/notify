@@ -165,6 +165,12 @@ pub struct UpdatePathsError {
     /// The original error
     pub source: Error,
 
+    /// The operation that caused the error.
+    ///
+    /// `None` if the error was not caused by a specific operation
+    /// (e.g. failure to start the watcher after successfully updating paths).
+    pub origin: Option<PathOp>,
+
     /// The remaining operations that haven't been applied
     pub remaining: Vec<PathOp>,
 }
@@ -184,6 +190,16 @@ impl StdError for UpdatePathsError {
 impl From<UpdatePathsError> for Error {
     fn from(value: UpdatePathsError) -> Self {
         value.source
+    }
+}
+
+impl IntoIterator for UpdatePathsError {
+    type Item = PathOp;
+
+    type IntoIter = std::iter::Chain<std::option::IntoIter<PathOp>, std::vec::IntoIter<PathOp>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.origin.into_iter().chain(self.remaining)
     }
 }
 
@@ -207,6 +223,7 @@ mod tests {
     fn display_update_paths() {
         let actual = UpdatePathsError {
             source: Error::generic("Some error"),
+            origin: None,
             remaining: Default::default(),
         }
         .to_string();

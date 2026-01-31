@@ -1,7 +1,10 @@
 //! Configuration types
 
 use notify_types::event::EventKindMask;
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 /// Indicates whether only the provided directory or its sub-directories as well should be watched
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -169,7 +172,7 @@ impl Default for Config {
 ///
 /// This contains some settings that may relate to only one specific backend,
 /// such as to correctly configure each backend regardless of what is selected during runtime.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 pub struct WatchPathConfig {
     recursive_mode: RecursiveMode,
 }
@@ -195,7 +198,7 @@ impl WatchPathConfig {
 /// An operation to apply to a watcher
 ///
 /// See [`Watcher::update_paths`] for more information
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 pub enum PathOp {
     /// Path should be watched
     Watch(PathBuf, WatchPathConfig),
@@ -221,6 +224,22 @@ impl PathOp {
     /// Unwatch the path
     pub fn unwatch<P: Into<PathBuf>>(path: P) -> Self {
         Self::Unwatch(path.into())
+    }
+
+    /// Returns the path associated with this operation.
+    pub fn as_path(&self) -> &Path {
+        match self {
+            PathOp::Watch(p, _) => p,
+            PathOp::Unwatch(p) => p,
+        }
+    }
+
+    /// Returns the path associated with this operation.
+    pub fn into_path(self) -> PathBuf {
+        match self {
+            PathOp::Watch(p, _) => p,
+            PathOp::Unwatch(p) => p,
+        }
     }
 }
 

@@ -658,21 +658,30 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         &mut self,
         ops: impl IntoIterator<Item = Op>,
     ) -> std::result::Result<(), UpdatePathsError> {
-        //         timeout,
-        // tick_rate,
-        // event_handler,
-        // RecommendedCache::new(),
-        // notify::Config::default(),
-        let ops: Vec<_> = ops.into_iter().map(Into::into).collect();
-        let res = self.watcher.update_paths(ops.clone());
+        let mut paths = Vec::new();
+        let ops: Vec<_> = ops
+            .into_iter()
+            .map(Into::into)
+            .inspect(|op| {
+                paths.push((
+                    op.as_path().to_path_buf(),
+                    match op {
+                        PathOp::Watch(_, config) => Some(config.recursive_mode()),
+                        PathOp::Unwatch(_) => None,
+                    },
+                ));
+            })
+            .collect();
+
+        let res = self.watcher.update_paths(ops);
         let updated_paths = match res.as_ref() {
-            Ok(()) => &ops[..],
-            Err(e) => &ops[..ops.len() - e.remaining.len()],
+            Ok(()) => &paths[..],
+            Err(e) => &paths[..paths.len() - e.remaining.len()],
         };
-        for op in updated_paths {
-            match op {
-                PathOp::Watch(path, config) => self.add_root(path, config.recursive_mode()),
-                PathOp::Unwatch(path) => self.remove_root(path),
+        for (path, watch_mode) in updated_paths {
+            match watch_mode {
+                Some(recursive_mode) => self.add_root(path, *recursive_mode),
+                None => self.remove_root(path),
             }
         }
         res
