@@ -21,7 +21,7 @@ _Cross-platform filesystem notification library for Rust._
 - Minimum supported Rust version: **1.85**
 
 As used by: [alacritty], [cargo watch], [cobalt], [deno], [docket], [mdBook],
-[rust-analyzer], [watchexec], [watchfiles], [xi-editor],
+[rust-analyzer], [watchexec], [watchfiles], [xi-editor], [zed]
 and others.
 
 (Looking for desktop notifications instead? Have a look at [notify-rust] or
@@ -98,4 +98,5 @@ Originally created by [Félix Saparelli] and awesome [contributors].
 [wiki]: https://github.com/notify-rs/notify/wiki
 [xi-editor]: https://xi-editor.io/
 [watchfiles]: https://watchfiles.helpmanual.io/
+[zed]: https://github.com/zed-industries/zed
 [examples]: examples/
