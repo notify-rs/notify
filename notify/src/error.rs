@@ -159,7 +159,11 @@ impl<T> From<std::sync::PoisonError<T>> for Error {
     }
 }
 
-/// The error provided by [`crate::Watcher::update_paths`] method
+/// The error provided by [`crate::Watcher::update_paths`] method.
+///
+/// Operations are applied in order. If an error occurs, processing stops and the
+/// error carries the failed operation (if known) and any remaining operations that
+/// were not attempted.
 #[derive(Debug)]
 pub struct UpdatePathsError {
     /// The original error
@@ -167,11 +171,15 @@ pub struct UpdatePathsError {
 
     /// The operation that caused the error.
     ///
+    /// If set, all operations before it were applied successfully.
     /// `None` if the error was not caused by a specific operation
     /// (e.g. failure to start the watcher after successfully updating paths).
     pub origin: Option<PathOp>,
 
-    /// The remaining operations that haven't been applied
+    /// The remaining operations that haven't been applied.
+    ///
+    /// This list does not include `origin`. To retry in order, handle `origin`
+    /// first (if present), then `remaining`.
     pub remaining: Vec<PathOp>,
 }
 

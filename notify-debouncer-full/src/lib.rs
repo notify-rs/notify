@@ -633,6 +633,13 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     /// For some [`Watcher`] implementations this method provides better performance than multiple
     /// calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
     ///
+    /// # Errors
+    ///
+    /// Returns [`UpdatePathsError`] if any operation fails. Operations are applied sequentially.
+    /// When an error occurs, processing stops: operations before `origin` have been applied,
+    /// `origin` is the operation that failed (if known), and `remaining` are the operations that
+    /// were not attempted. `remaining` does not include `origin`.
+    ///
     /// # Examples
     ///
     /// ```
@@ -674,10 +681,14 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
             .collect();
 
         let res = self.watcher.update_paths(ops);
-        let updated_paths = match res.as_ref() {
-            Ok(()) => &paths[..],
-            Err(e) => &paths[..paths.len() - e.remaining.len()],
+        let updated_len = match res.as_ref() {
+            Ok(()) => paths.len(),
+            Err(e) => {
+                let failed = usize::from(e.origin.is_some());
+                paths.len().saturating_sub(e.remaining.len() + failed)
+            }
         };
+        let updated_paths = &paths[..updated_len];
         for (path, watch_mode) in updated_paths {
             match watch_mode {
                 Some(recursive_mode) => self.add_root(path, *recursive_mode),
@@ -849,7 +860,10 @@ fn sort_events(events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     use super::*;
 
@@ -858,6 +872,42 @@ mod tests {
     use tempfile::tempdir;
     use testing::TestCase;
     use time::MockTime;
+
+    #[derive(Debug)]
+    struct FailingWatcher {
+        fail_path: PathBuf,
+    }
+
+    impl Watcher for FailingWatcher {
+        fn new<F: notify::EventHandler>(
+            _event_handler: F,
+            _config: notify::Config,
+        ) -> notify::Result<Self> {
+            Ok(Self {
+                fail_path: PathBuf::from("bad"),
+            })
+        }
+
+        fn watch(&mut self, path: &Path, _recursive_mode: RecursiveMode) -> notify::Result<()> {
+            if path == self.fail_path {
+                Err(Error::path_not_found())
+            } else {
+                Ok(())
+            }
+        }
+
+        fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
+            if path == self.fail_path {
+                Err(Error::path_not_found())
+            } else {
+                Ok(())
+            }
+        }
+
+        fn kind() -> WatcherKind {
+            WatcherKind::NullWatcher
+        }
+    }
 
     #[rstest]
     fn state(
@@ -1129,5 +1179,34 @@ mod tests {
         }
 
         panic!("did not receive expected event");
+    }
+
+    #[test]
+    fn update_paths_error_does_not_add_failed_root() -> Result<(), Box<dyn std::error::Error>> {
+        let mut debouncer = new_debouncer_opt::<_, FailingWatcher, NoCache>(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            |_| {},
+            NoCache::new(),
+            notify::Config::default(),
+        )?;
+
+        let err = debouncer
+            .update_paths([
+                PathOp::watch_recursive("ok1"),
+                PathOp::watch_recursive("bad"),
+                PathOp::watch_recursive("ok2"),
+            ])
+            .unwrap_err();
+        assert!(err.origin.is_some());
+        assert_eq!(err.remaining.len(), 1);
+
+        let roots = debouncer.data.lock().unwrap().roots.clone();
+        assert_eq!(
+            roots,
+            vec![(PathBuf::from("ok1"), RecursiveMode::Recursive)]
+        );
+
+        Ok(())
     }
 }

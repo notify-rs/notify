@@ -351,6 +351,13 @@ pub trait Watcher {
     /// For some [`Watcher`] implementations this method provides better performance than multiple
     /// calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
     ///
+    /// # Errors
+    ///
+    /// Returns [`UpdatePathsError`] if any operation fails. Operations are applied sequentially.
+    /// When an error occurs, processing stops: operations before `origin` have been applied,
+    /// `origin` is the operation that failed (if known), and `remaining` are the operations that
+    /// were not attempted. `remaining` does not include `origin`.
+    ///
     /// # Examples
     ///
     /// ```
