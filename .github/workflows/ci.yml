@@ -62,7 +62,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         rust: [stable, nightly, 1.85]
-        features: [""]
         include:
           # MacOS with fsevent
           - os: macos-latest
@@ -108,13 +107,21 @@ jobs:
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
       - name: Build
-        run: cargo build --verbose ${{ matrix.features }}
+        run: cargo build --verbose
 
       - name: Build examples
-        run: cargo build --examples --verbose ${{ matrix.features }}
+        run: cargo build --examples --verbose
 
       - name: Run tests
-        run: cargo test --verbose ${{ matrix.features }}
+        run: cargo test --verbose
+        
+      - name: Run tests with futures
+        if: matrix.rust == 'stable'
+        run: cargo test --verbose --features futures
+
+      - name: Run tests with tokio
+        if: matrix.rust == 'stable'
+        run: cargo test --verbose --features tokio
 
   # Android cross-compilation
   android:
