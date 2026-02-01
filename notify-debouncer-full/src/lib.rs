@@ -95,7 +95,8 @@ pub use notify_types::debouncer_full::DebouncedEvent;
 use file_id::FileId;
 use notify::{
     event::{ModifyKind, RemoveKind, RenameMode},
-    Error, ErrorKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher, WatcherKind,
+    Error, ErrorKind, Event, EventKind, PathOp, RecommendedWatcher, RecursiveMode,
+    UpdatePathsError, Watcher, WatcherKind,
 };
 
 /// The set of requirements for watcher debounce event handling functions.
@@ -627,6 +628,76 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         Ok(())
     }
 
+    /// Add/remove paths to watch in batch.
+    ///
+    /// For some [`Watcher`] implementations this method provides better performance than multiple
+    /// calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UpdatePathsError`] if any operation fails. Operations are applied sequentially.
+    /// When an error occurs, processing stops: operations before `origin` have been applied,
+    /// `origin` is the operation that failed (if known), and `remaining` are the operations that
+    /// were not attempted. `remaining` does not include `origin`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use notify::{Watcher, RecursiveMode, PathOp};
+    /// # use notify_debouncer_full::{RecommendedCache, new_debouncer_opt};
+    /// # use std::path::{Path, PathBuf};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let mut debouncer = new_debouncer_opt::<_, notify::NullWatcher, _>(
+    /// #     std::time::Duration::from_secs(1),
+    /// #     None,
+    /// #     |e| {},
+    /// #     RecommendedCache::new(),
+    /// #     Default::default()
+    /// # )?;
+    /// debouncer.update_paths([
+    ///     PathOp::watch_recursive("path/to/file"),
+    ///     PathOp::unwatch("path/to/file2"),
+    /// ])?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn update_paths<Op: Into<PathOp>>(
+        &mut self,
+        ops: impl IntoIterator<Item = Op>,
+    ) -> std::result::Result<(), UpdatePathsError> {
+        let mut paths = Vec::new();
+        let ops: Vec<_> = ops
+            .into_iter()
+            .map(Into::into)
+            .inspect(|op| {
+                paths.push((
+                    op.as_path().to_path_buf(),
+                    match op {
+                        PathOp::Watch(_, config) => Some(config.recursive_mode()),
+                        PathOp::Unwatch(_) => None,
+                    },
+                ));
+            })
+            .collect();
+
+        let res = self.watcher.update_paths(ops);
+        let updated_len = match res.as_ref() {
+            Ok(()) => paths.len(),
+            Err(e) => {
+                let failed = usize::from(e.origin.is_some());
+                paths.len().saturating_sub(e.remaining.len() + failed)
+            }
+        };
+        let updated_paths = &paths[..updated_len];
+        for (path, watch_mode) in updated_paths {
+            match watch_mode {
+                Some(recursive_mode) => self.add_root(path, *recursive_mode),
+                None => self.remove_root(path),
+            }
+        }
+        res
+    }
+
     pub fn configure(&mut self, option: notify::Config) -> notify::Result<bool> {
         self.watcher.configure(option)
     }
@@ -789,7 +860,10 @@ fn sort_events(events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     use super::*;
 
@@ -798,6 +872,42 @@ mod tests {
     use tempfile::tempdir;
     use testing::TestCase;
     use time::MockTime;
+
+    #[derive(Debug)]
+    struct FailingWatcher {
+        fail_path: PathBuf,
+    }
+
+    impl Watcher for FailingWatcher {
+        fn new<F: notify::EventHandler>(
+            _event_handler: F,
+            _config: notify::Config,
+        ) -> notify::Result<Self> {
+            Ok(Self {
+                fail_path: PathBuf::from("bad"),
+            })
+        }
+
+        fn watch(&mut self, path: &Path, _recursive_mode: RecursiveMode) -> notify::Result<()> {
+            if path == self.fail_path {
+                Err(Error::path_not_found())
+            } else {
+                Ok(())
+            }
+        }
+
+        fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
+            if path == self.fail_path {
+                Err(Error::path_not_found())
+            } else {
+                Ok(())
+            }
+        }
+
+        fn kind() -> WatcherKind {
+            WatcherKind::NullWatcher
+        }
+    }
 
     #[rstest]
     fn state(
@@ -1013,5 +1123,90 @@ mod tests {
             .expect("timeout")
             .expect("No event")
             .expect("error");
+    }
+
+    #[test]
+    fn update_paths() -> Result<(), Box<dyn std::error::Error>> {
+        let dir1 = tempdir()?;
+        let dir2 = tempdir()?;
+
+        // set up the watcher
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut debouncer = new_debouncer(Duration::from_millis(10), None, tx)?;
+        debouncer.update_paths([
+            PathOp::watch_recursive(dir1.path()),
+            PathOp::watch_recursive(dir2.path()),
+        ])?;
+
+        // create a new file
+        let file_path1 = dir1.path().join("file.txt");
+        let file_path2 = dir2.path().join("file.txt");
+        fs::write(&file_path1, b"Lorem ipsum1")?;
+        fs::write(&file_path2, b"Lorem ipsum1")?;
+
+        println!(
+            "waiting for events at {:?} and {:?}",
+            file_path1, file_path2
+        );
+
+        // wait for up to 10 seconds for the create event, ignore all other events
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut received = (false, false);
+        while deadline > Instant::now() {
+            let events = rx
+                .recv_timeout(deadline - Instant::now())
+                .expect("did not receive expected event")
+                .expect("received an error");
+
+            for event in events {
+                println!("event {event:?}");
+                if event.event.paths == vec![file_path1.clone()]
+                    || event.event.paths == vec![file_path1.canonicalize()?]
+                {
+                    received.0 = true;
+                }
+
+                if event.event.paths == vec![file_path2.clone()]
+                    || event.event.paths == vec![file_path2.canonicalize()?]
+                {
+                    received.1 = true;
+                }
+
+                if received == (true, true) {
+                    return Ok(());
+                }
+            }
+        }
+
+        panic!("did not receive expected event");
+    }
+
+    #[test]
+    fn update_paths_error_does_not_add_failed_root() -> Result<(), Box<dyn std::error::Error>> {
+        let mut debouncer = new_debouncer_opt::<_, FailingWatcher, NoCache>(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            |_| {},
+            NoCache::new(),
+            notify::Config::default(),
+        )?;
+
+        let err = debouncer
+            .update_paths([
+                PathOp::watch_recursive("ok1"),
+                PathOp::watch_recursive("bad"),
+                PathOp::watch_recursive("ok2"),
+            ])
+            .unwrap_err();
+        assert!(err.origin.is_some());
+        assert_eq!(err.remaining.len(), 1);
+
+        let roots = debouncer.data.lock().unwrap().roots.clone();
+        assert_eq!(
+            roots,
+            vec![(PathBuf::from("ok1"), RecursiveMode::Recursive)]
+        );
+
+        Ok(())
     }
 }

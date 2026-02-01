@@ -1,7 +1,8 @@
 //! Error types
 
-use crate::Config;
+use crate::{Config, PathOp};
 use std::error::Error as StdError;
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::result::Result as StdResult;
 use std::{self, fmt, io};
@@ -158,14 +159,86 @@ impl<T> From<std::sync::PoisonError<T>> for Error {
     }
 }
 
-#[test]
-fn display_formatted_errors() {
-    let expected = "Some error";
+/// The error provided by [`crate::Watcher::update_paths`] method.
+///
+/// Operations are applied in order. If an error occurs, processing stops and the
+/// error carries the failed operation (if known) and any remaining operations that
+/// were not attempted.
+#[derive(Debug)]
+pub struct UpdatePathsError {
+    /// The original error
+    pub source: Error,
 
-    assert_eq!(expected, format!("{}", Error::generic(expected)));
+    /// The operation that caused the error.
+    ///
+    /// If set, all operations before it were applied successfully.
+    /// `None` if the error was not caused by a specific operation
+    /// (e.g. failure to start the watcher after successfully updating paths).
+    pub origin: Option<PathOp>,
 
-    assert_eq!(
-        expected,
-        format!("{}", Error::io(io::Error::other(expected)))
-    );
+    /// The remaining operations that haven't been applied.
+    ///
+    /// This list does not include `origin`. To retry in order, handle `origin`
+    /// first (if present), then `remaining`.
+    pub remaining: Vec<PathOp>,
+}
+
+impl fmt::Display for UpdatePathsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "unable to apply the batch operation: {}", self.source)
+    }
+}
+
+impl StdError for UpdatePathsError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        Some(&self.source)
+    }
+}
+
+impl From<UpdatePathsError> for Error {
+    fn from(value: UpdatePathsError) -> Self {
+        value.source
+    }
+}
+
+impl IntoIterator for UpdatePathsError {
+    type Item = PathOp;
+
+    type IntoIter = std::iter::Chain<std::option::IntoIter<PathOp>, std::vec::IntoIter<PathOp>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.origin.into_iter().chain(self.remaining)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_formatted_errors() {
+        let expected = "Some error";
+
+        assert_eq!(expected, format!("{}", Error::generic(expected)));
+
+        assert_eq!(
+            expected,
+            format!("{}", Error::io(io::Error::other(expected)))
+        );
+    }
+
+    #[test]
+    fn display_update_paths() {
+        let actual = UpdatePathsError {
+            source: Error::generic("Some error"),
+            origin: None,
+            remaining: Default::default(),
+        }
+        .to_string();
+
+        assert_eq!(
+            format!("unable to apply the batch operation: Some error"),
+            actual
+        );
+    }
 }
