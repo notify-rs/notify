@@ -14,10 +14,9 @@
 
 #![allow(non_upper_case_globals, dead_code)]
 
-use crate::event::*;
+use crate::{event::*, PathOp};
 use crate::{
-    unbounded, Config, Error, EventHandler, EventKindMask, PathsMut, RecursiveMode, Result, Sender,
-    Watcher,
+    unbounded, Config, Error, EventHandler, EventKindMask, RecursiveMode, Result, Sender, Watcher,
 };
 use objc2_core_foundation as cf;
 use objc2_core_services as fs;
@@ -264,27 +263,6 @@ unsafe extern "C-unwind" fn release_context(info: *const libc::c_void) {
     }
 }
 
-struct FsEventPathsMut<'a>(&'a mut FsEventWatcher);
-impl<'a> FsEventPathsMut<'a> {
-    fn new(watcher: &'a mut FsEventWatcher) -> Self {
-        watcher.stop();
-        Self(watcher)
-    }
-}
-impl PathsMut for FsEventPathsMut<'_> {
-    fn add(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        self.0.append_path(path, recursive_mode)
-    }
-
-    fn remove(&mut self, path: &Path) -> Result<()> {
-        self.0.remove_path(path)
-    }
-
-    fn commit(self: Box<Self>) -> Result<()> {
-        self.0.run()
-    }
-}
-
 impl FsEventWatcher {
     fn from_event_handler(
         event_handler: Arc<Mutex<dyn EventHandler>>,
@@ -316,6 +294,39 @@ impl FsEventWatcher {
         let result = self.remove_path(path);
         self.run()?;
         result
+    }
+
+    fn update_paths_inner(
+        &mut self,
+        ops: Vec<crate::PathOp>,
+    ) -> crate::StdResult<(), crate::UpdatePathsError> {
+        self.stop();
+
+        let result = crate::update_paths(ops, |op| match op {
+            crate::PathOp::Watch(path, config) => self
+                .append_path(&path, config.recursive_mode())
+                .map_err(|e| (PathOp::Watch(path, config), e)),
+            crate::PathOp::Unwatch(path) => self
+                .remove_path(&path)
+                .map_err(|e| (PathOp::Unwatch(path), e)),
+        });
+
+        match self.run() {
+            Err(run_error) => match result {
+                Ok(()) => Err(crate::UpdatePathsError {
+                    source: run_error,
+                    origin: None,
+                    remaining: Default::default(),
+                }),
+                Err(path_op_error) => {
+                    log::error!(
+                        "Unable to run fsevents watcher after updating paths error: {run_error:?}"
+                    );
+                    Err(path_op_error)
+                }
+            },
+            Ok(()) => result,
+        }
     }
 
     #[inline]
@@ -601,12 +612,12 @@ impl Watcher for FsEventWatcher {
         self.watch_inner(path, recursive_mode)
     }
 
-    fn paths_mut<'me>(&'me mut self) -> Box<dyn PathsMut + 'me> {
-        Box::new(FsEventPathsMut::new(self))
-    }
-
     fn unwatch(&mut self, path: &Path) -> Result<()> {
         self.unwatch_inner(path)
+    }
+
+    fn update_paths(&mut self, ops: Vec<PathOp>) -> crate::StdResult<(), crate::UpdatePathsError> {
+        self.update_paths_inner(ops)
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
@@ -667,7 +678,7 @@ unsafe fn path_to_cfstring_ref(
 mod tests {
     use std::time::Duration;
 
-    use crate::ErrorKind;
+    use crate::{ErrorKind, WatchPathConfig};
 
     use super::*;
     use crate::test::*;
@@ -1143,15 +1154,18 @@ mod tests {
         let tmpdir = testdir();
         let (mut watcher, _rx) = watcher();
 
-        // use path_mut, otherwise it's too slow
-        let mut paths = watcher.watcher.paths_mut();
+        let mut paths = Vec::new();
+
         for i in 0..=4096 {
             let path = tmpdir.path().join(format!("dir_{i}/subdir"));
             std::fs::create_dir_all(&path).expect("create_dir");
-            paths.add(&path, RecursiveMode::NonRecursive).expect("add");
+            paths.push(PathOp::Watch(
+                path,
+                WatchPathConfig::new(RecursiveMode::NonRecursive),
+            ));
         }
-        let result = paths.commit();
-        assert!(result.is_err());
+
+        assert!(watcher.watcher.update_paths(paths).is_err());
     }
 
     #[test]

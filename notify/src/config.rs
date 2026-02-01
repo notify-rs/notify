@@ -1,7 +1,10 @@
 //! Configuration types
 
 use notify_types::event::EventKindMask;
-use std::time::Duration;
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 /// Indicates whether only the provided directory or its sub-directories as well should be watched
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -161,6 +164,81 @@ impl Default for Config {
             compare_contents: false,
             follow_symlinks: true,
             event_kinds: EventKindMask::ALL,
+        }
+    }
+}
+
+/// Single watch backend configuration
+///
+/// This contains some settings that may relate to only one specific backend,
+/// such as to correctly configure each backend regardless of what is selected during runtime.
+#[derive(Debug)]
+pub struct WatchPathConfig {
+    recursive_mode: RecursiveMode,
+}
+
+impl WatchPathConfig {
+    /// Creates new instance with provided [`RecursiveMode`]
+    pub fn new(recursive_mode: RecursiveMode) -> Self {
+        Self { recursive_mode }
+    }
+
+    /// Set [`RecursiveMode`] for the watch
+    pub fn with_recursive_mode(mut self, recursive_mode: RecursiveMode) -> Self {
+        self.recursive_mode = recursive_mode;
+        self
+    }
+
+    /// Returns current setting
+    pub fn recursive_mode(&self) -> RecursiveMode {
+        self.recursive_mode
+    }
+}
+
+/// An operation to apply to a watcher
+///
+/// See [`Watcher::update_paths`] for more information
+#[derive(Debug)]
+pub enum PathOp {
+    /// Path should be watched
+    Watch(PathBuf, WatchPathConfig),
+
+    /// Path should be unwatched
+    Unwatch(PathBuf),
+}
+
+impl PathOp {
+    /// Watch the path with [`RecursiveMode::Recursive`]
+    pub fn watch_recursive<P: Into<PathBuf>>(path: P) -> Self {
+        Self::Watch(path.into(), WatchPathConfig::new(RecursiveMode::Recursive))
+    }
+
+    /// Watch the path with [`RecursiveMode::NonRecursive`]
+    pub fn watch_non_recursive<P: Into<PathBuf>>(path: P) -> Self {
+        Self::Watch(
+            path.into(),
+            WatchPathConfig::new(RecursiveMode::NonRecursive),
+        )
+    }
+
+    /// Unwatch the path
+    pub fn unwatch<P: Into<PathBuf>>(path: P) -> Self {
+        Self::Unwatch(path.into())
+    }
+
+    /// Returns the path associated with this operation.
+    pub fn as_path(&self) -> &Path {
+        match self {
+            PathOp::Watch(p, _) => p,
+            PathOp::Unwatch(p) => p,
+        }
+    }
+
+    /// Returns the path associated with this operation.
+    pub fn into_path(self) -> PathBuf {
+        match self {
+            PathOp::Watch(p, _) => p,
+            PathOp::Unwatch(p) => p,
         }
     }
 }
