@@ -131,14 +131,26 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
         return evs;
     }
 
-    // This is most likely a rename or a removal. We assume rename but may want
-    // to figure out if it was a removal some way later (TODO). To denote the
-    // special nature of the event, we add an info string.
-    if flags.contains(StreamFlags::ROOT_CHANGED) {
-        evs.push(
-            Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
-                .set_info("root changed"),
-        );
+    // A watched root changed (renamed or removed). If the flags provide a hint,
+    // prefer that over guessing. Otherwise, treat it as a removal to avoid
+    // misclassifying a delete as a rename.
+    let root_changed = flags.contains(StreamFlags::ROOT_CHANGED);
+    if root_changed {
+        let kind = if flags.contains(StreamFlags::ITEM_REMOVED) {
+            if flags.contains(StreamFlags::IS_DIR) {
+                EventKind::Remove(RemoveKind::Folder)
+            } else if flags.contains(StreamFlags::IS_FILE) {
+                EventKind::Remove(RemoveKind::File)
+            } else {
+                EventKind::Remove(RemoveKind::Any)
+            }
+        } else if flags.contains(StreamFlags::ITEM_RENAMED) {
+            EventKind::Modify(ModifyKind::Name(RenameMode::From))
+        } else {
+            EventKind::Remove(RemoveKind::Any)
+        };
+
+        evs.push(Event::new(kind).set_info("root changed"));
     }
 
     // A path was mounted at the event path; we treat that as a create.
@@ -172,7 +184,8 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
 
     // FSEvents provides no mechanism to associate the old and new sides of a
     // rename event.
-    if flags.contains(StreamFlags::ITEM_RENAMED) {
+    // Avoid emitting duplicate events around a root change by checking `root_changed`.
+    if flags.contains(StreamFlags::ITEM_RENAMED) && !root_changed {
         evs.push(Event::new(EventKind::Modify(ModifyKind::Name(
             RenameMode::Any,
         ))));
@@ -214,7 +227,8 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
         ))));
     }
 
-    if flags.contains(StreamFlags::ITEM_REMOVED) {
+    // Avoid emitting duplicate events around a root change by checking `root_changed`.
+    if flags.contains(StreamFlags::ITEM_REMOVED) && !root_changed {
         evs.push(if flags.contains(StreamFlags::IS_DIR) {
             Event::new(EventKind::Remove(RemoveKind::Folder))
         } else if flags.contains(StreamFlags::IS_FILE) {
