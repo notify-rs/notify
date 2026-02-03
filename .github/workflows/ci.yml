@@ -29,7 +29,7 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Install typos-cli
-        uses: taiki-e/install-action@29feb09ac22f4fde4175fe7b5c3548952234f69a # v2.67.17
+        uses: taiki-e/install-action@650c5ca14212efbbf3e580844b04bdccf68dac31 # v2.67.18
         with:
           tool: typos-cli
 
@@ -37,7 +37,7 @@ jobs:
         run: typos
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@29feb09ac22f4fde4175fe7b5c3548952234f69a # v2.67.17
+        uses: taiki-e/install-action@650c5ca14212efbbf3e580844b04bdccf68dac31 # v2.67.18
         with:
           tool: cargo-deny
 
@@ -45,7 +45,7 @@ jobs:
         run: cargo deny check
 
       - name: Install cargo-machete
-        uses: taiki-e/install-action@29feb09ac22f4fde4175fe7b5c3548952234f69a # v2.67.17
+        uses: taiki-e/install-action@650c5ca14212efbbf3e580844b04bdccf68dac31 # v2.67.18
         with:
           tool: cargo-machete
 
@@ -143,7 +143,7 @@ jobs:
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
       - name: Install cargo-ndk
-        uses: taiki-e/install-action@29feb09ac22f4fde4175fe7b5c3548952234f69a # v2.67.17
+        uses: taiki-e/install-action@650c5ca14212efbbf3e580844b04bdccf68dac31 # v2.67.18
         with:
           tool: cargo-ndk
 
