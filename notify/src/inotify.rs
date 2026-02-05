@@ -87,11 +87,18 @@ struct EventLoop {
     inotify: Option<Inotify>,
     event_handler: Box<dyn EventHandler>,
     /// PathBuf -> (WatchDescriptor, WatchMask, is_recursive, is_dir)
-    watches: HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool)>,
+    watches: HashMap<PathBuf, Watch>,
     paths: HashMap<WatchDescriptor, PathBuf>,
     rename_event: Option<Event>,
     follow_links: bool,
     event_kind_mask: EventKindMask,
+}
+
+struct Watch {
+    watch_descriptor: WatchDescriptor,
+    watch_mask: WatchMask,
+    is_recursive: bool,
+    is_dir: bool,
 }
 
 /// Watcher implementation based on inotify
@@ -112,13 +119,13 @@ enum EventLoopMsg {
 fn add_watch_by_event(
     path: &PathBuf,
     event: &inotify_sys::Event<&OsStr>,
-    watches: &HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool)>,
+    watches: &HashMap<PathBuf, Watch>,
     add_watches: &mut Vec<PathBuf>,
 ) {
     if event.mask.contains(EventMask::ISDIR) {
         if let Some(parent_path) = path.parent() {
-            if let Some(&(_, _, is_recursive, _)) = watches.get(parent_path) {
-                if is_recursive {
+            if let Some(watch) = watches.get(parent_path) {
+                if watch.is_recursive {
                     add_watches.push(path.to_owned());
                 }
             }
@@ -129,7 +136,7 @@ fn add_watch_by_event(
 #[inline]
 fn remove_watch_by_event(
     path: &PathBuf,
-    watches: &HashMap<PathBuf, (WatchDescriptor, WatchMask, bool, bool)>,
+    watches: &HashMap<PathBuf, Watch>,
     remove_watches: &mut Vec<PathBuf>,
 ) {
     if watches.contains_key(path) {
@@ -356,8 +363,8 @@ impl EventLoop {
                             }
                             if event.mask.contains(EventMask::DELETE_SELF) {
                                 let remove_kind = match self.watches.get(&path) {
-                                    Some(&(_, _, _, true)) => RemoveKind::Folder,
-                                    Some(&(_, _, _, false)) => RemoveKind::File,
+                                    Some(watch) if watch.is_dir => RemoveKind::Folder,
+                                    Some(_) => RemoveKind::File,
                                     None => RemoveKind::Other,
                                 };
                                 evs.push(
@@ -487,8 +494,8 @@ impl EventLoop {
             watchmask.insert(WatchMask::MOVE_SELF);
         }
 
-        if let Some(&(_, old_watchmask, _, _)) = self.watches.get(&path) {
-            watchmask.insert(old_watchmask);
+        if let Some(watch) = self.watches.get(&path) {
+            watchmask.insert(watch.watch_mask);
             watchmask.insert(WatchMask::MASK_ADD);
         }
 
@@ -510,8 +517,15 @@ impl EventLoop {
                 Ok(w) => {
                     watchmask.remove(WatchMask::MASK_ADD);
                     let is_dir = metadata(&path).map_err(Error::io)?.is_dir();
-                    self.watches
-                        .insert(path.clone(), (w.clone(), watchmask, is_recursive, is_dir));
+                    self.watches.insert(
+                        path.clone(),
+                        Watch {
+                            watch_descriptor: w.clone(),
+                            watch_mask: watchmask,
+                            is_recursive,
+                            is_dir,
+                        },
+                    );
                     self.paths.insert(w, path);
                     Ok(())
                 }
@@ -524,15 +538,18 @@ impl EventLoop {
     fn remove_watch(&mut self, path: PathBuf, remove_recursive: bool) -> Result<()> {
         match self.watches.remove(&path) {
             None => return Err(Error::watch_not_found().add_path(path)),
-            Some((w, _, is_recursive, _)) => {
+            Some(watch) => {
                 if let Some(ref mut inotify) = self.inotify {
                     let mut inotify_watches = inotify.watches();
                     log::trace!("removing inotify watch for {path:?}, remove_recursive: {remove_recursive:?}");
 
-                    Self::remove_single_descriptor(&mut inotify_watches, w.clone());
-                    self.paths.remove(&w);
+                    Self::remove_single_descriptor(
+                        &mut inotify_watches,
+                        watch.watch_descriptor.clone(),
+                    );
+                    self.paths.remove(&watch.watch_descriptor);
 
-                    if is_recursive || remove_recursive {
+                    if watch.is_recursive || remove_recursive {
                         let mut remove_list = Vec::new();
                         for (w, p) in &self.paths {
                             if p.starts_with(&path) {
