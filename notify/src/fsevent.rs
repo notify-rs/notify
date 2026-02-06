@@ -21,8 +21,9 @@ use crate::{
 use objc2_core_foundation as cf;
 use objc2_core_services as fs;
 use std::collections::HashMap;
-use std::ffi::CStr;
+use std::ffi::{CStr, OsStr};
 use std::fmt;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::ptr::{self, NonNull};
 use std::sync::{Arc, Mutex};
@@ -547,7 +548,9 @@ unsafe extern "C-unwind" fn callback(
     event_flags: NonNull<fs::FSEventStreamEventFlags>, // const FSEventStreamEventFlags eventFlags[]
     event_ids: NonNull<fs::FSEventStreamEventId>,      // const FSEventStreamEventId eventIds[]
 ) {
-    unsafe {
+    // Never unwind into CoreServices; if something goes wrong, drop the events and log.
+    // This also protects against panics from user-provided `EventHandler` implementations.
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
         callback_impl(
             stream_ref,
             info,
@@ -556,7 +559,10 @@ unsafe extern "C-unwind" fn callback(
             event_flags,
             event_ids,
         )
-    }
+    }))
+    .map_err(|_| {
+        log::error!("panic in FSEvents callback; dropping pending events");
+    });
 }
 
 unsafe fn callback_impl(
@@ -572,15 +578,17 @@ unsafe fn callback_impl(
     let event_handler = &(*info).event_handler;
 
     for p in 0..num_events {
-        let path = CStr::from_ptr(*event_paths.add(p))
-            .to_str()
-            .expect("Invalid UTF8 string.");
-        let path = PathBuf::from(path);
+        // Paths are not guaranteed to be valid UTF-8 (e.g. NFS); keep them as raw bytes.
+        let path = CStr::from_ptr(*event_paths.add(p));
+        let path = PathBuf::from(OsStr::from_bytes(path.to_bytes()));
 
-        let flag = *event_flags.as_ptr().add(p);
-        let flag = StreamFlags::from_bits(flag).unwrap_or_else(|| {
-            panic!("Unable to decode StreamFlags: {}", flag);
-        });
+        let raw_flag = *event_flags.as_ptr().add(p) as u32;
+        let flag = StreamFlags::from_bits_truncate(raw_flag);
+        let unknown_bits = raw_flag & !StreamFlags::all().bits();
+        if unknown_bits != 0 {
+            // `FSEventStreamEventFlags` is an extensible bitfield; tolerate future flags.
+            log::trace!("unknown FSEventStreamEventFlags bits: 0x{unknown_bits:08x}");
+        }
 
         let mut handle_event = false;
         for (p, r) in &(*info).recursive_info {
@@ -610,8 +618,18 @@ unsafe fn callback_impl(
             if !(*info).event_kinds.matches(&ev.kind) {
                 continue; // Skip events that don't match the mask
             }
-            let mut event_handler = event_handler.lock().expect("lock not to be poisoned");
-            event_handler.handle_event(Ok(ev));
+            let mut event_handler = match event_handler.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            // Protect against panicking event handlers, which would otherwise unwind into
+            // the CoreServices callback.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                event_handler.handle_event(Ok(ev));
+            }))
+            .map_err(|_| {
+                log::error!("panic in FSEvents event handler; dropping event");
+            });
         }
     }
 }
@@ -735,6 +753,131 @@ mod tests {
     fn test_steam_context_info_send_and_sync() {
         fn check_send<T: Send + Sync>() {}
         check_send::<StreamContextInfo>();
+    }
+
+    #[test]
+    fn callback_impl_handles_non_utf8_paths_without_panicking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        use std::ptr;
+
+        let (tx, rx) = std::sync::mpsc::channel::<crate::Result<Event>>();
+        let event_handler: Arc<Mutex<dyn EventHandler>> = Arc::new(Mutex::new(tx));
+
+        let mut recursive_info = HashMap::new();
+        recursive_info.insert(PathBuf::from("/tmp"), true);
+
+        let context = Box::new(StreamContextInfo {
+            event_handler,
+            recursive_info,
+            event_kinds: EventKindMask::ALL,
+        });
+        let context_ptr = Box::into_raw(context) as *mut libc::c_void;
+
+        let bytes = b"/tmp/\xff";
+        let c_path = CString::new(bytes.as_slice()).expect("cstring");
+        let path_ptrs = [c_path.as_ptr()];
+        let event_paths = NonNull::new(path_ptrs.as_ptr() as *mut libc::c_void).unwrap();
+
+        let flags_arr = [StreamFlags::ITEM_CREATED.bits() as fs::FSEventStreamEventFlags];
+        let event_flags =
+            NonNull::new(flags_arr.as_ptr() as *mut fs::FSEventStreamEventFlags).unwrap();
+
+        let ids_arr = [0 as fs::FSEventStreamEventId];
+        let event_ids = NonNull::new(ids_arr.as_ptr() as *mut fs::FSEventStreamEventId).unwrap();
+
+        let res = std::panic::catch_unwind(|| unsafe {
+            callback_impl(
+                ptr::null(),
+                context_ptr,
+                1,
+                event_paths,
+                event_flags,
+                event_ids,
+            );
+        });
+        unsafe {
+            drop(Box::from_raw(context_ptr as *mut StreamContextInfo));
+        }
+
+        assert!(res.is_ok(), "callback_impl should not panic");
+
+        let event = rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("expected event")
+            .expect("expected Ok(Event)");
+        assert!(
+            event.kind.is_create(),
+            "expected create event, got {event:?}"
+        );
+        assert_eq!(event.paths.len(), 1);
+        assert_eq!(event.paths[0].as_os_str().as_bytes(), bytes);
+    }
+
+    #[test]
+    fn callback_impl_ignores_unknown_flag_bits_without_panicking() {
+        use std::ffi::CString;
+        use std::ptr;
+
+        let (tx, rx) = std::sync::mpsc::channel::<crate::Result<Event>>();
+        let event_handler: Arc<Mutex<dyn EventHandler>> = Arc::new(Mutex::new(tx));
+
+        let mut recursive_info = HashMap::new();
+        recursive_info.insert(PathBuf::from("/tmp"), true);
+
+        let context = Box::new(StreamContextInfo {
+            event_handler,
+            recursive_info,
+            event_kinds: EventKindMask::ALL,
+        });
+        let context_ptr = Box::into_raw(context) as *mut libc::c_void;
+
+        let c_path = CString::new("/tmp/file").expect("cstring");
+        let path_ptrs = [c_path.as_ptr()];
+        let event_paths = NonNull::new(path_ptrs.as_ptr() as *mut libc::c_void).unwrap();
+
+        // Include an unknown bit so the old `from_bits(...).unwrap_or_else(panic!)` behavior
+        // would have panicked. New behavior should tolerate it.
+        let unknown_mask = !StreamFlags::all().bits();
+        let unknown_bit = unknown_mask & unknown_mask.wrapping_neg();
+        assert_ne!(unknown_bit, 0, "StreamFlags unexpectedly uses all bits");
+        let raw_flag = StreamFlags::ITEM_CREATED.bits() | unknown_bit;
+        assert!(
+            StreamFlags::from_bits(raw_flag).is_none(),
+            "raw_flag must include an unknown bit for this test to be meaningful"
+        );
+
+        let flags_arr = [raw_flag as fs::FSEventStreamEventFlags];
+        let event_flags =
+            NonNull::new(flags_arr.as_ptr() as *mut fs::FSEventStreamEventFlags).unwrap();
+
+        let ids_arr = [0 as fs::FSEventStreamEventId];
+        let event_ids = NonNull::new(ids_arr.as_ptr() as *mut fs::FSEventStreamEventId).unwrap();
+
+        let res = std::panic::catch_unwind(|| unsafe {
+            callback_impl(
+                ptr::null(),
+                context_ptr,
+                1,
+                event_paths,
+                event_flags,
+                event_ids,
+            );
+        });
+        unsafe {
+            drop(Box::from_raw(context_ptr as *mut StreamContextInfo));
+        }
+
+        assert!(res.is_ok(), "callback_impl should not panic");
+
+        let event = rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("expected event")
+            .expect("expected Ok(Event)");
+        assert!(
+            event.kind.is_create(),
+            "expected create event, got {event:?}"
+        );
     }
 
     #[test]
