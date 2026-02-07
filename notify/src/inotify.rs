@@ -461,19 +461,39 @@ impl EventLoop {
         }
     }
 
-    fn add_watch(&mut self, path: PathBuf, is_recursive: bool, mut watch_self: bool) -> Result<()> {
+    fn add_watch(&mut self, path: PathBuf, is_recursive: bool, watch_self: bool) -> Result<()> {
         // If the watch is not recursive, or if we determine (by stat'ing the path to get its
         // metadata) that the watched path is not a directory, add a single path watch.
         if !is_recursive || !metadata(&path).map_err(Error::io_watch)?.is_dir() {
             return self.add_single_watch(path, false, true);
         }
 
-        for entry in WalkDir::new(path)
+        let entries = WalkDir::new(path)
             .follow_links(self.follow_links)
             .into_iter()
             .filter_map(filter_dir)
-        {
-            self.add_single_watch(entry.into_path(), is_recursive, watch_self)?;
+            .map(|entry| entry.into_path());
+
+        self.add_watches_for_paths(entries, is_recursive, watch_self)
+    }
+
+    fn add_watches_for_paths<I>(
+        &mut self,
+        paths: I,
+        is_recursive: bool,
+        mut watch_self: bool,
+    ) -> Result<()>
+    where
+        I: IntoIterator<Item = PathBuf>,
+    {
+        for path in paths {
+            match self.add_single_watch(path, is_recursive, watch_self) {
+                Ok(()) => {}
+                // TOCTOU: a subdirectory can disappear between walkdir listing it and us adding an
+                // inotify watch for it. This should not fail the overall recursive watch call.
+                Err(err) if !watch_self && matches!(err.kind, ErrorKind::PathNotFound) => {}
+                Err(err) => return Err(err),
+            }
             watch_self = false;
         }
 
@@ -516,7 +536,15 @@ impl EventLoop {
                 }
                 Ok(w) => {
                     watchmask.remove(WatchMask::MASK_ADD);
-                    let is_dir = metadata(&path).map_err(Error::io)?.is_dir();
+                    let is_dir = match metadata(&path) {
+                        Ok(metadata) => metadata.is_dir(),
+                        Err(e) => {
+                            // Avoid leaking an inotify watch if we can't stat after adding it.
+                            // This can happen due to racy deletions.
+                            let _ = inotify.watches().remove(w.clone());
+                            return Err(Error::io_watch(e).add_path(path));
+                        }
+                    };
                     self.watches.insert(
                         path.clone(),
                         Watch {
@@ -711,7 +739,8 @@ mod tests {
 
     use super::inotify_sys::WatchMask;
     use super::{
-        Config, Error, ErrorKind, Event, EventKind, INotifyWatcher, RecursiveMode, Result, Watcher,
+        Config, Error, ErrorKind, Event, EventKind, EventLoop, INotifyWatcher, RecursiveMode,
+        Result, Watcher,
     };
     use notify_types::event::EventKindMask;
 
@@ -753,6 +782,29 @@ mod tests {
                 kind: ErrorKind::PathNotFound
             })
         ))
+    }
+
+    // Regression test for https://github.com/notify-rs/notify/issues/579.
+    #[test]
+    fn recursive_watch_ignores_missing_subdir_during_initial_scan() {
+        use std::fs;
+
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().to_path_buf();
+        let disappearing = root.join("disappearing");
+        fs::create_dir(&disappearing).unwrap();
+        fs::remove_dir_all(&disappearing).unwrap();
+
+        let inotify = super::inotify_sys::Inotify::init().unwrap();
+        let mut event_loop = EventLoop::new(inotify, Box::new(|_| {}), &Config::default()).unwrap();
+
+        // Simulate the TOCTOU: we *intend* to watch a subdirectory discovered during initial scan,
+        // but it's already gone by the time we call `inotify_add_watch`.
+        let result = event_loop.add_watches_for_paths(vec![root, disappearing], true, true);
+        assert!(
+            result.is_ok(),
+            "expected recursive watch to succeed, got: {result:?}"
+        );
     }
 
     /// Runs manually.
