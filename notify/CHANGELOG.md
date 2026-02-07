@@ -4,11 +4,14 @@
 
 - FEATURE: remove `Watcher::paths_mut` and introduce `update_paths` [#705]
 - FEATURE: impl `EventHandler` for `futures::channel::mpsc::UnboundedSender` and `tokio::sync::mpsc::UnboundedSender` behind the `futures` and `tokio` feature flags [#767]
-- FIX: [macOS] prevent handler panicking in the FSEvents callback panics
-- FIX: [macOS] prevent panicking when path contains non UTF-8 chars
+- FIX: [macOS] prevent handler panicking in the FSEvents callback panics [#790]
+- FIX: [macOS] prevent panicking when path contains non UTF-8 chars [#790]
+- FIX: [linux] fix a TOCTOU issue when adding a watcher [#792]
 
 [#705]: https://github.com/notify-rs/notify/pull/705
 [#767]: https://github.com/notify-rs/notify/pull/767
+[#790]: https://github.com/notify-rs/notify/pull/790
+[#792]: https://github.com/notify-rs/notify/pull/792
 
 ## notify 9.0.0-rc.1 (2026-01-25)
 
