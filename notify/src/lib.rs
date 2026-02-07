@@ -48,6 +48,16 @@
 //! belong to you. In this case, reverting to the pollwatcher can fix the issue,
 //! with a slight performance cost.
 //!
+//! ### macOS/APFS: `std::fs::copy` can trigger events on the source path
+//!
+//! On APFS, `std::fs::copy` may use copy-on-write cloning (`fclonefileat`/`clonefile`).
+//! This can update inode metadata on the source file, and FSEvents may report a metadata change
+//! for the source path (see [issue #259](https://github.com/notify-rs/notify/issues/259)).
+//!
+//! Workarounds are to avoid `std::fs::copy` (use `std::io::copy` or `read`/`write` instead), or
+//! filter out metadata-only events if they're not relevant (e.g. don't include
+//! `EventKindMask::MODIFY_META` in [`Config::with_event_kinds`]).
+//!
 //! ### Editor Behaviour
 //!
 //! If you rely on precise events (Write/Delete/Create..), you will notice that the actual events
