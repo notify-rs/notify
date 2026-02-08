@@ -7,11 +7,13 @@
 - FIX: [macOS] prevent handler panicking in the FSEvents callback panics [#790]
 - FIX: [macOS] prevent panicking when path contains non UTF-8 chars [#790]
 - FIX: [linux] fix a TOCTOU issue when adding a watcher [#792]
+- FIX: [macOS] remove `FSEventsPurgeEventsForDeviceUpToEventId` call [#795]
 
 [#705]: https://github.com/notify-rs/notify/pull/705
 [#767]: https://github.com/notify-rs/notify/pull/767
 [#790]: https://github.com/notify-rs/notify/pull/790
 [#792]: https://github.com/notify-rs/notify/pull/792
+[#795]: https://github.com/notify-rs/notify/pull/795
 
 ## notify 9.0.0-rc.1 (2026-01-25)
 
