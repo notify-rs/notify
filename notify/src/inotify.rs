@@ -144,6 +144,13 @@ fn remove_watch_by_event(
     }
 }
 
+#[inline]
+fn unmount_event(path: PathBuf) -> Event {
+    Event::new(EventKind::Remove(RemoveKind::Other))
+        .add_path(path)
+        .set_info("unmount")
+}
+
 impl EventLoop {
     pub fn new(
         inotify: Inotify,
@@ -371,6 +378,10 @@ impl EventLoop {
                                     Event::new(EventKind::Remove(remove_kind))
                                         .add_path(path.clone()),
                                 );
+                                remove_watch_by_event(&path, &self.watches, &mut remove_watches);
+                            }
+                            if event.mask.contains(EventMask::UNMOUNT) {
+                                evs.push(unmount_event(path.clone()));
                                 remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                             }
                             if event.mask.contains(EventMask::MODIFY) {
@@ -742,7 +753,7 @@ mod tests {
         Config, Error, ErrorKind, Event, EventKind, EventLoop, INotifyWatcher, RecursiveMode,
         Result, Watcher,
     };
-    use notify_types::event::EventKindMask;
+    use notify_types::event::{EventKindMask, RemoveKind};
 
     use crate::test::*;
 
@@ -949,6 +960,16 @@ mod tests {
             matches!(unwatch_result, Ok(())),
             "error: {unwatch_result:#?}"
         );
+    }
+
+    #[test]
+    fn unmount_event_maps_to_remove_other_with_unmount_info() {
+        let path = PathBuf::from("/tmp/notify-unmount");
+        let event = super::unmount_event(path.clone());
+
+        assert_eq!(event.kind, EventKind::Remove(RemoveKind::Other));
+        assert_eq!(event.paths, vec![path]);
+        assert_eq!(event.info(), Some("unmount"));
     }
 
     #[test]
