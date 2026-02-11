@@ -7,8 +7,10 @@
 - FIX: [macOS] prevent handler panicking in the FSEvents callback panics [#790]
 - FIX: [macOS] prevent panicking when path contains non UTF-8 chars [#790]
 - FIX: [linux] fix a TOCTOU issue when adding a watcher [#792]
+- FIX: [linux] surface inotify `UNMOUNT` events to users and clean up affected watches [#627]
 - FIX: [macOS] remove `FSEventsPurgeEventsForDeviceUpToEventId` call [#795]
 
+[#627]: https://github.com/notify-rs/notify/issues/627
 [#705]: https://github.com/notify-rs/notify/pull/705
 [#767]: https://github.com/notify-rs/notify/pull/767
 [#790]: https://github.com/notify-rs/notify/pull/790
