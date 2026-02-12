@@ -263,6 +263,7 @@ impl EventLoop {
     fn handle_inotify(&mut self) {
         let mut add_watches = Vec::new();
         let mut remove_watches = Vec::new();
+        let mut remove_watches_no_syscall = Vec::new();
 
         if let Some(ref mut inotify) = self.inotify {
             let mut buffer = [0; 1024];
@@ -382,7 +383,14 @@ impl EventLoop {
                             }
                             if event.mask.contains(EventMask::UNMOUNT) {
                                 evs.push(unmount_event(path.clone()));
-                                remove_watch_by_event(&path, &self.watches, &mut remove_watches);
+                                // The kernel has already removed this watch descriptor and will
+                                // emit IGNORED; clean up internal state without inotify_rm_watch.
+                                // ref. https://www.man7.org/linux/man-pages/man7/inotify.7.html
+                                remove_watch_by_event(
+                                    &path,
+                                    &self.watches,
+                                    &mut remove_watches_no_syscall,
+                                );
                             }
                             if event.mask.contains(EventMask::MODIFY) {
                                 evs.push(
@@ -446,6 +454,12 @@ impl EventLoop {
                         self.event_handler.handle_event(Err(Error::io(e)));
                     }
                 }
+            }
+        }
+
+        for path in remove_watches_no_syscall {
+            if let Err(err) = self.remove_watch_without_os_call(path, true) {
+                log::warn!("Unable to remove the path from the watches: {err:?}");
             }
         }
 
@@ -600,6 +614,33 @@ impl EventLoop {
                         for w in remove_list {
                             self.paths.remove(&w);
                         }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn remove_watch_without_os_call(
+        &mut self,
+        path: PathBuf,
+        remove_recursive: bool,
+    ) -> Result<()> {
+        match self.watches.remove(&path) {
+            None => return Err(Error::watch_not_found().add_path(path)),
+            Some(watch) => {
+                self.paths.remove(&watch.watch_descriptor);
+
+                if watch.is_recursive || remove_recursive {
+                    let mut remove_list = Vec::new();
+                    for (w, p) in &self.paths {
+                        if p.starts_with(&path) {
+                            self.watches.remove(p);
+                            remove_list.push(w.clone());
+                        }
+                    }
+                    for w in remove_list {
+                        self.paths.remove(&w);
                     }
                 }
             }
@@ -970,6 +1011,36 @@ mod tests {
         assert_eq!(event.kind, EventKind::Remove(RemoveKind::Other));
         assert_eq!(event.paths, vec![path]);
         assert_eq!(event.info(), Some("unmount"));
+    }
+
+    #[test]
+    fn remove_watch_without_os_call_removes_internal_state() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let watched = tmpdir.path().join("watched");
+        std::fs::create_dir(&watched).unwrap();
+
+        let inotify = super::inotify_sys::Inotify::init().unwrap();
+        let mut event_loop = EventLoop::new(inotify, Box::new(|_| {}), &Config::default()).unwrap();
+
+        event_loop
+            .add_watch(watched.clone(), false, true)
+            .expect("add_watch");
+
+        event_loop
+            .remove_watch_without_os_call(watched.clone(), true)
+            .expect("remove_watch_without_os_call");
+
+        let result = event_loop.remove_watch(watched.clone(), false);
+        assert!(
+            matches!(
+                result,
+                Err(Error {
+                    kind: ErrorKind::WatchNotFound,
+                    ..
+                })
+            ),
+            "expected WatchNotFound, got: {result:?}"
+        );
     }
 
     #[test]
