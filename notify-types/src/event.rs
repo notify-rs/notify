@@ -574,7 +574,35 @@ impl EventAttributes {
         self.inner.as_ref().and_then(|inner| inner.flag)
     }
 
-    /// Retrieves the additional info for an event directly, if present.
+    /// Returns additional, backend-provided information about this event, if present.
+    ///
+    /// This attribute is primarily used to disambiguate the various `Other` variants in the
+    /// [`EventKind`] hierarchy (for example [`EventKind::Other`], [`CreateKind::Other`],
+    /// [`ModifyKind::Other`], [`RemoveKind::Other`], [`MetadataKind::Other`], ...).
+    ///
+    /// When a backend emits an `Other` kind, it should also set this attribute to a short,
+    /// human-readable string explaining what happened. If an event kind indicates `Other` but
+    /// this value is missing, treat it as a backend bug.
+    ///
+    /// Backends may also set this attribute for non-`Other` kinds, if doing so provides useful
+    /// precision. For example, the `Modify(Metadata(Extended))` kind suggests using this
+    /// attribute when information about _what_ extended metadata changed is available.
+    ///
+    /// # Stability
+    ///
+    /// The exact string values are backend-defined. They are intended as a hint for consumers and
+    /// may change between notify versions.
+    ///
+    /// # Examples
+    ///
+    /// `notify` backends currently use values such as:
+    ///
+    /// - `unmount` (inotify unmount events)
+    /// - `rescan: user dropped` / `rescan: kernel dropped` (FSEvents queue overflow hints)
+    /// - `root changed`, `mount`
+    /// - `is: symlink`, `is: hardlink`, `is: clone`
+    /// - `meta: finder info`
+    /// - `override` (debouncer-generated synthetic events)
     pub fn info(&self) -> Option<&str> {
         self.inner.as_ref().and_then(|inner| inner.info.as_deref())
     }
@@ -604,7 +632,9 @@ impl EventAttributes {
         self.inner_mut().flag = Some(flag);
     }
 
-    /// Sets additional info onto the event.
+    /// Sets [`EventAttributes::info`].
+    ///
+    /// This should be a short, human-readable string.
     pub fn set_info(&mut self, info: &str) {
         self.inner_mut().info = Some(info.to_string());
     }
@@ -658,7 +688,7 @@ impl Event {
         self.attrs.flag()
     }
 
-    /// Retrieves the additional info for an event directly, if present.
+    /// Returns [`EventAttributes::info`].
     pub fn info(&self) -> Option<&str> {
         self.attrs.info()
     }
@@ -704,7 +734,7 @@ impl Event {
         self
     }
 
-    /// Sets additional info onto the event.
+    /// Sets [`EventAttributes::info`].
     pub fn set_info(mut self, info: &str) -> Self {
         self.attrs.set_info(info);
         self
