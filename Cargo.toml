@@ -37,7 +37,7 @@ log = "0.4.17"
 mio = { version = "1.0", features = ["os-ext"] }
 web-time = "1.1.0"
 nix = "0.31.0"
-notify = { version = "9.0.0-rc.1", path = "notify" }
+notify = { version = "9.0.0-rc.2", path = "notify" }
 notify-debouncer-full = { version = "0.7.0", path = "notify-debouncer-full" }
 notify-debouncer-mini = { version = "0.7.0", path = "notify-debouncer-mini" }
 notify-types = { version = "2.1.0", path = "notify-types" }
