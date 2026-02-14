@@ -2,6 +2,8 @@
 
 ## notify 9.0.0 (unreleased)
 
+## notify 9.0.0-rc.2 (2026-02-14)
+
 - FEATURE: remove `Watcher::paths_mut` and introduce `update_paths` [#705]
 - FEATURE: impl `EventHandler` for `futures::channel::mpsc::UnboundedSender` and `tokio::sync::mpsc::UnboundedSender` behind the `futures` and `tokio` feature flags [#767]
 - FIX: [macOS] prevent handler panicking in the FSEvents callback panics [#790]
