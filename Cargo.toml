@@ -50,3 +50,4 @@ tempfile = "3.10.0"
 trash = "5.2.2"
 walkdir = "2.4.0"
 windows-sys = "0.61.0"
+xxhash-rust = { version = "0.8.15", features = ["xxh3"] }

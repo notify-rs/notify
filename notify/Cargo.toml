@@ -35,6 +35,7 @@ log.workspace = true
 walkdir.workspace = true
 futures = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
+xxhash-rust.workspace = true
 
 [target.'cfg(any(target_os="linux", target_os="android"))'.dependencies]
 inotify = { workspace = true, default-features = false }

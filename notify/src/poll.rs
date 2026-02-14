@@ -15,6 +15,11 @@ use std::{
     time::Duration,
 };
 
+pub(crate) enum PollMessage {
+    Poll,
+    PollAndWait(Sender<crate::Result<()>>),
+}
+
 /// Event sent for registered handlers on initial directory scans
 pub type ScanEvent = crate::Result<PathBuf>;
 
@@ -69,15 +74,15 @@ mod data {
     use notify_types::event::EventKindMask;
     use std::{
         cell::RefCell,
-        collections::{hash_map::RandomState, HashMap},
+        collections::HashMap,
         fmt::{self, Debug},
         fs::{self, File, Metadata},
-        hash::{BuildHasher, Hasher},
         io::{self, Read},
         path::{Path, PathBuf},
         time::Instant,
     };
     use walkdir::WalkDir;
+    use xxhash_rust::xxh3::Xxh3Default;
 
     use super::ScanEventHandler;
 
@@ -92,10 +97,7 @@ mod data {
     pub(super) struct DataBuilder {
         emitter: EventEmitter,
         scan_emitter: Option<Box<RefCell<dyn ScanEventHandler>>>,
-
-        // TODO: May allow user setup their custom BuildHasher / BuildHasherDefault
-        // in future.
-        build_hasher: Option<RandomState>,
+        compare_contents: bool,
 
         // current timestamp for building Data.
         now: Instant,
@@ -124,7 +126,7 @@ mod data {
             Self {
                 emitter: EventEmitter::new(event_handler, event_kinds),
                 scan_emitter,
-                build_hasher: compare_content.then(RandomState::default),
+                compare_contents: compare_content,
                 now: Instant::now(),
             }
         }
@@ -156,7 +158,7 @@ mod data {
     impl Debug for DataBuilder {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             f.debug_struct("DataBuilder")
-                .field("build_hasher", &self.build_hasher)
+                .field("compare_contents", &self.compare_contents)
                 .field("now", &self.now)
                 .finish()
         }
@@ -366,36 +368,14 @@ mod data {
 
             PathData {
                 mtime: metadata.modified().map_or(0, system_time_to_seconds),
-                hash: data_builder
-                    .build_hasher
-                    .as_ref()
-                    .filter(|_| metadata.is_file())
-                    .and_then(|build_hasher| {
-                        Self::get_content_hash(build_hasher, meta_path.path()).ok()
-                    }),
+                hash: if data_builder.compare_contents && metadata.is_file() {
+                    content_hash(meta_path.path()).ok()
+                } else {
+                    None
+                },
 
                 last_check: data_builder.now,
             }
-        }
-
-        /// Get hash value for the data content in given file `path`.
-        fn get_content_hash(build_hasher: &RandomState, path: &Path) -> io::Result<u64> {
-            let mut hasher = build_hasher.build_hasher();
-            let mut file = File::open(path)?;
-            let mut buf = [0; 512];
-
-            loop {
-                let n = match file.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(len) => len,
-                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                    Err(e) => return Err(e),
-                };
-
-                hasher.write(&buf[..n]);
-            }
-
-            Ok(hasher.finish())
         }
 
         /// Get [`Event`] by compare two optional [`PathData`].
@@ -407,6 +387,11 @@ mod data {
         where
             P: Into<PathBuf>,
         {
+            Self::compare_to_kind(old, new)
+                .map(|event_kind| Event::new(event_kind).add_path(path.into()))
+        }
+
+        fn compare_to_kind(old: Option<&PathData>, new: Option<&PathData>) -> Option<EventKind> {
             match (old, new) {
                 (Some(old), Some(new)) => {
                     if new.mtime > old.mtime {
@@ -423,8 +408,27 @@ mod data {
                 (Some(_old), None) => Some(EventKind::Remove(RemoveKind::Any)),
                 (None, None) => None,
             }
-            .map(|event_kind| Event::new(event_kind).add_path(path.into()))
         }
+    }
+
+    /// Get hash value for the data content in given file `path`.
+    pub(super) fn content_hash(path: &Path) -> io::Result<u64> {
+        let mut hasher = Xxh3Default::new();
+        let mut file = File::open(path)?;
+        let mut buf = [0u8; 8 * 1024];
+
+        loop {
+            let n = match file.read(&mut buf) {
+                Ok(0) => break,
+                Ok(len) => len,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            };
+
+            hasher.update(&buf[..n]);
+        }
+
+        Ok(hasher.digest())
     }
 
     /// Compose path and its metadata.
@@ -520,7 +524,7 @@ pub struct PollWatcher {
     want_to_stop: Arc<AtomicBool>,
     /// channel to the poll loop
     /// currently used only for manual polling
-    message_channel: Sender<()>,
+    message_channel: Sender<PollMessage>,
     delay: Option<Duration>,
     follow_sylinks: bool,
 }
@@ -534,14 +538,27 @@ impl PollWatcher {
     /// Actively poll for changes. Can be combined with a timeout of 0 to perform only manual polling.
     pub fn poll(&self) -> crate::Result<()> {
         self.message_channel
-            .send(())
+            .send(PollMessage::Poll)
             .map_err(|_| Error::generic("failed to send poll message"))?;
         Ok(())
     }
 
+    /// Actively poll for changes and block until the poll cycle has completed.
+    ///
+    /// This is primarily useful together with [`Config::with_manual_polling`].
+    pub fn poll_blocking(&self) -> crate::Result<()> {
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        self.message_channel
+            .send(PollMessage::PollAndWait(done_tx))
+            .map_err(|_| Error::generic("failed to send poll message"))?;
+        done_rx
+            .recv()
+            .map_err(|_| Error::generic("poll thread disconnected"))?
+    }
+
     /// Returns a sender to initiate changes detection.
     #[cfg(test)]
-    pub(crate) fn poll_sender(&self) -> Sender<()> {
+    pub(crate) fn poll_sender(&self) -> Sender<PollMessage> {
         self.message_channel.clone()
     }
 
@@ -569,7 +586,7 @@ impl PollWatcher {
             config.event_kinds(),
         );
 
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded::<PollMessage>();
 
         let poll_watcher = PollWatcher {
             watches: Default::default(),
@@ -585,7 +602,7 @@ impl PollWatcher {
         Ok(poll_watcher)
     }
 
-    fn run(&self, rx: Receiver<()>) {
+    fn run(&self, rx: Receiver<PollMessage>) {
         let watches = Arc::clone(&self.watches);
         let data_builder = Arc::clone(&self.data_builder);
         let want_to_stop = Arc::clone(&self.want_to_stop);
@@ -594,30 +611,52 @@ impl PollWatcher {
         let _ = thread::Builder::new()
             .name("notify-rs poll loop".to_string())
             .spawn(move || {
+                // do an immediate first scan, then sleep `delay` between subsequent scans.
+                let mut first_auto_scan = true;
+
                 loop {
                     if want_to_stop.load(Ordering::SeqCst) {
                         break;
                     }
 
+                    let msg = match delay {
+                        Some(_delay) if first_auto_scan => {
+                            first_auto_scan = false;
+                            None
+                        }
+                        Some(delay) => match rx.recv_timeout(delay) {
+                            Ok(msg) => Some(msg),
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        },
+                        None => match rx.recv() {
+                            Ok(msg) => Some(msg),
+                            Err(_) => break,
+                        },
+                    };
+
                     // HINT: Make sure always lock in the same order to avoid deadlock.
                     //
                     // FIXME: inconsistent: some place mutex poison cause panic,
                     // some place just ignore.
-                    if let (Ok(mut watches), Ok(mut data_builder)) =
-                        (watches.lock(), data_builder.lock())
-                    {
+                    let scan_res = {
+                        let mut watches = watches.lock().unwrap_or_else(|e| e.into_inner());
+                        let mut data_builder =
+                            data_builder.lock().unwrap_or_else(|e| e.into_inner());
+
                         data_builder.update_timestamp();
 
                         let vals = watches.values_mut();
                         for watch_data in vals {
                             watch_data.rescan(&mut data_builder);
                         }
-                    }
-                    // TODO: v7.0 use delay - (Instant::now().saturating_duration_since(start))
-                    if let Some(delay) = delay {
-                        let _ = rx.recv_timeout(delay);
-                    } else {
-                        let _ = rx.recv();
+
+                        Ok(())
+                    };
+
+                    // Acknowledge poll requests after a poll cycle has finished.
+                    if let Some(PollMessage::PollAndWait(done)) = msg {
+                        let _ = done.send(scan_res);
                     }
                 }
             });
