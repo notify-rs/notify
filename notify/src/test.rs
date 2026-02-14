@@ -425,7 +425,7 @@ pub fn poll_watcher_channel() -> (TestWatcher<PollWatcher>, Receiver) {
         timeout: Receiver::DEFAULT_TIMEOUT,
         detect_changes: Some(Box::new(move || {
             sender
-                .send(())
+                .send(crate::poll::PollMessage::Poll)
                 .expect("PollWatcher receiver part was disconnected")
         })),
         kind: watcher.kind,
