@@ -256,6 +256,17 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
         });
     }
 
+    // `ITEM_CLONED` can be present alongside other flags (including create/modify/remove).
+    // Preserve any existing `info` (like "root changed"), but annotate otherwise so downstream
+    // can detect and filter clone-related events. See https://github.com/notify-rs/notify/issues/465.
+    if flags.contains(StreamFlags::ITEM_CLONED) {
+        for ev in &mut evs {
+            if ev.info().is_none() {
+                ev.attrs.set_info("is: clone");
+            }
+        }
+    }
+
     if flags.contains(StreamFlags::OWN_EVENT) {
         for ev in &mut evs {
             *ev = std::mem::take(ev).set_process_id(std::process::id());
@@ -996,6 +1007,58 @@ mod tests {
             event.kind.is_create(),
             "expected create event, got {event:?}"
         );
+    }
+
+    #[test]
+    fn translate_flags_ignores_is_file_only_events() {
+        assert!(translate_flags(StreamFlags::IS_FILE, true).is_empty());
+        assert!(
+            translate_flags(StreamFlags::IS_FILE | StreamFlags::ITEM_CLONED, true).is_empty(),
+            "type-only clone flags should not produce events"
+        );
+    }
+
+    #[test]
+    fn translate_flags_sets_clone_info_for_file_events() {
+        let create = translate_flags(
+            StreamFlags::ITEM_CREATED | StreamFlags::IS_FILE | StreamFlags::ITEM_CLONED,
+            true,
+        );
+        assert_eq!(create.len(), 1);
+        assert_eq!(create[0].kind, EventKind::Create(CreateKind::File));
+        assert_eq!(create[0].info(), Some("is: clone"));
+
+        let modify = translate_flags(
+            StreamFlags::INODE_META_MOD
+                | StreamFlags::ITEM_MODIFIED
+                | StreamFlags::IS_FILE
+                | StreamFlags::ITEM_CLONED,
+            true,
+        );
+        assert_eq!(modify.len(), 2);
+        assert!(modify
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::Modify(ModifyKind::Metadata(_)))));
+        assert!(modify
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::Modify(ModifyKind::Data(_)))));
+        assert!(
+            modify.iter().all(|e| e.info() == Some("is: clone")),
+            "all events should be annotated as clone-related: {modify:?}"
+        );
+    }
+
+    #[test]
+    fn translate_flags_does_not_override_existing_info() {
+        let evs = translate_flags(
+            StreamFlags::ROOT_CHANGED
+                | StreamFlags::ITEM_REMOVED
+                | StreamFlags::IS_FILE
+                | StreamFlags::ITEM_CLONED,
+            true,
+        );
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0].info(), Some("root changed"));
     }
 
     #[test]
