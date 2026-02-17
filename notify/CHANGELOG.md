@@ -2,6 +2,10 @@
 
 ## notify 9.0.0 (unreleased)
 
+- FIX: [macOS] annotate FSEvents clone-related events with `info = "is: clone"` [#465]
+
+[#465]: https://github.com/notify-rs/notify/issues/465
+
 ## notify 9.0.0-rc.2 (2026-02-14)
 
 - FEATURE: remove `Watcher::paths_mut` and introduce `update_paths` [#705]
