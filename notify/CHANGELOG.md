@@ -169,7 +169,7 @@
 
 ## notify 5.0.0 (2022-08-28)
 
-For a list of changes when upgrading from v4 see [UPGRADING_V4_TO_V5.md](../UPGRADING_V4_TO_V5.md).
+For a list of changes when upgrading from v4 see [UPGRADING_V4_TO_V5.md](../docs/UPGRADING_V4_TO_V5.md).
 
 Differences to 5.0.0-pre.16:
 
