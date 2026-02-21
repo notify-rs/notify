@@ -17,7 +17,8 @@ _Cross-platform filesystem notification library for Rust._
 - [File ID][file-id-docs]
 - [Examples][examples]
 - [Changelog][changelog]
-- [Upgrading notify from v4](UPGRADING_V4_TO_V5.md)
+- [Upgrading notify from v8](./docs/UPGRADING_V8_TO_V9.md)
+- [Upgrading notify from v4](./docs/UPGRADING_V4_TO_V5.md)
 - Minimum supported Rust version: **1.85**
 
 As used by: [alacritty], [cargo watch], [cobalt], [deno], [docket], [mdBook],
