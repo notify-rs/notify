@@ -334,10 +334,10 @@ bitflags! {
         const ALL_ACCESS = Self::ACCESS_OPEN.bits() | Self::ACCESS_CLOSE.bits() | Self::ACCESS_CLOSE_NOWRITE.bits();
 
         /// Core events: create, remove, and all modify events.
-        /// This is the default and matches the current notify behavior (no access events).
         const CORE = Self::CREATE.bits() | Self::REMOVE.bits() | Self::ALL_MODIFY.bits();
 
         /// All events including access events.
+        /// This is the default.
         const ALL = Self::CORE.bits() | Self::ALL_ACCESS.bits();
     }
 }
