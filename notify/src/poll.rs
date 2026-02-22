@@ -69,7 +69,7 @@ use data::{DataBuilder, WatchData};
 mod data {
     use crate::{
         event::{CreateKind, DataChange, Event, EventKind, MetadataKind, ModifyKind, RemoveKind},
-        EventHandler,
+        EventHandler, RecursiveMode,
     };
     use notify_types::event::EventKindMask;
     use std::{
@@ -341,6 +341,14 @@ mod data {
                 usize::MAX
             } else {
                 1
+            }
+        }
+
+        pub(super) fn recursive_mode(&self) -> RecursiveMode {
+            if self.is_recursive {
+                RecursiveMode::Recursive
+            } else {
+                RecursiveMode::NonRecursive
             }
         }
     }
@@ -717,6 +725,14 @@ impl Watcher for PollWatcher {
         self.unwatch_inner(path)
     }
 
+    fn watched_paths(&self) -> crate::Result<Vec<(PathBuf, RecursiveMode)>> {
+        let watches = self.watches.lock().map_err(crate::Error::from)?;
+        Ok(watches
+            .iter()
+            .map(|(path, watch)| (path.clone(), watch.recursive_mode()))
+            .collect())
+    }
+
     fn kind() -> crate::WatcherKind {
         crate::WatcherKind::PollWatcher
     }
@@ -731,7 +747,7 @@ impl Drop for PollWatcher {
 #[cfg(test)]
 mod tests {
     use super::PollWatcher;
-    use crate::{test::*, Config};
+    use crate::{test::*, Config, RecursiveMode, Watcher};
 
     fn watcher() -> (TestWatcher<PollWatcher>, Receiver) {
         poll_watcher_channel()
@@ -759,6 +775,48 @@ mod tests {
         // Ensure poisoned mutex recovery path does not panic in unwatch_inner.
         let result = watcher.unwatch_inner(Path::new("/path/that/is/not/watched"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn watched_paths_reflect_watch_and_unwatch() {
+        let tmpdir = testdir();
+        let dir_a = tmpdir.path().join("a");
+        let dir_b = tmpdir.path().join("b");
+        std::fs::create_dir(&dir_a).expect("create dir a");
+        std::fs::create_dir(&dir_b).expect("create dir b");
+
+        let mut watcher = PollWatcher::new(|_| {}, Config::default()).expect("create watcher");
+
+        watcher
+            .watch(&dir_a, RecursiveMode::Recursive)
+            .expect("watch dir a");
+        watcher
+            .watch(&dir_b, RecursiveMode::NonRecursive)
+            .expect("watch dir b");
+
+        let watched = watcher.watched_paths().expect("list watched paths");
+        assert!(watched.contains(&(
+            dir_a.canonicalize().expect("canonicalize dir a"),
+            RecursiveMode::Recursive,
+        )));
+        assert!(watched.contains(&(
+            dir_b.canonicalize().expect("canonicalize dir b"),
+            RecursiveMode::NonRecursive,
+        )));
+
+        watcher.unwatch(&dir_a).expect("unwatch dir a");
+
+        let watched = watcher
+            .watched_paths()
+            .expect("list watched paths after unwatch");
+        assert!(!watched.contains(&(
+            dir_a.canonicalize().expect("canonicalize dir a"),
+            RecursiveMode::Recursive,
+        )));
+        assert!(watched.contains(&(
+            dir_b.canonicalize().expect("canonicalize dir b"),
+            RecursiveMode::NonRecursive,
+        )));
     }
 
     #[test]

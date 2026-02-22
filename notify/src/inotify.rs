@@ -111,6 +111,7 @@ pub struct INotifyWatcher {
 enum EventLoopMsg {
     AddWatch(PathBuf, RecursiveMode, Sender<Result<()>>),
     RemoveWatch(PathBuf, Sender<Result<()>>),
+    GetWatchedPaths(Sender<Vec<(PathBuf, RecursiveMode)>>),
     Shutdown,
     Configure(Config, BoundSender<Result<bool>>),
 }
@@ -239,6 +240,23 @@ impl EventLoop {
                 }
                 EventLoopMsg::RemoveWatch(path, tx) => {
                     let _ = tx.send(self.remove_watch(path, false));
+                }
+                EventLoopMsg::GetWatchedPaths(tx) => {
+                    let _ = tx.send(
+                        self.watches
+                            .iter()
+                            .map(|(path, watch)| {
+                                (
+                                    path.clone(),
+                                    if watch.is_recursive {
+                                        RecursiveMode::Recursive
+                                    } else {
+                                        RecursiveMode::NonRecursive
+                                    },
+                                )
+                            })
+                            .collect(),
+                    );
                 }
                 EventLoopMsg::Shutdown => {
                     let _ = self.remove_all_watches();
@@ -723,10 +741,9 @@ impl INotifyWatcher {
         let (tx, rx) = unbounded();
         let msg = EventLoopMsg::AddWatch(pb, recursive_mode, tx);
 
-        // we expect the event loop to live and reply => unwraps must not panic
-        self.channel.send(msg).unwrap();
-        self.waker.wake().unwrap();
-        rx.recv().unwrap()
+        self.channel.send(msg)?;
+        self.waker.wake()?;
+        rx.recv().map_err(Error::from)?
     }
 
     fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
@@ -739,10 +756,16 @@ impl INotifyWatcher {
         let (tx, rx) = unbounded();
         let msg = EventLoopMsg::RemoveWatch(pb, tx);
 
-        // we expect the event loop to live and reply => unwraps must not panic
-        self.channel.send(msg).unwrap();
-        self.waker.wake().unwrap();
-        rx.recv().unwrap()
+        self.channel.send(msg)?;
+        self.waker.wake()?;
+        rx.recv().map_err(Error::from)?
+    }
+
+    fn watched_paths_inner(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
+        let (tx, rx) = unbounded();
+        self.channel.send(EventLoopMsg::GetWatchedPaths(tx))?;
+        self.waker.wake()?;
+        rx.recv().map_err(Error::from)
     }
 }
 
@@ -765,6 +788,10 @@ impl Watcher for INotifyWatcher {
         self.channel.send(EventLoopMsg::Configure(config, tx))?;
         self.waker.wake()?;
         rx.recv()?
+    }
+
+    fn watched_paths(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
+        self.watched_paths_inner()
     }
 
     fn kind() -> crate::WatcherKind {
