@@ -554,7 +554,23 @@ impl FsEventWatcher {
                 }
             })?;
         // block until runloop has been sent
-        let runloop_wrapper = rl_rx.recv().unwrap()?;
+        let runloop_wrapper = match rl_rx.recv() {
+            Ok(Ok(runloop_wrapper)) => runloop_wrapper,
+            Ok(Err(err)) => {
+                thread_handle
+                    .join()
+                    .expect("thread to shut down after FSEvent stream startup failure");
+                return Err(err);
+            }
+            Err(_) => {
+                thread_handle
+                    .join()
+                    .expect("thread to shut down after FSEvent stream startup channel close");
+                return Err(Error::generic(
+                    "unable to receive FSEvent stream startup result",
+                ));
+            }
+        };
         self.runloop = Some(RunLoopHandle {
             runloop: runloop_wrapper.0,
             stop_flag,
