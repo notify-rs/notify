@@ -7,7 +7,7 @@
 
 use crate::{bounded, unbounded, BoundSender, Config, Receiver, Sender};
 use crate::{event::*, WatcherKind};
-use crate::{Error, EventHandler, RecursiveMode, Result, Watcher};
+use crate::{Error, EventHandler, RecursiveMode, Result, Watcher, WindowsPathSeparatorStyle};
 use std::alloc;
 use std::collections::HashMap;
 use std::env;
@@ -39,12 +39,96 @@ use windows_sys::Win32::System::IO::{CancelIo, OVERLAPPED};
 
 const BUF_SIZE: u32 = 16384;
 
+#[derive(Clone, Copy)]
+enum SeparatorStyle {
+    Slash,
+    Backslash,
+}
+
+impl SeparatorStyle {
+    fn resolve(configured_style: WindowsPathSeparatorStyle, path: &Path) -> Self {
+        match configured_style {
+            WindowsPathSeparatorStyle::Auto => Self::from_path(path),
+            WindowsPathSeparatorStyle::Slash => Self::Slash,
+            WindowsPathSeparatorStyle::Backslash => Self::Backslash,
+        }
+    }
+
+    fn from_path(path: &Path) -> Self {
+        let mut has_forward_slash = false;
+        let mut has_backslash = false;
+
+        for ch in path.as_os_str().encode_wide() {
+            if ch == '/' as u16 {
+                has_forward_slash = true;
+            } else if ch == '\\' as u16 {
+                has_backslash = true;
+            }
+
+            if has_forward_slash && has_backslash {
+                return Self::Backslash;
+            }
+        }
+
+        if has_forward_slash {
+            Self::Slash
+        } else {
+            Self::Backslash
+        }
+    }
+
+    fn as_u16(self) -> u16 {
+        match self {
+            Self::Slash => '/' as u16,
+            Self::Backslash => '\\' as u16,
+        }
+    }
+}
+
+fn trim_leading_separators(path: &[u16]) -> &[u16] {
+    let mut start = 0;
+    while start < path.len() && (path[start] == '/' as u16 || path[start] == '\\' as u16) {
+        start += 1;
+    }
+    &path[start..]
+}
+
+fn windows_namespace_prefix_len(path: &[u16]) -> usize {
+    let is_separator = |ch: u16| ch == '/' as u16 || ch == '\\' as u16;
+
+    if path.len() >= 4
+        && is_separator(path[0])
+        && is_separator(path[1])
+        && (path[2] == '?' as u16 || path[2] == '.' as u16)
+        && is_separator(path[3])
+    {
+        4
+    } else {
+        0
+    }
+}
+
+fn normalize_path_separators(path: PathBuf, separator_style: SeparatorStyle) -> PathBuf {
+    let separator = separator_style.as_u16();
+    let mut encoded_path: Vec<u16> = path.as_os_str().encode_wide().collect();
+    let prefix_len = windows_namespace_prefix_len(&encoded_path);
+
+    for ch in encoded_path.iter_mut().skip(prefix_len) {
+        if *ch == '/' as u16 || *ch == '\\' as u16 {
+            *ch = separator;
+        }
+    }
+
+    PathBuf::from(OsString::from_wide(&encoded_path))
+}
+
 #[derive(Clone)]
 struct ReadData {
     dir: PathBuf,          // directory that is being watched
     file: Option<PathBuf>, // if a file is being watched, this is its full path
     complete_sem: HANDLE,
     is_recursive: bool,
+    separator_style: SeparatorStyle,
 }
 
 struct ReadDirectoryRequest {
@@ -63,7 +147,7 @@ impl ReadDirectoryRequest {
 }
 
 enum Action {
-    Watch(PathBuf, RecursiveMode),
+    Watch(PathBuf, RecursiveMode, SeparatorStyle),
     Unwatch(PathBuf),
     Stop,
     Configure(Config, BoundSender<Result<bool>>),
@@ -131,8 +215,9 @@ impl ReadDirectoryChangesServer {
 
             while let Ok(action) = self.rx.try_recv() {
                 match action {
-                    Action::Watch(path, recursive_mode) => {
-                        let res = self.add_watch(path, recursive_mode.is_recursive());
+                    Action::Watch(path, recursive_mode, separator_style) => {
+                        let res =
+                            self.add_watch(path, recursive_mode.is_recursive(), separator_style);
                         let _ = self.cmd_tx.send(res);
                     }
                     Action::Unwatch(path) => self.remove_watch(path),
@@ -168,7 +253,12 @@ impl ReadDirectoryChangesServer {
         }
     }
 
-    fn add_watch(&mut self, path: PathBuf, is_recursive: bool) -> Result<PathBuf> {
+    fn add_watch(
+        &mut self,
+        path: PathBuf,
+        is_recursive: bool,
+        separator_style: SeparatorStyle,
+    ) -> Result<PathBuf> {
         // path must exist and be either a file or directory
         if !path.is_dir() && !path.is_file() {
             return Err(
@@ -217,7 +307,7 @@ impl ReadDirectoryChangesServer {
             }
         }
         let wf = if watching_file {
-            Some(path.clone())
+            Some(normalize_path_separators(path.clone(), separator_style))
         } else {
             None
         };
@@ -234,6 +324,7 @@ impl ReadDirectoryChangesServer {
             file: wf,
             complete_sem: semaphore,
             is_recursive,
+            separator_style,
         };
         let ws = WatchState {
             dir_handle: handle,
@@ -405,10 +496,12 @@ unsafe extern "system" fn handle_event(
             len,
         );
         // prepend root to get a full path
-        let path = request
-            .data
-            .dir
-            .join(PathBuf::from(OsString::from_wide(encoded_path)));
+        let relative_path =
+            PathBuf::from(OsString::from_wide(trim_leading_separators(encoded_path)));
+        let path = normalize_path_separators(
+            request.data.dir.join(relative_path),
+            request.data.separator_style,
+        );
 
         // if we are watching a single file, ignore the event unless the path is exactly
         // the watched file
@@ -495,12 +588,27 @@ pub struct ReadDirectoryChangesWatcher {
     tx: Sender<Action>,
     cmd_rx: Receiver<Result<PathBuf>>,
     wakeup_sem: HANDLE,
+    windows_path_separator_style: WindowsPathSeparatorStyle,
 }
 
 impl ReadDirectoryChangesWatcher {
     pub fn create(
         event_handler: Arc<Mutex<dyn EventHandler>>,
         event_kinds: EventKindMask,
+        meta_tx: Sender<MetaEvent>,
+    ) -> Result<ReadDirectoryChangesWatcher> {
+        Self::create_inner(
+            event_handler,
+            event_kinds,
+            WindowsPathSeparatorStyle::Auto,
+            meta_tx,
+        )
+    }
+
+    fn create_inner(
+        event_handler: Arc<Mutex<dyn EventHandler>>,
+        event_kinds: EventKindMask,
+        windows_path_separator_style: WindowsPathSeparatorStyle,
         meta_tx: Sender<MetaEvent>,
     ) -> Result<ReadDirectoryChangesWatcher> {
         let (cmd_tx, cmd_rx) = unbounded();
@@ -522,6 +630,7 @@ impl ReadDirectoryChangesWatcher {
             tx: action_tx,
             cmd_rx,
             wakeup_sem,
+            windows_path_separator_style,
         })
     }
 
@@ -560,6 +669,7 @@ impl ReadDirectoryChangesWatcher {
     }
 
     fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        let separator_style = SeparatorStyle::resolve(self.windows_path_separator_style, path);
         let pb = if path.is_absolute() {
             path.to_owned()
         } else {
@@ -572,7 +682,10 @@ impl ReadDirectoryChangesWatcher {
                 "Input watch path is neither a file nor a directory.",
             ));
         }
-        self.send_action_require_ack(Action::Watch(pb.clone(), recursive_mode), &pb)
+        self.send_action_require_ack(
+            Action::Watch(pb.clone(), recursive_mode, separator_style),
+            &pb,
+        )
     }
 
     fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
@@ -597,7 +710,12 @@ impl Watcher for ReadDirectoryChangesWatcher {
         // TODO: determine the original purpose of this - can we remove it?
         let (meta_tx, _) = unbounded();
         let event_handler = Arc::new(Mutex::new(event_handler));
-        Self::create(event_handler, config.event_kinds(), meta_tx)
+        Self::create_inner(
+            event_handler,
+            config.event_kinds(),
+            config.windows_path_separator_style(),
+            meta_tx,
+        )
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
@@ -635,9 +753,16 @@ unsafe impl Sync for ReadDirectoryChangesWatcher {}
 
 #[cfg(test)]
 pub mod tests {
-    use tempfile::tempdir;
+    use std::env;
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use std::path::{Path, PathBuf};
+    use tempfile::{tempdir, tempdir_in};
 
-    use crate::{test::*, ReadDirectoryChangesWatcher, RecursiveMode, Watcher};
+    use super::{normalize_path_separators, trim_leading_separators, SeparatorStyle};
+    use crate::{
+        test::*, ReadDirectoryChangesWatcher, RecursiveMode, Watcher, WindowsPathSeparatorStyle,
+    };
 
     use std::time::Duration;
 
@@ -667,6 +792,119 @@ pub mod tests {
     fn watcher_is_send_and_sync() {
         fn check<T: Send + Sync>() {}
         check::<ReadDirectoryChangesWatcher>();
+    }
+
+    #[test]
+    fn posix_watch_path_uses_slash_separator_style() {
+        let style = SeparatorStyle::from_path(Path::new("G:/Feature film/"));
+        assert!(matches!(style, SeparatorStyle::Slash));
+    }
+
+    #[test]
+    fn explicit_separator_style_overrides_watch_path_style() {
+        let style = SeparatorStyle::resolve(
+            WindowsPathSeparatorStyle::Backslash,
+            Path::new("G:/Feature film/"),
+        );
+        assert!(matches!(style, SeparatorStyle::Backslash));
+    }
+
+    #[test]
+    fn trim_leading_separators_removes_root_separators() {
+        let input = [
+            '\\' as u16,
+            '/' as u16,
+            's' as u16,
+            'u' as u16,
+            'b' as u16,
+            '\\' as u16,
+            'f' as u16,
+            'i' as u16,
+            'l' as u16,
+            'e' as u16,
+        ];
+        let trimmed = trim_leading_separators(&input);
+        assert_eq!(
+            trimmed,
+            [
+                's' as u16,
+                'u' as u16,
+                'b' as u16,
+                '\\' as u16,
+                'f' as u16,
+                'i' as u16,
+                'l' as u16,
+                'e' as u16,
+            ]
+        );
+    }
+
+    #[test]
+    fn normalize_joined_event_path_for_posix_watch_path() {
+        let dir = PathBuf::from("G:/Feature");
+        let raw_event_name: Vec<u16> = "\\22.mp4".encode_utf16().collect();
+        let relative = PathBuf::from(OsString::from_wide(trim_leading_separators(
+            &raw_event_name,
+        )));
+        let path = normalize_path_separators(dir.join(relative), SeparatorStyle::Slash);
+
+        assert_eq!(path, PathBuf::from("G:/Feature/22.mp4"));
+    }
+
+    #[test]
+    fn normalize_path_separators_keeps_windows_namespace_prefix() {
+        let path = PathBuf::from(r"\\?\C:\very\long\file");
+        let normalized = normalize_path_separators(path, SeparatorStyle::Slash);
+        assert_eq!(normalized, PathBuf::from(r"\\?\C:/very/long/file"));
+    }
+
+    #[test]
+    fn auto_separator_style_keeps_relative_slash_watch_style(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let cwd = env::current_dir()?;
+        let root = tempdir_in(&cwd)?;
+        let watched_dir = root.path().join("sub").join("dir");
+        std::fs::create_dir_all(&watched_dir)?;
+        let watched_file = watched_dir.join("entry");
+        let relative_watch_path = watched_dir.strip_prefix(&cwd)?;
+        let slash_watch_path =
+            PathBuf::from(relative_watch_path.to_string_lossy().replace('\\', "/"));
+
+        let (mut watcher, mut rx) = channel_with_config::<ReadDirectoryChangesWatcher>(
+            ChannelConfig::default().with_watcher_config(
+                crate::Config::default()
+                    .with_windows_path_separator_style(WindowsPathSeparatorStyle::Auto),
+            ),
+        );
+        watcher.watch_nonrecursively(&slash_watch_path);
+
+        std::fs::File::create_new(&watched_file)?;
+
+        let expected_path = normalize_path_separators(watched_file, SeparatorStyle::Slash);
+        rx.wait_unordered([expected(&expected_path).create_any()]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn single_file_filter_matches_with_explicit_separator_style() {
+        let watched_file = PathBuf::from(r"G:\Feature\a.txt");
+        let watched_dir = PathBuf::from(r"G:\Feature");
+
+        let separator_style =
+            SeparatorStyle::resolve(WindowsPathSeparatorStyle::Slash, &watched_file);
+        let normalized_watch_path =
+            normalize_path_separators(watched_file.clone(), separator_style);
+
+        let raw_event_name: Vec<u16> = "\\a.txt".encode_utf16().collect();
+        let relative_path = PathBuf::from(OsString::from_wide(trim_leading_separators(
+            &raw_event_name,
+        )));
+        let normalized_event_path =
+            normalize_path_separators(watched_dir.join(relative_path), separator_style);
+
+        assert_eq!(normalized_watch_path, normalized_event_path);
+        assert_eq!(normalized_event_path, PathBuf::from("G:/Feature/a.txt"));
     }
 
     #[test]

@@ -25,6 +25,25 @@ impl RecursiveMode {
     }
 }
 
+/// Controls how path separators are represented in emitted event paths on Windows.
+///
+/// This applies to [`ReadDirectoryChangesWatcher`](crate::ReadDirectoryChangesWatcher).
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Default)]
+pub enum WindowsPathSeparatorStyle {
+    /// Infer separator style from each watched input path.
+    ///
+    /// For example, watching `C:/tmp` yields paths with `/`, while watching `C:\tmp`
+    /// yields paths with `\`.
+    #[default]
+    Auto,
+
+    /// Always use `/` in emitted event paths.
+    Slash,
+
+    /// Always use `\` in emitted event paths.
+    Backslash,
+}
+
 /// Watcher Backend configuration
 ///
 /// This contains multiple settings that may relate to only one specific backend,
@@ -51,6 +70,9 @@ pub struct Config {
 
     /// See [Config::with_event_kinds]
     event_kinds: EventKindMask,
+
+    /// See [Config::with_windows_path_separator_style]
+    windows_path_separator_style: WindowsPathSeparatorStyle,
 }
 
 impl Config {
@@ -155,6 +177,24 @@ impl Config {
     pub fn event_kinds(&self) -> EventKindMask {
         self.event_kinds
     }
+
+    /// For the [`ReadDirectoryChangesWatcher`](crate::ReadDirectoryChangesWatcher) backend.
+    ///
+    /// Controls path separator normalization for emitted event paths on Windows.
+    ///
+    /// The default is [`WindowsPathSeparatorStyle::Auto`], which preserves the
+    /// separator style implied by each watched input path.
+    ///
+    /// This can't be changed during runtime.
+    pub fn with_windows_path_separator_style(mut self, style: WindowsPathSeparatorStyle) -> Self {
+        self.windows_path_separator_style = style;
+        self
+    }
+
+    /// Returns current setting.
+    pub fn windows_path_separator_style(&self) -> WindowsPathSeparatorStyle {
+        self.windows_path_separator_style
+    }
 }
 
 impl Default for Config {
@@ -164,6 +204,7 @@ impl Default for Config {
             compare_contents: false,
             follow_symlinks: true,
             event_kinds: EventKindMask::ALL,
+            windows_path_separator_style: WindowsPathSeparatorStyle::Auto,
         }
     }
 }
@@ -278,5 +319,24 @@ mod tests {
         // Verify cross-crate consistency: both defaults should be ALL
         assert_eq!(EventKindMask::default(), Config::default().event_kinds());
         assert_eq!(EventKindMask::default(), EventKindMask::ALL);
+    }
+
+    #[test]
+    fn config_default_windows_separator_style_is_auto() {
+        let config = Config::default();
+        assert_eq!(
+            config.windows_path_separator_style(),
+            WindowsPathSeparatorStyle::Auto
+        );
+    }
+
+    #[test]
+    fn config_with_windows_separator_style() {
+        let config =
+            Config::default().with_windows_path_separator_style(WindowsPathSeparatorStyle::Slash);
+        assert_eq!(
+            config.windows_path_separator_style(),
+            WindowsPathSeparatorStyle::Slash
+        );
     }
 }
