@@ -670,21 +670,20 @@ impl PollWatcher {
         // HINT: Make sure always lock in the same order to avoid deadlock.
         //
         // FIXME: inconsistent: some place mutex poison cause panic, some place just ignore.
-        if let (Ok(mut watches), Ok(mut data_builder)) =
-            (self.watches.lock(), self.data_builder.lock())
-        {
-            data_builder.update_timestamp();
+        let mut watches = self.watches.lock().unwrap_or_else(|e| e.into_inner());
+        let mut data_builder = self.data_builder.lock().unwrap_or_else(|e| e.into_inner());
 
-            let watch_data = data_builder.build_watch_data(
-                path.to_path_buf(),
-                recursive_mode.is_recursive(),
-                self.follow_sylinks,
-            );
+        data_builder.update_timestamp();
 
-            // if create watch_data successful, add it to watching list.
-            if let Some(watch_data) = watch_data {
-                watches.insert(path.to_path_buf(), watch_data);
-            }
+        let watch_data = data_builder.build_watch_data(
+            path.to_path_buf(),
+            recursive_mode.is_recursive(),
+            self.follow_sylinks,
+        );
+
+        // if create watch_data successful, add it to watching list.
+        if let Some(watch_data) = watch_data {
+            watches.insert(path.to_path_buf(), watch_data);
         }
     }
 
@@ -695,7 +694,7 @@ impl PollWatcher {
         // FIXME: inconsistent: some place mutex poison cause panic, some place just ignore.
         self.watches
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .remove(path)
             .map(|_| ())
             .ok_or_else(crate::Error::watch_not_found)
@@ -732,7 +731,7 @@ impl Drop for PollWatcher {
 #[cfg(test)]
 mod tests {
     use super::PollWatcher;
-    use crate::test::*;
+    use crate::{test::*, Config};
 
     fn watcher() -> (TestWatcher<PollWatcher>, Receiver) {
         poll_watcher_channel()
@@ -742,6 +741,24 @@ mod tests {
     fn poll_watcher_is_send_and_sync() {
         fn check<T: Send + Sync>() {}
         check::<PollWatcher>();
+    }
+
+    #[test]
+    fn unwatch_with_poisoned_mutex_does_not_panic() {
+        use std::{path::Path, sync::Arc};
+
+        let mut watcher = PollWatcher::new(|_| {}, Config::default()).expect("create watcher");
+
+        let watches = Arc::clone(&watcher.watches);
+        let _ = std::thread::spawn(move || {
+            let _guard = watches.lock().expect("lock watches");
+            panic!("poison watches mutex for test");
+        })
+        .join();
+
+        // Ensure poisoned mutex recovery path does not panic in unwatch_inner.
+        let result = watcher.unwatch_inner(Path::new("/path/that/is/not/watched"));
+        assert!(result.is_err());
     }
 
     #[test]

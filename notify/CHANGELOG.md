@@ -4,6 +4,7 @@
 
 - FIX: [windows] normalize emitted event paths to follow the watched path separator style and trim leading separators; add `Config::with_windows_path_separator_style` for explicit control [#375]
 - FIX: [macOS] annotate FSEvents clone-related events with `info = "is: clone"` [#465]
+- FIX: avoid panicking in `unwatch` when internal mutexes are poisoned
 
 [#375]: https://github.com/notify-rs/notify/issues/375
 [#465]: https://github.com/notify-rs/notify/issues/465
