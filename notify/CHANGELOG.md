@@ -3,7 +3,7 @@
 ## notify 9.0.0 (unreleased)
 
 - FIX: [macOS] annotate FSEvents clone-related events with `info = "is: clone"` [#465]
-- FIX: [poll] avoid panicking in `unwatch` when internal mutexes are poisoned
+- FIX: avoid panicking in `unwatch` when internal mutexes are poisoned
 
 [#465]: https://github.com/notify-rs/notify/issues/465
 
