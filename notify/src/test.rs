@@ -47,10 +47,25 @@ impl Receiver {
                         trackers.try_push(&event);
                         state.check(event)
                     }
-                    Err(err) => panic!(
-                        "Got an error from the watcher {:?}: {err:?}. State: {state:#?}",
-                        self.kind
-                    ),
+                    Err(err) => {
+                        let is_bad_file_descriptor = self.kind == WatcherKind::PollWatcher
+                            && matches!(
+                                &err.kind,
+                                ErrorKind::Io(io_err)
+                                    if io_err
+                                        .to_string()
+                                        .contains("Bad file descriptor (os error 9)")
+                            );
+
+                        if is_bad_file_descriptor {
+                            continue;
+                        }
+
+                        panic!(
+                            "Got an error from the watcher {:?}: {err:?}. State: {state:#?}",
+                            self.kind
+                        )
+                    }
                 },
                 Err(e) => panic!(
                     "Recv error: {e:?}. Watcher: {:?}. State: {state:#?}",
