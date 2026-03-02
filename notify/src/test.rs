@@ -13,7 +13,9 @@ use std::{
 use notify_types::event::Event;
 use walkdir::WalkDir;
 
-use crate::{Config, Error, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher, WatcherKind};
+use crate::{
+    Config, Error, ErrorKind, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher, WatcherKind,
+};
 use pretty_assertions::assert_eq;
 
 pub use expect::*;
@@ -342,9 +344,33 @@ impl<W: Watcher> TestWatcher<W> {
 
     pub fn watch(&mut self, path: impl AsRef<Path>, recursive_mode: RecursiveMode) {
         let path = path.as_ref();
-        self.watcher
-            .watch(path, recursive_mode)
-            .unwrap_or_else(|e| panic!("Unable to watch {:?}: {e:#?}", path))
+
+        const FSEVENT_WATCH_RETRIES: usize = 5;
+        const FSEVENT_WATCH_RETRY_BASE_DELAY: Duration = Duration::from_millis(50);
+        for attempt in 0..=FSEVENT_WATCH_RETRIES {
+            match self.watcher.watch(path, recursive_mode) {
+                Ok(()) => return,
+                Err(err) => {
+                    let is_transient_fsevent_start_error = self.kind == WatcherKind::Fsevent
+                        && matches!(
+                            &err.kind,
+                            ErrorKind::Generic(message)
+                            if message == "unable to start FSEvent stream"
+                        );
+
+                    if is_transient_fsevent_start_error && attempt < FSEVENT_WATCH_RETRIES {
+                        let _ = self.watcher.unwatch(path);
+                        let delay_factor = 1u32 << attempt;
+                        thread::sleep(FSEVENT_WATCH_RETRY_BASE_DELAY * delay_factor);
+                        continue;
+                    }
+
+                    panic!("Unable to watch {:?}: {err:#?}", path)
+                }
+            }
+        }
+
+        unreachable!("watch() retries must return or panic")
     }
 }
 
