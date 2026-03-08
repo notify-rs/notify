@@ -149,6 +149,7 @@ impl ReadDirectoryRequest {
 enum Action {
     Watch(PathBuf, RecursiveMode, SeparatorStyle),
     Unwatch(PathBuf),
+    GetWatchedPaths(Sender<Vec<(PathBuf, RecursiveMode)>>),
     Stop,
     Configure(Config, BoundSender<Result<bool>>),
 }
@@ -162,6 +163,7 @@ pub enum MetaEvent {
 struct WatchState {
     dir_handle: HANDLE,
     complete_sem: HANDLE,
+    recursive_mode: RecursiveMode,
 }
 
 struct ReadDirectoryChangesServer {
@@ -221,6 +223,14 @@ impl ReadDirectoryChangesServer {
                         let _ = self.cmd_tx.send(res);
                     }
                     Action::Unwatch(path) => self.remove_watch(path),
+                    Action::GetWatchedPaths(tx) => {
+                        let _ = tx.send(
+                            self.watches
+                                .iter()
+                                .map(|(path, state)| (path.clone(), state.recursive_mode))
+                                .collect(),
+                        );
+                    }
                     Action::Stop => {
                         stopped = true;
                         for ws in self.watches.values() {
@@ -329,6 +339,11 @@ impl ReadDirectoryChangesServer {
         let ws = WatchState {
             dir_handle: handle,
             complete_sem: semaphore,
+            recursive_mode: if is_recursive {
+                RecursiveMode::Recursive
+            } else {
+                RecursiveMode::NonRecursive
+            },
         };
         self.watches.insert(path.clone(), ws);
         start_read(
@@ -634,7 +649,7 @@ impl ReadDirectoryChangesWatcher {
         })
     }
 
-    fn wakeup_server(&mut self) {
+    fn wakeup_server(&self) {
         // breaks the server out of its wait state.  right now this is really just an optimization,
         // so that if you add a watch you don't block for 100ms in watch() while the
         // server sleeps.
@@ -702,6 +717,15 @@ impl ReadDirectoryChangesWatcher {
         self.wakeup_server();
         res
     }
+
+    fn watched_paths_inner(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
+        let (tx, rx) = unbounded();
+        self.tx
+            .send(Action::GetWatchedPaths(tx))
+            .map_err(|_| Error::generic("Error sending to internal channel"))?;
+        self.wakeup_server();
+        rx.recv().map_err(Error::from)
+    }
 }
 
 impl Watcher for ReadDirectoryChangesWatcher {
@@ -730,6 +754,10 @@ impl Watcher for ReadDirectoryChangesWatcher {
         let (tx, rx) = bounded(1);
         self.tx.send(Action::Configure(config, tx))?;
         rx.recv()?
+    }
+
+    fn watched_paths(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
+        self.watched_paths_inner()
     }
 
     fn kind() -> crate::WatcherKind {

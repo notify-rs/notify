@@ -5,7 +5,7 @@
 use crate::Config;
 
 use super::{RecursiveMode, Result, Watcher};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Stub `Watcher` implementation
 ///
@@ -31,6 +31,10 @@ impl Watcher for NullWatcher {
 
     fn configure(&mut self, config: Config) -> Result<bool> {
         Ok(false)
+    }
+
+    fn watched_paths(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
+        Ok(Vec::new())
     }
 
     fn kind() -> crate::WatcherKind {

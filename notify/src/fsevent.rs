@@ -704,6 +704,26 @@ impl Watcher for FsEventWatcher {
         rx.recv()?
     }
 
+    fn watched_paths(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
+        // Unlike the channel-based backends, FSEvents keeps watch state on the watcher itself.
+        // The runloop callback gets a cloned snapshot in `StreamContextInfo`, so it does not
+        // mutate or read this map concurrently.
+        Ok(self
+            .recursive_info
+            .iter()
+            .map(|(path, is_recursive)| {
+                (
+                    path.clone(),
+                    if *is_recursive {
+                        RecursiveMode::Recursive
+                    } else {
+                        RecursiveMode::NonRecursive
+                    },
+                )
+            })
+            .collect())
+    }
+
     fn kind() -> crate::WatcherKind {
         crate::WatcherKind::Fsevent
     }
