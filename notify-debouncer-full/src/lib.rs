@@ -698,6 +698,11 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         res
     }
 
+    /// Returns the currently watched paths and their recursive modes.
+    pub fn watched_paths(&self) -> notify::Result<Vec<(PathBuf, RecursiveMode)>> {
+        self.watcher.watched_paths()
+    }
+
     pub fn configure(&mut self, option: notify::Config) -> notify::Result<bool> {
         self.watcher.configure(option)
     }
@@ -902,6 +907,45 @@ mod tests {
             } else {
                 Ok(())
             }
+        }
+
+        fn kind() -> WatcherKind {
+            WatcherKind::NullWatcher
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct TrackingWatcher {
+        watched: Vec<(PathBuf, RecursiveMode)>,
+    }
+
+    impl Watcher for TrackingWatcher {
+        fn new<F: notify::EventHandler>(
+            _event_handler: F,
+            _config: notify::Config,
+        ) -> notify::Result<Self> {
+            Ok(Self::default())
+        }
+
+        fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> notify::Result<()> {
+            self.watched.push((path.to_path_buf(), recursive_mode));
+            Ok(())
+        }
+
+        fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
+            let original_len = self.watched.len();
+            self.watched
+                .retain(|(watched_path, _)| watched_path != path);
+
+            if self.watched.len() == original_len {
+                Err(Error::watch_not_found())
+            } else {
+                Ok(())
+            }
+        }
+
+        fn watched_paths(&self) -> notify::Result<Vec<(PathBuf, RecursiveMode)>> {
+            Ok(self.watched.clone())
         }
 
         fn kind() -> WatcherKind {
@@ -1205,6 +1249,51 @@ mod tests {
         assert_eq!(
             roots,
             vec![(PathBuf::from("ok1"), RecursiveMode::Recursive)]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn watched_paths_with_watch_update_paths_and_unwatch() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let mut debouncer = new_debouncer_opt::<_, TrackingWatcher, NoCache>(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            |_| {},
+            NoCache::new(),
+            notify::Config::default(),
+        )?;
+
+        let path1 = PathBuf::from("one");
+        let path2 = PathBuf::from("two");
+        let path3 = PathBuf::from("three");
+
+        assert!(debouncer.watched_paths()?.is_empty());
+
+        debouncer.watch(&path1, RecursiveMode::Recursive)?;
+        assert_eq!(
+            debouncer.watched_paths()?,
+            vec![(path1.clone(), RecursiveMode::Recursive)]
+        );
+
+        debouncer.update_paths([
+            PathOp::unwatch(&path1),
+            PathOp::watch_non_recursive(path2.clone()),
+            PathOp::watch_recursive(path3.clone()),
+        ])?;
+        assert_eq!(
+            debouncer.watched_paths()?,
+            vec![
+                (path2.clone(), RecursiveMode::NonRecursive),
+                (path3.clone(), RecursiveMode::Recursive),
+            ]
+        );
+
+        debouncer.unwatch(&path2)?;
+        assert_eq!(
+            debouncer.watched_paths()?,
+            vec![(path3, RecursiveMode::Recursive)]
         );
 
         Ok(())
