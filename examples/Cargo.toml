@@ -54,6 +54,10 @@ path = "pollwatcher_scan.rs"
 name = "pollwatcher_manual"
 path = "pollwatcher_manual.rs"
 
+[[example]]
+name = "windows_detailed_events"
+path = "windows_detailed_events.rs"
+
 # specifically in its own sub folder
 # to prevent cargo audit from complaining
 #[[example]]

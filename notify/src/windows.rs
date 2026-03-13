@@ -1510,6 +1510,22 @@ pub mod tests {
     }
 
     #[test]
+    fn detailed_write_emits_modify_metadata_write_time() {
+        let tmpdir = testdir();
+        let file = tmpdir.path().join("entry");
+        std::fs::write(&file, b"hi").expect("write");
+
+        let (mut watcher, mut rx) = watcher_with_detailed_events();
+        watcher.watch_recursively(&tmpdir);
+
+        // Overwrite a file with the content the same size as the original
+        std::fs::write(&file, b"bi").expect("write");
+
+        rx.wait_ordered_exact([expected(&file).modify_meta_mtime().multiple()])
+            .ensure_no_tail();
+    }
+
+    #[test]
     fn detailed_chmod_emits_modify_meta_any() {
         let tmpdir = testdir();
         let file = tmpdir.path().join("entry");
@@ -1523,21 +1539,6 @@ pub mod tests {
         f.set_permissions(permissions).expect("set_permissions");
 
         rx.wait_ordered_exact([expected(&file).modify_meta_any()])
-            .ensure_no_tail();
-    }
-
-    #[test]
-    fn without_detailed_events_write_emits_modify_any() {
-        let tmpdir = testdir();
-        let file = tmpdir.path().join("entry");
-        std::fs::write(&file, b"hi").expect("write");
-
-        let (mut watcher, mut rx) = watcher();
-        watcher.watch_recursively(&tmpdir);
-
-        std::fs::write(&file, b"hello world").expect("write");
-
-        rx.wait_ordered_exact([expected(&file).modify_any().multiple()])
             .ensure_no_tail();
     }
 }
