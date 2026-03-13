@@ -14,11 +14,13 @@ use std::env;
 use std::ffi::OsString;
 use std::os::raw::c_void;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::SystemTime;
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ACCESS_DENIED, ERROR_OPERATION_ABORTED, ERROR_SUCCESS, HANDLE,
     INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
@@ -131,8 +133,27 @@ struct ReadData {
     separator_style: SeparatorStyle,
 }
 
+struct CachedMetadata {
+    is_dir: bool,      // for Create(File/Folder) and Remove(File/Folder)
+    size: u64,         // FILE_NOTIFY_CHANGE_SIZE  → Data(Size)
+    mtime: SystemTime, // FILE_NOTIFY_CHANGE_LAST_WRITE → Metadata(WriteTime)
+    attrs: u32,        // FILE_NOTIFY_CHANGE_ATTRIBUTES → Metadata(Any)
+}
+
+impl From<std::fs::Metadata> for CachedMetadata {
+    fn from(metadata: std::fs::Metadata) -> Self {
+        CachedMetadata {
+            is_dir: metadata.is_dir(),
+            size: metadata.len(),
+            mtime: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+            attrs: metadata.file_attributes(),
+        }
+    }
+}
+
 struct ReadDirectoryRequest {
     event_handler: Arc<Mutex<dyn EventHandler>>,
+    file_cache: Option<Arc<Mutex<HashMap<PathBuf, CachedMetadata>>>>,
     event_kinds: EventKindMask,
     buffer: [u8; BUF_SIZE as usize],
     handle: HANDLE,
@@ -147,7 +168,7 @@ impl ReadDirectoryRequest {
 }
 
 enum Action {
-    Watch(PathBuf, RecursiveMode, SeparatorStyle),
+    Watch(PathBuf, RecursiveMode, SeparatorStyle, bool),
     Unwatch(PathBuf),
     GetWatchedPaths(Sender<Vec<(PathBuf, RecursiveMode)>>),
     Stop,
@@ -217,9 +238,18 @@ impl ReadDirectoryChangesServer {
 
             while let Ok(action) = self.rx.try_recv() {
                 match action {
-                    Action::Watch(path, recursive_mode, separator_style) => {
-                        let res =
-                            self.add_watch(path, recursive_mode.is_recursive(), separator_style);
+                    Action::Watch(
+                        path,
+                        recursive_mode,
+                        separator_style,
+                        windows_detailed_events,
+                    ) => {
+                        let res = self.add_watch(
+                            path,
+                            recursive_mode.is_recursive(),
+                            separator_style,
+                            windows_detailed_events,
+                        );
                         let _ = self.cmd_tx.send(res);
                     }
                     Action::Unwatch(path) => self.remove_watch(path),
@@ -268,6 +298,7 @@ impl ReadDirectoryChangesServer {
         path: PathBuf,
         is_recursive: bool,
         separator_style: SeparatorStyle,
+        windows_detailed_events: bool,
     ) -> Result<PathBuf> {
         // path must exist and be either a file or directory
         if !path.is_dir() && !path.is_file() {
@@ -345,10 +376,32 @@ impl ReadDirectoryChangesServer {
                 RecursiveMode::NonRecursive
             },
         };
+
+        let windows_detailed_events_cache = if windows_detailed_events {
+            let cache = Arc::new(Mutex::new(HashMap::new()));
+            {
+                let mut map = cache.lock().unwrap();
+                let depth = if is_recursive { usize::MAX } else { 1 };
+                for entry in walkdir::WalkDir::new(&rd.dir).max_depth(depth) {
+                    if let Ok(entry) = entry {
+                        if let Ok(metadata) = entry.metadata() {
+                            let path =
+                                normalize_path_separators(entry.into_path(), rd.separator_style);
+                            map.insert(path, CachedMetadata::from(metadata));
+                        }
+                    }
+                }
+            }
+            Some(cache)
+        } else {
+            None
+        };
+
         self.watches.insert(path.clone(), ws);
         start_read(
             &rd,
             self.event_handler.clone(),
+            windows_detailed_events_cache,
             self.event_kinds,
             handle,
             self.tx.clone(),
@@ -386,12 +439,14 @@ fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
 fn start_read(
     rd: &ReadData,
     event_handler: Arc<Mutex<dyn EventHandler>>,
+    file_cache: Option<Arc<Mutex<HashMap<PathBuf, CachedMetadata>>>>,
     event_kinds: EventKindMask,
     handle: HANDLE,
     action_tx: Sender<Action>,
 ) {
     let request = Box::new(ReadDirectoryRequest {
         event_handler,
+        file_cache,
         event_kinds,
         handle,
         buffer: [0u8; BUF_SIZE as usize],
@@ -489,6 +544,7 @@ unsafe extern "system" fn handle_event(
     start_read(
         &request.data,
         request.event_handler.clone(),
+        request.file_cache.clone(),
         request.event_kinds,
         request.handle,
         request.action_tx,
@@ -570,19 +626,80 @@ unsafe extern "system" fn handle_event(
                         event_handler(Ok(ev));
                     }
                     FILE_ACTION_ADDED => {
-                        let kind = EventKind::Create(CreateKind::Any);
-                        let ev = newe.set_kind(kind);
-                        event_handler(Ok(ev));
+                        let kind = if let Some(ref cache) = request.file_cache {
+                            if let Ok(metadata) = std::fs::metadata(&newe.paths[0]) {
+                                let is_dir = metadata.is_dir();
+                                if let Ok(mut map) = cache.lock() {
+                                    map.insert(
+                                        newe.paths[0].clone(),
+                                        CachedMetadata::from(metadata),
+                                    );
+                                }
+                                if is_dir {
+                                    CreateKind::Folder
+                                } else {
+                                    CreateKind::File
+                                }
+                            } else {
+                                CreateKind::Any
+                            }
+                        } else {
+                            CreateKind::Any
+                        };
+                        event_handler(Ok(newe.set_kind(EventKind::Create(kind))));
                     }
                     FILE_ACTION_REMOVED => {
-                        let kind = EventKind::Remove(RemoveKind::Any);
-                        let ev = newe.set_kind(kind);
-                        event_handler(Ok(ev));
+                        let kind = if let Some(ref cache) = request.file_cache {
+                            if let Ok(mut map) = cache.lock() {
+                                match map.remove(&newe.paths[0]) {
+                                    Some(old) if old.is_dir => RemoveKind::Folder,
+                                    Some(_) => RemoveKind::File,
+                                    None => RemoveKind::Any,
+                                }
+                            } else {
+                                RemoveKind::Any
+                            }
+                        } else {
+                            RemoveKind::Any
+                        };
+                        event_handler(Ok(newe.set_kind(EventKind::Remove(kind))));
                     }
                     FILE_ACTION_MODIFIED => {
-                        let kind = EventKind::Modify(ModifyKind::Any);
-                        let ev = newe.set_kind(kind);
-                        event_handler(Ok(ev));
+                        let kind = if let Some(ref cache) = request.file_cache {
+                            if let Ok(mut map) = cache.lock() {
+                                let new_meta = std::fs::metadata(&newe.paths[0]).ok();
+                                let kind = if let (Some(old), Some(new)) =
+                                    (map.get(&newe.paths[0]), new_meta.as_ref())
+                                {
+                                    if new.len() != old.size {
+                                        ModifyKind::Data(DataChange::Size)
+                                    } else if new
+                                        .modified()
+                                        .ok()
+                                        .map(|t| t != old.mtime)
+                                        .unwrap_or(false)
+                                    {
+                                        ModifyKind::Metadata(MetadataKind::WriteTime)
+                                    } else if new.file_attributes() != old.attrs {
+                                        ModifyKind::Metadata(MetadataKind::Any)
+                                    } else {
+                                        ModifyKind::Any
+                                    }
+                                } else {
+                                    ModifyKind::Any
+                                };
+
+                                if let Some(new) = new_meta {
+                                    map.insert(newe.paths[0].clone(), CachedMetadata::from(new));
+                                }
+                                kind
+                            } else {
+                                ModifyKind::Any
+                            }
+                        } else {
+                            ModifyKind::Any
+                        };
+                        event_handler(Ok(newe.set_kind(EventKind::Modify(kind))));
                     }
                     _ => (),
                 };
@@ -604,6 +721,7 @@ pub struct ReadDirectoryChangesWatcher {
     cmd_rx: Receiver<Result<PathBuf>>,
     wakeup_sem: HANDLE,
     windows_path_separator_style: WindowsPathSeparatorStyle,
+    windows_detailed_events: bool,
 }
 
 impl ReadDirectoryChangesWatcher {
@@ -616,6 +734,7 @@ impl ReadDirectoryChangesWatcher {
             event_handler,
             event_kinds,
             WindowsPathSeparatorStyle::Auto,
+            false,
             meta_tx,
         )
     }
@@ -624,6 +743,7 @@ impl ReadDirectoryChangesWatcher {
         event_handler: Arc<Mutex<dyn EventHandler>>,
         event_kinds: EventKindMask,
         windows_path_separator_style: WindowsPathSeparatorStyle,
+        windows_detailed_events: bool,
         meta_tx: Sender<MetaEvent>,
     ) -> Result<ReadDirectoryChangesWatcher> {
         let (cmd_tx, cmd_rx) = unbounded();
@@ -646,6 +766,7 @@ impl ReadDirectoryChangesWatcher {
             cmd_rx,
             wakeup_sem,
             windows_path_separator_style,
+            windows_detailed_events,
         })
     }
 
@@ -698,7 +819,12 @@ impl ReadDirectoryChangesWatcher {
             ));
         }
         self.send_action_require_ack(
-            Action::Watch(pb.clone(), recursive_mode, separator_style),
+            Action::Watch(
+                pb.clone(),
+                recursive_mode,
+                separator_style,
+                self.windows_detailed_events,
+            ),
             &pb,
         )
     }
@@ -738,6 +864,7 @@ impl Watcher for ReadDirectoryChangesWatcher {
             event_handler,
             config.event_kinds(),
             config.windows_path_separator_style(),
+            config.windows_detailed_events(),
             meta_tx,
         )
     }
@@ -1301,5 +1428,116 @@ pub mod tests {
             expected(&nested9).create_any(),
         ])
         .ensure_no_tail();
+    }
+
+    fn watcher_with_detailed_events() -> (TestWatcher<ReadDirectoryChangesWatcher>, Receiver) {
+        channel_with_config(
+            ChannelConfig::default()
+                .with_watcher_config(crate::Config::default().with_windows_detailed_events(true)),
+        )
+    }
+
+    #[test]
+    fn detailed_create_file_emits_create_file_kind() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher_with_detailed_events();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        rx.wait_ordered_exact([expected(&path).create_file()])
+            .ensure_no_tail();
+    }
+
+    #[test]
+    fn detailed_create_folder_emits_create_folder_kind() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher_with_detailed_events();
+        watcher.watch_recursively(&tmpdir);
+
+        let path = tmpdir.path().join("subdir");
+        std::fs::create_dir(&path).expect("create_dir");
+
+        rx.wait_ordered_exact([expected(&path).create_folder()])
+            .ensure_no_tail();
+    }
+
+    #[test]
+    fn detailed_remove_file_emits_remove_file_kind() {
+        let tmpdir = testdir();
+        let file = tmpdir.path().join("entry");
+        std::fs::write(&file, b"hello").expect("write");
+
+        let (mut watcher, mut rx) = watcher_with_detailed_events();
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::remove_file(&file).expect("remove");
+
+        rx.wait_ordered_exact([expected(&file).remove_file()])
+            .ensure_no_tail();
+    }
+
+    #[test]
+    fn detailed_remove_folder_emits_remove_folder_kind() {
+        let tmpdir = testdir();
+        let subdir = tmpdir.path().join("subdir");
+        std::fs::create_dir(&subdir).expect("create_dir");
+
+        let (mut watcher, mut rx) = watcher_with_detailed_events();
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::remove_dir(&subdir).expect("remove");
+
+        rx.wait_ordered_exact([expected(&subdir).remove_folder()])
+            .ensure_no_tail();
+    }
+
+    #[test]
+    fn detailed_write_emits_modify_data_size() {
+        let tmpdir = testdir();
+        let file = tmpdir.path().join("entry");
+        std::fs::write(&file, b"hi").expect("write");
+
+        let (mut watcher, mut rx) = watcher_with_detailed_events();
+        watcher.watch_recursively(&tmpdir);
+
+        // Write more bytes to change the size
+        std::fs::write(&file, b"hello world").expect("write");
+
+        rx.wait_ordered_exact([expected(&file).modify_data_size().multiple()])
+            .ensure_no_tail();
+    }
+
+    #[test]
+    fn detailed_chmod_emits_modify_meta_any() {
+        let tmpdir = testdir();
+        let file = tmpdir.path().join("entry");
+        let f = std::fs::File::create_new(&file).expect("create");
+        let mut permissions = f.metadata().expect("metadata").permissions();
+        permissions.set_readonly(true);
+
+        let (mut watcher, mut rx) = watcher_with_detailed_events();
+        watcher.watch_recursively(&tmpdir);
+
+        f.set_permissions(permissions).expect("set_permissions");
+
+        rx.wait_ordered_exact([expected(&file).modify_meta_any()])
+            .ensure_no_tail();
+    }
+
+    #[test]
+    fn without_detailed_events_write_emits_modify_any() {
+        let tmpdir = testdir();
+        let file = tmpdir.path().join("entry");
+        std::fs::write(&file, b"hi").expect("write");
+
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::write(&file, b"hello world").expect("write");
+
+        rx.wait_ordered_exact([expected(&file).modify_any().multiple()])
+            .ensure_no_tail();
     }
 }

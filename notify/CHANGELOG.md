@@ -3,9 +3,10 @@
 ## notify 9.0.0 (unreleased)
 
 - FEATURE: add `Watcher::watched_paths` to list active watches as `(PathBuf, RecursiveMode)` pairs across supported backends
+- FEATURE: [windows] add Config::with_windows_detailed_events. When enabled, emits specific event kinds (Create(File/Folder), Remove(File/Folder), Modify(Data(Size)), Modify(Metadata(...))) instead of Any variants. Disabled by default due to the additional stat call per event.
 - FIX: [windows] normalize emitted event paths to follow the watched path separator style and trim leading separators; add `Config::with_windows_path_separator_style` for explicit control [#375]
 - FIX: [macOS] annotate FSEvents clone-related events with `info = "is: clone"` [#465]
-- FIX: avoid panicking in `unwatch` when internal mutexes are poisoned
+- FIX: avoid panicking in `unwatch` when internal mutexes are poisoned 
 
 [#375]: https://github.com/notify-rs/notify/issues/375
 [#465]: https://github.com/notify-rs/notify/issues/465

@@ -73,6 +73,8 @@ pub struct Config {
 
     /// See [Config::with_windows_path_separator_style]
     windows_path_separator_style: WindowsPathSeparatorStyle,
+
+    windows_detailed_events: bool,
 }
 
 impl Config {
@@ -195,6 +197,39 @@ impl Config {
     pub fn windows_path_separator_style(&self) -> WindowsPathSeparatorStyle {
         self.windows_path_separator_style
     }
+
+    /// For the [`ReadDirectoryChangesWatcher`](crate::ReadDirectoryChangesWatcher) backend.
+    ///
+    /// When enabled, the watcher will stat changed files on each `FILE_ACTION_MODIFIED` event
+    /// and compare the result against a cached snapshot to determine what specifically changed,
+    /// emitting more precise event kinds instead of [`ModifyKind::Any`](crate::event::ModifyKind):
+    ///
+    /// - File size changed → [`ModifyKind::Data`](crate::event::ModifyKind::Data)`(`[`DataChange::Size`](crate::event::DataChange::Size)`)`
+    /// - Write time changed → [`ModifyKind::Metadata`](crate::event::ModifyKind::Metadata)`(`[`MetadataKind::WriteTime`](crate::event::MetadataKind::WriteTime)`)`
+    /// - Attributes changed → [`ModifyKind::Metadata`](crate::event::ModifyKind::Metadata)`(`[`MetadataKind::Any`](crate::event::MetadataKind::Any)`)`
+    ///
+    /// This also enables precise [`CreateKind::File`](crate::event::CreateKind::File) /
+    /// [`CreateKind::Folder`](crate::event::CreateKind::Folder) and
+    /// [`RemoveKind::File`](crate::event::RemoveKind::File) /
+    /// [`RemoveKind::Folder`](crate::event::RemoveKind::Folder) distinctions, rather than
+    /// [`CreateKind::Any`](crate::event::CreateKind::Any) /
+    /// [`RemoveKind::Any`](crate::event::RemoveKind::Any).
+    ///
+    /// The trade-off is an additional [`fs::metadata`](std::fs::metadata) call per event.
+    /// This is off by default to preserve the existing low-overhead behaviour.
+    ///
+    /// This has no effect on other platforms.
+    ///
+    /// This can't be changed during runtime. Off by default.
+    pub fn with_windows_detailed_events(mut self, detailed: bool) -> Self {
+        self.windows_detailed_events = detailed;
+        self
+    }
+
+    /// Returns current setting.
+    pub fn windows_detailed_events(&self) -> bool {
+        self.windows_detailed_events
+    }
 }
 
 impl Default for Config {
@@ -205,6 +240,7 @@ impl Default for Config {
             follow_symlinks: true,
             event_kinds: EventKindMask::ALL,
             windows_path_separator_style: WindowsPathSeparatorStyle::Auto,
+            windows_detailed_events: false,
         }
     }
 }
@@ -338,5 +374,11 @@ mod tests {
             config.windows_path_separator_style(),
             WindowsPathSeparatorStyle::Slash
         );
+    }
+
+    #[test]
+    fn config_with_windows_detailed_events() {
+        let config = Config::default().with_windows_detailed_events(true);
+        assert!(config.windows_detailed_events());
     }
 }
