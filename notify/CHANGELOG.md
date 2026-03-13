@@ -4,11 +4,13 @@
 
 - FEATURE: add `Watcher::watched_paths` to list active watches as `(PathBuf, RecursiveMode)` pairs across supported backends
 - FIX: [windows] normalize emitted event paths to follow the watched path separator style and trim leading separators; add `Config::with_windows_path_separator_style` for explicit control [#375]
+- FIX: [windows] make `unwatch()` wait until the watch is fully removed so later filesystem changes do not leak events [#730]
 - FIX: [macOS] annotate FSEvents clone-related events with `info = "is: clone"` [#465]
 - FIX: avoid panicking in `unwatch` when internal mutexes are poisoned
 
 [#375]: https://github.com/notify-rs/notify/issues/375
 [#465]: https://github.com/notify-rs/notify/issues/465
+[#730]: https://github.com/notify-rs/notify/issues/730
 [#739]: https://github.com/notify-rs/notify/issues/739
 
 ## notify 9.0.0-rc.2 (2026-02-14)
