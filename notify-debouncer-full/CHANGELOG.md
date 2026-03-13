@@ -3,9 +3,11 @@
 
 - FEATURE: impl `EventHandler` for `futures::channel::mpsc::UnboundedSender` and `tokio::sync::mpsc::UnboundedSender` behind the `futures` and `tokio` feature flags [#767]
 - FEATURE: add support of a watcher's method `update_paths`  [#705]
+- FEATURE: add `Debouncer::watched_paths` for `Debouncer` [#710]
 
 [#767]: https://github.com/notify-rs/notify/pull/767
 [#705]: https://github.com/notify-rs/notify/pull/705
+[#710]: https://github.com/notify-rs/notify/issues/710
 
 ## debouncer-full 0.7.0 (2026-01-23)
 
