@@ -25,15 +25,7 @@ use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ACCESS_DENIED, ERROR_OPERATION_ABORTED, ERROR_SUCCESS, HANDLE,
     INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };
-use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, ReadDirectoryChangesW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED,
-    FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
-    FILE_ATTRIBUTE_READONLY, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
-    FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_CHANGE_CREATION, FILE_NOTIFY_CHANGE_DIR_NAME,
-    FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SECURITY,
-    FILE_NOTIFY_CHANGE_SIZE, FILE_NOTIFY_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ,
-    FILE_SHARE_WRITE, OPEN_EXISTING,
-};
+use windows_sys::Win32::Storage::FileSystem::{CreateFileW, ReadDirectoryChangesW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED, FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_READONLY, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_CHANGE_CREATION, FILE_NOTIFY_CHANGE_DIR_NAME, FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SECURITY, FILE_NOTIFY_CHANGE_SIZE, FILE_NOTIFY_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
 use windows_sys::Win32::System::Threading::{
     CreateSemaphoreW, ReleaseSemaphore, WaitForSingleObjectEx, INFINITE,
 };
@@ -696,7 +688,7 @@ unsafe extern "system" fn handle_event(
                                         .unwrap_or(false)
                                     {
                                         ModifyKind::Metadata(MetadataKind::WriteTime)
-                                    } else if new.file_attributes() != old.attrs {
+                                    } else if (new.file_attributes() & !FILE_ATTRIBUTE_ARCHIVE) != (old.attrs & !FILE_ATTRIBUTE_ARCHIVE) {
                                         let old_attrs = old.attrs & FILE_ATTRIBUTE_READONLY;
                                         let new_attrs =
                                             new.file_attributes() & FILE_ATTRIBUTE_READONLY;
@@ -1561,7 +1553,7 @@ pub mod tests {
 
         f.set_permissions(permissions).expect("set_permissions");
 
-        rx.wait_ordered_exact([expected(&file).modify_meta_any()])
+        rx.wait_ordered_exact([expected(&file).modify_meta_perm()])
             .ensure_no_tail();
     }
 }
