@@ -169,7 +169,11 @@ impl ReadDirectoryRequest {
 
 enum Action {
     Watch(PathBuf, RecursiveMode, SeparatorStyle, bool),
+    // Internal self-unwatch from the completion callback.
     Unwatch(PathBuf),
+    // Public `Watcher::unwatch` path. This variant must ack only after `remove_watch` finishes so
+    // the caller does not observe events after `unwatch()` returns.
+    UnwatchAck(PathBuf),
     GetWatchedPaths(Sender<Vec<(PathBuf, RecursiveMode)>>),
     Stop,
     Configure(Config, BoundSender<Result<bool>>),
@@ -253,6 +257,10 @@ impl ReadDirectoryChangesServer {
                         let _ = self.cmd_tx.send(res);
                     }
                     Action::Unwatch(path) => self.remove_watch(path),
+                    Action::UnwatchAck(path) => {
+                        self.remove_watch(path.clone());
+                        let _ = self.cmd_tx.send(Ok(path));
+                    }
                     Action::GetWatchedPaths(tx) => {
                         let _ = tx.send(
                             self.watches
@@ -864,12 +872,7 @@ impl ReadDirectoryChangesWatcher {
             let p = env::current_dir().map_err(Error::io)?;
             p.join(path)
         };
-        let res = self
-            .tx
-            .send(Action::Unwatch(pb))
-            .map_err(|_| Error::generic("Error sending to internal channel"));
-        self.wakeup_server();
-        res
+        self.send_action_require_ack(Action::UnwatchAck(pb.clone()), &pb)
     }
 
     fn watched_paths_inner(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
@@ -940,6 +943,9 @@ pub mod tests {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{mpsc, Arc};
+    use std::thread;
     use tempfile::{tempdir, tempdir_in};
 
     use super::{normalize_path_separators, trim_leading_separators, SeparatorStyle};
@@ -1568,5 +1574,89 @@ pub mod tests {
 
         rx.wait_ordered_exact([expected(&file).modify_meta_perm()])
             .ensure_no_tail();
+    }
+
+    #[test]
+    fn unwatch_waits_for_pending_callback_before_returning() {
+        let tmpdir = testdir();
+        let watched_dir = tmpdir.path().join("watched");
+        std::fs::create_dir(&watched_dir).expect("create watched dir");
+
+        let first = watched_dir.join("new_dir");
+        let second = watched_dir.join("should_not_be_seen");
+        let first_for_handler = first.clone();
+
+        let (event_tx, event_rx) = mpsc::channel();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (unwatch_done_tx, unwatch_done_rx) = mpsc::channel();
+        let (finish_tx, finish_rx) = mpsc::channel();
+        let blocked_once = Arc::new(AtomicBool::new(false));
+        let blocked_once_for_handler = blocked_once.clone();
+
+        let mut watcher = ReadDirectoryChangesWatcher::new(
+            move |res: crate::Result<crate::Event>| {
+                if let Ok(event) = &res {
+                    if event.paths.iter().any(|path| path == &first_for_handler)
+                        && !blocked_once_for_handler.swap(true, Ordering::SeqCst)
+                    {
+                        started_tx.send(()).expect("signal callback start");
+                        release_rx.recv().expect("release callback");
+                    }
+                }
+
+                event_tx.send(res).expect("forward event");
+            },
+            crate::Config::default(),
+        )
+        .expect("create watcher");
+        watcher
+            .watch(&watched_dir, RecursiveMode::NonRecursive)
+            .expect("watch dir");
+
+        std::fs::create_dir(&first).expect("create first dir");
+        started_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("wait for callback to block");
+
+        let unwatch_path = watched_dir.clone();
+        let join = thread::spawn(move || {
+            let mut watcher = watcher;
+            let result = watcher.unwatch(&unwatch_path);
+            unwatch_done_tx.send(result).expect("send unwatch result");
+            finish_rx.recv().expect("finish watcher thread");
+        });
+
+        assert!(
+            unwatch_done_rx
+                .recv_timeout(Duration::from_millis(100))
+                .is_err(),
+            "unwatch returned before the pending callback finished"
+        );
+
+        release_tx.send(()).expect("release callback");
+        unwatch_done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("wait for unwatch result")
+            .expect("unwatch dir");
+
+        std::fs::create_dir(&second).expect("create second dir");
+
+        let first_event = event_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("receive first event")
+            .expect("first event result");
+        assert_eq!(first_event, expected(&first).create_any());
+
+        while let Ok(res) = event_rx.recv_timeout(Duration::from_millis(200)) {
+            let event = res.expect("event result");
+            assert!(
+                !event.paths.iter().any(|path| path == &second),
+                "unexpected event after unwatch: {event:#?}"
+            );
+        }
+
+        finish_tx.send(()).expect("finish watcher thread");
+        join.join().expect("join watcher thread");
     }
 }
