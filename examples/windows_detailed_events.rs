@@ -1,9 +1,7 @@
 use notify::{Config, Watcher};
 
 fn main() {
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info")
-    ).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let path = std::env::args()
         .nth(1)
@@ -16,7 +14,9 @@ fn main() {
     let config = Config::default().with_windows_detailed_events(true);
 
     let mut watcher = notify::RecommendedWatcher::new(tx, config).unwrap();
-    watcher.watch(path.as_ref(), notify::RecursiveMode::Recursive).unwrap();
+    watcher
+        .watch(path.as_ref(), notify::RecursiveMode::Recursive)
+        .unwrap();
 
     for res in rx {
         match res {

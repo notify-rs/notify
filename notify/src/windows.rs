@@ -28,7 +28,7 @@ use windows_sys::Win32::Foundation::{
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, ReadDirectoryChangesW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED,
     FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
-    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
+    FILE_ATTRIBUTE_READONLY, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
     FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_CHANGE_CREATION, FILE_NOTIFY_CHANGE_DIR_NAME,
     FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SECURITY,
     FILE_NOTIFY_CHANGE_SIZE, FILE_NOTIFY_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ,
@@ -382,13 +382,14 @@ impl ReadDirectoryChangesServer {
             {
                 let mut map = cache.lock().unwrap();
                 let depth = if is_recursive { usize::MAX } else { 1 };
-                for entry in walkdir::WalkDir::new(&rd.dir).max_depth(depth) {
-                    if let Ok(entry) = entry {
-                        if let Ok(metadata) = entry.metadata() {
-                            let path =
-                                normalize_path_separators(entry.into_path(), rd.separator_style);
-                            map.insert(path, CachedMetadata::from(metadata));
-                        }
+                for entry in walkdir::WalkDir::new(&rd.dir)
+                    .max_depth(depth)
+                    .into_iter()
+                    .flatten()
+                {
+                    if let Ok(metadata) = entry.metadata() {
+                        let path = normalize_path_separators(entry.into_path(), rd.separator_style);
+                        map.insert(path, CachedMetadata::from(metadata));
                     }
                 }
             }
@@ -616,12 +617,27 @@ unsafe extern "system" fn handle_event(
                 let mode = RenameMode::From;
                 let kind = ModifyKind::Name(mode);
                 let kind = EventKind::Modify(kind);
+
+                if let Some(ref cache) = request.file_cache {
+                    cache.lock().unwrap().remove(&newe.paths[0].clone());
+                }
+
                 let ev = newe.set_kind(kind);
                 event_handler(Ok(ev))
             } else {
                 match cur_entry.Action {
                     FILE_ACTION_RENAMED_NEW_NAME => {
                         let kind = EventKind::Modify(ModifyKind::Name(RenameMode::To));
+
+                        if let Some(ref cache) = request.file_cache {
+                            if let Ok(metadata) = std::fs::metadata(&newe.paths[0]) {
+                                cache
+                                    .lock()
+                                    .unwrap()
+                                    .insert(newe.paths[0].clone(), CachedMetadata::from(metadata));
+                            }
+                        }
+
                         let ev = newe.set_kind(kind);
                         event_handler(Ok(ev));
                     }
@@ -681,7 +697,14 @@ unsafe extern "system" fn handle_event(
                                     {
                                         ModifyKind::Metadata(MetadataKind::WriteTime)
                                     } else if new.file_attributes() != old.attrs {
-                                        ModifyKind::Metadata(MetadataKind::Any)
+                                        let old_attrs = old.attrs & FILE_ATTRIBUTE_READONLY;
+                                        let new_attrs =
+                                            new.file_attributes() & FILE_ATTRIBUTE_READONLY;
+                                        if old_attrs != new_attrs {
+                                            ModifyKind::Metadata(MetadataKind::Permissions)
+                                        } else {
+                                            ModifyKind::Metadata(MetadataKind::Any)
+                                        }
                                     } else {
                                         ModifyKind::Any
                                     }
