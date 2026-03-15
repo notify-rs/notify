@@ -660,7 +660,10 @@ unsafe extern "system" fn handle_event(
                         let kind = if let Some(ref cache) = request.file_cache {
                             if let Ok(mut map) = cache.lock() {
                                 match map.remove(&newe.paths[0]) {
-                                    Some(old) if old.is_dir => RemoveKind::Folder,
+                                    Some(old) if old.is_dir => {
+                                        map.retain(|k, _| !k.starts_with(&newe.paths[0]));
+                                        RemoveKind::Folder
+                                    },
                                     Some(_) => RemoveKind::File,
                                     None => RemoveKind::Any,
                                 }
