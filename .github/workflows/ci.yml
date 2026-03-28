@@ -99,9 +99,9 @@ jobs:
           }
 
       - name: Install Rust ${{ matrix.rust }}
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
+        run: |
+          rustup override set ${{ matrix.rust }}
+          rustup update ${{ matrix.rust }}
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -135,9 +135,10 @@ jobs:
         run: rm -f rust-toolchain.toml
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: armv7-linux-androideabi, aarch64-linux-android
+        run: |
+          rustup override set stable
+          rustup update stable
+          rustup target add armv7-linux-androideabi aarch64-linux-android
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -165,9 +166,10 @@ jobs:
   #       run: rm -f rust-toolchain.toml
 
   #     - name: Install Rust
-  #       uses: dtolnay/rust-toolchain@nightly
-  #       with:
-  #         targets: wasm32-wasip2
+  #       run: |
+  #       rustup override set stable
+  #       rustup update stable
+  #       rustup target wasm32-wasip2
 
   #     - name: Cache dependencies
   #       uses: Swatinem/rust-cache@v2
