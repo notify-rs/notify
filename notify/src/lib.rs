@@ -598,6 +598,38 @@ mod tests {
             .collect()
     }
 
+    fn matches_path(path: &Path, expected: &Path, canonical_expected: Option<&PathBuf>) -> bool {
+        path == expected || canonical_expected.is_some_and(|canonical| path == canonical)
+    }
+
+    fn update_paths_unwatch_with_retry(
+        watcher: &mut RecommendedWatcher,
+        path: &Path,
+    ) -> Result<()> {
+        const FSEVENT_UNWATCH_RETRIES: usize = 5;
+        const FSEVENT_UNWATCH_RETRY_BASE_DELAY: Duration = Duration::from_millis(50);
+
+        for attempt in 0..=FSEVENT_UNWATCH_RETRIES {
+            match watcher.update_paths(vec![PathOp::unwatch(path)]) {
+                Ok(()) => return Ok(()),
+                Err(err)
+                    if RecommendedWatcher::kind() == WatcherKind::Fsevent
+                        && matches!(
+                            &err.source.kind,
+                            ErrorKind::Io(io_err) if io_err.raw_os_error() == Some(9)
+                        )
+                        && attempt < FSEVENT_UNWATCH_RETRIES =>
+                {
+                    let delay_factor = 1u32 << attempt;
+                    std::thread::sleep(FSEVENT_UNWATCH_RETRY_BASE_DELAY * delay_factor);
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+
+        unreachable!("fsevent unwatch retries must return or error")
+    }
+
     #[test]
     fn integration() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
@@ -678,16 +710,18 @@ mod tests {
         let b_file1 = dir_b.join("file1");
         fs::write(&a_file1, b"Lorem ipsum")?;
         fs::write(&b_file1, b"Lorem ipsum")?;
+        let a_file1_canonical = a_file1.canonicalize().ok();
+        let b_file1_canonical = b_file1.canonicalize().ok();
 
         // wait for create events of a/file1 and b/file1
         let mut a_file1_encountered: bool = false;
         let mut b_file1_encountered: bool = false;
         for event in iter_with_timeout(&rx) {
             for path in event.paths {
-                a_file1_encountered =
-                    a_file1_encountered || (path == a_file1 || path == a_file1.canonicalize()?);
-                b_file1_encountered =
-                    b_file1_encountered || (path == b_file1 || path == b_file1.canonicalize()?);
+                a_file1_encountered = a_file1_encountered
+                    || matches_path(&path, &a_file1, a_file1_canonical.as_ref());
+                b_file1_encountered = b_file1_encountered
+                    || matches_path(&path, &b_file1, b_file1_canonical.as_ref());
             }
             if a_file1_encountered && b_file1_encountered {
                 break;
@@ -697,22 +731,24 @@ mod tests {
         assert!(b_file1_encountered, "Did not receive event of {b_file1:?}");
 
         // stop watching a
-        watcher.update_paths(vec![PathOp::unwatch(&dir_a)])?;
+        update_paths_unwatch_with_retry(&mut watcher, &dir_a)?;
 
         // create file2 in both a and b
         let a_file2 = dir_a.join("file2");
         let b_file2 = dir_b.join("file2");
         fs::write(&a_file2, b"Lorem ipsum")?;
         fs::write(&b_file2, b"Lorem ipsum")?;
+        let a_file2_canonical = a_file2.canonicalize().ok();
+        let b_file2_canonical = b_file2.canonicalize().ok();
 
         // wait for the create event of b/file2 only
         for event in iter_with_timeout(&rx) {
             for path in event.paths {
                 assert!(
-                    path != a_file2 || path != a_file2.canonicalize()?,
+                    !matches_path(&path, &a_file2, a_file2_canonical.as_ref()),
                     "Event of {a_file2:?} should not be received"
                 );
-                if path == b_file2 || path == b_file2.canonicalize()? {
+                if matches_path(&path, &b_file2, b_file2_canonical.as_ref()) {
                     return Ok(());
                 }
             }
@@ -777,6 +813,7 @@ mod tests {
         fs::write(&not_existent_file, "")?;
         let waiting_path = existing_dir_2.join("1");
         fs::write(&waiting_path, "")?;
+        let waiting_path_canonical = waiting_path.canonicalize().ok();
 
         for event in iter_with_timeout(&rx) {
             let path = event
@@ -788,7 +825,7 @@ mod tests {
                 "unexpected {:?} event",
                 not_existent_file
             );
-            if path == &waiting_path || path == &waiting_path.canonicalize()? {
+            if matches_path(path, &waiting_path, waiting_path_canonical.as_ref()) {
                 return Ok(());
             }
         }
