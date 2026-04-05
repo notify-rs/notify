@@ -2,6 +2,7 @@
 ## debouncer-full 0.7.1 (unreleased)
 
 - CHANGE: raise MSRV to 1.88
+- CHANGE: use `HashMap::extract_if` to reduce debouncer flush overhead
 - FEATURE: impl `EventHandler` for `futures::channel::mpsc::UnboundedSender` and `tokio::sync::mpsc::UnboundedSender` behind the `futures` and `tokio` feature flags [#767]
 - FEATURE: add support of a watcher's method `update_paths`  [#705]
 - FEATURE: add `Debouncer::watched_paths` for `Debouncer` [#710]
