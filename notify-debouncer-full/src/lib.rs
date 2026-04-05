@@ -230,7 +230,6 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     pub fn debounced_events(&mut self) -> Vec<DebouncedEvent> {
         let now = now();
         let mut events_expired = Vec::with_capacity(self.queues.len());
-        let mut queues_remaining = HashMap::with_capacity(self.queues.len());
 
         if let Some(event) = self.rescan_event.take() {
             if now.saturating_duration_since(event.time) >= self.timeout {
@@ -241,39 +240,43 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             }
         }
 
-        // drain the entire queue, then process the expired events and re-add the rest
-        // TODO: perfect fit for drain_filter https://github.com/rust-lang/rust/issues/59618
-        for (path, mut queue) in self.queues.drain() {
-            let mut kind_index = HashMap::new();
+        // Visit each queue in place and remove only the ones that become empty.
+        self.queues
+            .extract_if(|_, queue| {
+                let mut kind_index = Vec::<(EventKind, usize)>::new();
+                let mut queue_expired = Vec::new();
 
-            while let Some(event) = queue.events.pop_front() {
-                // remove previous event of the same kind
-                if let Some(idx) = kind_index.get(&event.kind).copied() {
-                    events_expired.remove(idx);
-
-                    kind_index.values_mut().for_each(|i| {
-                        if *i > idx {
-                            *i -= 1
+                while let Some(event) = queue.events.pop_front() {
+                    // remove previous event of the same kind
+                    if now.saturating_duration_since(event.time) >= self.timeout {
+                        if let Some((_, idx)) =
+                            kind_index.iter_mut().find(|(kind, _)| *kind == event.kind)
+                        {
+                            queue_expired[*idx] = None;
+                            *idx = queue_expired.len();
+                        } else {
+                            kind_index.push((event.kind, queue_expired.len()));
                         }
-                    })
+
+                        queue_expired.push(Some(event));
+                    } else {
+                        if let Some((_, idx)) =
+                            kind_index.iter_mut().find(|(kind, _)| *kind == event.kind)
+                        {
+                            queue_expired[*idx] = None;
+                        } else {
+                            kind_index.push((event.kind, queue_expired.len()));
+                        }
+                        queue.events.push_front(event);
+                        break;
+                    }
                 }
 
-                if now.saturating_duration_since(event.time) >= self.timeout {
-                    kind_index.insert(event.kind, events_expired.len());
+                events_expired.extend(queue_expired.into_iter().flatten());
 
-                    events_expired.push(event);
-                } else {
-                    queue.events.push_front(event);
-                    break;
-                }
-            }
-
-            if !queue.events.is_empty() {
-                queues_remaining.insert(path, queue);
-            }
-        }
-
-        self.queues = queues_remaining;
+                queue.events.is_empty()
+            })
+            .for_each(drop);
 
         sort_events(events_expired)
     }
