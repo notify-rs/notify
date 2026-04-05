@@ -201,7 +201,7 @@ impl EventLoop {
                     // System call was interrupted, we will retry
                     // TODO: Not covered by tests (to reproduce likely need to setup signal handlers)
                 }
-                Err(e) => panic!("poll failed: {}", e),
+                Err(e) => panic!("poll failed: {e}"),
                 Ok(()) => {}
             }
 

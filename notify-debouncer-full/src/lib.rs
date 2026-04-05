@@ -1188,10 +1188,7 @@ mod tests {
         fs::write(&file_path1, b"Lorem ipsum1")?;
         fs::write(&file_path2, b"Lorem ipsum1")?;
 
-        println!(
-            "waiting for events at {:?} and {:?}",
-            file_path1, file_path2
-        );
+        println!("waiting for events at {file_path1:?} and {file_path2:?}");
 
         // wait for up to 10 seconds for the create event, ignore all other events
         let deadline = Instant::now() + Duration::from_secs(10);

@@ -380,7 +380,7 @@ impl<W: Watcher> TestWatcher<W> {
                         continue;
                     }
 
-                    panic!("Unable to watch {:?}: {err:#?}", path)
+                    panic!("Unable to watch {path:?}: {err:#?}")
                 }
             }
         }
@@ -621,7 +621,7 @@ mod expect {
             if expected.is_none()
                 && self.unexpected_event_behaviour == UnexpectedEventBehaviour::Panic
             {
-                panic!("Unexpected event. State: {:#?}", self)
+                panic!("Unexpected event. State: {self:#?}")
             }
         }
 

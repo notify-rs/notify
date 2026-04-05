@@ -14,9 +14,9 @@ task:
     - name: FreeBSD 14.3 - Rust nightly
       env:
         RUST_VERSION: nightly
-    - name: FreeBSD 14.3 - Rust 1.85 (MSRV)
+    - name: FreeBSD 14.3 - Rust 1.88 (MSRV)
       env:
-        RUST_VERSION: 1.85
+        RUST_VERSION: 1.88
 
   setup_script:
     - rm -f rust-toolchain.toml

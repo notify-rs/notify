@@ -822,8 +822,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("event must have a path: {event:?}"));
             assert!(
                 path != &not_existent_file,
-                "unexpected {:?} event",
-                not_existent_file
+                "unexpected {not_existent_file:?} event"
             );
             if matches_path(path, &waiting_path, waiting_path_canonical.as_ref()) {
                 return Ok(());
