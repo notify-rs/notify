@@ -112,14 +112,14 @@ impl fmt::Display for Error {
         let error = match self.kind {
             ErrorKind::PathNotFound => "No path was found.".into(),
             ErrorKind::WatchNotFound => "No watch was found.".into(),
-            ErrorKind::InvalidConfig(ref config) => format!("Invalid configuration: {:?}", config),
+            ErrorKind::InvalidConfig(ref config) => format!("Invalid configuration: {config:?}"),
             ErrorKind::Generic(ref err) => err.clone(),
             ErrorKind::Io(ref err) => err.to_string(),
             ErrorKind::MaxFilesWatch => "OS file watch limit reached.".into(),
         };
 
         if self.paths.is_empty() {
-            write!(f, "{}", error)
+            write!(f, "{error}")
         } else {
             write!(f, "{} about {:?}", error, self.paths)
         }
@@ -143,19 +143,19 @@ impl From<io::Error> for Error {
 
 impl<T> From<std::sync::mpsc::SendError<T>> for Error {
     fn from(err: std::sync::mpsc::SendError<T>) -> Self {
-        Error::generic(&format!("internal channel disconnect: {:?}", err))
+        Error::generic(&format!("internal channel disconnect: {err:?}"))
     }
 }
 
 impl From<std::sync::mpsc::RecvError> for Error {
     fn from(err: std::sync::mpsc::RecvError) -> Self {
-        Error::generic(&format!("internal channel disconnect: {:?}", err))
+        Error::generic(&format!("internal channel disconnect: {err:?}"))
     }
 }
 
 impl<T> From<std::sync::PoisonError<T>> for Error {
     fn from(err: std::sync::PoisonError<T>) -> Self {
-        Error::generic(&format!("internal mutex poisoned: {:?}", err))
+        Error::generic(&format!("internal mutex poisoned: {err:?}"))
     }
 }
 

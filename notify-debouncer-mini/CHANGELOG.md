@@ -2,6 +2,7 @@
 
 ## debouncer-mini 0.7.1 (unreleased)
 
+- CHANGE: raise MSRV to 1.88
 - FEATURE: impl `EventHandler` for `futures::channel::mpsc::UnboundedSender` and `tokio::sync::mpsc::UnboundedSender` behind the `futures` and `tokio` feature flags [#767]
 
 [#767]: https://github.com/notify-rs/notify/pull/767

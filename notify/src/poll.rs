@@ -989,8 +989,7 @@ mod tests {
             .expect("event should not be an error");
         assert!(
             event.kind.is_create(),
-            "Expected CREATE event, got: {:?}",
-            event
+            "Expected CREATE event, got: {event:?}"
         );
 
         // Modify the file - should NOT generate event (filtered by mask)
@@ -1004,8 +1003,7 @@ mod tests {
         let remaining: Vec<_> = rx.try_iter().filter_map(|r| r.ok()).collect();
         assert!(
             !remaining.iter().any(|e| e.kind.is_modify()),
-            "Should not receive MODIFY events with CREATE-only mask, got: {:?}",
-            remaining
+            "Should not receive MODIFY events with CREATE-only mask, got: {remaining:?}"
         );
     }
 }

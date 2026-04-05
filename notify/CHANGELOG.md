@@ -2,6 +2,7 @@
 
 ## notify 9.0.0 (unreleased)
 
+- CHANGE: raise MSRV to 1.88
 - FEATURE: add `Watcher::watched_paths` to list active watches as `(PathBuf, RecursiveMode)` pairs across supported backends
 - FIX: [windows] normalize emitted event paths to follow the watched path separator style and trim leading separators; add `Config::with_windows_path_separator_style` for explicit control [#375]
 - FIX: [windows] make `unwatch()` wait until the watch is fully removed so later filesystem changes do not leak events [#730]

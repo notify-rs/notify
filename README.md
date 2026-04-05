@@ -19,7 +19,7 @@ _Cross-platform filesystem notification library for Rust._
 - [Changelog][changelog]
 - [Upgrading notify from v8](./docs/UPGRADING_V8_TO_V9.md)
 - [Upgrading notify from v4](./docs/UPGRADING_V4_TO_V5.md)
-- Minimum supported Rust version: **1.85**
+- Minimum supported Rust version: **1.88**
 
 As used by: [alacritty], [cargo watch], [cobalt], [deno], [docket], [mdBook],
 [rust-analyzer], [watchexec], [watchfiles], [xi-editor], [zed]
@@ -32,7 +32,7 @@ and others.
 
 We follow these MSRV rules:
 
-- The current MSRV is **1.85**.
+- The current MSRV is **1.88**.
 - MSRV bumps do NOT require a major release and may happen in minor releases.
 - The MSRV may be updated when needed, but support for the current stable Rust release and the previous two stable releases (N, N-1, N-2) is always guaranteed.
   - For example, if the current stable version is 1.85, we guarantee support for 1.85, 1.84, and 1.83, so the minimum supported Rust version will be **at most** 1.83.

@@ -1,5 +1,9 @@
 # Changelog
 
+## notify-types 2.1.1 (unreleased)
+
+- CHANGE: raise MSRV to 1.88
+
 ## notify-types 2.1.0 (2026-01-25)
 
 - FEATURE: add `EventKindMask` for filtering filesystem events [#736]
