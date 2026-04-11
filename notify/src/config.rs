@@ -84,6 +84,7 @@ impl Config {
     /// The default poll frequency is 30 seconds.
     ///
     /// This will enable automatic polling, overwriting [`with_manual_polling()`](Config::with_manual_polling).
+    #[must_use]
     pub fn with_poll_interval(mut self, dur: Duration) -> Self {
         // TODO: v7.0 break signature to option
         self.poll_interval = Some(dur);
@@ -101,6 +102,7 @@ impl Config {
     /// Disable automatic polling. Requires calling [`crate::PollWatcher::poll()`] manually.
     ///
     /// This will disable automatic polling, overwriting [`with_poll_interval()`](Config::with_poll_interval).
+    #[must_use]
     pub fn with_manual_polling(mut self) -> Self {
         self.poll_interval = None;
         self
@@ -116,6 +118,7 @@ impl Config {
     /// need to be read and hashed at each `poll_interval`.
     ///
     /// This can't be changed during runtime. Off by default.
+    #[must_use]
     pub fn with_compare_contents(mut self, compare_contents: bool) -> Self {
         self.compare_contents = compare_contents;
         self
@@ -132,6 +135,7 @@ impl Config {
     /// Determine if symbolic links should be followed when recursively watching a directory.
     ///
     /// This can't be changed during runtime. On by default.
+    #[must_use]
     pub fn with_follow_symlinks(mut self, follow_symlinks: bool) -> Self {
         self.follow_symlinks = follow_symlinks;
         self
@@ -186,6 +190,7 @@ impl Config {
     /// separator style implied by each watched input path.
     ///
     /// This can't be changed during runtime.
+    #[must_use]
     pub fn with_windows_path_separator_style(mut self, style: WindowsPathSeparatorStyle) -> Self {
         self.windows_path_separator_style = style;
         self
