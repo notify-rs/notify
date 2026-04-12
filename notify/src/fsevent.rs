@@ -1540,6 +1540,13 @@ mod tests {
         }
 
         assert!(watcher.watcher.update_paths(paths).is_err());
+
+        // Skip `TempDir` cleanup: on macOS + recent rustc, `remove_dir_all` can
+        // panic with `closedir: Bad file descriptor` while tearing down the
+        // 4097 directories created above (likely an interaction with fsevents
+        // having held FDs on those paths). CI runners are ephemeral, so letting
+        // the tempdir leak here avoids spurious failures.
+        std::mem::forget(tmpdir);
     }
 
     #[test]
