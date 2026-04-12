@@ -710,6 +710,7 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         self.watcher.configure(option)
     }
 
+    #[must_use]
     pub fn kind() -> WatcherKind
     where
         Self: Sized,

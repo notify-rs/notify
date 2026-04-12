@@ -18,6 +18,7 @@ pub struct FileIdMap {
 
 impl FileIdMap {
     /// Construct an empty cache.
+    #[must_use]
     pub fn new() -> Self {
         Default::default()
     }

@@ -28,6 +28,7 @@ pub struct DebouncedEvent {
 
 impl DebouncedEvent {
     #[inline(always)]
+    #[must_use]
     pub fn new(path: PathBuf, kind: DebouncedEventKind) -> Self {
         Self { path, kind }
     }
