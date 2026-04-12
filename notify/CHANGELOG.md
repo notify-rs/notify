@@ -8,7 +8,7 @@
 - FIX: [windows] make `unwatch()` wait until the watch is fully removed so later filesystem changes do not leak events [#730]
 - FIX: [macOS] annotate FSEvents clone-related events with `info = "is: clone"` [#465]
 - FIX: avoid panicking in `unwatch` when internal mutexes are poisoned
-- CHANGE: add `#[must_use]` annotations to Config builder apis.
+- CHANGE: add `#[must_use]` annotations to builder, constructor, and getter-style APIs such as `Config`, `PathOp`, and `Error`
 
 [#375]: https://github.com/notify-rs/notify/issues/375
 [#465]: https://github.com/notify-rs/notify/issues/465

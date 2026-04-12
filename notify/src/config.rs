@@ -92,6 +92,7 @@ impl Config {
     }
 
     /// Returns current setting
+    #[must_use]
     pub fn poll_interval(&self) -> Option<Duration> {
         // Changed Signature to Option
         self.poll_interval
@@ -125,6 +126,7 @@ impl Config {
     }
 
     /// Returns current setting
+    #[must_use]
     pub fn compare_contents(&self) -> bool {
         self.compare_contents
     }
@@ -142,6 +144,7 @@ impl Config {
     }
 
     /// Returns current setting
+    #[must_use]
     pub fn follow_symlinks(&self) -> bool {
         self.follow_symlinks
     }
@@ -172,12 +175,14 @@ impl Config {
     /// let config_all = Config::default()
     ///     .with_event_kinds(EventKindMask::ALL);
     /// ```
+    #[must_use]
     pub fn with_event_kinds(mut self, event_kinds: EventKindMask) -> Self {
         self.event_kinds = event_kinds;
         self
     }
 
     /// Returns current setting
+    #[must_use]
     pub fn event_kinds(&self) -> EventKindMask {
         self.event_kinds
     }
@@ -197,6 +202,7 @@ impl Config {
     }
 
     /// Returns current setting.
+    #[must_use]
     pub fn windows_path_separator_style(&self) -> WindowsPathSeparatorStyle {
         self.windows_path_separator_style
     }
@@ -225,17 +231,20 @@ pub struct WatchPathConfig {
 
 impl WatchPathConfig {
     /// Creates new instance with provided [`RecursiveMode`]
+    #[must_use]
     pub fn new(recursive_mode: RecursiveMode) -> Self {
         Self { recursive_mode }
     }
 
     /// Set [`RecursiveMode`] for the watch
+    #[must_use]
     pub fn with_recursive_mode(mut self, recursive_mode: RecursiveMode) -> Self {
         self.recursive_mode = recursive_mode;
         self
     }
 
     /// Returns current setting
+    #[must_use]
     pub fn recursive_mode(&self) -> RecursiveMode {
         self.recursive_mode
     }
@@ -255,11 +264,13 @@ pub enum PathOp {
 
 impl PathOp {
     /// Watch the path with [`RecursiveMode::Recursive`]
+    #[must_use]
     pub fn watch_recursive<P: Into<PathBuf>>(path: P) -> Self {
         Self::Watch(path.into(), WatchPathConfig::new(RecursiveMode::Recursive))
     }
 
     /// Watch the path with [`RecursiveMode::NonRecursive`]
+    #[must_use]
     pub fn watch_non_recursive<P: Into<PathBuf>>(path: P) -> Self {
         Self::Watch(
             path.into(),
@@ -268,11 +279,13 @@ impl PathOp {
     }
 
     /// Unwatch the path
+    #[must_use]
     pub fn unwatch<P: Into<PathBuf>>(path: P) -> Self {
         Self::Unwatch(path.into())
     }
 
     /// Returns the path associated with this operation.
+    #[must_use]
     pub fn as_path(&self) -> &Path {
         match self {
             PathOp::Watch(p, _) => p,
@@ -281,6 +294,7 @@ impl PathOp {
     }
 
     /// Returns the path associated with this operation.
+    #[must_use]
     pub fn into_path(self) -> PathBuf {
         match self {
             PathOp::Watch(p, _) => p,

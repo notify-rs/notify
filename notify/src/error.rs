@@ -53,18 +53,21 @@ pub struct Error {
 
 impl Error {
     /// Adds a path to the error.
+    #[must_use]
     pub fn add_path(mut self, path: PathBuf) -> Self {
         self.paths.push(path);
         self
     }
 
     /// Replaces the paths for the error.
+    #[must_use]
     pub fn set_paths(mut self, paths: Vec<PathBuf>) -> Self {
         self.paths = paths;
         self
     }
 
     /// Creates a new Error with empty paths given its kind.
+    #[must_use]
     pub fn new(kind: ErrorKind) -> Self {
         Self {
             kind,
@@ -73,16 +76,19 @@ impl Error {
     }
 
     /// Creates a new generic Error from a message.
+    #[must_use]
     pub fn generic(msg: &str) -> Self {
         Self::new(ErrorKind::Generic(msg.into()))
     }
 
     /// Creates a new i/o Error from a stdlib `io::Error`.
+    #[must_use]
     pub fn io(err: io::Error) -> Self {
         Self::new(ErrorKind::Io(err))
     }
 
     /// Similar to [`Error::io`], but specifically handles [`io::ErrorKind::NotFound`].
+    #[must_use]
     pub fn io_watch(err: io::Error) -> Self {
         if err.kind() == io::ErrorKind::NotFound {
             Self::path_not_found()
@@ -92,16 +98,19 @@ impl Error {
     }
 
     /// Creates a new "path not found" error.
+    #[must_use]
     pub fn path_not_found() -> Self {
         Self::new(ErrorKind::PathNotFound)
     }
 
     /// Creates a new "watch not found" error.
+    #[must_use]
     pub fn watch_not_found() -> Self {
         Self::new(ErrorKind::WatchNotFound)
     }
 
     /// Creates a new "invalid config" error from the given `Config`.
+    #[must_use]
     pub fn invalid_config(config: &Config) -> Self {
         Self::new(ErrorKind::InvalidConfig(*config))
     }

@@ -3,6 +3,7 @@
 ## file-id 0.2.4 (unreleased)
 
 - CHANGE: raise MSRV to 1.88
+- CHANGE: add `#[must_use]` annotations to `FileId` constructors
 
 ## file-id 0.2.3 (2025-08-03)
 - CHANGE: implement `AsRef<FileId>` for `FileId` [#664]
