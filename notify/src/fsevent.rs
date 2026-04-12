@@ -1540,6 +1540,17 @@ mod tests {
         }
 
         assert!(watcher.watcher.update_paths(paths).is_err());
+
+        // Best-effort cleanup: on macOS + recent rustc, `remove_dir_all` can
+        // panic with `closedir: Bad file descriptor` while tearing down the
+        // 4097 directories created above (likely an interaction with fsevents
+        // having held FDs on those paths). Bypass `TempDir`'s Drop and swallow
+        // the potential panic so the test does not flake.
+        let path = tmpdir.path().to_path_buf();
+        std::mem::forget(tmpdir);
+        let _ = std::panic::catch_unwind(|| {
+            let _ = std::fs::remove_dir_all(&path);
+        });
     }
 
     #[test]
