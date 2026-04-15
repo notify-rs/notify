@@ -1,7 +1,10 @@
 # Changelog
-## debouncer-full 0.7.1 (unreleased)
+## unreleased
+
+## debouncer-full 0.8.0-rc.1 (2026-04-16)
 
 - CHANGE: raise MSRV to 1.88
+- CHANGE: upgrade `notify` to 9.0.0-rc.3
 - CHANGE: add `#[must_use]` annotations to cache constructors and watcher kind accessors
 - CHANGE: use `HashMap::extract_if` to reduce debouncer flush overhead
 - CHANGE: speed up debouncer event flushing and file ID cache lookups while preserving stable path ordering for equal-timestamp events

@@ -1,6 +1,6 @@
 [package]
 name = "notify-debouncer-full"
-version = "0.7.0"
+version = "0.8.0-rc.1"
 description = "notify event debouncer optimized for ease of use"
 documentation = "https://docs.rs/notify-debouncer-full"
 authors = ["Daniel Faust <hessijames@gmail.com>"]

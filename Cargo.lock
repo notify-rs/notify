@@ -690,7 +690,7 @@ dependencies = [
 
 [[package]]
 name = "notify-debouncer-full"
-version = "0.7.0"
+version = "0.8.0-rc.1"
 dependencies = [
  "crossbeam-channel",
  "deser-hjson",
