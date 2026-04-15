@@ -34,6 +34,7 @@ tokio = { workspace = true, optional = true }
 file-id.workspace = true
 walkdir.workspace = true
 log.workspace = true
+rustc-hash = "2.1.2"
 
 [dev-dependencies]
 pretty_assertions.workspace = true
