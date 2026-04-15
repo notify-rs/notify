@@ -1,6 +1,8 @@
 # Changelog
 
-## notify 9.0.0 (unreleased)
+## unreleased
+
+## notify 9.0.0-rc.3 (2026-04-16)
 
 - CHANGE: raise MSRV to 1.88
 - FEATURE: add `Watcher::watched_paths` to list active watches as `(PathBuf, RecursiveMode)` pairs across supported backends
