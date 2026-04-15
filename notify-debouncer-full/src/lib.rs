@@ -72,7 +72,7 @@ mod file_id_map;
 
 use std::{
     cmp::Reverse,
-    collections::{BinaryHeap, HashMap, VecDeque},
+    collections::{BinaryHeap, VecDeque},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -81,6 +81,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use rustc_hash::FxHashMap as HashMap;
 use time::now;
 
 pub use cache::{FileIdCache, NoCache, RecommendedCache};
@@ -216,7 +217,7 @@ pub(crate) struct DebounceDataInner<T> {
 impl<T: FileIdCache> DebounceDataInner<T> {
     pub(crate) fn new(cache: T, timeout: Duration) -> Self {
         Self {
-            queues: HashMap::new(),
+            queues: HashMap::default(),
             roots: Vec::new(),
             cache,
             rename_event: None,
@@ -243,29 +244,20 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         // Visit each queue in place and remove only the ones that become empty.
         self.queues
             .extract_if(|_, queue| {
-                let mut kind_index = Vec::<(EventKind, usize)>::new();
+                let mut kind_index: HashMap<EventKind, usize> = HashMap::default();
                 let mut queue_expired = Vec::new();
 
                 while let Some(event) = queue.events.pop_front() {
                     // remove previous event of the same kind
                     if now.saturating_duration_since(event.time) >= self.timeout {
-                        if let Some((_, idx)) =
-                            kind_index.iter_mut().find(|(kind, _)| *kind == event.kind)
-                        {
-                            queue_expired[*idx] = None;
-                            *idx = queue_expired.len();
-                        } else {
-                            kind_index.push((event.kind, queue_expired.len()));
+                        if let Some(idx) = kind_index.insert(event.kind, queue_expired.len()) {
+                            queue_expired[idx] = None;
                         }
 
                         queue_expired.push(Some(event));
                     } else {
-                        if let Some((_, idx)) =
-                            kind_index.iter_mut().find(|(kind, _)| *kind == event.kind)
-                        {
-                            queue_expired[*idx] = None;
-                        } else {
-                            kind_index.push((event.kind, queue_expired.len()));
+                        if let Some(&idx) = kind_index.get(&event.kind) {
+                            queue_expired[idx] = None;
                         }
                         queue.events.push_front(event);
                         break;
@@ -828,25 +820,35 @@ fn sort_events(events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
     let mut sorted = Vec::with_capacity(events.len());
 
     // group events by path
-    let mut events_by_path: HashMap<_, VecDeque<_>> =
-        events.into_iter().fold(HashMap::new(), |mut acc, event| {
-            acc.entry(event.paths.last().cloned().unwrap_or_default())
-                .or_default()
-                .push_back(event);
-            acc
-        });
+    let mut groups = Vec::<(PathBuf, VecDeque<DebouncedEvent>)>::new();
+    let mut group_indexes: HashMap<PathBuf, usize> = HashMap::default();
+    group_indexes.reserve(events.len());
+    groups.reserve(events.len());
+
+    for event in events {
+        let path = event.paths.last().cloned().unwrap_or_default();
+
+        if let Some(&index) = group_indexes.get(&path) {
+            groups[index].1.push_back(event);
+        } else {
+            group_indexes.insert(path.clone(), groups.len());
+            groups.push((path, [event].into()));
+        }
+    }
+
+    // Keep path order as the tie-breaker for identical timestamps.
+    groups.sort_unstable_by(|(left_path, _), (right_path, _)| left_path.cmp(right_path));
 
     // push events for different paths in chronological order and keep the order of events with the same path
 
-    let mut min_time_heap = events_by_path
+    let mut min_time_heap = groups
         .iter()
-        .map(|(path, events)| Reverse((events[0].time, path.clone())))
+        .enumerate()
+        .map(|(index, (_, events))| Reverse((events[0].time, index)))
         .collect::<BinaryHeap<_>>();
 
-    while let Some(Reverse((min_time, path))) = min_time_heap.pop() {
-        // unwrap is safe because only paths from `events_by_path` are added to `min_time_heap`
-        // and they are never removed from `events_by_path`.
-        let events = events_by_path.get_mut(&path).unwrap();
+    while let Some(Reverse((min_time, index))) = min_time_heap.pop() {
+        let events = &mut groups[index].1;
 
         let mut push_next = false;
 
@@ -859,7 +861,7 @@ fn sort_events(events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
 
         if push_next {
             if let Some(event) = events.front() {
-                min_time_heap.push(Reverse((event.time, path)));
+                min_time_heap.push(Reverse((event.time, index)));
             }
         }
     }
@@ -872,6 +874,7 @@ mod tests {
     use std::{
         fs,
         path::{Path, PathBuf},
+        time::Duration,
     };
 
     use super::*;
@@ -1090,6 +1093,32 @@ mod tests {
                 "debounced events after a `{delay}` delay"
             );
         }
+    }
+
+    #[test]
+    fn sort_events_ties_by_path() {
+        let time = now();
+        let events = vec![
+            DebouncedEvent::new(
+                Event::new(EventKind::Any).add_path(PathBuf::from("/watch/b")),
+                time,
+            ),
+            DebouncedEvent::new(
+                Event::new(EventKind::Any).add_path(PathBuf::from("/watch/a")),
+                time,
+            ),
+        ];
+
+        let sorted = sort_events(events);
+        let paths = sorted
+            .into_iter()
+            .map(|event| event.paths[0].clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            paths,
+            vec![PathBuf::from("/watch/a"), PathBuf::from("/watch/b")]
+        );
     }
 
     #[test]
