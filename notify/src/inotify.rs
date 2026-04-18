@@ -6,12 +6,14 @@
 
 use super::event::*;
 use super::{Config, Error, ErrorKind, EventHandler, RecursiveMode, Result, Watcher};
+use crate::paths::{
+    absolute_path, is_preserved_watch_root, preserved_watch_mode, reported_path, WatchPath,
+};
 use crate::{bounded, unbounded, BoundSender, Receiver, Sender};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use notify_types::event::EventKindMask;
 use std::collections::HashMap;
-use std::env;
 use std::ffi::OsStr;
 use std::fs::metadata;
 use std::os::unix::io::AsRawFd;
@@ -99,6 +101,9 @@ struct Watch {
     watch_mask: WatchMask,
     is_recursive: bool,
     is_dir: bool,
+    reported_path: PathBuf,
+    is_user_watch: bool,
+    user_is_recursive: bool,
 }
 
 /// Watcher implementation based on inotify
@@ -109,7 +114,7 @@ pub struct INotifyWatcher {
 }
 
 enum EventLoopMsg {
-    AddWatch(PathBuf, RecursiveMode, Sender<Result<()>>),
+    AddWatch(WatchPath, RecursiveMode, Sender<Result<()>>),
     RemoveWatch(PathBuf, Sender<Result<()>>),
     GetWatchedPaths(Sender<Vec<(PathBuf, RecursiveMode)>>),
     Shutdown,
@@ -121,13 +126,16 @@ fn add_watch_by_event(
     path: &PathBuf,
     event: &inotify_sys::Event<&OsStr>,
     watches: &HashMap<PathBuf, Watch>,
-    add_watches: &mut Vec<PathBuf>,
+    add_watches: &mut Vec<WatchPath>,
 ) {
     if event.mask.contains(EventMask::ISDIR) {
         if let Some(parent_path) = path.parent() {
             if let Some(watch) = watches.get(parent_path) {
                 if watch.is_recursive {
-                    add_watches.push(path.to_owned());
+                    add_watches.push(WatchPath::from_parts(
+                        path.to_owned(),
+                        reported_path(parent_path, &watch.reported_path, path),
+                    ));
                 }
             }
         }
@@ -245,10 +253,11 @@ impl EventLoop {
                     let _ = tx.send(
                         self.watches
                             .iter()
-                            .map(|(path, watch)| {
+                            .filter(|(_path, watch)| watch.is_user_watch)
+                            .map(|(_path, watch)| {
                                 (
-                                    path.clone(),
-                                    if watch.is_recursive {
+                                    watch.reported_path.clone(),
+                                    if watch.user_is_recursive {
                                         RecursiveMode::Recursive
                                     } else {
                                         RecursiveMode::NonRecursive
@@ -299,13 +308,20 @@ impl EventLoop {
                                 self.event_handler.handle_event(ev);
                             }
 
-                            let path = match event.name {
-                                Some(name) => self.paths.get(&event.wd).map(|root| root.join(name)),
-                                None => self.paths.get(&event.wd).cloned(),
-                            };
+                            let paths = self.paths.get(&event.wd).and_then(|root| {
+                                self.watches.get(root).map(|watch| match event.name {
+                                    Some(name) => {
+                                        let path = root.join(name);
+                                        let reported_path =
+                                            reported_path(root, &watch.reported_path, &path);
+                                        (path, reported_path)
+                                    }
+                                    None => (root.clone(), watch.reported_path.clone()),
+                                })
+                            });
 
-                            let path = match path {
-                                Some(path) => path,
+                            let (path, event_path) = match paths {
+                                Some(paths) => paths,
                                 None => {
                                     log::debug!("inotify event with unknown descriptor: {event:?}");
                                     continue;
@@ -320,7 +336,7 @@ impl EventLoop {
                                 let event = Event::new(EventKind::Modify(ModifyKind::Name(
                                     RenameMode::From,
                                 )))
-                                .add_path(path.clone())
+                                .add_path(event_path.clone())
                                 .set_tracker(event.cookie as usize);
 
                                 self.rename_event = Some(event.clone());
@@ -330,7 +346,7 @@ impl EventLoop {
                                 evs.push(
                                     Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::To)))
                                         .set_tracker(event.cookie as usize)
-                                        .add_path(path.clone()),
+                                        .add_path(event_path.clone()),
                                 );
 
                                 let trackers_match =
@@ -345,7 +361,7 @@ impl EventLoop {
                                         )))
                                         .set_tracker(event.cookie as usize)
                                         .add_some_path(rename_event.paths.first().cloned())
-                                        .add_path(path.clone()),
+                                        .add_path(event_path.clone()),
                                     );
                                 }
                                 add_watch_by_event(&path, &event, &self.watches, &mut add_watches);
@@ -355,7 +371,7 @@ impl EventLoop {
                                     Event::new(EventKind::Modify(ModifyKind::Name(
                                         RenameMode::From,
                                     )))
-                                    .add_path(path.clone()),
+                                    .add_path(event_path.clone()),
                                 );
                                 // TODO stat the path and get to new path
                                 // - emit To and Both events
@@ -370,7 +386,7 @@ impl EventLoop {
                                             CreateKind::File
                                         },
                                     ))
-                                    .add_path(path.clone()),
+                                    .add_path(event_path.clone()),
                                 );
                                 add_watch_by_event(&path, &event, &self.watches, &mut add_watches);
                             }
@@ -383,7 +399,7 @@ impl EventLoop {
                                             RemoveKind::File
                                         },
                                     ))
-                                    .add_path(path.clone()),
+                                    .add_path(event_path.clone()),
                                 );
                                 remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                             }
@@ -395,12 +411,12 @@ impl EventLoop {
                                 };
                                 evs.push(
                                     Event::new(EventKind::Remove(remove_kind))
-                                        .add_path(path.clone()),
+                                        .add_path(event_path.clone()),
                                 );
                                 remove_watch_by_event(&path, &self.watches, &mut remove_watches);
                             }
                             if event.mask.contains(EventMask::UNMOUNT) {
-                                evs.push(unmount_event(path.clone()));
+                                evs.push(unmount_event(event_path.clone()));
                                 // The kernel has already removed this watch descriptor and will
                                 // emit IGNORED; clean up internal state without inotify_rm_watch.
                                 // ref. https://www.man7.org/linux/man-pages/man7/inotify.7.html
@@ -415,7 +431,7 @@ impl EventLoop {
                                     Event::new(EventKind::Modify(ModifyKind::Data(
                                         DataChange::Any,
                                     )))
-                                    .add_path(path.clone()),
+                                    .add_path(event_path.clone()),
                                 );
                             }
                             if event.mask.contains(EventMask::CLOSE_WRITE) {
@@ -423,7 +439,7 @@ impl EventLoop {
                                     Event::new(EventKind::Access(AccessKind::Close(
                                         AccessMode::Write,
                                     )))
-                                    .add_path(path.clone()),
+                                    .add_path(event_path.clone()),
                                 );
                             }
                             if event.mask.contains(EventMask::CLOSE_NOWRITE) {
@@ -431,7 +447,7 @@ impl EventLoop {
                                     Event::new(EventKind::Access(AccessKind::Close(
                                         AccessMode::Read,
                                     )))
-                                    .add_path(path.clone()),
+                                    .add_path(event_path.clone()),
                                 );
                             }
                             if event.mask.contains(EventMask::ATTRIB) {
@@ -439,7 +455,7 @@ impl EventLoop {
                                     Event::new(EventKind::Modify(ModifyKind::Metadata(
                                         MetadataKind::Any,
                                     )))
-                                    .add_path(path.clone()),
+                                    .add_path(event_path.clone()),
                                 );
                             }
                             if event.mask.contains(EventMask::OPEN) {
@@ -447,7 +463,7 @@ impl EventLoop {
                                     Event::new(EventKind::Access(AccessKind::Open(
                                         AccessMode::Any,
                                     )))
-                                    .add_path(path.clone()),
+                                    .add_path(event_path.clone()),
                                 );
                             }
 
@@ -504,18 +520,19 @@ impl EventLoop {
         }
     }
 
-    fn add_watch(&mut self, path: PathBuf, is_recursive: bool, watch_self: bool) -> Result<()> {
+    fn add_watch(&mut self, path: WatchPath, is_recursive: bool, watch_self: bool) -> Result<()> {
         // If the watch is not recursive, or if we determine (by stat'ing the path to get its
         // metadata) that the watched path is not a directory, add a single path watch.
-        if !is_recursive || !metadata(&path).map_err(Error::io_watch)?.is_dir() {
+        if !is_recursive || !metadata(&path.absolute).map_err(Error::io_watch)?.is_dir() {
             return self.add_single_watch(path, false, true);
         }
 
-        let entries = WalkDir::new(path)
+        let root = path.clone();
+        let entries = WalkDir::new(&root.absolute)
             .follow_links(self.follow_links)
             .into_iter()
             .filter_map(filter_dir)
-            .map(|entry| entry.into_path());
+            .map(move |entry| root.child(entry.into_path()));
 
         self.add_watches_for_paths(entries, is_recursive, watch_self)
     }
@@ -527,7 +544,7 @@ impl EventLoop {
         mut watch_self: bool,
     ) -> Result<()>
     where
-        I: IntoIterator<Item = PathBuf>,
+        I: IntoIterator<Item = WatchPath>,
     {
         for path in paths {
             match self.add_single_watch(path, is_recursive, watch_self) {
@@ -545,7 +562,7 @@ impl EventLoop {
 
     fn add_single_watch(
         &mut self,
-        path: PathBuf,
+        path: WatchPath,
         is_recursive: bool,
         watch_self: bool,
     ) -> Result<()> {
@@ -557,15 +574,16 @@ impl EventLoop {
             watchmask.insert(WatchMask::MOVE_SELF);
         }
 
-        if let Some(watch) = self.watches.get(&path) {
+        let existing_watch = self.watches.get(&path.absolute);
+        if let Some(watch) = existing_watch {
             watchmask.insert(watch.watch_mask);
             watchmask.insert(WatchMask::MASK_ADD);
         }
 
         if let Some(ref mut inotify) = self.inotify {
-            log::trace!("adding inotify watch: {}", path.display());
+            log::trace!("adding inotify watch: {}", path.absolute.display());
 
-            match inotify.watches().add(&path, watchmask) {
+            match inotify.watches().add(&path.absolute, watchmask) {
                 Err(e) => {
                     Err(if e.raw_os_error() == Some(libc::ENOSPC) {
                         // do not report inotify limits as "no more space" on linux #266
@@ -575,29 +593,68 @@ impl EventLoop {
                     } else {
                         Error::io(e)
                     }
-                    .add_path(path))
+                    .add_path(path.requested))
                 }
                 Ok(w) => {
                     watchmask.remove(WatchMask::MASK_ADD);
-                    let is_dir = match metadata(&path) {
+                    let is_dir = match metadata(&path.absolute) {
                         Ok(metadata) => metadata.is_dir(),
                         Err(e) => {
                             // Avoid leaking an inotify watch if we can't stat after adding it.
                             // This can happen due to racy deletions.
                             let _ = inotify.watches().remove(w.clone());
-                            return Err(Error::io_watch(e).add_path(path));
+                            return Err(Error::io_watch(e).add_path(path.requested));
                         }
                     };
+                    let existing_reported_path =
+                        existing_watch.map(|watch| watch.reported_path.clone());
+                    let existing_is_user_watch =
+                        existing_watch.is_some_and(|watch| watch.is_user_watch);
+                    let existing_user_is_recursive =
+                        existing_watch.is_some_and(|watch| watch.user_is_recursive);
+                    let existing_is_recursive =
+                        existing_watch.is_some_and(|watch| watch.is_recursive);
+
+                    let reported_path = if watch_self {
+                        path.requested.clone()
+                    } else if existing_is_user_watch {
+                        existing_reported_path.unwrap_or_else(|| path.requested.clone())
+                    } else {
+                        self.watches
+                            .iter()
+                            .filter(|(candidate, watch)| {
+                                watch.is_user_watch
+                                    && watch.user_is_recursive
+                                    && path.absolute.starts_with(candidate)
+                            })
+                            .max_by_key(|(candidate, _)| candidate.as_os_str().len())
+                            .map_or_else(
+                                || path.requested.clone(),
+                                |(root, watch)| {
+                                    reported_path(root, &watch.reported_path, &path.absolute)
+                                },
+                            )
+                    };
+                    let is_user_watch = watch_self || existing_is_user_watch;
+                    let user_is_recursive = if watch_self {
+                        is_recursive
+                    } else {
+                        existing_user_is_recursive
+                    };
+
                     self.watches.insert(
-                        path.clone(),
+                        path.absolute.clone(),
                         Watch {
                             watch_descriptor: w.clone(),
                             watch_mask: watchmask,
-                            is_recursive,
+                            is_recursive: is_recursive || existing_is_recursive,
                             is_dir,
+                            reported_path,
+                            is_user_watch,
+                            user_is_recursive,
                         },
                     );
-                    self.paths.insert(w, path);
+                    self.paths.insert(w, path.absolute);
                     Ok(())
                 }
             }
@@ -607,6 +664,18 @@ impl EventLoop {
     }
 
     fn remove_watch(&mut self, path: PathBuf, remove_recursive: bool) -> Result<()> {
+        let preserved_roots: Vec<_> = if remove_recursive {
+            Vec::new()
+        } else {
+            self.watches
+                .iter()
+                .filter(|(candidate, watch)| {
+                    *candidate != &path && candidate.starts_with(&path) && watch.is_user_watch
+                })
+                .map(|(path, watch)| (path.clone(), watch.user_is_recursive))
+                .collect()
+        };
+
         match self.watches.remove(&path) {
             None => return Err(Error::watch_not_found().add_path(path)),
             Some(watch) => {
@@ -622,8 +691,20 @@ impl EventLoop {
 
                     if watch.is_recursive || remove_recursive {
                         let mut remove_list = Vec::new();
+                        let mut reset_list = Vec::new();
                         for (w, p) in &self.paths {
                             if p.starts_with(&path) {
+                                if let Some(user_is_recursive) =
+                                    preserved_watch_mode(p, &preserved_roots)
+                                {
+                                    if !user_is_recursive
+                                        || is_preserved_watch_root(p, &preserved_roots)
+                                    {
+                                        reset_list.push(p.clone());
+                                    }
+                                    continue;
+                                }
+
                                 Self::remove_single_descriptor(&mut inotify_watches, w.clone());
                                 self.watches.remove(p);
                                 remove_list.push(w.clone());
@@ -631,6 +712,11 @@ impl EventLoop {
                         }
                         for w in remove_list {
                             self.paths.remove(&w);
+                        }
+                        for p in reset_list {
+                            if let Some(watch) = self.watches.get_mut(&p) {
+                                watch.is_recursive = watch.user_is_recursive;
+                            }
                         }
                     }
                 }
@@ -644,6 +730,18 @@ impl EventLoop {
         path: PathBuf,
         remove_recursive: bool,
     ) -> Result<()> {
+        let preserved_roots: Vec<_> = if remove_recursive {
+            Vec::new()
+        } else {
+            self.watches
+                .iter()
+                .filter(|(candidate, watch)| {
+                    *candidate != &path && candidate.starts_with(&path) && watch.is_user_watch
+                })
+                .map(|(path, watch)| (path.clone(), watch.user_is_recursive))
+                .collect()
+        };
+
         match self.watches.remove(&path) {
             None => return Err(Error::watch_not_found().add_path(path)),
             Some(watch) => {
@@ -651,14 +749,31 @@ impl EventLoop {
 
                 if watch.is_recursive || remove_recursive {
                     let mut remove_list = Vec::new();
+                    let mut reset_list = Vec::new();
                     for (w, p) in &self.paths {
                         if p.starts_with(&path) {
+                            if let Some(user_is_recursive) =
+                                preserved_watch_mode(p, &preserved_roots)
+                            {
+                                if !user_is_recursive
+                                    || is_preserved_watch_root(p, &preserved_roots)
+                                {
+                                    reset_list.push(p.clone());
+                                }
+                                continue;
+                            }
+
                             self.watches.remove(p);
                             remove_list.push(w.clone());
                         }
                     }
                     for w in remove_list {
                         self.paths.remove(&w);
+                    }
+                    for p in reset_list {
+                        if let Some(watch) = self.watches.get_mut(&p) {
+                            watch.is_recursive = watch.user_is_recursive;
+                        }
                     }
                 }
             }
@@ -732,12 +847,7 @@ impl INotifyWatcher {
     }
 
     fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        let pb = if path.is_absolute() {
-            path.to_owned()
-        } else {
-            let p = env::current_dir().map_err(Error::io)?;
-            p.join(path)
-        };
+        let pb = WatchPath::new(path)?;
         let (tx, rx) = unbounded();
         let msg = EventLoopMsg::AddWatch(pb, recursive_mode, tx);
 
@@ -747,12 +857,7 @@ impl INotifyWatcher {
     }
 
     fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
-        let pb = if path.is_absolute() {
-            path.to_owned()
-        } else {
-            let p = env::current_dir().map_err(Error::io)?;
-            p.join(path)
-        };
+        let pb = absolute_path(path)?;
         let (tx, rx) = unbounded();
         let msg = EventLoopMsg::RemoveWatch(pb, tx);
 
@@ -819,7 +924,7 @@ mod tests {
     use super::inotify_sys::WatchMask;
     use super::{
         Config, Error, ErrorKind, Event, EventKind, EventLoop, INotifyWatcher, RecursiveMode,
-        Result, Watcher,
+        Result, WatchPath, Watcher,
     };
     use notify_types::event::{EventKindMask, RemoveKind};
 
@@ -879,7 +984,13 @@ mod tests {
 
         // Simulate the TOCTOU: we *intend* to watch a subdirectory discovered during initial scan,
         // but it's already gone by the time we call `inotify_add_watch`.
-        let result = event_loop.add_watches_for_paths(vec![root, disappearing], true, true);
+        let result = event_loop.add_watches_for_paths(
+            [root, disappearing]
+                .into_iter()
+                .map(|path| WatchPath::new(&path).unwrap()),
+            true,
+            true,
+        );
         assert!(
             result.is_ok(),
             "expected recursive watch to succeed, got: {result:?}"
@@ -1050,7 +1161,7 @@ mod tests {
         let mut event_loop = EventLoop::new(inotify, Box::new(|_| {}), &Config::default()).unwrap();
 
         event_loop
-            .add_watch(watched.clone(), false, true)
+            .add_watch(WatchPath::new(&watched).unwrap(), false, true)
             .expect("add_watch");
 
         event_loop

@@ -234,6 +234,7 @@ pub mod poll;
 
 mod config;
 mod error;
+mod paths;
 
 #[cfg(test)]
 pub(crate) mod test;
@@ -359,6 +360,11 @@ pub trait Watcher {
     /// If the `path` is a file, `recursive_mode` will be ignored and events will be delivered only
     /// for the file.
     ///
+    /// Event paths are reported using the same root representation as `path`. If `path` is
+    /// relative, emitted event paths are relative to the process current directory at the time this
+    /// method is called. If `path` is absolute, emitted event paths are absolute. Convert `path`
+    /// before calling this method if your application needs a specific representation.
+    ///
     /// On some platforms, if the `path` is renamed or removed while being watched, behaviour may
     /// be unexpected. See discussions in [#165] and [#166]. If less surprising behaviour is wanted
     /// one may non-recursively watch the _parent_ directory as well and manage related events.
@@ -435,8 +441,8 @@ pub trait Watcher {
 
     /// Returns the currently watched paths and their recursive modes.
     ///
-    /// Backends may normalize paths (for example converting to absolute or canonical paths)
-    /// before storing them. The returned list uses that internal representation.
+    /// Returned paths use the same representation that was passed to [`Watcher::watch`] or
+    /// [`Watcher::update_paths`].
     ///
     /// # Errors
     ///
@@ -660,6 +666,46 @@ mod tests {
     }
 
     #[test]
+    fn event_paths_preserve_relative_watch_root(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let cwd = std::env::current_dir()?;
+        let dir = tempfile::Builder::new()
+            .prefix("notify-relative-")
+            .tempdir_in(&cwd)?;
+        let relative_dir = dir.path().strip_prefix(&cwd)?.to_path_buf();
+        let relative_file = relative_dir.join("file.txt");
+        let absolute_file = dir.path().join("file.txt");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+        watcher.watch(&relative_dir, RecursiveMode::Recursive)?;
+
+        assert!(
+            watcher
+                .watched_paths()?
+                .iter()
+                .any(|(path, mode)| path == &relative_dir && *mode == RecursiveMode::Recursive),
+            "watched_paths() did not preserve relative watch path"
+        );
+
+        fs::write(&absolute_file, b"Lorem ipsum")?;
+
+        for event in iter_with_timeout(&rx) {
+            if event.paths.iter().any(|path| path == &relative_file) {
+                assert!(
+                    event.paths.iter().all(|path| path.is_relative()),
+                    "relative watch emitted absolute path: {event:?}"
+                );
+                return Ok(());
+            }
+
+            println!("unexpected event: {event:?}");
+        }
+
+        panic!("did not receive expected relative event path");
+    }
+
+    #[test]
     #[cfg(target_os = "windows")]
     fn test_windows_trash_dir() -> std::result::Result<(), Box<dyn std::error::Error>> {
         use crate::recommended_watcher;
@@ -782,6 +828,84 @@ mod tests {
         assert!(watched.contains(&(canonical_or_path(&dir_b), RecursiveMode::NonRecursive)));
 
         Ok(())
+    }
+
+    #[test]
+    fn overlapping_recursive_watch_preserves_explicit_child(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+        let child = dir.path().join("child");
+        fs::create_dir(&child)?;
+
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+
+        watcher.watch(&child, RecursiveMode::NonRecursive)?;
+        watcher.watch(dir.path(), RecursiveMode::Recursive)?;
+
+        let watched = canonical_watch_set(watcher.watched_paths()?);
+        assert!(watched.contains(&(canonical_or_path(dir.path()), RecursiveMode::Recursive)));
+        assert!(watched.contains(&(canonical_or_path(&child), RecursiveMode::NonRecursive)));
+
+        watcher.unwatch(dir.path())?;
+
+        let watched = canonical_watch_set(watcher.watched_paths()?);
+        assert!(!watched.contains(&(canonical_or_path(dir.path()), RecursiveMode::Recursive)));
+        assert!(watched.contains(&(canonical_or_path(&child), RecursiveMode::NonRecursive)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn overlapping_recursive_child_rewrites_descendant_event_paths(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let cwd = std::env::current_dir()?;
+        let dir = tempfile::Builder::new()
+            .prefix("notify-overlap-")
+            .tempdir_in(&cwd)?;
+        let relative_dir = dir.path().strip_prefix(&cwd)?.to_path_buf();
+        let child = dir.path().join("child");
+        let grandchild = child.join("grandchild");
+        fs::create_dir_all(&grandchild)?;
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+
+        watcher.watch(&relative_dir, RecursiveMode::Recursive)?;
+        watcher.watch(&child, RecursiveMode::Recursive)?;
+        watcher.unwatch(&relative_dir)?;
+
+        let watched = watcher.watched_paths()?;
+        assert!(
+            watched
+                .iter()
+                .any(|(path, mode)| path == &child && *mode == RecursiveMode::Recursive),
+            "watched_paths() did not preserve explicit child path: {watched:?}"
+        );
+
+        let file = grandchild.join("file.txt");
+        let stale_file = relative_dir
+            .join("child")
+            .join("grandchild")
+            .join("file.txt");
+        fs::write(&file, b"Lorem ipsum")?;
+
+        for event in iter_with_timeout(&rx) {
+            if event.paths.iter().any(|path| path == &file) {
+                assert!(
+                    event.paths.iter().all(|path| path.is_absolute()),
+                    "absolute child watch emitted non-absolute path: {event:?}"
+                );
+                return Ok(());
+            }
+
+            assert!(
+                !event.paths.iter().any(|path| path == &stale_file),
+                "stale parent-relative file path after parent unwatch: {event:?}"
+            );
+        }
+
+        panic!("did not receive expected child event path");
     }
 
     #[test]
