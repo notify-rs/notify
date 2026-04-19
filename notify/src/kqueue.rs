@@ -7,7 +7,8 @@
 use super::event::*;
 use super::{Config, Error, EventHandler, EventKindMask, RecursiveMode, Result, Watcher};
 use crate::paths::{
-    absolute_path, is_preserved_watch_root, preserved_watch_mode, reported_path, WatchPath,
+    absolute_path, is_preserved_watch_root, preserved_watch_mode, preserved_watch_roots,
+    reported_path, WatchMetadata as Watch, WatchPath,
 };
 use crate::{unbounded, Receiver, Sender};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
@@ -38,13 +39,6 @@ struct EventLoop {
     watches: HashMap<PathBuf, Watch>,
     follow_symlinks: bool,
     event_kinds: EventKindMask,
-}
-
-struct Watch {
-    is_recursive: bool,
-    reported_path: PathBuf,
-    is_user_watch: bool,
-    user_is_recursive: bool,
 }
 
 /// Watcher implementation based on inotify
@@ -404,44 +398,14 @@ impl EventLoop {
             .add_filename(&path.absolute, event_filter, filter_flags)
             .map_err(|e| Error::io(e).add_path(path.requested.clone()))?;
         let existing_watch = self.watches.get(&path.absolute);
-        let existing_reported_path = existing_watch.map(|watch| watch.reported_path.clone());
-        let existing_is_user_watch = existing_watch.is_some_and(|watch| watch.is_user_watch);
-        let existing_user_is_recursive =
-            existing_watch.is_some_and(|watch| watch.user_is_recursive);
-        let existing_is_recursive = existing_watch.is_some_and(|watch| watch.is_recursive);
-
-        let reported_path = if is_user_watch {
-            path.requested.clone()
-        } else if existing_is_user_watch {
-            existing_reported_path.unwrap_or_else(|| path.requested.clone())
-        } else {
-            self.watches
-                .iter()
-                .filter(|(candidate, watch)| {
-                    watch.is_user_watch
-                        && watch.user_is_recursive
-                        && path.absolute.starts_with(candidate)
-                })
-                .max_by_key(|(candidate, _)| candidate.as_os_str().len())
-                .map_or_else(
-                    || path.requested.clone(),
-                    |(root, watch)| reported_path(root, &watch.reported_path, &path.absolute),
-                )
-        };
-        let user_is_recursive = if is_user_watch {
-            is_recursive
-        } else {
-            existing_user_is_recursive
-        };
-        self.watches.insert(
-            path.absolute,
-            Watch {
-                is_recursive: is_recursive || existing_is_recursive,
-                reported_path,
-                is_user_watch: is_user_watch || existing_is_user_watch,
-                user_is_recursive,
-            },
+        let watch = Watch::new(
+            &path,
+            is_recursive,
+            is_user_watch,
+            existing_watch,
+            self.watches.iter(),
         );
+        self.watches.insert(path.absolute, watch);
 
         Ok(())
     }
@@ -449,17 +413,7 @@ impl EventLoop {
     fn remove_watch(&mut self, path: PathBuf, remove_recursive: bool) -> Result<()> {
         log::trace!("removing kqueue watch: {}", path.display());
 
-        let preserved_roots: Vec<_> = if remove_recursive {
-            Vec::new()
-        } else {
-            self.watches
-                .iter()
-                .filter(|(candidate, watch)| {
-                    *candidate != &path && candidate.starts_with(&path) && watch.is_user_watch
-                })
-                .map(|(path, watch)| (path.clone(), watch.user_is_recursive))
-                .collect()
-        };
+        let preserved_roots = preserved_watch_roots(&path, remove_recursive, self.watches.iter());
 
         match self.watches.remove(&path) {
             None => return Err(Error::watch_not_found()),
