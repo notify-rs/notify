@@ -8,12 +8,12 @@
             /watch/file: {
                 events: [
                     { kind: "create-any", paths: ["*"] }
-                    { kind: "modify-data-any", paths: ["*"] }
                 ]
             }
         }
     }
     events: [
+        { kind: "create-any", paths: ["/watch/file"] }
         { kind: "remove-any", paths: ["/watch/file"] }
     ]
     expected: {
