@@ -14,6 +14,7 @@
 
 #![allow(non_upper_case_globals, dead_code)]
 
+use crate::paths::{absolute_path, reported_path};
 use crate::{event::*, PathOp};
 use crate::{
     unbounded, Config, Error, EventHandler, EventKindMask, RecursiveMode, Result, Sender, Watcher,
@@ -69,8 +70,14 @@ pub struct FsEventWatcher {
     flags: fs::FSEventStreamCreateFlags,
     event_handler: Arc<Mutex<dyn EventHandler>>,
     runloop: Option<RunLoopHandle>,
-    recursive_info: HashMap<PathBuf, bool>,
+    recursive_info: HashMap<PathBuf, WatchInfo>,
     event_kinds: EventKindMask,
+}
+
+#[derive(Clone, Debug)]
+struct WatchInfo {
+    is_recursive: bool,
+    reported_path: PathBuf,
 }
 
 #[derive(Debug)]
@@ -278,7 +285,7 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
 
 struct StreamContextInfo {
     event_handler: Arc<Mutex<dyn EventHandler>>,
-    recursive_info: HashMap<PathBuf, bool>,
+    recursive_info: HashMap<PathBuf, WatchInfo>,
     event_kinds: EventKindMask,
 }
 
@@ -390,8 +397,19 @@ impl FsEventWatcher {
     }
 
     fn remove_path(&mut self, path: &Path) -> Result<()> {
+        let p = path
+            .canonicalize()
+            .ok()
+            .or_else(|| {
+                self.recursive_info
+                    .iter()
+                    .find(|(_, info)| info.reported_path == path)
+                    .map(|(path, _)| path.clone())
+            })
+            .or_else(|| absolute_path(path).ok())
+            .unwrap_or_else(|| path.to_owned());
         let mut err: *mut cf::CFError = ptr::null_mut();
-        let Some(cf_path) = (unsafe { path_to_cfstring_ref(path, &mut err) }) else {
+        let Some(cf_path) = (unsafe { path_to_cfstring_ref(&p, &mut err) }) else {
             if let Some(err) = NonNull::new(err) {
                 let _ = unsafe { cf::CFRetained::from_raw(err) };
             }
@@ -415,11 +433,6 @@ impl FsEventWatcher {
             };
         }
 
-        let p = if let Ok(canonicalized_path) = path.canonicalize() {
-            canonicalized_path
-        } else {
-            path.to_owned()
-        };
         match self.recursive_info.remove(&p) {
             Some(_) => Ok(()),
             None => Err(Error::watch_not_found()),
@@ -433,7 +446,7 @@ impl FsEventWatcher {
         }
         let canonical_path = path.to_path_buf().canonicalize()?;
         let mut err: *mut cf::CFError = ptr::null_mut();
-        let Some(cf_path) = (unsafe { path_to_cfstring_ref(path, &mut err) }) else {
+        let Some(cf_path) = (unsafe { path_to_cfstring_ref(&canonical_path, &mut err) }) else {
             if let Some(err) = NonNull::new(err) {
                 let _ = unsafe { cf::CFRetained::from_raw(err) };
             }
@@ -443,8 +456,13 @@ impl FsEventWatcher {
         };
         self.paths.append(&cf_path);
 
-        self.recursive_info
-            .insert(canonical_path, recursive_mode.is_recursive());
+        self.recursive_info.insert(
+            canonical_path,
+            WatchInfo {
+                is_recursive: recursive_mode.is_recursive(),
+                reported_path: path.to_path_buf(),
+            },
+        );
         Ok(())
     }
 
@@ -636,30 +654,40 @@ unsafe fn callback_impl(
             log::trace!("unknown FSEventStreamEventFlags bits: 0x{unknown_bits:08x}");
         }
 
-        let mut handle_event = false;
-        for (p, r) in &(*info).recursive_info {
+        let mut watch_match = None;
+        for (p, watch_info) in &(*info).recursive_info {
             if path.starts_with(p) {
-                if *r || &path == p {
-                    handle_event = true;
-                    break;
+                let matches_watch = if watch_info.is_recursive || &path == p {
+                    true
                 } else if let Some(parent_path) = path.parent() {
-                    if parent_path == p {
-                        handle_event = true;
-                        break;
-                    }
+                    parent_path == p
+                } else {
+                    false
+                };
+
+                if matches_watch
+                    && watch_match.as_ref().is_none_or(
+                        |(matched_path, _): &(&PathBuf, &WatchInfo)| {
+                            p.as_os_str().as_bytes().len()
+                                > matched_path.as_os_str().as_bytes().len()
+                        },
+                    )
+                {
+                    watch_match = Some((p, watch_info));
                 }
             }
         }
 
-        if !handle_event {
+        let Some((watch_path, watch_info)) = watch_match else {
             continue;
-        }
+        };
+        let event_path = reported_path(watch_path, &watch_info.reported_path, &path);
 
         log::trace!("FSEvent: path = `{}`, flag = {:?}", path.display(), flag);
 
         for ev in translate_flags(flag, true).into_iter() {
             // TODO: precise
-            let ev = ev.add_path(path.clone());
+            let ev = ev.add_path(event_path.clone());
             // Filter events based on EventKindMask
             if !(*info).event_kinds.matches(&ev.kind) {
                 continue; // Skip events that don't match the mask
@@ -711,10 +739,10 @@ impl Watcher for FsEventWatcher {
         Ok(self
             .recursive_info
             .iter()
-            .map(|(path, is_recursive)| {
+            .map(|(_path, info)| {
                 (
-                    path.clone(),
-                    if *is_recursive {
+                    info.reported_path.clone(),
+                    if info.is_recursive {
                         RecursiveMode::Recursive
                     } else {
                         RecursiveMode::NonRecursive
@@ -930,7 +958,13 @@ mod tests {
         let event_handler: Arc<Mutex<dyn EventHandler>> = Arc::new(Mutex::new(tx));
 
         let mut recursive_info = HashMap::new();
-        recursive_info.insert(PathBuf::from("/tmp"), true);
+        recursive_info.insert(
+            PathBuf::from("/tmp"),
+            WatchInfo {
+                is_recursive: true,
+                reported_path: PathBuf::from("/tmp"),
+            },
+        );
 
         let context = Box::new(StreamContextInfo {
             event_handler,
@@ -988,7 +1022,13 @@ mod tests {
         let event_handler: Arc<Mutex<dyn EventHandler>> = Arc::new(Mutex::new(tx));
 
         let mut recursive_info = HashMap::new();
-        recursive_info.insert(PathBuf::from("/tmp"), true);
+        recursive_info.insert(
+            PathBuf::from("/tmp"),
+            WatchInfo {
+                is_recursive: true,
+                reported_path: PathBuf::from("/tmp"),
+            },
+        );
 
         let context = Box::new(StreamContextInfo {
             event_handler,

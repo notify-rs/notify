@@ -60,6 +60,22 @@ This lets you retry only unfinished operations if needed.
 
 If you implemented a custom watcher and overrode `paths_mut`, migrate that logic to `update_paths`.
 
+### 3) Event paths preserve the watched path representation
+
+`Event.paths` and `Watcher::watched_paths()` now use the same root representation that was passed
+to `Watcher::watch` or `Watcher::update_paths`.
+
+For example, watching `src` now reports `src/lib.rs`. Watching `/repo/src` reports
+`/repo/src/lib.rs`.
+
+If your code relied on Linux or Windows backends converting relative watch paths to absolute event
+paths, convert the path before calling `watch`:
+
+```rust
+let path = std::env::current_dir()?.join("src");
+watcher.watch(&path, notify::RecursiveMode::Recursive)?;
+```
+
 ## Non-breaking changes but worth mentioning
 
 ### Event-kind filtering was added

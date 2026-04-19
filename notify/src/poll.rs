@@ -3,7 +3,10 @@
 //! Checks the `watch`ed paths periodically to detect changes. This implementation only uses
 //! Rust stdlib APIs and should work on all of the platforms it supports.
 
-use crate::{unbounded, Config, Error, EventHandler, Receiver, RecursiveMode, Sender, Watcher};
+use crate::{
+    paths::{absolute_path, WatchPath},
+    unbounded, Config, Error, EventHandler, Receiver, RecursiveMode, Sender, Watcher,
+};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -69,6 +72,7 @@ use data::{DataBuilder, WatchData};
 mod data {
     use crate::{
         event::{CreateKind, DataChange, Event, EventKind, MetadataKind, ModifyKind, RemoveKind},
+        paths::{reported_path, WatchPath},
         EventHandler, RecursiveMode,
     };
     use notify_types::event::EventKindMask;
@@ -142,7 +146,7 @@ mod data {
         /// the path location. (e.g., not found).
         pub(super) fn build_watch_data(
             &self,
-            root: PathBuf,
+            root: WatchPath,
             is_recursive: bool,
             follow_symlinks: bool,
         ) -> Option<WatchData> {
@@ -168,6 +172,7 @@ mod data {
     pub(super) struct WatchData {
         // config part, won't change.
         root: PathBuf,
+        requested_root: PathBuf,
         is_recursive: bool,
         follow_symlinks: bool,
 
@@ -183,7 +188,7 @@ mod data {
         /// This function may send event by `data_builder.emitter`.
         fn new(
             data_builder: &DataBuilder,
-            root: PathBuf,
+            root: WatchPath,
             is_recursive: bool,
             follow_symlinks: bool,
         ) -> Option<Self> {
@@ -205,14 +210,15 @@ mod data {
             //
             // FIXME: Can we always allow to watch a path, even file not
             // found at this path?
-            if let Err(e) = fs::metadata(&root) {
-                data_builder.emitter.emit_io_err(e, Some(&root));
+            if let Err(e) = fs::metadata(&root.absolute) {
+                data_builder.emitter.emit_io_err(e, Some(&root.requested));
                 return None;
             }
 
             let all_path_data = Self::scan_all_path_data(
                 data_builder,
-                root.clone(),
+                root.absolute.clone(),
+                root.requested.clone(),
                 is_recursive,
                 follow_symlinks,
                 true,
@@ -220,7 +226,8 @@ mod data {
             .collect();
 
             Some(Self {
-                root,
+                root: root.absolute,
+                requested_root: root.requested,
                 is_recursive,
                 follow_symlinks,
                 all_path_data,
@@ -237,6 +244,7 @@ mod data {
             for (path, new_path_data) in Self::scan_all_path_data(
                 data_builder,
                 self.root.clone(),
+                self.requested_root.clone(),
                 self.is_recursive,
                 self.follow_symlinks,
                 false,
@@ -246,8 +254,11 @@ mod data {
                     .insert(path.clone(), new_path_data.clone());
 
                 // emit event
-                let event =
-                    PathData::compare_to_event(path, old_path_data.as_ref(), Some(&new_path_data));
+                let event = PathData::compare_to_event(
+                    reported_path(&self.root, &self.requested_root, &path),
+                    old_path_data.as_ref(),
+                    Some(&new_path_data),
+                );
                 if let Some(event) = event {
                     data_builder.emitter.emit_ok(event);
                 }
@@ -266,7 +277,11 @@ mod data {
                 let old_path_data = self.all_path_data.remove(&path);
 
                 // emit event
-                let event = PathData::compare_to_event(path, old_path_data.as_ref(), None);
+                let event = PathData::compare_to_event(
+                    reported_path(&self.root, &self.requested_root, &path),
+                    old_path_data.as_ref(),
+                    None,
+                );
                 if let Some(event) = event {
                     data_builder.emitter.emit_ok(event);
                 }
@@ -281,6 +296,7 @@ mod data {
         fn scan_all_path_data(
             data_builder: &'_ DataBuilder,
             root: PathBuf,
+            requested_root: PathBuf,
             is_recursive: bool,
             follow_symlinks: bool,
             // whether this is an initial scan, used only for events
@@ -291,7 +307,7 @@ mod data {
             // so we can use single logic to do the both file & dir's jobs.
             //
             // See: https://docs.rs/walkdir/2.0.1/walkdir/struct.WalkDir.html#method.new
-            WalkDir::new(root)
+            WalkDir::new(root.clone())
                 .follow_links(follow_symlinks)
                 .max_depth(Self::dir_scan_depth(is_recursive))
                 .into_iter()
@@ -318,7 +334,11 @@ mod data {
                         if is_initial {
                             // emit initial scans
                             if let Some(ref emitter) = data_builder.scan_emitter {
-                                emitter.borrow_mut().handle_event(Ok(path.clone()));
+                                emitter.borrow_mut().handle_event(Ok(reported_path(
+                                    &root,
+                                    &requested_root,
+                                    &path,
+                                )));
                             }
                         }
                         let meta_path = MetaPath::from_parts_unchecked(path, metadata);
@@ -350,6 +370,10 @@ mod data {
             } else {
                 RecursiveMode::NonRecursive
             }
+        }
+
+        pub(super) fn requested_root(&self) -> &Path {
+            &self.requested_root
         }
     }
 
@@ -674,7 +698,9 @@ impl PollWatcher {
     ///
     /// QUESTION: this function never return an Error, is it as intend?
     /// Please also consider the IO Error event problem.
-    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) {
+    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> crate::Result<()> {
+        let watch_path = WatchPath::new(path)?;
+
         // HINT: Make sure always lock in the same order to avoid deadlock.
         //
         // FIXME: inconsistent: some place mutex poison cause panic, some place just ignore.
@@ -684,26 +710,30 @@ impl PollWatcher {
         data_builder.update_timestamp();
 
         let watch_data = data_builder.build_watch_data(
-            path.to_path_buf(),
+            watch_path.clone(),
             recursive_mode.is_recursive(),
             self.follow_sylinks,
         );
 
         // if create watch_data successful, add it to watching list.
         if let Some(watch_data) = watch_data {
-            watches.insert(path.to_path_buf(), watch_data);
+            watches.insert(watch_path.absolute, watch_data);
         }
+
+        Ok(())
     }
 
     /// Unwatch a path.
     ///
     /// Return `Err(_)` if given path has't be monitored.
     fn unwatch_inner(&mut self, path: &Path) -> crate::Result<()> {
+        let path = absolute_path(path)?;
+
         // FIXME: inconsistent: some place mutex poison cause panic, some place just ignore.
         self.watches
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .remove(path)
+            .remove(&path)
             .map(|_| ())
             .ok_or_else(crate::Error::watch_not_found)
     }
@@ -716,9 +746,7 @@ impl Watcher for PollWatcher {
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> crate::Result<()> {
-        self.watch_inner(path, recursive_mode);
-
-        Ok(())
+        self.watch_inner(path, recursive_mode)
     }
 
     fn unwatch(&mut self, path: &Path) -> crate::Result<()> {
@@ -728,8 +756,8 @@ impl Watcher for PollWatcher {
     fn watched_paths(&self) -> crate::Result<Vec<(PathBuf, RecursiveMode)>> {
         let watches = self.watches.lock().map_err(crate::Error::from)?;
         Ok(watches
-            .iter()
-            .map(|(path, watch)| (path.clone(), watch.recursive_mode()))
+            .values()
+            .map(|watch| (watch.requested_root().to_path_buf(), watch.recursive_mode()))
             .collect())
     }
 
