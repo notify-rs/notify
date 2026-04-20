@@ -2,7 +2,7 @@
 
 ## unreleased
 
-- CHANGE: emit `remove` events event if a file was created and then removed (because macOS repeats the "create" event) [#900] **breaking**
+- CHANGE: emit `remove` events even if a file was created and then removed (because macOS repeats the "create" event) [#900] **breaking**
 
 [#900]: https://github.com/notify-rs/notify/issues/900
 
