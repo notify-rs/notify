@@ -249,17 +249,23 @@ mod data {
                 self.follow_symlinks,
                 false,
             ) {
-                let old_path_data = self
-                    .all_path_data
-                    .insert(path.clone(), new_path_data.clone());
+                let event_kind = if let Some(old_path_data) = self.all_path_data.get_mut(&path) {
+                    let event_kind =
+                        PathData::compare_to_kind(Some(&*old_path_data), Some(&new_path_data));
+                    *old_path_data = new_path_data;
+                    event_kind
+                } else {
+                    let event_kind = PathData::compare_to_kind(None, Some(&new_path_data));
+                    self.all_path_data.insert(path.clone(), new_path_data);
+                    event_kind
+                };
 
-                // emit event
-                let event = PathData::compare_to_event(
-                    reported_path(&self.root, &self.requested_root, &path),
-                    old_path_data.as_ref(),
-                    Some(&new_path_data),
-                );
-                if let Some(event) = event {
+                if let Some(event_kind) = event_kind {
+                    let event = Event::new(event_kind).add_path(reported_path(
+                        &self.root,
+                        &self.requested_root,
+                        &path,
+                    ));
                     data_builder.emitter.emit_ok(event);
                 }
             }
@@ -276,13 +282,12 @@ mod data {
             for path in disappeared_paths {
                 let old_path_data = self.all_path_data.remove(&path);
 
-                // emit event
-                let event = PathData::compare_to_event(
-                    reported_path(&self.root, &self.requested_root, &path),
-                    old_path_data.as_ref(),
-                    None,
-                );
-                if let Some(event) = event {
+                if let Some(event_kind) = PathData::compare_to_kind(old_path_data.as_ref(), None) {
+                    let event = Event::new(event_kind).add_path(reported_path(
+                        &self.root,
+                        &self.requested_root,
+                        &path,
+                    ));
                     data_builder.emitter.emit_ok(event);
                 }
             }
@@ -408,19 +413,6 @@ mod data {
 
                 last_check: data_builder.now,
             }
-        }
-
-        /// Get [`Event`] by compare two optional [`PathData`].
-        fn compare_to_event<P>(
-            path: P,
-            old: Option<&PathData>,
-            new: Option<&PathData>,
-        ) -> Option<Event>
-        where
-            P: Into<PathBuf>,
-        {
-            Self::compare_to_kind(old, new)
-                .map(|event_kind| Event::new(event_kind).add_path(path.into()))
         }
 
         fn compare_to_kind(old: Option<&PathData>, new: Option<&PathData>) -> Option<EventKind> {
