@@ -8,7 +8,7 @@ use super::event::*;
 use super::{Config, Error, ErrorKind, EventHandler, RecursiveMode, Result, Watcher};
 use crate::paths::{
     absolute_path, is_preserved_watch_root, preserved_watch_mode, preserved_watch_roots,
-    reported_path, WatchMetadata, WatchPath,
+    recursive_user_watch_ancestor, reported_path, WatchMetadata, WatchPath,
 };
 use crate::{bounded, unbounded, BoundSender, Receiver, Sender};
 use inotify as inotify_sys;
@@ -522,9 +522,53 @@ impl EventLoop {
     }
 
     fn add_watch(&mut self, path: WatchPath, is_recursive: bool, watch_self: bool) -> Result<()> {
+        let path_is_dir = metadata(&path.absolute).map_err(Error::io_watch)?.is_dir();
+        let requested_is_recursive = is_recursive && path_is_dir;
+        if watch_self {
+            if let Some(watch) = self
+                .watches
+                .get(&path.absolute)
+                .filter(|watch| watch.metadata.is_user_watch)
+            {
+                if watch.metadata.user_is_recursive == requested_is_recursive
+                    && watch.metadata.reported_path == path.requested
+                {
+                    return Ok(());
+                }
+
+                let inherited_recursive_root =
+                    if !requested_is_recursive && path_is_dir && watch.metadata.is_recursive {
+                        recursive_user_watch_ancestor(
+                            &path.absolute,
+                            self.watches
+                                .iter()
+                                .map(|(path, watch)| (path, &watch.metadata)),
+                        )
+                    } else {
+                        None
+                    };
+                let replaced_path = path.absolute.clone();
+                self.remove_watch(replaced_path.clone(), false)?;
+
+                if let Some((ancestor_path, ancestor_reported_path)) = inherited_recursive_root {
+                    let entries = WalkDir::new(&replaced_path)
+                        .follow_links(self.follow_links)
+                        .into_iter()
+                        .filter_map(filter_dir)
+                        .map(|entry| {
+                            let absolute = entry.into_path();
+                            let requested =
+                                reported_path(&ancestor_path, &ancestor_reported_path, &absolute);
+                            WatchPath::from_parts(absolute, requested)
+                        });
+                    self.add_watches_for_paths(entries, true, false)?;
+                }
+            }
+        }
+
         // If the watch is not recursive, or if we determine (by stat'ing the path to get its
         // metadata) that the watched path is not a directory, add a single path watch.
-        if !is_recursive || !metadata(&path.absolute).map_err(Error::io_watch)?.is_dir() {
+        if !requested_is_recursive {
             return self.add_single_watch(path, false, true);
         }
 
@@ -959,6 +1003,113 @@ mod tests {
             result.is_ok(),
             "expected recursive watch to succeed, got: {result:?}"
         );
+    }
+
+    #[test]
+    fn rewatching_same_path_replaces_recursive_state() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().to_path_buf();
+        let child = root.join("child");
+        std::fs::create_dir(&child).unwrap();
+
+        let inotify = super::inotify_sys::Inotify::init().unwrap();
+        let mut event_loop = EventLoop::new(inotify, Box::new(|_| {}), &Config::default()).unwrap();
+
+        event_loop
+            .add_watch(WatchPath::new(&root).unwrap(), true, true)
+            .expect("watch recursively");
+        assert!(event_loop.watches.contains_key(&child));
+
+        event_loop
+            .add_watch(WatchPath::new(&root).unwrap(), false, true)
+            .expect("rewatch non-recursively");
+
+        let watch = event_loop.watches.get(&root).expect("root watch");
+        assert!(watch.metadata.is_user_watch);
+        assert!(!watch.metadata.user_is_recursive);
+        assert!(!watch.metadata.is_recursive);
+        assert!(!event_loop.watches.contains_key(&child));
+    }
+
+    #[test]
+    fn rewatching_child_preserves_recursive_parent_state() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().to_path_buf();
+        let child = root.join("child");
+        let grandchild = child.join("grandchild");
+        std::fs::create_dir_all(&grandchild).unwrap();
+
+        let inotify = super::inotify_sys::Inotify::init().unwrap();
+        let mut event_loop = EventLoop::new(inotify, Box::new(|_| {}), &Config::default()).unwrap();
+
+        event_loop
+            .add_watch(WatchPath::new(&root).unwrap(), true, true)
+            .expect("watch root recursively");
+        event_loop
+            .add_watch(WatchPath::new(&child).unwrap(), false, true)
+            .expect("watch child non-recursively");
+        event_loop
+            .add_watch(
+                WatchPath::from_parts(child.clone(), PathBuf::from("reported-child")),
+                false,
+                true,
+            )
+            .expect("rewatch child non-recursively");
+
+        let child_watch = event_loop.watches.get(&child).expect("child watch");
+        assert!(child_watch.metadata.is_user_watch);
+        assert!(!child_watch.metadata.user_is_recursive);
+        assert!(child_watch.metadata.is_recursive);
+        assert_eq!(
+            child_watch.metadata.reported_path,
+            PathBuf::from("reported-child")
+        );
+
+        let grandchild_watch = event_loop
+            .watches
+            .get(&grandchild)
+            .expect("grandchild still covered by recursive parent");
+        assert!(!grandchild_watch.metadata.is_user_watch);
+        assert!(grandchild_watch.metadata.is_recursive);
+    }
+
+    #[test]
+    fn rewatching_carved_out_child_does_not_restore_parent_recursive_state() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().to_path_buf();
+        let child = root.join("child");
+        let grandchild = child.join("grandchild");
+        std::fs::create_dir_all(&grandchild).unwrap();
+
+        let inotify = super::inotify_sys::Inotify::init().unwrap();
+        let mut event_loop = EventLoop::new(inotify, Box::new(|_| {}), &Config::default()).unwrap();
+
+        event_loop
+            .add_watch(WatchPath::new(&root).unwrap(), true, true)
+            .expect("watch root recursively");
+        event_loop
+            .remove_watch(child.clone(), false)
+            .expect("carve out child");
+        event_loop
+            .add_watch(WatchPath::new(&child).unwrap(), false, true)
+            .expect("watch child non-recursively");
+        event_loop
+            .add_watch(
+                WatchPath::from_parts(child.clone(), PathBuf::from("reported-child")),
+                false,
+                true,
+            )
+            .expect("rewatch child non-recursively");
+
+        let child_watch = event_loop.watches.get(&child).expect("child watch");
+        assert!(child_watch.metadata.is_user_watch);
+        assert!(!child_watch.metadata.user_is_recursive);
+        assert!(!child_watch.metadata.is_recursive);
+        assert_eq!(
+            child_watch.metadata.reported_path,
+            PathBuf::from("reported-child")
+        );
+        assert!(!event_loop.watches.contains_key(&grandchild));
     }
 
     /// Runs manually.

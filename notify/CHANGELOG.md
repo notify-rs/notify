@@ -4,6 +4,8 @@
 
 - CHANGE: preserve watched path representation in `Event.paths` and `Watcher::watched_paths`; relative watch paths now produce relative event paths consistently across backends [#453] [#740]
 - FIX: [kqueue] stop reporting arbitrary existing child paths for non-recursive directory write events [#644]
+- FIX: replace an existing watch when `watch` is called again for the same path, avoiding duplicate FSEvent paths and leaked Windows watch handles [#708]
+- DOCS: define `Watcher::watch` replacement behavior for an existing backend-resolved path [#708]
 
 ## notify 9.0.0-rc.3 (2026-04-16)
 
@@ -22,6 +24,7 @@
 [#453]: https://github.com/notify-rs/notify/issues/453
 [#740]: https://github.com/notify-rs/notify/issues/740
 [#644]: https://github.com/notify-rs/notify/issues/644
+[#708]: https://github.com/notify-rs/notify/issues/708
 
 ## notify 9.0.0-rc.2 (2026-02-14)
 

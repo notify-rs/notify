@@ -408,8 +408,17 @@ impl FsEventWatcher {
             })
             .or_else(|| absolute_path(path).ok())
             .unwrap_or_else(|| path.to_owned());
+        self.remove_cf_path(&p)?;
+
+        match self.recursive_info.remove(&p) {
+            Some(_) => Ok(()),
+            None => Err(Error::watch_not_found()),
+        }
+    }
+
+    fn remove_cf_path(&mut self, path: &Path) -> Result<()> {
         let mut err: *mut cf::CFError = ptr::null_mut();
-        let Some(cf_path) = (unsafe { path_to_cfstring_ref(&p, &mut err) }) else {
+        let Some(cf_path) = (unsafe { path_to_cfstring_ref(path, &mut err) }) else {
             if let Some(err) = NonNull::new(err) {
                 let _ = unsafe { cf::CFRetained::from_raw(err) };
             }
@@ -432,11 +441,7 @@ impl FsEventWatcher {
                 cf::CFMutableArray::remove_value_at_index(Some(self.paths.as_opaque()), *idx)
             };
         }
-
-        match self.recursive_info.remove(&p) {
-            Some(_) => Ok(()),
-            None => Err(Error::watch_not_found()),
-        }
+        Ok(())
     }
 
     // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
@@ -454,6 +459,9 @@ impl FsEventWatcher {
             // while the above code was running.
             return Err(Error::path_not_found().add_path(path.into()));
         };
+        if self.recursive_info.contains_key(&canonical_path) {
+            self.remove_cf_path(&canonical_path)?;
+        }
         self.paths.append(&cf_path);
 
         self.recursive_info.insert(
@@ -811,6 +819,26 @@ mod tests {
 
     fn watcher() -> (TestWatcher<FsEventWatcher>, Receiver) {
         channel()
+    }
+
+    #[test]
+    fn rewatching_same_path_replaces_recursive_info() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut watcher = FsEventWatcher::new(|_| {}, Config::default()).unwrap();
+
+        watcher
+            .append_path(dir.path(), RecursiveMode::Recursive)
+            .expect("watch recursively");
+        watcher
+            .append_path(dir.path(), RecursiveMode::NonRecursive)
+            .expect("rewatch non-recursively");
+
+        let watched = watcher.watched_paths().expect("watched paths");
+        assert_eq!(
+            watched,
+            vec![(dir.path().to_path_buf(), RecursiveMode::NonRecursive)]
+        );
+        assert_eq!(watcher.paths.iter().count(), 1);
     }
 
     #[test]

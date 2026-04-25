@@ -372,6 +372,9 @@ impl ReadDirectoryChangesServer {
             reported_path: path.requested,
         };
         let watched_path = path.absolute;
+        if let Some(ws) = self.watches.remove(&watched_path) {
+            stop_watch(&ws, &self.meta_tx);
+        }
         self.watches.insert(watched_path.clone(), ws);
         start_read(
             &rd,

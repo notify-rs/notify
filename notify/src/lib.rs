@@ -365,6 +365,11 @@ pub trait Watcher {
     /// method is called. If `path` is absolute, emitted event paths are absolute. Convert `path`
     /// before calling this method if your application needs a specific representation.
     ///
+    /// On success, calling this method again for the same backend-resolved path replaces the
+    /// existing watch for that path. The recursive mode is updated to the new value, a second
+    /// independent watch is not added, and a single call to [`Watcher::unwatch`] removes the
+    /// watched path.
+    ///
     /// On some platforms, if the `path` is renamed or removed while being watched, behaviour may
     /// be unexpected. See discussions in [#165] and [#166]. If less surprising behaviour is wanted
     /// one may non-recursively watch the _parent_ directory as well and manage related events.
@@ -826,6 +831,34 @@ mod tests {
         let watched = canonical_watch_set(watcher.watched_paths()?);
         assert!(!watched.contains(&(canonical_or_path(&dir_a), RecursiveMode::Recursive)));
         assert!(watched.contains(&(canonical_or_path(&dir_b), RecursiveMode::NonRecursive)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn rewatching_same_path_replaces_recursive_mode(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+        let root = canonical_or_path(dir.path());
+
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+
+        watcher.watch(dir.path(), RecursiveMode::Recursive)?;
+        watcher.watch(dir.path(), RecursiveMode::NonRecursive)?;
+
+        let watched = canonical_watch_set(watcher.watched_paths()?);
+        assert!(watched.contains(&(root.clone(), RecursiveMode::NonRecursive)));
+        assert!(!watched.contains(&(root.clone(), RecursiveMode::Recursive)));
+        assert_eq!(
+            watched.iter().filter(|(path, _mode)| path == &root).count(),
+            1
+        );
+
+        watcher.unwatch(dir.path())?;
+
+        let watched = canonical_watch_set(watcher.watched_paths()?);
+        assert!(!watched.iter().any(|(path, _mode)| path == &root));
 
         Ok(())
     }

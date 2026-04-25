@@ -76,6 +76,34 @@ let path = std::env::current_dir()?.join("src");
 watcher.watch(&path, notify::RecursiveMode::Recursive)?;
 ```
 
+### 4) Rewatching the same path replaces the existing watch
+
+Calling `Watcher::watch` again for the same backend-resolved path now replaces the existing watch
+on success. The recursive mode and reported path are updated to the new request, a second
+independent watch is not added, and one `Watcher::unwatch` call removes the path.
+
+In v8 this behavior varied by backend. Some backends effectively merged repeated watches, while
+others could keep duplicate backend entries or resources. If your code depended on repeated
+`watch` calls acting like independent watches for the same path, use separate watcher instances or
+manage parent/child watches explicitly.
+
+Before (v8 behavior varied by backend):
+
+```rust
+watcher.watch(path, notify::RecursiveMode::Recursive)?;
+watcher.watch(path, notify::RecursiveMode::NonRecursive)?;
+```
+
+After (v9):
+
+```rust
+watcher.watch(path, notify::RecursiveMode::Recursive)?;
+watcher.watch(path, notify::RecursiveMode::NonRecursive)?;
+
+// `path` is now watched non-recursively.
+watcher.unwatch(path)?;
+```
+
 ## Non-breaking changes but worth mentioning
 
 ### Event-kind filtering was added

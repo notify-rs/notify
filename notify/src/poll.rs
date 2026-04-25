@@ -840,6 +840,33 @@ mod tests {
     }
 
     #[test]
+    fn rewatching_same_path_replaces_recursive_mode() {
+        let tmpdir = testdir();
+        let root = tmpdir.path().canonicalize().expect("canonicalize root");
+
+        let mut watcher = PollWatcher::new(|_| {}, Config::default()).expect("create watcher");
+
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::Recursive)
+            .expect("watch recursively");
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::NonRecursive)
+            .expect("watch non-recursively");
+
+        let watched = watcher.watched_paths().expect("list watched paths");
+        assert!(watched.contains(&(root.clone(), RecursiveMode::NonRecursive)));
+        assert!(!watched.contains(&(root.clone(), RecursiveMode::Recursive)));
+        assert_eq!(
+            watched.iter().filter(|(path, _mode)| path == &root).count(),
+            1
+        );
+
+        watcher.unwatch(tmpdir.path()).expect("unwatch");
+        let watched = watcher.watched_paths().expect("list watched paths");
+        assert!(!watched.iter().any(|(path, _mode)| path == &root));
+    }
+
+    #[test]
     fn create_file() {
         let tmpdir = testdir();
         let (mut watcher, mut rx) = watcher();

@@ -146,3 +146,22 @@ where
 pub(crate) fn is_preserved_watch_root(path: &Path, preserved_roots: &[(PathBuf, bool)]) -> bool {
     preserved_roots.iter().any(|(root, _)| path == root)
 }
+
+pub(crate) fn recursive_user_watch_ancestor<'a, I>(
+    path: &Path,
+    watches: I,
+) -> Option<(PathBuf, PathBuf)>
+where
+    I: IntoIterator<Item = (&'a PathBuf, &'a WatchMetadata)>,
+{
+    watches
+        .into_iter()
+        .filter(|(candidate, watch)| {
+            *candidate != path
+                && path.starts_with(candidate)
+                && watch.is_user_watch
+                && watch.user_is_recursive
+        })
+        .max_by_key(|(candidate, _)| candidate.as_os_str().len())
+        .map(|(path, watch)| (path.clone(), watch.reported_path.clone()))
+}
