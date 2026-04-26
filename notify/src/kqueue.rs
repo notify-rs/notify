@@ -200,9 +200,20 @@ impl EventLoop {
                             Ok(Event::new(EventKind::Remove(RemoveKind::Any)).add_path(event_path))
                         }
 
-                        // a write to a directory means that a new file was created in it, let's
-                        // figure out which file this was
-                        kqueue::Vnode::Write if path.is_dir() => {
+                        // A write to a recursively watched directory may mean that a new file
+                        // was created in it. Non-recursive directory watches do not track
+                        // children, so guessing from read_dir would be unreliable.
+                        // FIXME: harden guessing for non-recursive watches.
+                        // Context: https://github.com/notify-rs/notify/issues/644
+                        kqueue::Vnode::Write
+                            if watch.is_some_and(|watch| watch.is_recursive)
+                                && if self.follow_symlinks {
+                                    path.is_dir()
+                                } else {
+                                    std::fs::symlink_metadata(&path)
+                                        .is_ok_and(|metadata| metadata.is_dir())
+                                } =>
+                        {
                             // find which file is new in the directory by comparing it with our
                             // list of known watches
                             std::fs::read_dir(&path)
@@ -690,6 +701,23 @@ mod tests {
         std::fs::remove_file(&file).expect("remove");
 
         // kqueue reports a write event on the directory when a file is deleted
+        rx.wait_unordered([expected(tmpdir.path()).modify_data_any()]);
+    }
+
+    #[test]
+    fn create_file_in_non_recursive_directory_with_existing_child() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = watcher();
+        let existing = tmpdir.path().join("existing");
+        let created = tmpdir.path().join("created");
+        std::fs::write(&existing, "").expect("write");
+
+        watcher.watch_nonrecursively(&tmpdir);
+
+        std::fs::write(&created, "").expect("write");
+
+        // kqueue does not report which directory entry changed, so the backend
+        // must not guess an arbitrary pre-existing child as the created path.
         rx.wait_unordered([expected(tmpdir.path()).modify_data_any()]);
     }
 
