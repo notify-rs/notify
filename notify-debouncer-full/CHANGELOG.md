@@ -3,8 +3,10 @@
 ## unreleased
 
 - CHANGE: emit `remove` events even if a file was created and then removed (because macOS repeats the "create" event) [#900] **breaking**
+- FIX: ordering of debounced events when multiple files are modified and renamed (eg. during a safe save performed by Blender) [#590]
 
 [#900]: https://github.com/notify-rs/notify/issues/900
+[#590]: https://github.com/notify-rs/notify/issues/590
 
 ## debouncer-full 0.8.0-rc.1 (2026-04-16)
 

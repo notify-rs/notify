@@ -47,9 +47,9 @@
         events: {
             short: []
             long: [
+                { kind: "other", flags: ["rescan"], time: 3 }
                 { kind: "create-any", paths: ["/watch/file-a"], time: 1 }
                 { kind: "create-any", paths: ["/watch/file-b"], time: 2 }
-                { kind: "other", flags: ["rescan"], time: 3 }
             ]
         }
     }
