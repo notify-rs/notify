@@ -296,6 +296,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
                 self.blocking.remove_blocker(&path, event.time);
 
+                log::trace!("debounced event: {event:?}");
                 events_expired.push(event);
             } else {
                 let kind_index = kind_index.entry(path.clone()).or_default();
