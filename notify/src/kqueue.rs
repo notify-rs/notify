@@ -103,7 +103,7 @@ impl EventLoop {
                     // System call was interrupted, we will retry
                     // TODO: Not covered by tests (to reproduce likely need to setup signal handlers)
                 }
-                Err(e) => panic!("poll failed: {}", e),
+                Err(e) => panic!("poll failed: {e}"),
                 Ok(()) => {}
             }
 
@@ -571,7 +571,7 @@ mod tests {
     fn test_remove_recursive() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let path = PathBuf::from("src");
 
-        let mut watcher = KqueueWatcher::new(|event| println!("{:?}", event), Config::default())?;
+        let mut watcher = KqueueWatcher::new(|event| println!("{event:?}"), Config::default())?;
         watcher.watch(&path, RecursiveMode::Recursive)?;
         let result = watcher.unwatch(&path);
         assert!(
@@ -1007,15 +1007,13 @@ mod tests {
         // Should have CREATE event
         assert!(
             events.iter().any(|e| e.kind.is_create()),
-            "Expected CREATE event, got: {:?}",
-            events
+            "Expected CREATE event, got: {events:?}"
         );
 
         // Should NOT have MODIFY event (filtered out)
         assert!(
             !events.iter().any(|e| e.kind.is_modify()),
-            "Should not receive MODIFY events with CREATE-only mask, got: {:?}",
-            events
+            "Should not receive MODIFY events with CREATE-only mask, got: {events:?}"
         );
     }
 }
