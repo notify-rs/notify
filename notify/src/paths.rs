@@ -147,6 +147,11 @@ pub(crate) fn is_preserved_watch_root(path: &Path, preserved_roots: &[(PathBuf, 
     preserved_roots.iter().any(|(root, _)| path == root)
 }
 
+/// Finds the nearest recursive user watch that covers `path`.
+///
+/// Backends use this when replacing an explicit watch that also inherits recursive coverage from an
+/// ancestor. Returning the ancestor's reported path lets them rebuild the inherited subtree with the
+/// same path representation users expect from that ancestor watch.
 pub(crate) fn recursive_user_watch_ancestor<'a, I>(
     path: &Path,
     watches: I,

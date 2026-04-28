@@ -373,6 +373,10 @@ impl EventLoop {
                     return Ok(());
                 }
 
+                // Rewatching an explicit user watch replaces its requested mode and reported path
+                // instead of merging with the previous metadata. If the current entry also carries
+                // recursive coverage from an ancestor, remember that ancestor before removal so we
+                // can rebuild that inherited coverage below.
                 let inherited_recursive_root =
                     if !requested_is_recursive && path_is_dir && watch.is_recursive {
                         recursive_user_watch_ancestor(&path.absolute, self.watches.iter())
@@ -383,6 +387,9 @@ impl EventLoop {
                 self.remove_watch(replaced_path.clone(), false)?;
 
                 if let Some((ancestor_path, ancestor_reported_path)) = inherited_recursive_root {
+                    // Removing a directory watch removes its recursively inherited children too.
+                    // Re-add them as non-user watches so the ancestor recursive watch still covers
+                    // this subtree after the user watch is replaced.
                     for entry in WalkDir::new(&replaced_path)
                         .follow_links(self.follow_symlinks)
                         .into_iter()
