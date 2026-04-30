@@ -206,7 +206,9 @@ impl Queue {
 #[derive(Debug)]
 pub(crate) struct DebounceDataInner<T> {
     queues: HashMap<PathBuf, Queue>,
-    roots: Vec<(PathBuf, RecursiveMode)>,
+    /// Registered watch roots, kept **sorted by path** so that `add_root`
+    /// can dedupe via binary search in O(log N) and doesn't suffer from injection
+    roots: VecDeque<(PathBuf, RecursiveMode)>,
     cache: T,
     rename_event: Option<(DebouncedEvent, Option<FileId>)>,
     rescan_event: Option<DebouncedEvent>,
@@ -218,7 +220,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     pub(crate) fn new(cache: T, timeout: Duration) -> Self {
         Self {
             queues: HashMap::default(),
-            roots: Vec::new(),
+            roots: VecDeque::new(),
             cache,
             rename_event: None,
             rescan_event: None,
@@ -290,7 +292,8 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         log::trace!("raw event: {event:?}");
 
         if event.need_rescan() {
-            self.cache.rescan(&self.roots);
+            let roots = self.roots.make_contiguous();
+            self.cache.rescan(roots);
             self.rescan_event = Some(DebouncedEvent { event, time: now() });
             return;
         }
@@ -586,12 +589,16 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
 
         let mut data = self.data.lock().unwrap();
 
-        // skip, if the root has already been added
-        if data.roots.iter().any(|(p, _)| p == &path) {
-            return;
+        match data
+            .roots
+            .binary_search_by(|(p, _)| p.as_path().cmp(path.as_path()))
+        {
+            Ok(_) => return, // already registered
+            Err(pos) => {
+                // `VecDeque::insert` is O(min(pos, len - pos))
+                data.roots.insert(pos, (path.clone(), recursive_mode));
+            }
         }
-
-        data.roots.push((path.clone(), recursive_mode));
 
         data.cache.add_path(&path, recursive_mode);
     }
@@ -618,6 +625,10 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         self.watcher.unwatch(path.as_ref())?;
         self.remove_root(path);
         Ok(())
+    }
+
+    pub fn watched_paths(&self) -> notify::Result<Vec<(PathBuf, RecursiveMode)>> {
+        self.watcher.watched_paths()
     }
 
     /// Add/remove paths to watch in batch.
@@ -688,11 +699,6 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
             }
         }
         res
-    }
-
-    /// Returns the currently watched paths and their recursive modes.
-    pub fn watched_paths(&self) -> notify::Result<Vec<(PathBuf, RecursiveMode)>> {
-        self.watcher.watched_paths()
     }
 
     pub fn configure(&mut self, option: notify::Config) -> notify::Result<bool> {
@@ -948,12 +954,12 @@ mod tests {
             }
         }
 
-        fn watched_paths(&self) -> notify::Result<Vec<(PathBuf, RecursiveMode)>> {
-            Ok(self.watched.clone())
-        }
-
         fn kind() -> WatcherKind {
             WatcherKind::NullWatcher
+        }
+
+        fn watched_paths(&self) -> notify::Result<Vec<(PathBuf, RecursiveMode)>> {
+            Ok(self.watched.clone())
         }
     }
 
@@ -1012,7 +1018,7 @@ mod tests {
         MockTime::set_time(time);
 
         let mut state = test_case.state.into_debounce_data_inner(time);
-        state.roots = vec![(PathBuf::from("/"), RecursiveMode::Recursive)];
+        state.roots = VecDeque::from([(PathBuf::from("/"), RecursiveMode::Recursive)]);
 
         let mut prev_event_time = Duration::default();
 
@@ -1156,6 +1162,134 @@ mod tests {
         panic!("did not receive expected event");
     }
 
+    /// Regression test: on macOS, FSEvents reports file deletions as a burst
+    /// of `Create(File)` + `Modify(Data)` + `Remove(File)`.  The debouncer
+    /// must not suppress the `Remove` event, even though a prior `Create`
+    /// for the same path exists in the queue.
+    ///
+    /// Without the fix, `push_remove_event` would see `was_created() == true`
+    /// and cancel the entire queue, swallowing the removal.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn remove_event_not_swallowed_after_create() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+        let dir_path = dir.path().canonicalize()?;
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut debouncer = new_debouncer(Duration::from_millis(10), None, tx)?;
+        debouncer.watch(&dir_path, RecursiveMode::NonRecursive)?;
+
+        // Create a file and wait for the debouncer to deliver the Create event.
+        let file_path = dir_path.join("ephemeral.txt");
+        fs::write(&file_path, b"will be deleted")?;
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut got_create = false;
+        while Instant::now() < deadline {
+            match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(Ok(events)) => {
+                    if events.iter().any(|e| {
+                        matches!(e.event.kind, EventKind::Create(_))
+                            && e.event.paths.contains(&file_path)
+                    }) {
+                        got_create = true;
+                        break;
+                    }
+                }
+                Ok(Err(_)) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(_) => break,
+            }
+        }
+        assert!(got_create, "expected Create event for ephemeral.txt");
+
+        // Drain any remaining events from the creation.
+        std::thread::sleep(Duration::from_millis(200));
+        while rx.try_recv().is_ok() {}
+
+        // Delete the file.
+        fs::remove_file(&file_path)?;
+
+        // The debouncer MUST deliver an event for this path (Remove, or at
+        // minimum any event whose path matches so the consumer can stat it).
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut got_removal = false;
+        while Instant::now() < deadline {
+            match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(Ok(events)) => {
+                    if events.iter().any(|e| e.event.paths.contains(&file_path)) {
+                        got_removal = true;
+                        break;
+                    }
+                }
+                Ok(Err(_)) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(_) => break,
+            }
+        }
+        assert!(
+            got_removal,
+            "expected Remove (or any) event for deleted ephemeral.txt, got none within 5s"
+        );
+
+        Ok(())
+    }
+
+    /// Unit-level reproducer for the same bug: feed a Create + Remove
+    /// sequence into `DebounceDataInner` directly, with the queue already
+    /// flushed between them (simulating the debounce tick).  The Remove
+    /// must not be swallowed.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn push_remove_after_flushed_create() {
+        use crate::NoCache;
+        use notify::event::{CreateKind, RemoveKind};
+        use std::path::PathBuf;
+
+        let mut state = DebounceDataInner::new(NoCache, Duration::from_millis(50));
+
+        let time = std::time::Instant::now();
+        MockTime::set_time(time);
+
+        let path = PathBuf::from("/tmp/test_file.txt");
+
+        // Simulate: file created → Create event added
+        state.add_event(Event {
+            kind: EventKind::Create(CreateKind::File),
+            paths: vec![path.clone()],
+            ..Default::default()
+        });
+
+        // Simulate: debounce tick flushes the Create
+        MockTime::advance(Duration::from_millis(100));
+        let flushed = state.debounced_events();
+        assert_eq!(flushed.len(), 1);
+        assert!(matches!(flushed[0].event.kind, EventKind::Create(_)));
+
+        // Simulate: FSEvents sends Create + Remove for the deletion
+        // (this is what macOS does)
+        state.add_event(Event {
+            kind: EventKind::Create(CreateKind::File),
+            paths: vec![path.clone()],
+            ..Default::default()
+        });
+        state.add_event(Event {
+            kind: EventKind::Remove(RemoveKind::File),
+            paths: vec![path.clone()],
+            ..Default::default()
+        });
+
+        // Flush again — we MUST get the Remove event
+        MockTime::advance(Duration::from_millis(100));
+        let flushed = state.debounced_events();
+        assert!(
+            flushed
+                .iter()
+                .any(|e| matches!(e.event.kind, EventKind::Remove(_))),
+            "expected Remove event after flushed Create, got: {flushed:?}"
+        );
+    }
+
     #[cfg(feature = "futures")]
     #[tokio::test]
     async fn futures_unbounded_sender_as_handler() {
@@ -1276,7 +1410,7 @@ mod tests {
         let roots = debouncer.data.lock().unwrap().roots.clone();
         assert_eq!(
             roots,
-            vec![(PathBuf::from("ok1"), RecursiveMode::Recursive)]
+            VecDeque::from([(PathBuf::from("ok1"), RecursiveMode::Recursive)])
         );
 
         Ok(())
