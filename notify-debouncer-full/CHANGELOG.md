@@ -2,6 +2,9 @@
 
 ## unreleased
 
+## debouncer-full 0.8.0-rc.2 (2026-05-02)
+
+- CHANGE: upgrade `notify` to 9.0.0-rc.4
 - CHANGE: emit `remove` events even if a file was created and then removed (because macOS repeats the "create" event) [#900] **breaking**
 - CHANGE: speed up debouncer root tracking for large numbers of watched paths while preserving recursive matching for overlapping roots [#913]
 
