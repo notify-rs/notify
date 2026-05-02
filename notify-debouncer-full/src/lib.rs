@@ -355,17 +355,19 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         }
     }
 
-    fn recursive_mode(&mut self, path: &Path) -> RecursiveMode {
-        self.roots
-            .iter()
-            .find_map(|(root, recursive_mode)| {
-                if path.starts_with(root) {
-                    Some(*recursive_mode)
-                } else {
-                    None
+    fn recursive_mode(&self, path: &Path) -> RecursiveMode {
+        for ancestor in path.ancestors() {
+            if let Ok(index) = self
+                .roots
+                .binary_search_by(|(root, _)| root.as_path().cmp(ancestor))
+            {
+                if self.roots[index].1 == RecursiveMode::Recursive {
+                    return RecursiveMode::Recursive;
                 }
-            })
-            .unwrap_or(RecursiveMode::NonRecursive)
+            }
+        }
+
+        RecursiveMode::NonRecursive
     }
 
     fn handle_rename_from(&mut self, event: Event) {
@@ -1097,6 +1099,31 @@ mod tests {
                 "debounced events after a `{delay}` delay"
             );
         }
+    }
+
+    #[test]
+    fn recursive_mode_uses_recursive_root_for_overlapping_watches() {
+        let state = DebounceDataInner {
+            queues: HashMap::default(),
+            roots: VecDeque::from([
+                (PathBuf::from("root"), RecursiveMode::NonRecursive),
+                (PathBuf::from("root/nested"), RecursiveMode::Recursive),
+            ]),
+            cache: NoCache,
+            rename_event: None,
+            rescan_event: None,
+            errors: Vec::new(),
+            timeout: Duration::from_millis(50),
+        };
+
+        assert_eq!(
+            state.recursive_mode(Path::new("root/nested/child")),
+            RecursiveMode::Recursive
+        );
+        assert_eq!(
+            state.recursive_mode(Path::new("root/other")),
+            RecursiveMode::NonRecursive
+        );
     }
 
     #[test]
