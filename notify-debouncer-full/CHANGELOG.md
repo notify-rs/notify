@@ -3,8 +3,10 @@
 ## unreleased
 
 - CHANGE: emit `remove` events even if a file was created and then removed (because macOS repeats the "create" event) [#900] **breaking**
+- CHANGE: speed up debouncer root tracking for large numbers of watched paths while preserving recursive matching for overlapping roots [#913]
 
 [#900]: https://github.com/notify-rs/notify/issues/900
+[#913]: https://github.com/notify-rs/notify/pull/913
 
 ## debouncer-full 0.8.0-rc.1 (2026-04-16)
 
