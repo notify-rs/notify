@@ -18,10 +18,15 @@ homepage.workspace = true
 repository.workspace = true
 
 [features]
-default = ["macos_fsevent"]
+default = ["macos_fsevent", "freebsd_inotify"]
 serde = ["notify-types/serde"]
 macos_kqueue = ["kqueue", "mio"]
 macos_fsevent = ["objc2-core-foundation", "objc2-core-services"]
+# Native inotify(2) as RecommendedWatcher on FreeBSD (base system since 15.0).
+# FreeBSD 14.x has no inotify libc wrappers: disable this feature
+# (`default-features = false`) to use kqueue instead. Kqueue remains available
+# either way via `KqueueWatcher`.
+freebsd_inotify = ["dep:inotify"]
 serialization-compat-6 = ["notify-types/serialization-compat-6"]
 tokio = ["dep:tokio"]
 futures = ["dep:futures"]
@@ -70,7 +75,13 @@ windows-sys = { workspace = true, features = [
   "Win32_System_IO",
 ] }
 
-[target.'cfg(any(target_os="freebsd", target_os="openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "ios"))'.dependencies]
+# FreeBSD: kqueue always; inotify when `freebsd_inotify` is enabled (default).
+[target.'cfg(target_os="freebsd")'.dependencies]
+inotify = { workspace = true, default-features = false, optional = true }
+kqueue.workspace = true
+mio.workspace = true
+
+[target.'cfg(any(target_os="openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "ios"))'.dependencies]
 kqueue.workspace = true
 mio.workspace = true
 

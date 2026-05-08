@@ -1,4 +1,4 @@
-//! Watcher implementation for the inotify Linux API
+//! Watcher implementation for the inotify API (Linux, Android, FreeBSD 15.0+)
 //!
 //! The inotify API provides a mechanism for monitoring filesystem events.  Inotify can be used to
 //! monitor individual files, or to monitor directories.  When a directory is monitored, inotify
@@ -1693,7 +1693,10 @@ mod tests {
                 break event;
             }
         };
-        assert_eq!(event, expected(&path).modify_data_any());
+        // Linux's inotify reports utimensat as IN_MODIFY (Data); FreeBSD's
+        // reports it as IN_ATTRIB (Metadata), per inotify(7)'s own description.
+        // Accept either to test the portable contract.
+        assert_eq!(event, expected(&path).modify());
     }
 
     #[test]
@@ -1779,7 +1782,12 @@ mod tests {
         ]);
     }
 
+    // Linux-only: Linux's inotify is dirent-centric (events fire on the
+    // pathname used for the write), so writes through an external hardlink
+    // are invisible on the watched name. FreeBSD's inotify is inode-centric
+    // and surfaces events on every name pointing to the modified inode.
     #[test]
+    #[cfg(target_os = "linux")]
     fn write_to_a_hardlink_pointed_to_the_file_in_the_watched_dir_doesnt_trigger_an_event() {
         let tmpdir = testdir();
         let (mut watcher, mut rx) = watcher();

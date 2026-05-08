@@ -17,6 +17,7 @@
 //! - `serde` for serialization of events
 //! - `macos_fsevent` enabled by default, for fsevent backend on macos
 //! - `macos_kqueue` for kqueue backend on macos
+//! - `freebsd_inotify` enabled by default; native inotify as FreeBSD recommended backend (15.0+). Disable default features on FreeBSD 14.x to use kqueue.
 //! - `serialization-compat-6` restores the serialization behavior of notify 6, off by default
 //!
 //! ### Serde
@@ -181,7 +182,12 @@ use std::path::{Path, PathBuf};
 pub(crate) type StdResult<T, E> = std::result::Result<T, E>;
 pub(crate) type Receiver<T> = std::sync::mpsc::Receiver<T>;
 pub(crate) type Sender<T> = std::sync::mpsc::Sender<T>;
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    all(target_os = "freebsd", feature = "freebsd_inotify"),
+    target_os = "windows",
+))]
 pub(crate) type BoundSender<T> = std::sync::mpsc::SyncSender<T>;
 
 #[inline]
@@ -189,7 +195,12 @@ pub(crate) fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
     std::sync::mpsc::channel()
 }
 
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    all(target_os = "freebsd", feature = "freebsd_inotify"),
+    target_os = "windows",
+))]
 #[inline]
 pub(crate) fn bounded<T>(cap: usize) -> (BoundSender<T>, Receiver<T>) {
     std::sync::mpsc::sync_channel(cap)
@@ -197,7 +208,11 @@ pub(crate) fn bounded<T>(cap: usize) -> (BoundSender<T>, Receiver<T>) {
 
 #[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
 pub use crate::fsevent::FsEventWatcher;
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    all(target_os = "freebsd", feature = "freebsd_inotify"),
+))]
 pub use crate::inotify::INotifyWatcher;
 #[cfg(any(
     target_os = "freebsd",
@@ -215,7 +230,11 @@ pub use windows::ReadDirectoryChangesWatcher;
 
 #[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
 pub mod fsevent;
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    all(target_os = "freebsd", feature = "freebsd_inotify"),
+))]
 pub mod inotify;
 #[cfg(any(
     target_os = "freebsd",
@@ -309,7 +328,7 @@ impl EventHandler for std::sync::mpsc::Sender<Result<Event>> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum WatcherKind {
-    /// inotify backend (linux)
+    /// inotify backend (Linux, Android, FreeBSD 15+ with `freebsd_inotify`)
     Inotify,
     /// FS-Event backend (mac)
     Fsevent,
@@ -465,7 +484,11 @@ pub trait Watcher {
 }
 
 /// The recommended [`Watcher`] implementation for the current platform
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    all(target_os = "freebsd", feature = "freebsd_inotify"),
+))]
 pub type RecommendedWatcher = INotifyWatcher;
 /// The recommended [`Watcher`] implementation for the current platform
 #[cfg(all(target_os = "macos", not(feature = "macos_kqueue")))]
@@ -475,7 +498,7 @@ pub type RecommendedWatcher = FsEventWatcher;
 pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
 /// The recommended [`Watcher`] implementation for the current platform
 #[cfg(any(
-    target_os = "freebsd",
+    all(target_os = "freebsd", not(feature = "freebsd_inotify")),
     target_os = "openbsd",
     target_os = "netbsd",
     target_os = "dragonfly",
