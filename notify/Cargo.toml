@@ -22,6 +22,11 @@ default = ["macos_fsevent"]
 serde = ["notify-types/serde"]
 macos_kqueue = ["kqueue", "mio"]
 macos_fsevent = ["objc2-core-foundation", "objc2-core-services"]
+# Use inotify (instead of kqueue) as the FreeBSD backend. Requires FreeBSD
+# 14.4+, which provides inotify(2) and libc wrappers in the base system.
+# Forwards `freebsd-native` to `inotify-sys` so it resolves the inotify
+# symbols against libc rather than the userspace `libinotify` shim.
+freebsd_inotify = ["inotify", "inotify/freebsd-native"]
 serialization-compat-6 = ["notify-types/serialization-compat-6"]
 tokio = ["dep:tokio"]
 futures = ["dep:futures"]
@@ -70,7 +75,12 @@ windows-sys = { workspace = true, features = [
   "Win32_System_IO",
 ] }
 
-[target.'cfg(any(target_os="freebsd", target_os="openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "ios"))'.dependencies]
+[target.'cfg(target_os="freebsd")'.dependencies]
+kqueue.workspace = true
+mio.workspace = true
+inotify = { workspace = true, default-features = false, optional = true }
+
+[target.'cfg(any(target_os="openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "ios"))'.dependencies]
 kqueue.workspace = true
 mio.workspace = true
 
