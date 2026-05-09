@@ -1283,6 +1283,20 @@ mod tests {
     }
 
     #[test]
+    fn delete_self_dir() {
+        let tmpdir = testdir();
+        let dir = tmpdir.path().join("dir");
+        std::fs::create_dir(&dir).expect("create");
+
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_nonrecursively(&dir);
+
+        std::fs::remove_dir(&dir).expect("remove");
+
+        rx.wait_unordered([expected(&dir).remove_folder()]);
+    }
+
+    #[test]
     fn create_write_overwrite() {
         let tmpdir = testdir();
         let (mut watcher, mut rx) = watcher();

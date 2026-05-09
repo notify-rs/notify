@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- FIX: [windows] emit a Remove event when a watched directory is deleted, matching inotify and FSEvents
+
 ## notify 9.0.0-rc.4 (2026-05-02)
 
 - CHANGE: preserve watched path representation in `Event.paths` and `Watcher::watched_paths`; relative watch paths now produce relative event paths consistently across backends [#453] [#740]

@@ -491,9 +491,28 @@ unsafe extern "system" fn handle_event(
             return;
         }
         ERROR_ACCESS_DENIED => {
-            // This could happen when the watched directory is deleted or trashed, first check if it's the case.
-            // If so, unwatch the directory and return, otherwise, continue to handle the event.
+            // ReadDirectoryChangesW returns ERROR_ACCESS_DENIED both when the handle
+            // has been invalidated (usually because the watched dir was deleted) and
+            // when access has been revoked; use dir existence to tell which. For
+            // directory watches, emit a Remove event so consumers learn the watched
+            // path is gone, matching inotify IN_DELETE_SELF (#540) and FSEvents
+            // ROOT_CHANGED+ITEM_REMOVED. File watches are excluded because
+            // FILE_ACTION_REMOVED already fires for the file's parent.
             if !request.data.dir.exists() {
+                if request.data.file.is_none() {
+                    const KIND: EventKind = EventKind::Remove(RemoveKind::Folder);
+                    if request.event_kinds.matches(&KIND) {
+                        let path = normalize_path_separators(
+                            request.data.reported_dir.clone(),
+                            request.data.separator_style,
+                        );
+                        let event = Event::new(KIND).add_path(path);
+                        if let Ok(mut guard) = request.event_handler.lock() {
+                            let f: &mut dyn EventHandler = &mut *guard;
+                            f.handle_event(Ok(event));
+                        }
+                    }
+                }
                 request.unwatch();
                 ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
                 return;
@@ -1068,6 +1087,20 @@ pub mod tests {
         std::fs::remove_file(&file).expect("remove");
 
         rx.wait_ordered_exact([expected(&file).remove_any()]);
+    }
+
+    #[test]
+    fn delete_self_dir() {
+        let tmpdir = testdir();
+        let dir = tmpdir.path().join("dir");
+        std::fs::create_dir(&dir).expect("create");
+
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_nonrecursively(&dir);
+
+        std::fs::remove_dir(&dir).expect("remove");
+
+        rx.wait_unordered([expected(&dir).remove_folder()]);
     }
 
     #[test]
