@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- CHANGE: [macOS] improve FSEvents callback performance by avoiding unnecessary allocations and repeated handler locking
+
 ## notify 9.0.0-rc.4 (2026-05-02)
 
 - CHANGE: preserve watched path representation in `Event.paths` and `Watcher::watched_paths`; relative watch paths now produce relative event paths consistently across backends [#453] [#740]
