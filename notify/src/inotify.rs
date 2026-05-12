@@ -658,15 +658,24 @@ impl EventLoop {
                             return Err(Error::io_watch(e).add_path(path.requested));
                         }
                     };
-                    let metadata = WatchMetadata::new(
-                        &path,
-                        is_recursive,
-                        watch_self,
-                        existing_watch.map(|watch| &watch.metadata),
-                        self.watches
-                            .iter()
-                            .map(|(path, watch)| (path, &watch.metadata)),
-                    );
+                    let metadata = if let Some(existing_watch) = existing_watch {
+                        WatchMetadata::new(
+                            &path,
+                            is_recursive,
+                            watch_self,
+                            Some(&existing_watch.metadata),
+                            self.watches
+                                .iter()
+                                .map(|(path, watch)| (path, &watch.metadata)),
+                        )
+                    } else {
+                        WatchMetadata {
+                            is_recursive,
+                            reported_path: path.requested.clone(),
+                            is_user_watch: watch_self,
+                            user_is_recursive: watch_self && is_recursive,
+                        }
+                    };
 
                     self.watches.insert(
                         path.absolute.clone(),
@@ -842,10 +851,8 @@ impl EventLoop {
 /// return `DirEntry` when it is a directory
 fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry> {
     if let Ok(e) = e {
-        if let Ok(metadata) = e.metadata() {
-            if metadata.is_dir() {
-                return Some(e);
-            }
+        if e.file_type().is_dir() {
+            return Some(e);
         }
     }
     None

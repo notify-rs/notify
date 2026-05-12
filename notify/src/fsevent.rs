@@ -110,7 +110,37 @@ unsafe impl Sync for FsEventWatcher {}
 
 fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
     let mut evs = Vec::new();
+    translate_flags_with(flags, precise, |ev| evs.push(ev));
+    evs
+}
 
+// Keep this in sync with `translate_flags_with`; the callback uses it to avoid path clones.
+fn translated_event_count(flags: &StreamFlags, precise: bool) -> usize {
+    if flags.contains(StreamFlags::HISTORY_DONE) {
+        return 0;
+    }
+
+    let mut count = usize::from(flags.contains(StreamFlags::MUST_SCAN_SUBDIRS));
+    if !precise {
+        return count + 1;
+    }
+
+    let root_changed = flags.contains(StreamFlags::ROOT_CHANGED);
+    count += usize::from(root_changed);
+    count += usize::from(flags.contains(StreamFlags::MOUNT));
+    count += usize::from(flags.contains(StreamFlags::UNMOUNT));
+    count += usize::from(flags.contains(StreamFlags::ITEM_CREATED));
+    count += usize::from(flags.contains(StreamFlags::ITEM_RENAMED) && !root_changed);
+    count += usize::from(flags.contains(StreamFlags::INODE_META_MOD));
+    count += usize::from(flags.contains(StreamFlags::FINDER_INFO_MOD));
+    count += usize::from(flags.contains(StreamFlags::ITEM_CHANGE_OWNER));
+    count += usize::from(flags.contains(StreamFlags::ITEM_XATTR_MOD));
+    count += usize::from(flags.contains(StreamFlags::ITEM_MODIFIED));
+    count += usize::from(flags.contains(StreamFlags::ITEM_REMOVED) && !root_changed);
+    count
+}
+
+fn translate_flags_with(flags: StreamFlags, precise: bool, mut emit: impl FnMut(Event)) {
     // «Denotes a sentinel event sent to mark the end of the "historical" events
     // sent as a result of specifying a `sinceWhen` value in the FSEvents.Create
     // call that created this event stream. After invoking the client's callback
@@ -122,8 +152,28 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
     // As a result, we just stop processing here and return an empty vec, which
     // will ignore this completely and not emit any Events whatsoever.
     if flags.contains(StreamFlags::HISTORY_DONE) {
-        return evs;
+        return;
     }
+
+    // `ITEM_CLONED` can be present alongside other flags (including create/modify/remove).
+    // Preserve any existing `info` (like "root changed"), but annotate otherwise so downstream
+    // can detect and filter clone-related events. See https://github.com/notify-rs/notify/issues/465.
+    let clone_related = precise && flags.contains(StreamFlags::ITEM_CLONED);
+    let own_process_id = if precise && flags.contains(StreamFlags::OWN_EVENT) {
+        Some(std::process::id())
+    } else {
+        None
+    };
+
+    let mut emit_event = |mut ev: Event| {
+        if clone_related && ev.info().is_none() {
+            ev.attrs.set_info("is: clone");
+        }
+        if let Some(process_id) = own_process_id {
+            ev.attrs.set_process_id(process_id);
+        }
+        emit(ev);
+    };
 
     // FSEvents provides two possible hints as to why events were dropped,
     // however documentation on what those mean is scant, so we just pass them
@@ -131,7 +181,7 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
     // additional information is provided if the user wants it.
     if flags.contains(StreamFlags::MUST_SCAN_SUBDIRS) {
         let e = Event::new(EventKind::Other).set_flag(Flag::Rescan);
-        evs.push(if flags.contains(StreamFlags::USER_DROPPED) {
+        emit_event(if flags.contains(StreamFlags::USER_DROPPED) {
             e.set_info("rescan: user dropped")
         } else if flags.contains(StreamFlags::KERNEL_DROPPED) {
             e.set_info("rescan: kernel dropped")
@@ -143,8 +193,8 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
     // In imprecise mode, let's not even bother parsing the kind of the event
     // except for the above very special events.
     if !precise {
-        evs.push(Event::new(EventKind::Any));
-        return evs;
+        emit(Event::new(EventKind::Any));
+        return;
     }
 
     // A watched root changed (renamed or removed). If the flags provide a hint,
@@ -166,21 +216,21 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
             EventKind::Remove(RemoveKind::Any)
         };
 
-        evs.push(Event::new(kind).set_info("root changed"));
+        emit_event(Event::new(kind).set_info("root changed"));
     }
 
     // A path was mounted at the event path; we treat that as a create.
     if flags.contains(StreamFlags::MOUNT) {
-        evs.push(Event::new(EventKind::Create(CreateKind::Other)).set_info("mount"));
+        emit_event(Event::new(EventKind::Create(CreateKind::Other)).set_info("mount"));
     }
 
     // A path was unmounted at the event path; we treat that as a remove.
     if flags.contains(StreamFlags::UNMOUNT) {
-        evs.push(Event::new(EventKind::Remove(RemoveKind::Other)).set_info("mount"));
+        emit_event(Event::new(EventKind::Remove(RemoveKind::Other)).set_info("mount"));
     }
 
     if flags.contains(StreamFlags::ITEM_CREATED) {
-        evs.push(if flags.contains(StreamFlags::IS_DIR) {
+        emit_event(if flags.contains(StreamFlags::IS_DIR) {
             Event::new(EventKind::Create(CreateKind::Folder))
         } else if flags.contains(StreamFlags::IS_FILE) {
             Event::new(EventKind::Create(CreateKind::File))
@@ -202,7 +252,7 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
     // rename event.
     // Avoid emitting duplicate events around a root change by checking `root_changed`.
     if flags.contains(StreamFlags::ITEM_RENAMED) && !root_changed {
-        evs.push(Event::new(EventKind::Modify(ModifyKind::Name(
+        emit_event(Event::new(EventKind::Modify(ModifyKind::Name(
             RenameMode::Any,
         ))));
     }
@@ -211,26 +261,26 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
     // only emitted for some more precise subset of events... if so, will need
     // amending, but for now we have an Any-shaped bucket to put it in.
     if flags.contains(StreamFlags::INODE_META_MOD) {
-        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(
+        emit_event(Event::new(EventKind::Modify(ModifyKind::Metadata(
             MetadataKind::Any,
         ))));
     }
 
     if flags.contains(StreamFlags::FINDER_INFO_MOD) {
-        evs.push(
+        emit_event(
             Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Other)))
                 .set_info("meta: finder info"),
         );
     }
 
     if flags.contains(StreamFlags::ITEM_CHANGE_OWNER) {
-        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(
+        emit_event(Event::new(EventKind::Modify(ModifyKind::Metadata(
             MetadataKind::Ownership,
         ))));
     }
 
     if flags.contains(StreamFlags::ITEM_XATTR_MOD) {
-        evs.push(Event::new(EventKind::Modify(ModifyKind::Metadata(
+        emit_event(Event::new(EventKind::Modify(ModifyKind::Metadata(
             MetadataKind::Extended,
         ))));
     }
@@ -238,14 +288,14 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
     // This is specifically described as a data change, which we take to mean
     // is a content change.
     if flags.contains(StreamFlags::ITEM_MODIFIED) {
-        evs.push(Event::new(EventKind::Modify(ModifyKind::Data(
+        emit_event(Event::new(EventKind::Modify(ModifyKind::Data(
             DataChange::Content,
         ))));
     }
 
     // Avoid emitting duplicate events around a root change by checking `root_changed`.
     if flags.contains(StreamFlags::ITEM_REMOVED) && !root_changed {
-        evs.push(if flags.contains(StreamFlags::IS_DIR) {
+        emit_event(if flags.contains(StreamFlags::IS_DIR) {
             Event::new(EventKind::Remove(RemoveKind::Folder))
         } else if flags.contains(StreamFlags::IS_FILE) {
             Event::new(EventKind::Remove(RemoveKind::File))
@@ -262,25 +312,6 @@ fn translate_flags(flags: StreamFlags, precise: bool) -> Vec<Event> {
             }
         });
     }
-
-    // `ITEM_CLONED` can be present alongside other flags (including create/modify/remove).
-    // Preserve any existing `info` (like "root changed"), but annotate otherwise so downstream
-    // can detect and filter clone-related events. See https://github.com/notify-rs/notify/issues/465.
-    if flags.contains(StreamFlags::ITEM_CLONED) {
-        for ev in &mut evs {
-            if ev.info().is_none() {
-                ev.attrs.set_info("is: clone");
-            }
-        }
-    }
-
-    if flags.contains(StreamFlags::OWN_EVENT) {
-        for ev in &mut evs {
-            *ev = std::mem::take(ev).set_process_id(std::process::id());
-        }
-    }
-
-    evs
 }
 
 struct StreamContextInfo {
@@ -647,12 +678,14 @@ unsafe fn callback_impl(
 ) {
     let event_paths = event_paths.as_ptr() as *const *const libc::c_char;
     let info = info as *const StreamContextInfo;
-    let event_handler = &(*info).event_handler;
+    let event_handler_mutex = &(*info).event_handler;
+    let event_kinds = (*info).event_kinds;
+    let mut event_handler_guard = None;
 
     for p in 0..num_events {
         // Paths are not guaranteed to be valid UTF-8 (e.g. NFS); keep them as raw bytes.
         let path = CStr::from_ptr(*event_paths.add(p));
-        let path = PathBuf::from(OsStr::from_bytes(path.to_bytes()));
+        let path = Path::new(OsStr::from_bytes(path.to_bytes()));
 
         let raw_flag = *event_flags.as_ptr().add(p) as u32;
         let flag = StreamFlags::from_bits_truncate(raw_flag);
@@ -663,12 +696,12 @@ unsafe fn callback_impl(
         }
 
         let mut watch_match = None;
-        for (p, watch_info) in &(*info).recursive_info {
-            if path.starts_with(p) {
-                let matches_watch = if watch_info.is_recursive || &path == p {
+        for (watch_path, watch_info) in &(*info).recursive_info {
+            if path.starts_with(watch_path) {
+                let matches_watch = if watch_info.is_recursive || path == watch_path {
                     true
                 } else if let Some(parent_path) = path.parent() {
-                    parent_path == p
+                    parent_path == watch_path
                 } else {
                     false
                 };
@@ -676,12 +709,12 @@ unsafe fn callback_impl(
                 if matches_watch
                     && watch_match.as_ref().is_none_or(
                         |(matched_path, _): &(&PathBuf, &WatchInfo)| {
-                            p.as_os_str().as_bytes().len()
+                            watch_path.as_os_str().as_bytes().len()
                                 > matched_path.as_os_str().as_bytes().len()
                         },
                     )
                 {
-                    watch_match = Some((p, watch_info));
+                    watch_match = Some((watch_path, watch_info));
                 }
             }
         }
@@ -689,21 +722,37 @@ unsafe fn callback_impl(
         let Some((watch_path, watch_info)) = watch_match else {
             continue;
         };
-        let event_path = reported_path(watch_path, &watch_info.reported_path, &path);
+        let translated_count = translated_event_count(&flag, true);
+        if translated_count == 0 {
+            continue;
+        }
+        // Most FSEvents flags produce one Event; move the reported path in that case.
+        let mut event_path = Some(reported_path(watch_path, &watch_info.reported_path, path));
+        let single_translated_event = translated_count == 1;
 
         log::trace!("FSEvent: path = `{}`, flag = {:?}", path.display(), flag);
 
-        for ev in translate_flags(flag, true).into_iter() {
-            // TODO: precise
-            let ev = ev.add_path(event_path.clone());
-            // Filter events based on EventKindMask
-            if !(*info).event_kinds.matches(&ev.kind) {
-                continue; // Skip events that don't match the mask
+        translate_flags_with(flag, true, |mut ev| {
+            // Filter events based on EventKindMask before adding the path.
+            if !event_kinds.matches(&ev.kind) {
+                return;
             }
-            let mut event_handler = match event_handler.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => poisoned.into_inner(),
-            };
+            if single_translated_event {
+                ev.paths.push(
+                    event_path.take().unwrap_or_else(|| {
+                        reported_path(watch_path, &watch_info.reported_path, path)
+                    }),
+                );
+            } else {
+                ev.paths
+                    .push(event_path.as_ref().expect("translated event path").clone());
+            }
+
+            let event_handler =
+                event_handler_guard.get_or_insert_with(|| match event_handler_mutex.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                });
             // Protect against panicking event handlers, which would otherwise unwind into
             // the CoreServices callback.
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -712,7 +761,7 @@ unsafe fn callback_impl(
             .map_err(|_| {
                 log::error!("panic in FSEvents event handler; dropping event");
             });
-        }
+        });
     }
 }
 
