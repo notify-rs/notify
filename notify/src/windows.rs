@@ -493,12 +493,12 @@ unsafe extern "system" fn handle_event(
         ERROR_ACCESS_DENIED => {
             // ReadDirectoryChangesW returns ERROR_ACCESS_DENIED both when the handle
             // has been invalidated (usually because the watched dir was deleted) and
-            // when access has been revoked; use dir existence to tell which. For
-            // directory watches, emit a Remove event so consumers learn the watched
-            // path is gone, matching inotify IN_DELETE_SELF (#540) and FSEvents
-            // ROOT_CHANGED+ITEM_REMOVED. File watches are excluded because
+            // when access has been revoked; use successful dir absence to tell which.
+            // For directory watches, emit a Remove event so consumers learn the
+            // watched path is gone, matching inotify IN_DELETE_SELF (#540) and
+            // FSEvents ROOT_CHANGED+ITEM_REMOVED. File watches are excluded because
             // FILE_ACTION_REMOVED already fires for the file's parent.
-            if !request.data.dir.exists() {
+            if matches!(request.data.dir.try_exists(), Ok(false)) {
                 if request.data.file.is_none() {
                     const KIND: EventKind = EventKind::Remove(RemoveKind::Folder);
                     if request.event_kinds.matches(&KIND) {
@@ -820,7 +820,7 @@ pub mod tests {
     use std::os::windows::ffi::OsStringExt;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{mpsc, Arc};
+    use std::sync::{mpsc, Arc, Mutex};
     use std::thread;
     use tempfile::{tempdir, tempdir_in};
 
@@ -921,6 +921,52 @@ pub mod tests {
         let path = PathBuf::from(r"\\?\C:\very\long\file");
         let normalized = normalize_path_separators(path, SeparatorStyle::Slash);
         assert_eq!(normalized, PathBuf::from(r"\\?\C:/very/long/file"));
+    }
+
+    #[test]
+    fn access_denied_existence_error_does_not_emit_remove() {
+        use std::ptr;
+        use windows_sys::Win32::Foundation::{
+            CloseHandle, ERROR_ACCESS_DENIED, INVALID_HANDLE_VALUE,
+        };
+        use windows_sys::Win32::System::Threading::CreateSemaphoreW;
+        use windows_sys::Win32::System::IO::OVERLAPPED;
+
+        let invalid_path = PathBuf::from(OsString::from_wide(&[0]));
+        assert!(invalid_path.try_exists().is_err());
+
+        let complete_sem = unsafe { CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
+        assert!(!complete_sem.is_null());
+        assert_ne!(complete_sem, INVALID_HANDLE_VALUE);
+
+        let (event_tx, event_rx) = mpsc::channel();
+        let (action_tx, action_rx) = crate::unbounded();
+        let event_handler: Arc<Mutex<dyn crate::EventHandler>> = Arc::new(Mutex::new(event_tx));
+        let request = Box::new(super::ReadDirectoryRequest {
+            event_handler,
+            event_kinds: crate::EventKindMask::ALL,
+            buffer: [0u8; super::BUF_SIZE as usize],
+            handle: INVALID_HANDLE_VALUE,
+            data: super::ReadData {
+                dir: invalid_path.clone(),
+                reported_dir: invalid_path,
+                file: None,
+                complete_sem,
+                is_recursive: false,
+                separator_style: SeparatorStyle::Backslash,
+            },
+            action_tx,
+        });
+        let mut overlapped = Box::new(unsafe { std::mem::zeroed::<OVERLAPPED>() });
+        overlapped.hEvent = Box::into_raw(request) as _;
+
+        unsafe {
+            super::handle_event(ERROR_ACCESS_DENIED, 0, Box::into_raw(overlapped));
+            CloseHandle(complete_sem);
+        }
+
+        assert!(event_rx.try_recv().is_err());
+        assert!(action_rx.try_recv().is_err());
     }
 
     #[test]
