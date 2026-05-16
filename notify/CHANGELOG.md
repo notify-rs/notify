@@ -4,6 +4,7 @@
 
 - FIX: [windows] emit a Remove event when a watched directory is deleted, matching inotify and FSEvents
 - CHANGE: [macOS] improve FSEvents callback performance by avoiding unnecessary allocations and repeated handler locking
+- PERF: [kqueue] avoid filesystem walks for recursive kqueue unwatch
 
 ## notify 9.0.0-rc.4 (2026-05-02)
 
@@ -11,7 +12,6 @@
 - FIX: [kqueue] stop reporting arbitrary existing child paths for non-recursive directory write events [#644]
 - FIX: replace an existing watch when `watch` is called again for the same path, avoiding duplicate FSEvent paths and leaked Windows watch handles [#708]
 - DOCS: define `Watcher::watch` replacement behavior for an existing backend-resolved path [#708]
-- PERF: [kqueue] avoid filesystem walks for recursive kqueue unwatch
 
 ## notify 9.0.0-rc.3 (2026-04-16)
 
