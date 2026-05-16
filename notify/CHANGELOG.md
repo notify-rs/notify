@@ -4,6 +4,7 @@
 
 - FIX: [windows] emit a Remove event when a watched directory is deleted, matching inotify and FSEvents
 - CHANGE: [macOS] improve FSEvents callback performance by avoiding unnecessary allocations and repeated handler locking
+- PERF: [kqueue] avoid filesystem walks for recursive kqueue unwatch
 
 ## notify 9.0.0-rc.4 (2026-05-02)
 

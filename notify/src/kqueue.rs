@@ -489,26 +489,30 @@ impl EventLoop {
             None => return Err(Error::watch_not_found()),
             Some(watch) => {
                 if watch.is_recursive || remove_recursive {
+                    self.kqueue
+                        .remove_filename(&path, EventFilter::EVFILT_VNODE)
+                        .map_err(|e| Error::io(e).add_path(path.clone()))?;
+
+                    let mut remove_list = Vec::new();
                     let mut reset_list = Vec::new();
-                    for entry in WalkDir::new(path.clone())
-                        .follow_links(self.follow_symlinks)
-                        .into_iter()
-                    {
-                        let p = entry.map_err(map_walkdir_error)?.into_path();
-                        if let Some(user_is_recursive) = preserved_watch_mode(&p, &preserved_roots)
-                        {
-                            if !user_is_recursive || is_preserved_watch_root(&p, &preserved_roots) {
-                                reset_list.push(p);
+                    for p in self.watches.keys().filter(|p| p.starts_with(&path)) {
+                        if let Some(user_is_recursive) = preserved_watch_mode(p, &preserved_roots) {
+                            if !user_is_recursive || is_preserved_watch_root(p, &preserved_roots) {
+                                reset_list.push(p.clone());
                             }
                             continue;
                         }
 
+                        remove_list.push(p.clone());
+                    }
+
+                    for p in &remove_list {
                         self.kqueue
-                            .remove_filename(&p, EventFilter::EVFILT_VNODE)
+                            .remove_filename(p, EventFilter::EVFILT_VNODE)
                             .map_err(|e| Error::io(e).add_path(p.clone()))?;
-                        if p != path {
-                            self.watches.remove(&p);
-                        }
+                    }
+                    for p in remove_list {
+                        self.watches.remove(&p);
                     }
                     for p in reset_list {
                         if let Some(watch) = self.watches.get_mut(&p) {
@@ -694,6 +698,27 @@ mod tests {
             .collect();
         assert_eq!(watched.get(dir.path()), Some(&true));
         assert_eq!(watched.get(&child), Some(&false));
+
+        Ok(())
+    }
+
+    #[test]
+    fn recursive_remove_uses_tracked_watches() -> std::result::Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
+        let child = dir.path().join("child");
+        std::fs::write(&child, "")?;
+
+        let kqueue = kqueue::Watcher::new()?;
+        let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
+
+        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
+        assert!(event_loop.watches.contains_key(&child));
+
+        std::fs::remove_file(&child)?;
+        event_loop.remove_watch(dir.path().to_path_buf(), false)?;
+
+        assert!(!event_loop.watches.contains_key(&child));
 
         Ok(())
     }
