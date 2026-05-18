@@ -1197,7 +1197,7 @@ mod tests {
     /// Without the fix, `push_remove_event` would see `was_created() == true`
     /// and cancel the entire queue, swallowing the removal.
     #[test]
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "macos_fsevent"))]
     fn remove_event_not_swallowed_after_create() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
         let dir_path = dir.path().canonicalize()?;

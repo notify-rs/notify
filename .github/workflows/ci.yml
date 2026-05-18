@@ -131,21 +131,21 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --verbose ${{ matrix.features }}
 
       - name: Build examples
-        run: cargo build --examples --verbose
+        run: cargo build --examples --verbose ${{ matrix.features }}
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --workspace --exclude examples --verbose ${{ matrix.features }}
         
       - name: Run tests with futures
         if: matrix.rust == 'stable'
-        run: cargo test --verbose --features futures
+        run: cargo test --workspace --exclude examples --verbose ${{ matrix.features }} --features futures
 
       - name: Run tests with tokio
         if: matrix.rust == 'stable'
-        run: cargo test --verbose --features tokio
+        run: cargo test --workspace --exclude examples --verbose ${{ matrix.features }} --features tokio
 
   # FreeBSD
   freebsd:
