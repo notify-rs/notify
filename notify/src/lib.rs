@@ -613,6 +613,38 @@ mod tests {
         path == expected || canonical_expected.is_some_and(|canonical| path == canonical)
     }
 
+    fn watch_with_retry(
+        watcher: &mut RecommendedWatcher,
+        path: impl AsRef<Path>,
+        recursive_mode: RecursiveMode,
+    ) -> Result<()> {
+        const FSEVENT_WATCH_RETRIES: usize = 5;
+        const FSEVENT_WATCH_RETRY_BASE_DELAY: Duration = Duration::from_millis(50);
+
+        let path = path.as_ref();
+        for attempt in 0..=FSEVENT_WATCH_RETRIES {
+            match watcher.watch(path, recursive_mode) {
+                Ok(()) => return Ok(()),
+                Err(err)
+                    if RecommendedWatcher::kind() == WatcherKind::Fsevent
+                        && matches!(
+                            &err.kind,
+                            ErrorKind::Generic(message)
+                                if message == "unable to start FSEvent stream"
+                        )
+                        && attempt < FSEVENT_WATCH_RETRIES =>
+                {
+                    let _ = watcher.unwatch(path);
+                    let delay_factor = 1u32 << attempt;
+                    std::thread::sleep(FSEVENT_WATCH_RETRY_BASE_DELAY * delay_factor);
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        unreachable!("watch() retries must return or error")
+    }
+
     fn update_paths_unwatch_with_retry(
         watcher: &mut RecommendedWatcher,
         path: &Path,
@@ -648,7 +680,7 @@ mod tests {
         // set up the watcher
         let (tx, rx) = std::sync::mpsc::channel();
         let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
-        watcher.watch(dir.path(), RecursiveMode::Recursive)?;
+        watch_with_retry(&mut watcher, dir.path(), RecursiveMode::Recursive)?;
 
         // create a new file
         let file_path = dir.path().join("file.txt");
@@ -683,7 +715,7 @@ mod tests {
 
         let (tx, rx) = std::sync::mpsc::channel();
         let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
-        watcher.watch(&relative_dir, RecursiveMode::Recursive)?;
+        watch_with_retry(&mut watcher, &relative_dir, RecursiveMode::Recursive)?;
 
         assert!(
             watcher
@@ -838,8 +870,8 @@ mod tests {
         let (tx, _rx) = std::sync::mpsc::channel();
         let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
 
-        watcher.watch(&dir_a, RecursiveMode::Recursive)?;
-        watcher.watch(&dir_b, RecursiveMode::NonRecursive)?;
+        watch_with_retry(&mut watcher, &dir_a, RecursiveMode::Recursive)?;
+        watch_with_retry(&mut watcher, &dir_b, RecursiveMode::NonRecursive)?;
 
         let watched = canonical_watch_set(watcher.watched_paths()?);
         assert!(watched.contains(&(canonical_or_path(&dir_a), RecursiveMode::Recursive)));
@@ -863,8 +895,8 @@ mod tests {
         let (tx, _rx) = std::sync::mpsc::channel();
         let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
 
-        watcher.watch(dir.path(), RecursiveMode::Recursive)?;
-        watcher.watch(dir.path(), RecursiveMode::NonRecursive)?;
+        watch_with_retry(&mut watcher, dir.path(), RecursiveMode::Recursive)?;
+        watch_with_retry(&mut watcher, dir.path(), RecursiveMode::NonRecursive)?;
 
         let watched = canonical_watch_set(watcher.watched_paths()?);
         assert!(watched.contains(&(root.clone(), RecursiveMode::NonRecursive)));
@@ -892,8 +924,8 @@ mod tests {
         let (tx, _rx) = std::sync::mpsc::channel();
         let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
 
-        watcher.watch(&child, RecursiveMode::NonRecursive)?;
-        watcher.watch(dir.path(), RecursiveMode::Recursive)?;
+        watch_with_retry(&mut watcher, &child, RecursiveMode::NonRecursive)?;
+        watch_with_retry(&mut watcher, dir.path(), RecursiveMode::Recursive)?;
 
         let watched = canonical_watch_set(watcher.watched_paths()?);
         assert!(watched.contains(&(canonical_or_path(dir.path()), RecursiveMode::Recursive)));
@@ -923,8 +955,8 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
 
-        watcher.watch(&relative_dir, RecursiveMode::Recursive)?;
-        watcher.watch(&child, RecursiveMode::Recursive)?;
+        watch_with_retry(&mut watcher, &relative_dir, RecursiveMode::Recursive)?;
+        watch_with_retry(&mut watcher, &child, RecursiveMode::Recursive)?;
         watcher.unwatch(&relative_dir)?;
 
         let watched = watcher.watched_paths()?;
