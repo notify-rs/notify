@@ -745,16 +745,35 @@ mod tests {
         let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
 
         // start watching a and b
-        watcher.update_paths(vec![
-            PathOp::Watch(
-                dir_a.clone(),
-                WatchPathConfig::new(RecursiveMode::Recursive),
-            ),
-            PathOp::Watch(
-                dir_b.clone(),
-                WatchPathConfig::new(RecursiveMode::Recursive),
-            ),
-        ])?;
+        const FSEVENT_UPDATE_PATHS_RETRIES: usize = 5;
+        const FSEVENT_UPDATE_PATHS_RETRY_BASE_DELAY: Duration = Duration::from_millis(50);
+        for attempt in 0..=FSEVENT_UPDATE_PATHS_RETRIES {
+            match watcher.update_paths(vec![
+                PathOp::Watch(
+                    dir_a.clone(),
+                    WatchPathConfig::new(RecursiveMode::Recursive),
+                ),
+                PathOp::Watch(
+                    dir_b.clone(),
+                    WatchPathConfig::new(RecursiveMode::Recursive),
+                ),
+            ]) {
+                Ok(()) => break,
+                Err(err)
+                    if RecommendedWatcher::kind() == WatcherKind::Fsevent
+                        && matches!(
+                            &err.source.kind,
+                            ErrorKind::Generic(message)
+                            if message == "unable to start FSEvent stream"
+                        )
+                        && attempt < FSEVENT_UPDATE_PATHS_RETRIES =>
+                {
+                    let delay_factor = 1u32 << attempt;
+                    std::thread::sleep(FSEVENT_UPDATE_PATHS_RETRY_BASE_DELAY * delay_factor);
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
 
         // create file1 in both a and b
         let a_file1 = dir_a.join("file1");
