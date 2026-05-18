@@ -137,15 +137,15 @@ jobs:
         run: cargo build --examples --verbose ${{ matrix.features }}
 
       - name: Run tests
-        run: cargo test --verbose ${{ matrix.features }}
+        run: cargo test --workspace --exclude examples --verbose ${{ matrix.features }}
         
       - name: Run tests with futures
         if: matrix.rust == 'stable'
-        run: cargo test --verbose ${{ matrix.features }} --features futures
+        run: cargo test --workspace --exclude examples --verbose ${{ matrix.features }} --features futures
 
       - name: Run tests with tokio
         if: matrix.rust == 'stable'
-        run: cargo test --verbose ${{ matrix.features }} --features tokio
+        run: cargo test --workspace --exclude examples --verbose ${{ matrix.features }} --features tokio
 
   # FreeBSD
   freebsd:
