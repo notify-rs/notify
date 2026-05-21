@@ -339,11 +339,12 @@ impl FsEventWatcher {
     fn from_event_handler(
         event_handler: Arc<Mutex<dyn EventHandler>>,
         event_kinds: EventKindMask,
+        latency: cf::CFTimeInterval,
     ) -> Result<Self> {
         Ok(FsEventWatcher {
             paths: cf::CFMutableArray::empty(),
             since_when: fs::kFSEventStreamEventIdSinceNow,
-            latency: 0.0,
+            latency,
             flags: fs::kFSEventStreamCreateFlagFileEvents
                 | fs::kFSEventStreamCreateFlagNoDefer
                 | fs::kFSEventStreamCreateFlagWatchRoot,
@@ -768,7 +769,11 @@ unsafe fn callback_impl(
 impl Watcher for FsEventWatcher {
     /// Create a new watcher.
     fn new<F: EventHandler>(event_handler: F, config: Config) -> Result<Self> {
-        Self::from_event_handler(Arc::new(Mutex::new(event_handler)), config.event_kinds())
+        Self::from_event_handler(
+            Arc::new(Mutex::new(event_handler)),
+            config.event_kinds(),
+            config.fsevent_latency().as_secs_f64(),
+        )
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {

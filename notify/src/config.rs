@@ -73,6 +73,9 @@ pub struct Config {
 
     /// See [Config::with_windows_path_separator_style]
     windows_path_separator_style: WindowsPathSeparatorStyle,
+
+    /// See [Config::with_fsevent_latency]
+    fsevent_latency: Duration,
 }
 
 impl Config {
@@ -206,6 +209,32 @@ impl Config {
     pub fn windows_path_separator_style(&self) -> WindowsPathSeparatorStyle {
         self.windows_path_separator_style
     }
+
+    /// For the [`FsEventWatcher`](crate::FsEventWatcher) backend.
+    ///
+    /// The latency passed to `FSEventStreamCreate`: how long the FSEvents service waits
+    /// after hearing about an event from the kernel before invoking the callback. A larger
+    /// value lets the system coalesce bursts of changes into fewer callbacks at the cost of
+    /// higher delivery latency.
+    ///
+    /// This watcher is created with `kFSEventStreamCreateFlagNoDefer`, so the first event in
+    /// an idle period is delivered immediately; only subsequent events get coalesced within
+    /// the latency window.
+    ///
+    /// The default is [`Duration::ZERO`].
+    ///
+    /// This can't be changed during runtime.
+    #[must_use]
+    pub fn with_fsevent_latency(mut self, latency: Duration) -> Self {
+        self.fsevent_latency = latency;
+        self
+    }
+
+    /// Returns current setting
+    #[must_use]
+    pub fn fsevent_latency(&self) -> Duration {
+        self.fsevent_latency
+    }
 }
 
 impl Default for Config {
@@ -216,6 +245,7 @@ impl Default for Config {
             follow_symlinks: true,
             event_kinds: EventKindMask::ALL,
             windows_path_separator_style: WindowsPathSeparatorStyle::Auto,
+            fsevent_latency: Duration::ZERO,
         }
     }
 }
@@ -357,5 +387,17 @@ mod tests {
             config.windows_path_separator_style(),
             WindowsPathSeparatorStyle::Slash
         );
+    }
+
+    #[test]
+    fn config_default_fsevent_latency_is_zero() {
+        assert_eq!(Config::default().fsevent_latency(), Duration::ZERO);
+    }
+
+    #[test]
+    fn config_with_fsevent_latency() {
+        let latency = Duration::from_millis(250);
+        let config = Config::default().with_fsevent_latency(latency);
+        assert_eq!(config.fsevent_latency(), latency);
     }
 }
