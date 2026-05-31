@@ -1055,6 +1055,18 @@ pub mod tests {
     }
 
     #[test]
+    fn recursive_temp_dir_write_reports_created_file_kind() {
+        let tmpdir = tempdir().expect("create tempdir");
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(tmpdir.path());
+
+        let path = tmpdir.path().join("new.txt");
+        std::fs::write(&path, b"hello").expect("write");
+
+        rx.wait_ordered([expected(&path).create_file()]);
+    }
+
+    #[test]
     fn write_file() {
         let tmpdir = testdir();
         let (mut watcher, mut rx) = watcher();
