@@ -76,7 +76,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
     },
     time::{Duration, Instant},
 };
@@ -172,7 +172,13 @@ impl DebounceEventHandler for std::sync::mpsc::Sender<DebounceEventResult> {
 /// Comes with either a vec of events or vec of errors.
 pub type DebounceEventResult = Result<Vec<DebouncedEvent>, Vec<Error>>;
 
-type DebounceData<T> = Arc<Mutex<DebounceDataInner<T>>>;
+type DebounceData<T> = Arc<SharedDebounceData<T>>;
+
+#[derive(Debug)]
+struct SharedDebounceData<T> {
+    inner: Mutex<DebounceDataInner<T>>,
+    changed: Condvar,
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Queue {
@@ -283,7 +289,6 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     /// Add an error entry to re-send later on
     pub fn add_error(&mut self, error: Error) {
         log::trace!("raw error: {error:?}");
-
         self.errors.push(error);
     }
 
@@ -577,7 +582,9 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     }
 
     fn set_stop(&self) {
+        let _lock = self.data.inner.lock().unwrap();
         self.stop.store(true, Ordering::Relaxed);
+        self.data.changed.notify_all();
     }
 
     #[deprecated = "`Debouncer` provides all methods from `Watcher` itself now. Remove `.watcher()` and use those methods directly."]
@@ -589,7 +596,7 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     fn add_root(&mut self, path: impl Into<PathBuf>, recursive_mode: RecursiveMode) {
         let path = path.into();
 
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.inner.lock().unwrap();
 
         match data
             .roots
@@ -606,7 +613,7 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     }
 
     fn remove_root(&mut self, path: impl AsRef<Path>) {
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.inner.lock().unwrap();
 
         data.roots.retain(|(root, _)| !root.starts_with(&path));
 
@@ -734,7 +741,10 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
     file_id_cache: C,
     config: notify::Config,
 ) -> Result<Debouncer<T, C>, Error> {
-    let data = Arc::new(Mutex::new(DebounceDataInner::new(file_id_cache, timeout)));
+    let data = Arc::new(SharedDebounceData {
+        inner: Mutex::new(DebounceDataInner::new(file_id_cache, timeout)),
+        changed: Condvar::new(),
+    });
     let stop = Arc::new(AtomicBool::new(false));
 
     let tick_div = 4;
@@ -759,17 +769,26 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
     let thread = std::thread::Builder::new()
         .name("notify-rs debouncer loop".to_string())
         .spawn(move || loop {
+            let mut lock = data_c.inner.lock().unwrap();
+            while lock.queues.is_empty()
+                && lock.errors.is_empty()
+                && lock.rescan_event.is_none()
+                && !stop_c.load(Ordering::Acquire)
+            {
+                lock = data_c.changed.wait(lock).unwrap();
+            }
             if stop_c.load(Ordering::Acquire) {
                 break;
             }
+            drop(lock);
             std::thread::sleep(tick);
-            let send_data;
-            let errors;
-            {
-                let mut lock = data_c.lock().unwrap();
-                send_data = lock.debounced_events();
-                errors = lock.errors();
+            if stop_c.load(Ordering::Acquire) {
+                break;
             }
+            lock = data_c.inner.lock().unwrap();
+            let send_data = lock.debounced_events();
+            let errors = lock.errors();
+            drop(lock);
             if !send_data.is_empty() {
                 event_handler.handle_event(Ok(send_data));
             }
@@ -781,13 +800,13 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
     let data_c = data.clone();
     let watcher = T::new(
         move |e: Result<Event, Error>| {
-            let mut lock = data_c.lock().unwrap();
-
+            let mut lock = data_c.inner.lock().unwrap();
             match e {
                 Ok(e) => lock.add_event(e),
                 // can't have multiple TX, so we need to pipe that through our debouncer
                 Err(e) => lock.add_error(e),
             }
+            data_c.changed.notify_all();
         },
         config,
     )?;
@@ -1434,7 +1453,7 @@ mod tests {
         assert!(err.origin.is_some());
         assert_eq!(err.remaining.len(), 1);
 
-        let roots = debouncer.data.lock().unwrap().roots.clone();
+        let roots = debouncer.data.inner.lock().unwrap().roots.clone();
         assert_eq!(
             roots,
             VecDeque::from([(PathBuf::from("ok1"), RecursiveMode::Recursive)])
