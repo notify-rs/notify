@@ -124,6 +124,7 @@ fn normalize_path_separators(path: PathBuf, separator_style: SeparatorStyle) -> 
 
 #[derive(Clone)]
 struct ReadData {
+    watch_path: PathBuf,   // key used in the server watch map
     dir: PathBuf,          // directory that is being watched
     reported_dir: PathBuf, // directory prefix used in emitted event paths
     file: Option<PathBuf>, // if a file is being watched, this is its reported path
@@ -143,7 +144,9 @@ struct ReadDirectoryRequest {
 
 impl ReadDirectoryRequest {
     fn unwatch(&self) {
-        let _ = self.action_tx.send(Action::Unwatch(self.data.dir.clone()));
+        let _ = self
+            .action_tx
+            .send(Action::Unwatch(self.data.watch_path.clone()));
     }
 }
 
@@ -343,6 +346,7 @@ impl ReadDirectoryChangesServer {
         } else {
             None
         };
+        let watched_path = path.absolute.clone();
         // every watcher gets its own semaphore to signal completion
         let semaphore = unsafe { CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if semaphore.is_null() || semaphore == INVALID_HANDLE_VALUE {
@@ -354,6 +358,7 @@ impl ReadDirectoryChangesServer {
             );
         }
         let rd = ReadData {
+            watch_path: watched_path.clone(),
             dir: dir_target,
             reported_dir,
             file: wf,
@@ -371,18 +376,23 @@ impl ReadDirectoryChangesServer {
             },
             reported_path: path.requested,
         };
-        let watched_path = path.absolute;
-        if let Some(ws) = self.watches.remove(&watched_path) {
-            stop_watch(&ws, &self.meta_tx);
-        }
-        self.watches.insert(watched_path.clone(), ws);
-        start_read(
+        if let Err(err) = start_read(
             &rd,
             self.event_handler.clone(),
             self.event_kinds,
             handle,
             self.tx.clone(),
-        );
+        ) {
+            unsafe {
+                CloseHandle(handle);
+                CloseHandle(semaphore);
+            }
+            return Err(err);
+        }
+        if let Some(ws) = self.watches.remove(&watched_path) {
+            stop_watch(&ws, &self.meta_tx);
+        }
+        self.watches.insert(watched_path.clone(), ws);
         Ok(watched_path)
     }
 
@@ -419,7 +429,7 @@ fn start_read(
     event_kinds: EventKindMask,
     handle: HANDLE,
     action_tx: Sender<Action>,
-) {
+) -> Result<()> {
     let request = Box::new(ReadDirectoryRequest {
         event_handler,
         event_kinds,
@@ -465,15 +475,24 @@ fn start_read(
         );
 
         if ret == 0 {
+            let err = std::io::Error::last_os_error();
             // error reading. retransmute request memory to allow drop.
             // Because of the error, ownership of the `overlapped` alloc was not passed
             // over to `ReadDirectoryChangesW`.
             // So we can claim ownership back.
             let _overlapped = Box::from_raw(overlapped);
             let request = Box::from_raw(request);
+            let path = request
+                .data
+                .file
+                .clone()
+                .unwrap_or_else(|| request.data.reported_dir.clone());
             ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+            return Err(Error::io(err).add_path(path));
         }
     }
+
+    Ok(())
 }
 
 unsafe extern "system" fn handle_event(
@@ -483,6 +502,13 @@ unsafe extern "system" fn handle_event(
 ) {
     let overlapped: Box<OVERLAPPED> = Box::from_raw(overlapped);
     let request: Box<ReadDirectoryRequest> = Box::from_raw(overlapped.hEvent as *mut _);
+
+    fn emit_event(event_handler: &Mutex<dyn EventHandler>, res: Result<Event>) {
+        if let Ok(mut guard) = event_handler.lock() {
+            let f: &mut dyn EventHandler = &mut *guard;
+            f.handle_event(res);
+        }
+    }
 
     match error_code {
         ERROR_OPERATION_ABORTED => {
@@ -507,10 +533,7 @@ unsafe extern "system" fn handle_event(
                             request.data.separator_style,
                         );
                         let event = Event::new(KIND).add_path(path);
-                        if let Ok(mut guard) = request.event_handler.lock() {
-                            let f: &mut dyn EventHandler = &mut *guard;
-                            f.handle_event(Ok(event));
-                        }
+                        emit_event(&request.event_handler, Ok(event));
                     }
                 }
                 request.unwatch();
@@ -535,13 +558,14 @@ unsafe extern "system" fn handle_event(
     }
 
     // Get the next request queued up as soon as possible
-    start_read(
+    let rearm_error = start_read(
         &request.data,
         request.event_handler.clone(),
         request.event_kinds,
         request.handle,
-        request.action_tx,
-    );
+        request.action_tx.clone(),
+    )
+    .err();
 
     // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length
     // string as its last member. Each struct contains an offset for getting the next entry in
@@ -562,6 +586,7 @@ unsafe extern "system" fn handle_event(
         // prepend root to get a full path
         let relative_path =
             PathBuf::from(OsString::from_wide(trim_leading_separators(encoded_path)));
+        let absolute_path = request.data.dir.join(&relative_path);
         let path = normalize_path_separators(
             request.data.reported_dir.join(relative_path),
             request.data.separator_style,
@@ -582,13 +607,6 @@ unsafe extern "system" fn handle_event(
             );
 
             let newe = Event::new(EventKind::Any).add_path(path);
-
-            fn emit_event(event_handler: &Mutex<dyn EventHandler>, res: Result<Event>) {
-                if let Ok(mut guard) = event_handler.lock() {
-                    let f: &mut dyn EventHandler = &mut *guard;
-                    f.handle_event(res);
-                }
-            }
 
             // Filter events based on EventKindMask
             let event_kinds = request.event_kinds;
@@ -619,7 +637,17 @@ unsafe extern "system" fn handle_event(
                         event_handler(Ok(ev));
                     }
                     FILE_ACTION_ADDED => {
-                        let kind = EventKind::Create(CreateKind::Any);
+                        let kind =
+                            std::fs::metadata(&absolute_path).map_or(CreateKind::Any, |metadata| {
+                                if metadata.is_dir() {
+                                    CreateKind::Folder
+                                } else if metadata.is_file() {
+                                    CreateKind::File
+                                } else {
+                                    CreateKind::Any
+                                }
+                            });
+                        let kind = EventKind::Create(kind);
                         let ev = newe.set_kind(kind);
                         event_handler(Ok(ev));
                     }
@@ -643,6 +671,11 @@ unsafe extern "system" fn handle_event(
         }
         cur_offset = cur_offset.offset(cur_entry.NextEntryOffset as isize);
         cur_entry = ptr::read_unaligned(cur_offset as *const FILE_NOTIFY_INFORMATION);
+    }
+
+    if let Some(err) = rearm_error {
+        emit_event(&request.event_handler, Err(err));
+        request.unwatch();
     }
 }
 
@@ -718,8 +751,7 @@ impl ReadDirectoryChangesWatcher {
         let ack_pb = self
             .cmd_rx
             .recv()
-            .map_err(|_| Error::generic("Error receiving from command channel"))?
-            .map_err(|e| Error::generic(&format!("Error in watcher: {:?}", e)))?;
+            .map_err(|_| Error::generic("Error receiving from command channel"))??;
 
         if pb.as_path() != ack_pb.as_path() {
             Err(Error::generic(&format!(
@@ -925,6 +957,7 @@ pub mod tests {
 
     #[test]
     fn access_denied_existence_error_does_not_emit_remove() {
+        use crate::event::{EventKind, RemoveKind};
         use std::ptr;
         use windows_sys::Win32::Foundation::{
             CloseHandle, ERROR_ACCESS_DENIED, INVALID_HANDLE_VALUE,
@@ -940,7 +973,7 @@ pub mod tests {
         assert_ne!(complete_sem, INVALID_HANDLE_VALUE);
 
         let (event_tx, event_rx) = mpsc::channel();
-        let (action_tx, action_rx) = crate::unbounded();
+        let (action_tx, _action_rx) = crate::unbounded();
         let event_handler: Arc<Mutex<dyn crate::EventHandler>> = Arc::new(Mutex::new(event_tx));
         let request = Box::new(super::ReadDirectoryRequest {
             event_handler,
@@ -948,6 +981,7 @@ pub mod tests {
             buffer: [0u8; super::BUF_SIZE as usize],
             handle: INVALID_HANDLE_VALUE,
             data: super::ReadData {
+                watch_path: invalid_path.clone(),
                 dir: invalid_path.clone(),
                 reported_dir: invalid_path,
                 file: None,
@@ -965,8 +999,49 @@ pub mod tests {
             CloseHandle(complete_sem);
         }
 
-        assert!(event_rx.try_recv().is_err());
-        assert!(action_rx.try_recv().is_err());
+        let events = event_rx.try_iter().collect::<Vec<_>>();
+        assert!(
+            !events.iter().any(|res| matches!(
+                res,
+                Ok(event) if event.kind == EventKind::Remove(RemoveKind::Folder)
+            )),
+            "unexpected remove event: {events:#?}"
+        );
+    }
+
+    #[test]
+    fn request_unwatch_uses_watch_key_not_read_directory() {
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+
+        let watch_path = PathBuf::from(r"C:\tmp\file.txt");
+        let read_dir = PathBuf::from(r"C:\tmp");
+        let (event_tx, _event_rx) = mpsc::channel::<crate::Result<crate::Event>>();
+        let (action_tx, action_rx) = crate::unbounded();
+        let event_handler: Arc<Mutex<dyn crate::EventHandler>> = Arc::new(Mutex::new(event_tx));
+
+        let request = super::ReadDirectoryRequest {
+            event_handler,
+            event_kinds: crate::EventKindMask::ALL,
+            buffer: [0u8; super::BUF_SIZE as usize],
+            handle: INVALID_HANDLE_VALUE,
+            data: super::ReadData {
+                watch_path: watch_path.clone(),
+                dir: read_dir,
+                reported_dir: PathBuf::from(r"C:\tmp"),
+                file: Some(watch_path.clone()),
+                complete_sem: INVALID_HANDLE_VALUE,
+                is_recursive: false,
+                separator_style: SeparatorStyle::Backslash,
+            },
+            action_tx,
+        };
+
+        request.unwatch();
+
+        match action_rx.recv().expect("receive action") {
+            super::Action::Unwatch(path) => assert_eq!(path, watch_path),
+            _ => panic!("unexpected action"),
+        }
     }
 
     #[test]
@@ -993,7 +1068,7 @@ pub mod tests {
 
         let expected_path =
             normalize_path_separators(slash_watch_path.join("entry"), SeparatorStyle::Slash);
-        rx.wait_unordered([expected(&expected_path).create_any()]);
+        rx.wait_unordered([expected(&expected_path).create_file()]);
 
         Ok(())
     }
@@ -1050,8 +1125,20 @@ pub mod tests {
         let path = tmpdir.path().join("entry");
         std::fs::File::create_new(&path).expect("create");
 
-        rx.wait_ordered_exact([expected(&path).create_any()])
+        rx.wait_ordered_exact([expected(&path).create_file()])
             .ensure_no_tail();
+    }
+
+    #[test]
+    fn recursive_temp_dir_write_reports_created_file_kind() {
+        let tmpdir = tempdir().expect("create tempdir");
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(tmpdir.path());
+
+        let path = tmpdir.path().join("new.txt");
+        std::fs::write(&path, b"hello").expect("write");
+
+        rx.wait_ordered([expected(&path).create_file()]);
     }
 
     #[test]
@@ -1164,7 +1251,7 @@ pub mod tests {
         std::fs::rename(&overwriting_file, &overwritten_file).expect("rename");
 
         rx.wait_ordered_exact([
-            expected(&overwriting_file).create_any(),
+            expected(&overwriting_file).create(),
             expected(&overwriting_file).modify_any().multiple(),
             expected(&overwritten_file).remove_any(),
             expected(&overwriting_file).rename_from(),
@@ -1182,7 +1269,7 @@ pub mod tests {
         let path = tmpdir.path().join("entry");
         std::fs::create_dir(&path).expect("create");
 
-        rx.wait_ordered_exact([expected(&path).create_any()])
+        rx.wait_ordered_exact([expected(&path).create_folder()])
             .ensure_no_tail();
     }
 
@@ -1299,7 +1386,7 @@ pub mod tests {
         std::fs::remove_file(&new_path).expect("remove");
 
         rx.wait_ordered_exact([
-            expected(&file1).create_any(),
+            expected(&file1).create(),
             expected(&file1).modify_any().multiple(),
             expected(&file2).modify_any().multiple(),
             expected(&file1).rename_from(),
@@ -1409,18 +1496,17 @@ pub mod tests {
         watcher.watch_recursively(&tmpdir);
 
         std::fs::create_dir_all(&nested9).expect("create_dir_all");
-        rx.wait_ordered_exact([
-            expected(&nested1).create_any(),
-            expected(&nested2).create_any(),
-            expected(&nested3).create_any(),
-            expected(&nested4).create_any(),
-            expected(&nested5).create_any(),
-            expected(&nested6).create_any(),
-            expected(&nested7).create_any(),
-            expected(&nested8).create_any(),
-            expected(&nested9).create_any(),
-        ])
-        .ensure_no_tail();
+        rx.wait_ordered([
+            expected(&nested1).create_folder(),
+            expected(&nested2).create_folder(),
+            expected(&nested3).create_folder(),
+            expected(&nested4).create_folder(),
+            expected(&nested5).create_folder(),
+            expected(&nested6).create_folder(),
+            expected(&nested7).create_folder(),
+            expected(&nested8).create_folder(),
+            expected(&nested9).create_folder(),
+        ]);
     }
 
     #[test]
@@ -1493,7 +1579,7 @@ pub mod tests {
             .recv_timeout(Duration::from_secs(5))
             .expect("receive first event")
             .expect("first event result");
-        assert_eq!(first_event, expected(&first).create_any());
+        assert_eq!(first_event, expected(&first).create_folder());
 
         while let Ok(res) = event_rx.recv_timeout(Duration::from_millis(200)) {
             let event = res.expect("event result");
