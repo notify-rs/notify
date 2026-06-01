@@ -2,6 +2,10 @@
 
 ## unreleased
 
+- PERF: park the debouncer thread to avoid idle polling [#933]
+
+[#933]: https://github.com/notify-rs/notify/pull/933
+
 ## debouncer-full 0.8.0-rc.2 (2026-05-02)
 
 - CHANGE: upgrade `notify` to 9.0.0-rc.4
