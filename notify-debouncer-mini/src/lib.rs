@@ -158,39 +158,30 @@ where
     }
 }
 
-#[cfg(feature = "crossbeam-channel")]
-impl DebounceEventHandler for crossbeam_channel::Sender<DebounceEventResult> {
-    fn handle_event(&mut self, event: DebounceEventResult) {
-        let _ = self.send(event);
-    }
+macro_rules! impl_channel_debounce_handler {
+    ($channel:ty, $send:ident) => {
+        impl DebounceEventHandler for $channel {
+            fn handle_event(&mut self, event: DebounceEventResult) {
+                let _ = self.$send(event);
+            }
+        }
+    };
 }
+
+#[cfg(feature = "crossbeam-channel")]
+impl_channel_debounce_handler!(crossbeam_channel::Sender<DebounceEventResult>, send);
 
 #[cfg(feature = "flume")]
-impl DebounceEventHandler for flume::Sender<DebounceEventResult> {
-    fn handle_event(&mut self, event: DebounceEventResult) {
-        let _ = self.send(event);
-    }
-}
+impl_channel_debounce_handler!(flume::Sender<DebounceEventResult>, send);
 
 #[cfg(feature = "futures")]
-impl DebounceEventHandler for futures::channel::mpsc::UnboundedSender<DebounceEventResult> {
-    fn handle_event(&mut self, event: DebounceEventResult) {
-        let _ = self.unbounded_send(event);
-    }
-}
+impl_channel_debounce_handler!(futures::channel::mpsc::UnboundedSender<DebounceEventResult>, unbounded_send);
 
 #[cfg(feature = "tokio")]
-impl DebounceEventHandler for tokio::sync::mpsc::UnboundedSender<DebounceEventResult> {
-    fn handle_event(&mut self, event: DebounceEventResult) {
-        let _ = self.send(event);
-    }
-}
+impl_channel_debounce_handler!(tokio::sync::mpsc::UnboundedSender<DebounceEventResult>, send);
 
-impl DebounceEventHandler for std::sync::mpsc::Sender<DebounceEventResult> {
-    fn handle_event(&mut self, event: DebounceEventResult) {
-        let _ = self.send(event);
-    }
-}
+// std
+impl_channel_debounce_handler!(std::sync::mpsc::Sender<DebounceEventResult>, send);
 
 /// Deduplicate event data entry
 #[derive(Debug)]
