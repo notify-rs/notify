@@ -56,9 +56,8 @@
 //!
 //! As all file events are sourced from notify, the [known problems](https://docs.rs/notify/latest/notify/#known-problems) section applies here too.
 use std::{
-    collections::HashMap,
     path::PathBuf,
-    sync::mpsc::{RecvTimeoutError, Sender},
+    sync::mpsc::{Receiver, RecvTimeoutError, Sender},
     time::{Duration, Instant},
 };
 
@@ -112,7 +111,6 @@ pub struct Config {
     batch_mode: bool,
     notify_config: notify::Config,
 }
-
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -175,156 +173,118 @@ impl_channel_debounce_handler!(crossbeam_channel::Sender<DebounceEventResult>, s
 impl_channel_debounce_handler!(flume::Sender<DebounceEventResult>, send);
 
 #[cfg(feature = "futures")]
-impl_channel_debounce_handler!(futures::channel::mpsc::UnboundedSender<DebounceEventResult>, unbounded_send);
+impl_channel_debounce_handler!(
+    futures::channel::mpsc::UnboundedSender<DebounceEventResult>,
+    unbounded_send
+);
 
 #[cfg(feature = "tokio")]
-impl_channel_debounce_handler!(tokio::sync::mpsc::UnboundedSender<DebounceEventResult>, send);
+impl_channel_debounce_handler!(
+    tokio::sync::mpsc::UnboundedSender<DebounceEventResult>,
+    send
+);
 
 // std
 impl_channel_debounce_handler!(std::sync::mpsc::Sender<DebounceEventResult>, send);
-
-/// Deduplicate event data entry
-#[derive(Debug)]
-struct EventData {
-    /// Insertion Time
-    insert: Instant,
-    /// Last Update
-    update: Instant,
-}
-
-impl EventData {
-    #[inline(always)]
-    fn new_any(time: Instant) -> Self {
-        Self {
-            insert: time,
-            update: time,
-        }
-    }
-}
 
 /// A result of debounced events.
 /// Comes with either a vec of events or an immediate error.
 pub type DebounceEventResult = Result<Vec<DebouncedEvent>, Error>;
 
-enum InnerEvent {
-    NotifyEvent(Result<Event, Error>),
-    Shutdown,
+enum DebounceError {
+    Notify(Error),
+    Expired,
+    Done,
 }
 
-struct DebounceDataInner {
-    /// Path -> Event data
-    event_map: HashMap<PathBuf, EventData>,
+struct Deadline {
     /// timeout used to compare all events against, config
     timeout: Duration,
     /// Whether to time events exactly, or batch multiple together.
     /// This reduces the amount of updates but possibly waiting longer than necessary for some events
     batch_mode: bool,
     /// next debounce deadline
-    debounce_deadline: Option<Instant>,
+    expired_after: Option<Instant>,
 }
-
-impl DebounceDataInner {
+impl Deadline {
     pub fn new(timeout: Duration, batch_mode: bool) -> Self {
         Self {
             timeout,
-            debounce_deadline: None,
-            event_map: Default::default(),
             batch_mode,
+            expired_after: None,
         }
-    }
-
-    /// Returns a duration to wait for the next tick
-    #[inline]
-    pub fn next_tick(&self) -> Option<Duration> {
-        self.debounce_deadline
-            .map(|deadline| deadline.saturating_duration_since(Instant::now()))
-    }
-
-    /// Retrieve a vec of debounced events, removing them if not continuous
-    ///
-    /// Updates the internal tracker for the next tick
-    pub fn debounced_events(&mut self) -> Vec<DebouncedEvent> {
-        let mut events_expired = Vec::with_capacity(self.event_map.len());
-        let mut data_back = HashMap::with_capacity(self.event_map.len());
-        // TODO: perfect fit for drain_filter https://github.com/rust-lang/rust/issues/59618
-        // reset deadline
-        self.debounce_deadline = None;
-        for (path, event) in self.event_map.drain() {
-            if event.update.elapsed() >= self.timeout {
-                log::trace!("debounced event: {:?}", DebouncedEventKind::Any);
-                events_expired.push(DebouncedEvent::new(path, DebouncedEventKind::Any));
-            } else if event.insert.elapsed() >= self.timeout {
-                log::trace!("debounced event: {:?}", DebouncedEventKind::AnyContinuous);
-                // set a new deadline, otherwise an 'AnyContinuous' will never resolve to a final 'Any' event
-                Self::check_deadline(
-                    self.batch_mode,
-                    self.timeout,
-                    &mut self.debounce_deadline,
-                    &event,
-                );
-                data_back.insert(path.clone(), event);
-                events_expired.push(DebouncedEvent::new(path, DebouncedEventKind::AnyContinuous));
-            } else {
-                // event is neither old enough for continuous event, nor is it expired for an Any event
-                Self::check_deadline(
-                    self.batch_mode,
-                    self.timeout,
-                    &mut self.debounce_deadline,
-                    &event,
-                );
-                data_back.insert(path, event);
-            }
-        }
-        self.event_map = data_back;
-        events_expired
     }
 
     /// Updates the deadline if none is set or when batch mode is disabled and the current deadline would miss the next event.
     /// The new deadline is calculated based on the last event update time and the debounce timeout.
-    ///
-    /// can't sub-function this due to `event_map.drain()` holding `&mut self`
-    fn check_deadline(
-        batch_mode: bool,
-        timeout: Duration,
-        debounce_deadline: &mut Option<Instant>,
-        event: &EventData,
-    ) {
-        let deadline_candidate = event.update + timeout;
-        match debounce_deadline {
-            Some(current_deadline) => {
-                // shorten deadline to not delay the event
-                // with batch mode simply wait for the incoming deadline and delay the event until then
-                if !batch_mode && *current_deadline > deadline_candidate {
-                    *debounce_deadline = Some(deadline_candidate);
-                }
-            }
-            None => *debounce_deadline = Some(deadline_candidate),
+    pub fn update(&mut self, last_change_time: Instant) {
+        if (self.expired_after.is_some() && !self.batch_mode) || self.expired_after.is_none() {
+            self.reset(last_change_time);
         }
     }
 
-    /// Add new event to debouncer cache
-    #[inline(always)]
-    fn add_event(&mut self, event: Event) {
-        log::trace!("raw event: {event:?}");
-        let time = Instant::now();
-        if self.debounce_deadline.is_none() {
-            self.debounce_deadline = Some(time + self.timeout);
-        }
-        for path in event.paths.into_iter() {
-            if let Some(v) = self.event_map.get_mut(&path) {
-                v.update = time;
-            } else {
-                self.event_map.insert(path, EventData::new_any(time));
-            }
+    pub fn reset(&mut self, new_start: Instant) {
+        let candidate = new_start + self.timeout;
+        let reset_is_allowed = self
+            .expired_after
+            .map_or(true, |current| current > candidate);
+        if reset_is_allowed {
+            self.expired_after = Some(candidate);
         }
     }
+
+    pub fn unset(&mut self) {
+        self.expired_after = None;
+    }
+
+    pub fn remaining(&self) -> Option<Duration> {
+        self.expired_after
+            .map(|d| d.saturating_duration_since(Instant::now()))
+    }
+}
+
+struct Instants {
+    inserted: Instant,
+    updated: Instant,
+}
+
+type EventCache = std::collections::HashMap<PathBuf, Instants>;
+
+/// Retrieve a vec of debounced events, removing them if not continuous
+///
+/// Updates the internal tracker for the next tick
+fn debounced_events(events: &mut EventCache, deadline: &mut Deadline) -> Vec<DebouncedEvent> {
+    deadline.unset();
+
+    let mut events_expired = Vec::with_capacity(events.len());
+    events.retain(|path, event| {
+        if event.updated.elapsed() >= deadline.timeout {
+            log::trace!("debounced event: {:?}", DebouncedEventKind::Any);
+            events_expired.push(DebouncedEvent::new(path.clone(), DebouncedEventKind::Any));
+            false
+        } else if event.inserted.elapsed() >= deadline.timeout {
+            log::trace!("debounced event: {:?}", DebouncedEventKind::AnyContinuous);
+            // set a new deadline, otherwise an 'AnyContinuous' will never resolve to a final 'Any' event
+            deadline.update(event.updated);
+            events_expired.push(DebouncedEvent::new(
+                path.clone(),
+                DebouncedEventKind::AnyContinuous,
+            ));
+            true
+        } else {
+            // event is neither old enough for continuous event, nor is it expired for an Any event
+            deadline.update(event.updated);
+            true
+        }
+    });
+    events_expired
 }
 
 /// Debouncer guard, stops the debouncer on drop
 #[derive(Debug)]
 pub struct Debouncer<T: Watcher> {
     watcher: T,
-    stop_channel: Sender<InnerEvent>,
+    tx: Sender<Result<Event, DebounceError>>,
 }
 
 impl<T: Watcher> Debouncer<T> {
@@ -336,8 +296,7 @@ impl<T: Watcher> Debouncer<T> {
 
 impl<T: Watcher> Drop for Debouncer<T> {
     fn drop(&mut self) {
-        // send error just means that it is stopped, can't do much else
-        let _ = self.stop_channel.send(InnerEvent::Shutdown);
+        let _ = self.tx.send(Err(DebounceError::Done));
     }
 }
 
@@ -349,59 +308,73 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher>(
     let (tx, rx) = std::sync::mpsc::channel();
 
     std::thread::Builder::new()
-        .name("notify-rs debouncer loop".to_string())
+        .name("notify-rs debouncer loop".into())
         .spawn(move || {
-            let mut data = DebounceDataInner::new(config.timeout, config.batch_mode);
-            let mut run = true;
-            while run {
-                match data.next_tick() {
-                    Some(timeout) => {
-                        // wait for wakeup
-                        match rx.recv_timeout(timeout) {
-                            Ok(InnerEvent::NotifyEvent(event_result)) => match event_result {
-                                Ok(event) => data.add_event(event),
-                                Err(err) => event_handler.handle_event(Err(err)),
-                            },
-                            Err(RecvTimeoutError::Timeout) => {
-                                let send_data = data.debounced_events();
-                                if !send_data.is_empty() {
-                                    event_handler.handle_event(Ok(send_data));
-                                }
-                            }
-                            Ok(InnerEvent::Shutdown) | Err(RecvTimeoutError::Disconnected) => {
-                                run = false
-                            }
+            let mut events_by_path = EventCache::default();
+            let mut deadline = Deadline::new(config.timeout, config.batch_mode);
+            loop {
+                match recv_with_deadline(&rx, &deadline) {
+                    Ok(event) => {
+                        insert_event_into_cache(&mut events_by_path, &mut deadline, event);
+                    }
+                    Err(DebounceError::Notify(err)) => {
+                        event_handler.handle_event(Err(err));
+                    }
+                    Err(DebounceError::Expired) => {
+                        let send_data = debounced_events(&mut events_by_path, &mut deadline);
+                        if !send_data.is_empty() {
+                            event_handler.handle_event(Ok(send_data));
                         }
                     }
-                    None => match rx.recv() {
-                        // no timeout, wait for event
-                        Ok(InnerEvent::NotifyEvent(e)) => match e {
-                            Ok(event) => data.add_event(event),
-                            Err(err) => event_handler.handle_event(Err(err)),
-                        },
-                        Ok(InnerEvent::Shutdown) => run = false,
-                        Err(_) => run = false,
-                    },
+                    Err(DebounceError::Done) => break,
                 }
             }
         })?;
 
-    let tx_c = tx.clone();
+    let tx2 = tx.clone();
+
     let watcher = T::new(
-        move |e: Result<Event, Error>| {
-            // send failure can't be handled, would need a working channel to signal that
-            // also probably means that we're in the process of shutting down
-            let _ = tx_c.send(InnerEvent::NotifyEvent(e));
-        },
+        // send failure can't be handled, would need a working channel to signal that
+        // also probably means that we're in the process of shutting down
+        move |res: Result<_, Error>| _ = tx2.send(res.map_err(DebounceError::Notify)),
         config.notify_config,
     )?;
 
-    let guard = Debouncer {
-        watcher,
-        stop_channel: tx,
-    };
+    Ok(Debouncer { watcher, tx })
+}
 
-    Ok(guard)
+fn recv_with_deadline(
+    rx: &Receiver<Result<Event, DebounceError>>,
+    deadline: &Deadline,
+) -> Result<Event, DebounceError> {
+    match deadline.remaining() {
+        // wait until deadline
+        Some(timeout) => rx.recv_timeout(timeout).unwrap_or_else(|err| {
+            Err(match err {
+                RecvTimeoutError::Timeout => DebounceError::Expired,
+                RecvTimeoutError::Disconnected => DebounceError::Done,
+            })
+        }),
+        // no deadline, wait indefinitely for event
+        None => rx.recv().unwrap_or(Err(DebounceError::Done)),
+    }
+}
+
+fn insert_event_into_cache(cache: &mut EventCache, deadline: &mut Deadline, event: Event) {
+    log::trace!("raw event: {event:?}");
+    let now = Instant::now();
+    if deadline.expired_after.is_none() {
+        deadline.reset(now);
+    }
+    for path in event.paths {
+        cache
+            .entry(path)
+            .and_modify(|v| v.updated = now)
+            .or_insert_with(|| Instants {
+                inserted: now,
+                updated: now,
+            });
+    }
 }
 
 /// Short function to create a new debounced watcher with the recommended debouncer.
@@ -448,9 +421,8 @@ mod tests {
                 .expect("received an error");
 
             for event in events {
-                if event == DebouncedEvent::new(file_path.clone(), DebouncedEventKind::Any)
-                    || event
-                        == DebouncedEvent::new(file_path.canonicalize()?, DebouncedEventKind::Any)
+                if event.kind == DebouncedEventKind::Any
+                    && (event.path == file_path || event.path == file_path.canonicalize()?)
                 {
                     return Ok(());
                 }
