@@ -17,7 +17,8 @@
 use crate::paths::{absolute_path, reported_path};
 use crate::{event::*, PathOp};
 use crate::{
-    unbounded, Config, Error, EventHandler, EventKindMask, RecursiveMode, Result, Sender, Watcher,
+    unbounded, Config, Error, EventHandler, EventKindMask, RecursiveMode, Result, Sender,
+    WatchFilter, Watcher,
 };
 use objc2_core_foundation as cf;
 use objc2_core_services as fs;
@@ -76,8 +77,10 @@ pub struct FsEventWatcher {
 
 #[derive(Clone, Debug)]
 struct WatchInfo {
+    is_dir: bool,
     is_recursive: bool,
     reported_path: PathBuf,
+    watch_filter: WatchFilter,
 }
 
 #[derive(Debug)]
@@ -355,9 +358,42 @@ impl FsEventWatcher {
         })
     }
 
-    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+    fn watch_inner(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> Result<()> {
+        // Validate before touching the running stream: bouncing it for a call that errors
+        // would lose events delivered in the stop/recreate window (streams start at
+        // `kFSEventStreamEventIdSinceNow`). With an accept-all filter and no existing
+        // filtered watches, rejection is impossible, so skip the extra validation syscalls;
+        // `append_path` re-validates either way and stays authoritative.
+        if !watch_filter.is_accept_all()
+            || self
+                .recursive_info
+                .values()
+                .any(|info| !info.watch_filter.is_accept_all())
+        {
+            if !path.exists() {
+                return Err(Error::path_not_found().add_path(path.into()));
+            }
+            let canonical_path = path.to_path_buf().canonicalize()?;
+            let path_is_dir = canonical_path.is_dir();
+            crate::paths::check_watch_barriers(
+                &canonical_path,
+                path,
+                path_is_dir,
+                recursive_mode.is_recursive() && path_is_dir,
+                &watch_filter,
+                self.recursive_info
+                    .iter()
+                    .map(|(path, info)| (path, info.is_dir, info.is_recursive, &info.watch_filter)),
+            )?;
+        }
+
         self.stop();
-        let result = self.append_path(path, recursive_mode);
+        let result = self.append_path(path, recursive_mode, watch_filter);
         self.run()?;
         result
     }
@@ -377,7 +413,7 @@ impl FsEventWatcher {
 
         let result = crate::update_paths(ops, |op| match op {
             crate::PathOp::Watch(path, config) => self
-                .append_path(&path, config.recursive_mode())
+                .append_path(&path, config.recursive_mode(), config.watch_filter())
                 .map_err(|e| (PathOp::Watch(path, config), e)),
             crate::PathOp::Unwatch(path) => self
                 .remove_path(&path)
@@ -477,11 +513,29 @@ impl FsEventWatcher {
     }
 
     // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
-    fn append_path(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+    fn append_path(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> Result<()> {
         if !path.exists() {
             return Err(Error::path_not_found().add_path(path.into()));
         }
         let canonical_path = path.to_path_buf().canonicalize()?;
+        // Filter on the canonical path: that is the form FSEvents reports at event time, so
+        // watch-time and event-time filtering see the same paths (e.g. /private/tmp, not /tmp).
+        let path_is_dir = canonical_path.is_dir();
+        crate::paths::check_watch_barriers(
+            &canonical_path,
+            path,
+            path_is_dir,
+            recursive_mode.is_recursive() && path_is_dir,
+            &watch_filter,
+            self.recursive_info
+                .iter()
+                .map(|(path, info)| (path, info.is_dir, info.is_recursive, &info.watch_filter)),
+        )?;
         let mut err: *mut cf::CFError = ptr::null_mut();
         let Some(cf_path) = (unsafe { path_to_cfstring_ref(&canonical_path, &mut err) }) else {
             if let Some(err) = NonNull::new(err) {
@@ -499,8 +553,10 @@ impl FsEventWatcher {
         self.recursive_info.insert(
             canonical_path,
             WatchInfo {
+                is_dir: path_is_dir,
                 is_recursive: recursive_mode.is_recursive(),
                 reported_path: path.to_path_buf(),
+                watch_filter,
             },
         );
         Ok(())
@@ -707,6 +763,10 @@ unsafe fn callback_impl(
                     false
                 };
 
+                // FSEvents cannot selectively watch directories, so directory filtering happens
+                // at delivery time: suppress the event if a directory between the watch root and
+                // the event path is rejected. The filter runs last so the user closure is only
+                // invoked for entries that would actually win the longest-prefix selection.
                 if matches_watch
                     && watch_match.as_ref().is_none_or(
                         |(matched_path, _): &(&PathBuf, &WatchInfo)| {
@@ -714,6 +774,7 @@ unsafe fn callback_impl(
                                 > matched_path.as_os_str().as_bytes().len()
                         },
                     )
+                    && watch_info.watch_filter.allows_event_under(watch_path, path)
                 {
                     watch_match = Some((watch_path, watch_info));
                 }
@@ -776,8 +837,13 @@ impl Watcher for FsEventWatcher {
         )
     }
 
-    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path, recursive_mode)
+    fn watch_filtered(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> Result<()> {
+        self.watch_inner(path, recursive_mode, watch_filter)
     }
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {
@@ -866,7 +932,7 @@ unsafe fn path_to_cfstring_ref(
 mod tests {
     use std::time::Duration;
 
-    use crate::{ErrorKind, WatchPathConfig};
+    use crate::{ErrorKind, PathOp, WatchPathConfig};
 
     use super::*;
     use crate::test::*;
@@ -881,10 +947,18 @@ mod tests {
         let mut watcher = FsEventWatcher::new(|_| {}, Config::default()).unwrap();
 
         watcher
-            .append_path(dir.path(), RecursiveMode::Recursive)
+            .append_path(
+                dir.path(),
+                RecursiveMode::Recursive,
+                WatchFilter::accept_all(),
+            )
             .expect("watch recursively");
         watcher
-            .append_path(dir.path(), RecursiveMode::NonRecursive)
+            .append_path(
+                dir.path(),
+                RecursiveMode::NonRecursive,
+                WatchFilter::accept_all(),
+            )
             .expect("rewatch non-recursively");
 
         let watched = watcher.watched_paths().expect("watched paths");
@@ -893,6 +967,90 @@ mod tests {
             vec![(dir.path().to_path_buf(), RecursiveMode::NonRecursive)]
         );
         assert_eq!(watcher.paths.iter().count(), 1);
+    }
+
+    #[test]
+    fn update_paths_carries_watch_filter() {
+        let dir = tempfile::tempdir().unwrap();
+        let excluded = dir.path().join("excluded");
+        std::fs::create_dir(&excluded).unwrap();
+        let mut watcher = FsEventWatcher::new(|_| {}, Config::default()).unwrap();
+
+        watcher
+            .update_paths_inner(vec![PathOp::Watch(
+                dir.path().to_path_buf(),
+                WatchPathConfig::new(RecursiveMode::Recursive).with_watch_filter(
+                    WatchFilter::with_filter(|p: &Path| {
+                        p.file_name() != Some(std::ffi::OsStr::new("excluded"))
+                    }),
+                ),
+            )])
+            .expect("update paths");
+
+        let canonical_root = dir.path().canonicalize().unwrap();
+        let info = watcher
+            .recursive_info
+            .get(&canonical_root)
+            .expect("stored watch info");
+        assert!(
+            !info.watch_filter.should_watch(&excluded),
+            "update_paths must store the filter on the FSEvents watch"
+        );
+    }
+
+    #[test]
+    fn update_paths_rejected_root_does_not_add_watch() {
+        let dir = tempfile::tempdir().unwrap();
+        let rejecting = dir.path().canonicalize().unwrap();
+        let mut watcher = FsEventWatcher::new(|_| {}, Config::default()).unwrap();
+
+        let result = watcher.update_paths_inner(vec![PathOp::Watch(
+            dir.path().to_path_buf(),
+            WatchPathConfig::new(RecursiveMode::Recursive).with_watch_filter(
+                WatchFilter::with_filter(move |p: &Path| p != rejecting.as_path()),
+            ),
+        )]);
+
+        assert!(
+            matches!(result, Err(ref e) if matches!(e.source.kind, ErrorKind::PathExcluded)),
+            "update_paths must fail with PathExcluded for rejected roots, got {result:?}"
+        );
+        assert!(watcher.recursive_info.is_empty());
+        assert_eq!(watcher.paths.iter().count(), 0);
+    }
+
+    #[test]
+    fn rejected_root_preserves_existing_watch() {
+        let dir = tempfile::tempdir().unwrap();
+        let rejecting = dir.path().canonicalize().unwrap();
+        let mut watcher = FsEventWatcher::new(|_| {}, Config::default()).unwrap();
+
+        watcher
+            .append_path(
+                dir.path(),
+                RecursiveMode::Recursive,
+                WatchFilter::accept_all(),
+            )
+            .expect("watch recursively");
+        let before = watcher.watched_paths().expect("watched paths");
+        let cf_path_count = watcher.paths.iter().count();
+
+        let result = watcher.append_path(
+            dir.path(),
+            RecursiveMode::Recursive,
+            WatchFilter::with_filter(move |p: &Path| p != rejecting.as_path()),
+        );
+
+        assert!(
+            matches!(result, Err(ref e) if matches!(e.kind, ErrorKind::PathExcluded)),
+            "watching a rejected root must fail with PathExcluded: {result:?}"
+        );
+        assert_eq!(
+            watcher.watched_paths().expect("watched paths"),
+            before,
+            "a failed rewatch must leave existing watches unchanged"
+        );
+        assert_eq!(watcher.paths.iter().count(), cf_path_count);
     }
 
     #[test]
@@ -1043,8 +1201,10 @@ mod tests {
         recursive_info.insert(
             PathBuf::from("/tmp"),
             WatchInfo {
+                is_dir: true,
                 is_recursive: true,
                 reported_path: PathBuf::from("/tmp"),
+                watch_filter: WatchFilter::accept_all(),
             },
         );
 
@@ -1096,6 +1256,220 @@ mod tests {
     }
 
     #[test]
+    fn callback_impl_suppresses_events_under_filtered_directories() {
+        use std::ffi::CString;
+        use std::ptr;
+
+        let (tx, rx) = std::sync::mpsc::channel::<crate::Result<Event>>();
+        let event_handler: Arc<Mutex<dyn EventHandler>> = Arc::new(Mutex::new(tx));
+
+        let mut recursive_info = HashMap::new();
+        recursive_info.insert(
+            PathBuf::from("/tmp"),
+            WatchInfo {
+                is_dir: true,
+                is_recursive: true,
+                reported_path: PathBuf::from("/tmp"),
+                watch_filter: WatchFilter::with_filter(|p: &Path| {
+                    p.file_name() != Some(OsStr::new("excluded"))
+                }),
+            },
+        );
+
+        let context = Box::new(StreamContextInfo {
+            event_handler,
+            recursive_info,
+            event_kinds: EventKindMask::ALL,
+        });
+        let context_ptr = Box::into_raw(context) as *mut libc::c_void;
+
+        let suppressed = CString::new("/tmp/excluded/file.txt").expect("cstring");
+        let delivered = CString::new("/tmp/other/file.txt").expect("cstring");
+        let path_ptrs = [suppressed.as_ptr(), delivered.as_ptr()];
+        let event_paths = NonNull::new(path_ptrs.as_ptr() as *mut libc::c_void).unwrap();
+
+        let flags = (StreamFlags::ITEM_CREATED | StreamFlags::IS_FILE).bits()
+            as fs::FSEventStreamEventFlags;
+        let flags_arr = [flags, flags];
+        let event_flags =
+            NonNull::new(flags_arr.as_ptr() as *mut fs::FSEventStreamEventFlags).unwrap();
+
+        let ids_arr = [0 as fs::FSEventStreamEventId, 1 as fs::FSEventStreamEventId];
+        let event_ids = NonNull::new(ids_arr.as_ptr() as *mut fs::FSEventStreamEventId).unwrap();
+
+        let res = std::panic::catch_unwind(|| unsafe {
+            callback_impl(
+                ptr::null(),
+                context_ptr,
+                2,
+                event_paths,
+                event_flags,
+                event_ids,
+            );
+        });
+        unsafe {
+            drop(Box::from_raw(context_ptr as *mut StreamContextInfo));
+        }
+
+        assert!(res.is_ok(), "callback_impl should not panic");
+
+        let event = rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("expected event for the non-excluded path")
+            .expect("expected Ok(Event)");
+        assert_eq!(event.paths, vec![PathBuf::from("/tmp/other/file.txt")]);
+        assert!(
+            rx.try_recv().is_err(),
+            "event under the excluded directory must be suppressed"
+        );
+    }
+
+    #[test]
+    fn callback_impl_delivers_excluded_directory_own_event() {
+        use std::ffi::CString;
+        use std::ptr;
+
+        let (tx, rx) = std::sync::mpsc::channel::<crate::Result<Event>>();
+        let event_handler: Arc<Mutex<dyn EventHandler>> = Arc::new(Mutex::new(tx));
+
+        let mut recursive_info = HashMap::new();
+        recursive_info.insert(
+            PathBuf::from("/tmp"),
+            WatchInfo {
+                is_dir: true,
+                is_recursive: true,
+                reported_path: PathBuf::from("/tmp"),
+                watch_filter: WatchFilter::with_filter(|p: &Path| {
+                    p.file_name() != Some(OsStr::new("excluded"))
+                }),
+            },
+        );
+
+        let context = Box::new(StreamContextInfo {
+            event_handler,
+            recursive_info,
+            event_kinds: EventKindMask::ALL,
+        });
+        let context_ptr = Box::into_raw(context) as *mut libc::c_void;
+
+        // The excluded directory's *own* creation is delivered (its watched parent sees it);
+        // only events strictly beneath it are suppressed. This matches the walk-based
+        // backends, which report the excluded directory's own create/remove.
+        let own = CString::new("/tmp/excluded").expect("cstring");
+        let child = CString::new("/tmp/excluded/inside.txt").expect("cstring");
+        let path_ptrs = [own.as_ptr(), child.as_ptr()];
+        let event_paths = NonNull::new(path_ptrs.as_ptr() as *mut libc::c_void).unwrap();
+
+        let dir_flags =
+            (StreamFlags::ITEM_CREATED | StreamFlags::IS_DIR).bits() as fs::FSEventStreamEventFlags;
+        let file_flags = (StreamFlags::ITEM_CREATED | StreamFlags::IS_FILE).bits()
+            as fs::FSEventStreamEventFlags;
+        let flags_arr = [dir_flags, file_flags];
+        let event_flags =
+            NonNull::new(flags_arr.as_ptr() as *mut fs::FSEventStreamEventFlags).unwrap();
+
+        let ids_arr = [0 as fs::FSEventStreamEventId, 1 as fs::FSEventStreamEventId];
+        let event_ids = NonNull::new(ids_arr.as_ptr() as *mut fs::FSEventStreamEventId).unwrap();
+
+        let res = std::panic::catch_unwind(|| unsafe {
+            callback_impl(
+                ptr::null(),
+                context_ptr,
+                2,
+                event_paths,
+                event_flags,
+                event_ids,
+            );
+        });
+        unsafe {
+            drop(Box::from_raw(context_ptr as *mut StreamContextInfo));
+        }
+
+        assert!(res.is_ok(), "callback_impl should not panic");
+
+        let event = rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("expected the excluded directory's own event")
+            .expect("expected Ok(Event)");
+        assert_eq!(event.paths, vec![PathBuf::from("/tmp/excluded")]);
+        assert!(
+            rx.try_recv().is_err(),
+            "events inside the excluded directory must be suppressed"
+        );
+    }
+
+    #[test]
+    fn callback_impl_suppresses_deeply_nested_events() {
+        use std::ffi::CString;
+        use std::ptr;
+
+        let (tx, rx) = std::sync::mpsc::channel::<crate::Result<Event>>();
+        let event_handler: Arc<Mutex<dyn EventHandler>> = Arc::new(Mutex::new(tx));
+
+        let mut recursive_info = HashMap::new();
+        recursive_info.insert(
+            PathBuf::from("/tmp"),
+            WatchInfo {
+                is_dir: true,
+                is_recursive: true,
+                reported_path: PathBuf::from("/tmp"),
+                watch_filter: WatchFilter::with_filter(|p: &Path| {
+                    p.file_name() != Some(OsStr::new("excluded"))
+                }),
+            },
+        );
+
+        let context = Box::new(StreamContextInfo {
+            event_handler,
+            recursive_info,
+            event_kinds: EventKindMask::ALL,
+        });
+        let context_ptr = Box::into_raw(context) as *mut libc::c_void;
+
+        // A rejected directory anywhere in the ancestor chain suppresses the event, however
+        // deeply nested; a deep path with no rejected ancestor is still delivered.
+        let suppressed = CString::new("/tmp/excluded/a/b/deep.txt").expect("cstring");
+        let delivered = CString::new("/tmp/kept/a/b/deep.txt").expect("cstring");
+        let path_ptrs = [suppressed.as_ptr(), delivered.as_ptr()];
+        let event_paths = NonNull::new(path_ptrs.as_ptr() as *mut libc::c_void).unwrap();
+
+        let flags = (StreamFlags::ITEM_CREATED | StreamFlags::IS_FILE).bits()
+            as fs::FSEventStreamEventFlags;
+        let flags_arr = [flags, flags];
+        let event_flags =
+            NonNull::new(flags_arr.as_ptr() as *mut fs::FSEventStreamEventFlags).unwrap();
+
+        let ids_arr = [0 as fs::FSEventStreamEventId, 1 as fs::FSEventStreamEventId];
+        let event_ids = NonNull::new(ids_arr.as_ptr() as *mut fs::FSEventStreamEventId).unwrap();
+
+        let res = std::panic::catch_unwind(|| unsafe {
+            callback_impl(
+                ptr::null(),
+                context_ptr,
+                2,
+                event_paths,
+                event_flags,
+                event_ids,
+            );
+        });
+        unsafe {
+            drop(Box::from_raw(context_ptr as *mut StreamContextInfo));
+        }
+
+        assert!(res.is_ok(), "callback_impl should not panic");
+
+        let event = rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("expected the deeply nested non-excluded event")
+            .expect("expected Ok(Event)");
+        assert_eq!(event.paths, vec![PathBuf::from("/tmp/kept/a/b/deep.txt")]);
+        assert!(
+            rx.try_recv().is_err(),
+            "events deep beneath the excluded directory must be suppressed"
+        );
+    }
+
+    #[test]
     fn callback_impl_ignores_unknown_flag_bits_without_panicking() {
         use std::ffi::CString;
         use std::ptr;
@@ -1107,8 +1481,10 @@ mod tests {
         recursive_info.insert(
             PathBuf::from("/tmp"),
             WatchInfo {
+                is_dir: true,
                 is_recursive: true,
                 reported_path: PathBuf::from("/tmp"),
+                watch_filter: WatchFilter::accept_all(),
             },
         );
 
