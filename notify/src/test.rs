@@ -141,7 +141,7 @@ impl Receiver {
     ///
     /// It doesn't fail on timeout, instead it returns None
     ///
-    /// This behaviour is better for tests, because allows us to determine which events was received
+    /// This behaviour is better for tests, because it allows us to determine which events were received
     pub fn iter(&mut self) -> impl Iterator<Item = Event> + '_ {
         struct Iter<'a> {
             rx: &'a mut Receiver,
