@@ -1,8 +1,10 @@
-#![cfg(not(target_os = "windows"))]
+// The mtime-vs-content event-kind distinction this test asserts is validated against Linux
+// filesystem semantics. On macOS (APFS) a same-content rewrite with a fresh mtime is reported as
+// `Modify(Data)` rather than `Modify(Metadata(WriteTime))`, so the test is Linux-only.
+#![cfg(target_os = "linux")]
 use nix::sys::stat::futimens;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, SystemTime};
@@ -12,8 +14,7 @@ use nix::sys::time::TimeSpec;
 use tempfile::TempDir;
 
 use notify::event::{CreateKind, DataChange, MetadataKind, ModifyKind};
-use notify::poll::PollWatcherConfig;
-use notify::{Event, EventKind, PollWatcher, RecursiveMode, Watcher};
+use notify::{Config, Event, EventKind, PollWatcher, RecursiveMode, Watcher};
 
 #[test]
 fn test_poll_watcher_distinguish_modify_kind() {
@@ -55,12 +56,11 @@ impl TestHarness {
     pub fn setup() -> Self {
         let tempdir = tempfile::tempdir().unwrap();
 
-        let config = PollWatcherConfig {
-            compare_contents: true,
-            poll_interval: Duration::from_millis(10),
-        };
+        let config = Config::default()
+            .with_compare_contents(true)
+            .with_poll_interval(Duration::from_millis(10));
         let (tx, rx) = sync::mpsc::channel();
-        let watcher = PollWatcher::with_config(
+        let watcher = PollWatcher::new(
             move |event: notify::Result<Event>| {
                 tx.send(event).unwrap();
             },
@@ -96,7 +96,7 @@ impl TestHarness {
         let file = self.write_file_common(path.as_ref(), contents);
         let atime = Self::to_timespec(metadata.accessed().unwrap());
         let mtime = Self::to_timespec(metadata.modified().unwrap());
-        futimens(file.as_raw_fd(), &atime, &mtime).unwrap();
+        futimens(&file, &atime, &mtime).unwrap();
     }
 
     fn write_file_common(&self, path: &Path, contents: &str) -> File {
