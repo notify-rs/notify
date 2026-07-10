@@ -576,9 +576,7 @@ impl KqueueWatcher {
         self.waker
             .wake()
             .map_err(|e| Error::generic(&e.to_string()))?;
-        rx.recv()
-            .unwrap()
-            .map_err(|e| Error::generic(&e.to_string()))
+        rx.recv().map_err(|e| Error::generic(&e.to_string()))?
     }
 
     fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
@@ -592,9 +590,7 @@ impl KqueueWatcher {
         self.waker
             .wake()
             .map_err(|e| Error::generic(&e.to_string()))?;
-        rx.recv()
-            .unwrap()
-            .map_err(|e| Error::generic(&e.to_string()))
+        rx.recv().map_err(|e| Error::generic(&e.to_string()))?
     }
 
     fn watched_paths_inner(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
