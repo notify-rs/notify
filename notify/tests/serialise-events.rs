@@ -39,9 +39,9 @@ fn events_are_debuggable() {
 #[cfg(feature = "serde")]
 #[test]
 fn events_are_serializable() {
-    assert_eq!(json!(EventKind::Any), json!("any"));
+    assert_eq!(json!(EventKind::Any), json!({ "type": "any" }));
 
-    assert_eq!(json!(EventKind::Other), json!("other"));
+    assert_eq!(json!(EventKind::Other), json!({ "type": "other" }));
 
     assert_eq!(
         json!(Event {
@@ -50,14 +50,16 @@ fn events_are_serializable() {
             attrs: EventAttributes::new(),
         }),
         json!({
-            "type": { "access": { "kind": "open", "mode": "execute" } },
+            "type": "access",
+            "kind": "open",
+            "mode": "execute",
             "paths": [],
             "attrs": {},
         })
     );
 
     let mut attrs = EventAttributes::new();
-    attrs.set_info("unmount".into());
+    attrs.set_info("unmount");
 
     assert_eq!(
         json!(Event {
@@ -66,7 +68,8 @@ fn events_are_serializable() {
             attrs: attrs.clone(),
         }),
         json!({
-            "type": { "remove": { "kind": "other" } },
+            "type": "remove",
+            "kind": "other",
             "paths": ["/example"],
             "attrs": { "info": "unmount" }
         }),
@@ -77,7 +80,8 @@ fn events_are_serializable() {
             attrs: attrs.clone(),
         }),
         json!({
-            "type": { "remove": { "kind": "other" } },
+            "type": "remove",
+            "kind": "other",
             "paths": ["/example"],
             "attrs": { "info": "unmount" }
         }),
@@ -88,19 +92,21 @@ fn events_are_serializable() {
 #[test]
 fn events_are_deserializable() {
     assert_eq!(
-        serde_json::from_str::<EventKind>(r#""any""#).unwrap(),
+        serde_json::from_str::<EventKind>(r#"{ "type": "any" }"#).unwrap(),
         EventKind::Any
     );
 
     assert_eq!(
-        serde_json::from_str::<EventKind>(r#""other""#).unwrap(),
+        serde_json::from_str::<EventKind>(r#"{ "type": "other" }"#).unwrap(),
         EventKind::Other
     );
 
     assert_eq!(
         serde_json::from_str::<Event>(
             r#"{
-        "type": { "access": { "kind": "open", "mode": "execute" } },
+        "type": "access",
+        "kind": "open",
+        "mode": "execute",
         "paths": [],
         "attrs": {}
     }"#
@@ -114,12 +120,13 @@ fn events_are_deserializable() {
     );
 
     let mut attrs = EventAttributes::new();
-    attrs.set_info("unmount".into());
+    attrs.set_info("unmount");
 
     assert_eq!(
         serde_json::from_str::<Event>(
             r#"{
-        "type": { "remove": { "kind": "other" } },
+        "type": "remove",
+        "kind": "other",
         "paths": ["/example"],
         "attrs": { "info": "unmount" }
     }"#
@@ -138,58 +145,42 @@ fn events_are_deserializable() {
 fn access_events_are_serializable() {
     assert_eq!(
         json!(EventKind::Access(AccessKind::Any)),
-        json!({
-            "access": { "kind": "any" }
-        })
+        json!({ "type": "access", "kind": "any" })
     );
 
     assert_eq!(
         json!(EventKind::Access(AccessKind::Read)),
-        json!({
-            "access": { "kind": "read" }
-        })
+        json!({ "type": "access", "kind": "read" })
     );
 
     assert_eq!(
         json!(EventKind::Access(AccessKind::Open(AccessMode::Any))),
-        json!({
-            "access": { "kind": "open", "mode": "any" }
-        })
+        json!({ "type": "access", "kind": "open", "mode": "any" })
     );
 
     assert_eq!(
         json!(EventKind::Access(AccessKind::Open(AccessMode::Execute))),
-        json!({
-            "access": { "kind": "open", "mode": "execute" }
-        })
+        json!({ "type": "access", "kind": "open", "mode": "execute" })
     );
 
     assert_eq!(
         json!(EventKind::Access(AccessKind::Open(AccessMode::Read))),
-        json!({
-            "access": { "kind": "open", "mode": "read" }
-        })
+        json!({ "type": "access", "kind": "open", "mode": "read" })
     );
 
     assert_eq!(
         json!(EventKind::Access(AccessKind::Close(AccessMode::Write))),
-        json!({
-            "access": { "kind": "close", "mode": "write" }
-        })
+        json!({ "type": "access", "kind": "close", "mode": "write" })
     );
 
     assert_eq!(
         json!(EventKind::Access(AccessKind::Close(AccessMode::Other))),
-        json!({
-            "access": { "kind": "close", "mode": "other" }
-        })
+        json!({ "type": "access", "kind": "close", "mode": "other" })
     );
 
     assert_eq!(
         json!(EventKind::Access(AccessKind::Other)),
-        json!({
-            "access": { "kind": "other" }
-        })
+        json!({ "type": "access", "kind": "other" })
     );
 }
 
@@ -198,30 +189,22 @@ fn access_events_are_serializable() {
 fn create_events_are_serializable() {
     assert_eq!(
         json!(EventKind::Create(CreateKind::Any)),
-        json!({
-            "create": { "kind": "any" }
-        })
+        json!({ "type": "create", "kind": "any" })
     );
 
     assert_eq!(
         json!(EventKind::Create(CreateKind::File)),
-        json!({
-            "create": { "kind": "file" }
-        })
+        json!({ "type": "create", "kind": "file" })
     );
 
     assert_eq!(
         json!(EventKind::Create(CreateKind::Folder)),
-        json!({
-            "create": { "kind": "folder" }
-        })
+        json!({ "type": "create", "kind": "folder" })
     );
 
     assert_eq!(
         json!(EventKind::Create(CreateKind::Other)),
-        json!({
-            "create": { "kind": "other" }
-        })
+        json!({ "type": "create", "kind": "other" })
     );
 }
 
@@ -230,138 +213,102 @@ fn create_events_are_serializable() {
 fn modify_events_are_serializable() {
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Any)),
-        json!({
-            "modify": { "kind": "any" }
-        })
+        json!({ "type": "modify", "kind": "any" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Data(DataChange::Any))),
-        json!({
-            "modify": { "kind": "data", "mode": "any" }
-        })
+        json!({ "type": "modify", "kind": "data", "mode": "any" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Data(DataChange::Size))),
-        json!({
-            "modify": { "kind": "data", "mode": "size" }
-        })
+        json!({ "type": "modify", "kind": "data", "mode": "size" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Data(DataChange::Content))),
-        json!({
-            "modify": { "kind": "data", "mode": "content" }
-        })
+        json!({ "type": "modify", "kind": "data", "mode": "content" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Data(DataChange::Other))),
-        json!({
-            "modify": { "kind": "data", "mode": "other" }
-        })
+        json!({ "type": "modify", "kind": "data", "mode": "other" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any))),
-        json!({
-            "modify": { "kind": "metadata", "mode": "any" }
-        })
+        json!({ "type": "modify", "kind": "metadata", "mode": "any" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Metadata(
             MetadataKind::AccessTime
         ))),
-        json!({
-            "modify": { "kind": "metadata", "mode": "access-time" }
-        })
+        json!({ "type": "modify", "kind": "metadata", "mode": "access-time" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Metadata(
             MetadataKind::WriteTime
         ))),
-        json!({
-            "modify": { "kind": "metadata", "mode": "write-time" }
-        })
+        json!({ "type": "modify", "kind": "metadata", "mode": "write-time" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Metadata(
             MetadataKind::Permissions
         ))),
-        json!({
-            "modify": { "kind": "metadata", "mode": "permissions" }
-        })
+        json!({ "type": "modify", "kind": "metadata", "mode": "permissions" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Metadata(
             MetadataKind::Ownership
         ))),
-        json!({
-            "modify": { "kind": "metadata", "mode": "ownership" }
-        })
+        json!({ "type": "modify", "kind": "metadata", "mode": "ownership" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Metadata(
             MetadataKind::Extended
         ))),
-        json!({
-            "modify": { "kind": "metadata", "mode": "extended" }
-        })
+        json!({ "type": "modify", "kind": "metadata", "mode": "extended" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Other))),
-        json!({
-            "modify": { "kind": "metadata", "mode": "other" }
-        })
+        json!({ "type": "modify", "kind": "metadata", "mode": "other" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Name(RenameMode::Any))),
-        json!({
-            "modify": { "kind": "rename", "mode": "any" }
-        })
+        json!({ "type": "modify", "kind": "rename", "mode": "any" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Name(RenameMode::To))),
-        json!({
-            "modify": { "kind": "rename", "mode": "to" }
-        })
+        json!({ "type": "modify", "kind": "rename", "mode": "to" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Name(RenameMode::From))),
-        json!({
-            "modify": { "kind": "rename", "mode": "from" }
-        })
+        json!({ "type": "modify", "kind": "rename", "mode": "from" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Name(RenameMode::Both))),
-        json!({
-            "modify": { "kind": "rename", "mode": "both" }
-        })
+        json!({ "type": "modify", "kind": "rename", "mode": "both" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Name(RenameMode::Other))),
-        json!({
-            "modify": { "kind": "rename", "mode": "other" }
-        })
+        json!({ "type": "modify", "kind": "rename", "mode": "other" })
     );
 
     assert_eq!(
         json!(EventKind::Modify(ModifyKind::Other)),
-        json!({
-            "modify": { "kind": "other" }
-        })
+        json!({ "type": "modify", "kind": "other" })
     );
 }
 
@@ -370,29 +317,21 @@ fn modify_events_are_serializable() {
 fn remove_events_are_serializable() {
     assert_eq!(
         json!(EventKind::Remove(RemoveKind::Any)),
-        json!({
-            "remove": { "kind": "any" }
-        })
+        json!({ "type": "remove", "kind": "any" })
     );
 
     assert_eq!(
         json!(EventKind::Remove(RemoveKind::File)),
-        json!({
-            "remove": { "kind": "file" }
-        })
+        json!({ "type": "remove", "kind": "file" })
     );
 
     assert_eq!(
         json!(EventKind::Remove(RemoveKind::Folder)),
-        json!({
-            "remove": { "kind": "folder" }
-        })
+        json!({ "type": "remove", "kind": "folder" })
     );
 
     assert_eq!(
         json!(EventKind::Remove(RemoveKind::Other)),
-        json!({
-            "remove": { "kind": "other" }
-        })
+        json!({ "type": "remove", "kind": "other" })
     );
 }

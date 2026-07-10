@@ -14,7 +14,7 @@ fn test_race_with_remove_dir() {
             .name("notify-rs test-race-with-remove-dir".to_string())
             .spawn(move || {
                 let mut watcher = notify::recommended_watcher(move |result| {
-                    eprintln!("received event: {:?}", result);
+                    eprintln!("received event: {result:?}");
                 })
                 .unwrap();
 
