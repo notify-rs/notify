@@ -17,6 +17,7 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use windows_sys::Win32::Foundation::{
@@ -131,6 +132,7 @@ struct ReadData {
     complete_sem: HANDLE,
     is_recursive: bool,
     separator_style: SeparatorStyle,
+    stopping: Arc<AtomicBool>,
 }
 
 struct ReadDirectoryRequest {
@@ -173,6 +175,7 @@ struct WatchState {
     complete_sem: HANDLE,
     recursive_mode: RecursiveMode,
     reported_path: PathBuf,
+    stopping: Arc<AtomicBool>,
 }
 
 struct ReadDirectoryChangesServer {
@@ -357,6 +360,7 @@ impl ReadDirectoryChangesServer {
                 Error::generic("Failed to create semaphore for watch.").add_path(path.requested)
             );
         }
+        let stopping = Arc::new(AtomicBool::new(false));
         let rd = ReadData {
             watch_path: watched_path.clone(),
             dir: dir_target,
@@ -365,6 +369,7 @@ impl ReadDirectoryChangesServer {
             complete_sem: semaphore,
             is_recursive,
             separator_style,
+            stopping: stopping.clone(),
         };
         let ws = WatchState {
             dir_handle: handle,
@@ -375,6 +380,7 @@ impl ReadDirectoryChangesServer {
                 RecursiveMode::NonRecursive
             },
             reported_path: path.requested,
+            stopping,
         };
         if let Err(err) = start_read(
             &rd,
@@ -409,6 +415,9 @@ impl ReadDirectoryChangesServer {
 }
 
 fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
+    // A successful completion may already be queued when cancellation starts. Mark the watch
+    // first so that callback does not rearm ReadDirectoryChangesW with the handle closed below.
+    ws.stopping.store(true, Ordering::Release);
     unsafe {
         let cio = CancelIo(ws.dir_handle);
         let ch = CloseHandle(ws.dir_handle);
@@ -502,6 +511,13 @@ unsafe extern "system" fn handle_event(
 ) {
     let overlapped: Box<OVERLAPPED> = Box::from_raw(overlapped);
     let request: Box<ReadDirectoryRequest> = Box::from_raw(overlapped.hEvent as *mut _);
+
+    // CancelIo does not change a completion that was already queued successfully. Such a callback
+    // can run while stop_watch is waiting for completion, after it has closed the directory handle.
+    if request.data.stopping.load(Ordering::Acquire) {
+        ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+        return;
+    }
 
     fn emit_event(event_handler: &Mutex<dyn EventHandler>, res: Result<Event>) {
         if let Ok(mut guard) = event_handler.lock() {
@@ -988,6 +1004,7 @@ pub mod tests {
                 complete_sem,
                 is_recursive: false,
                 separator_style: SeparatorStyle::Backslash,
+                stopping: Arc::new(AtomicBool::new(false)),
             },
             action_tx,
         });
@@ -1007,6 +1024,58 @@ pub mod tests {
             )),
             "unexpected remove event: {events:#?}"
         );
+    }
+
+    #[test]
+    fn stopped_watch_does_not_rearm_queued_successful_completion() {
+        use std::ptr;
+        use windows_sys::Win32::Foundation::{
+            CloseHandle, ERROR_SUCCESS, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
+        };
+        use windows_sys::Win32::System::Threading::{CreateSemaphoreW, WaitForSingleObjectEx};
+        use windows_sys::Win32::System::IO::OVERLAPPED;
+
+        let complete_sem = unsafe { CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
+        assert!(!complete_sem.is_null());
+        assert_ne!(complete_sem, INVALID_HANDLE_VALUE);
+
+        let (event_tx, event_rx) = mpsc::channel();
+        let (action_tx, action_rx) = crate::unbounded();
+        let event_handler: Arc<Mutex<dyn crate::EventHandler>> = Arc::new(Mutex::new(event_tx));
+        let request = Box::new(super::ReadDirectoryRequest {
+            event_handler,
+            event_kinds: crate::EventKindMask::ALL,
+            buffer: [0u8; super::BUF_SIZE as usize],
+            handle: INVALID_HANDLE_VALUE,
+            data: super::ReadData {
+                watch_path: PathBuf::from(r"C:\watched"),
+                dir: PathBuf::from(r"C:\watched"),
+                reported_dir: PathBuf::from(r"C:\watched"),
+                file: None,
+                complete_sem,
+                is_recursive: false,
+                separator_style: SeparatorStyle::Backslash,
+                stopping: Arc::new(AtomicBool::new(true)),
+            },
+            action_tx,
+        });
+        let mut overlapped = Box::new(unsafe { std::mem::zeroed::<OVERLAPPED>() });
+        overlapped.hEvent = Box::into_raw(request) as _;
+
+        unsafe {
+            // CancelIo can leave an already-queued completion with ERROR_SUCCESS. The invalid
+            // handle makes any accidental attempt to rearm the request fail deterministically.
+            super::handle_event(ERROR_SUCCESS, 0, Box::into_raw(overlapped));
+            assert_eq!(
+                WaitForSingleObjectEx(complete_sem, 0, 0),
+                WAIT_OBJECT_0,
+                "completion callback did not release the watch semaphore"
+            );
+            CloseHandle(complete_sem);
+        }
+
+        assert!(event_rx.try_iter().next().is_none(), "unexpected event");
+        assert!(action_rx.try_iter().next().is_none(), "unexpected action");
     }
 
     #[test]
@@ -1032,6 +1101,7 @@ pub mod tests {
                 complete_sem: INVALID_HANDLE_VALUE,
                 is_recursive: false,
                 separator_style: SeparatorStyle::Backslash,
+                stopping: Arc::new(AtomicBool::new(false)),
             },
             action_tx,
         };
