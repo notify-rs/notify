@@ -21,8 +21,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ACCESS_DENIED, ERROR_OPERATION_ABORTED, ERROR_SUCCESS, HANDLE,
-    INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_NOTIFY_ENUM_DIR, ERROR_OPERATION_ABORTED,
+    ERROR_SUCCESS, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FileStandardInfo, GetFileInformationByHandleEx, ReadDirectoryChangesW,
@@ -517,9 +517,16 @@ fn is_delete_pending(handle: HANDLE) -> bool {
     success != 0 && info.DeletePending
 }
 
+// Windows reports discarded notification details as either a zero-byte successful completion or
+// ERROR_NOTIFY_ENUM_DIR.
+fn completion_rescan_event(error_code: u32, bytes_written: u32) -> Option<Event> {
+    (error_code == ERROR_NOTIFY_ENUM_DIR || (error_code == ERROR_SUCCESS && bytes_written == 0))
+        .then(|| Event::new(EventKind::Other).set_flag(Flag::Rescan))
+}
+
 unsafe extern "system" fn handle_event(
     error_code: u32,
-    _bytes_written: u32,
+    bytes_written: u32,
     overlapped: *mut OVERLAPPED,
 ) {
     let overlapped: Box<OVERLAPPED> = Box::from_raw(overlapped);
@@ -573,8 +580,8 @@ unsafe extern "system" fn handle_event(
                 return;
             }
         }
-        ERROR_SUCCESS => {
-            // Success, continue to handle the event
+        ERROR_SUCCESS | ERROR_NOTIFY_ENUM_DIR => {
+            // Continue below to rearm the watch before handling the completion.
         }
         _ => {
             // Some unidentified error occurred, log and unwatch the directory, then return.
@@ -598,6 +605,18 @@ unsafe extern "system" fn handle_event(
         request.action_tx.clone(),
     )
     .err();
+
+    if let Some(event) = completion_rescan_event(error_code, bytes_written) {
+        emit_event(&request.event_handler, Ok(event));
+
+        // Lost event details and a failed rearm are separate conditions. Report both so callers
+        // know to rebuild their state and that this watch is no longer active.
+        if let Some(err) = rearm_error {
+            emit_event(&request.event_handler, Err(err));
+            request.unwatch();
+        }
+        return;
+    }
 
     // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length
     // string as its last member. Each struct contains an offset for getting the next entry in
@@ -888,9 +907,12 @@ pub mod tests {
     use std::thread;
     use tempfile::{tempdir, tempdir_in};
 
-    use super::{normalize_path_separators, trim_leading_separators, SeparatorStyle};
+    use super::{
+        completion_rescan_event, normalize_path_separators, trim_leading_separators, SeparatorStyle,
+    };
     use crate::{
-        test::*, ReadDirectoryChangesWatcher, RecursiveMode, Watcher, WindowsPathSeparatorStyle,
+        test::*, Event, EventKind, ReadDirectoryChangesWatcher, RecursiveMode, Watcher,
+        WindowsPathSeparatorStyle,
     };
 
     use std::time::Duration;
@@ -985,6 +1007,22 @@ pub mod tests {
         let path = PathBuf::from(r"\\?\C:\very\long\file");
         let normalized = normalize_path_separators(path, SeparatorStyle::Slash);
         assert_eq!(normalized, PathBuf::from(r"\\?\C:/very/long/file"));
+    }
+
+    #[test]
+    fn lost_change_details_produce_a_pathless_rescan_event() {
+        use windows_sys::Win32::Foundation::{
+            ERROR_NOTIFY_ENUM_DIR, ERROR_OPERATION_ABORTED, ERROR_SUCCESS,
+        };
+
+        let event: Event = completion_rescan_event(ERROR_SUCCESS, 0).expect("rescan event");
+
+        assert_eq!(event.kind, EventKind::Other);
+        assert!(event.paths.is_empty());
+        assert!(event.need_rescan());
+        assert!(completion_rescan_event(ERROR_NOTIFY_ENUM_DIR, 0).is_some());
+        assert!(completion_rescan_event(ERROR_SUCCESS, 12).is_none());
+        assert!(completion_rescan_event(ERROR_OPERATION_ABORTED, 0).is_none());
     }
 
     #[test]
