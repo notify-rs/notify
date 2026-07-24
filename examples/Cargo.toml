@@ -5,10 +5,23 @@ publish = false
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+[features]
+default = ["macos_fsevent", "freebsd_inotify"]
+macos_fsevent = [
+  "notify/macos_fsevent",
+  "notify-debouncer-mini/macos_fsevent",
+  "notify-debouncer-full/macos_fsevent",
+]
+freebsd_inotify = [
+  "notify/freebsd_inotify",
+  "notify-debouncer-mini/freebsd_inotify",
+  "notify-debouncer-full/freebsd_inotify",
+]
+
 [dev-dependencies]
-notify = { workspace = true }
-notify-debouncer-mini = { workspace = true }
-notify-debouncer-full = { workspace = true }
+notify.workspace = true
+notify-debouncer-mini.workspace = true
+notify-debouncer-full.workspace = true
 futures = { workspace = true }
 tempfile = { workspace = true }
 log = { workspace = true }

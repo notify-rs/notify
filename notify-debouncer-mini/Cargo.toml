@@ -13,12 +13,13 @@ homepage.workspace = true
 repository.workspace = true
 
 [features]
-default = ["macos_fsevent"]
+default = ["macos_fsevent", "freebsd_inotify"]
 serde = ["notify-types/serde"]
 crossbeam-channel = ["dep:crossbeam-channel", "notify/crossbeam-channel"]
 flume = ["dep:flume", "notify/flume"]
 macos_fsevent = ["notify/macos_fsevent"]
 macos_kqueue = ["notify/macos_kqueue"]
+freebsd_inotify = ["notify/freebsd_inotify"]
 serialization-compat-6 = ["notify/serialization-compat-6"]
 tokio = ["dep:tokio"]
 futures = ["dep:futures"]

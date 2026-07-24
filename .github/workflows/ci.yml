@@ -148,14 +148,34 @@ jobs:
         run: cargo test --workspace --exclude examples --verbose ${{ matrix.features }} --features tokio
 
   # FreeBSD
+  # 15.1: default features (freebsd_inotify → RecommendedWatcher = inotify).
+  # 14.4: --no-default-features (kqueue only; no inotify in base libc).
   freebsd:
-    name: FreeBSD - ${{ matrix.rust }}
+    name: FreeBSD ${{ matrix.release }} - ${{ matrix.rust }}${{ matrix.features != '' && format(' ({0})', matrix.features) || '' }}
     runs-on: ubuntu-latest
     needs: quality
     strategy:
       fail-fast: false
       matrix:
-        rust: [stable, nightly, 1.88]
+        include:
+          - rust: stable
+            release: "15.1"
+            features: ""
+          - rust: nightly
+            release: "15.1"
+            features: ""
+          - rust: "1.88"
+            release: "15.1"
+            features: ""
+          - rust: stable
+            release: "14.4"
+            features: "--no-default-features"
+          - rust: nightly
+            release: "14.4"
+            features: "--no-default-features"
+          - rust: "1.88"
+            release: "14.4"
+            features: "--no-default-features"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -164,7 +184,7 @@ jobs:
       - name: Test in FreeBSD VM
         uses: vmactions/freebsd-vm@b84ab5559b5a1bb4b8ee2737d2506a16e1737636 # v1.4.8
         with:
-          release: "14.3"
+          release: ${{ matrix.release }}
           envs: "CARGO_TERM_COLOR RUST_BACKTRACE"
           usesh: true
           prepare: |
@@ -175,9 +195,9 @@ jobs:
             . $HOME/.cargo/env
             cargo --version
             rustc --version
-            cargo build --verbose
-            cargo build --examples --verbose
-            cargo test --verbose
+            cargo build --verbose ${{ matrix.features }}
+            cargo build --examples --verbose ${{ matrix.features }}
+            cargo test --verbose ${{ matrix.features }}
 
   # Android cross-compilation
   android:

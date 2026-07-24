@@ -63,9 +63,9 @@ body:
       description: Which backend is being used?
       options:
         - Unknown/Auto-detected
-        - inotify (Linux)
+        - inotify (Linux/Android/FreeBSD 15+)
         - fsevents (macOS)
-        - kqueue (macOS/BSD)
+        - kqueue (macOS/BSD/FreeBSD 14.x)
         - ReadDirectoryChangesW (Windows)
         - polling (all platforms)
     validations:

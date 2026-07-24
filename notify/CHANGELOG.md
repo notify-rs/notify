@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- CHANGE: [FreeBSD] default `RecommendedWatcher` is native inotify via the `freebsd_inotify` default feature (FreeBSD 15.0+). FreeBSD 14.x has no inotify in base: build with `default-features = false` to use kqueue. `KqueueWatcher` remains available on all FreeBSD versions.
+- DEPS: bump `inotify` to 0.11.4 (native FreeBSD inotify via `inotify-sys` 0.1.8)
 - FEATURE: [macOS] add `Config::with_fsevent_latency` to configure FSEvents stream latency [#930]
 - FIX: [windows] emit a Remove event when a watched directory is deleted, matching inotify and FSEvents
 - FIX: [windows] surface `ReadDirectoryChangesW` read-start failures [#935]
