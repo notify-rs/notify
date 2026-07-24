@@ -801,9 +801,6 @@ impl EventLoop {
                             is_recursive,
                             watch_self,
                             Some(&existing_watch.metadata),
-                            self.watches
-                                .iter()
-                                .map(|(path, watch)| (path, &watch.metadata)),
                         )
                     } else {
                         WatchMetadata {
@@ -1333,6 +1330,45 @@ mod tests {
             .expect("grandchild still covered by recursive parent");
         assert!(!grandchild_watch.metadata.is_user_watch);
         assert!(grandchild_watch.metadata.is_recursive);
+    }
+
+    #[test]
+    fn outer_recursive_watch_respells_inherited_entries_only() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().to_path_buf();
+        let child = root.join("child");
+        let grandchild = child.join("grandchild");
+        std::fs::create_dir_all(&grandchild).unwrap();
+
+        let mut event_loop = test_event_loop();
+
+        event_loop
+            .add_watch(
+                WatchPath::from_parts(child.clone(), PathBuf::from("reported-child")),
+                recursive_watch(),
+                true,
+            )
+            .expect("watch child recursively under its own spelling");
+        event_loop
+            .add_watch(WatchPath::new(&root).unwrap(), recursive_watch(), true)
+            .expect("watch root recursively");
+
+        // The outer walk reaches both entries, but only the inherited one takes its spelling:
+        // an explicit watch keeps whatever the user asked for, so the two halves of the same
+        // subtree end up reported under different roots.
+        let child_watch = event_loop.watches.get(&child).expect("child watch");
+        assert!(child_watch.metadata.is_user_watch);
+        assert_eq!(
+            child_watch.metadata.reported_path,
+            PathBuf::from("reported-child")
+        );
+
+        let grandchild_watch = event_loop
+            .watches
+            .get(&grandchild)
+            .expect("grandchild watch");
+        assert!(!grandchild_watch.metadata.is_user_watch);
+        assert_eq!(grandchild_watch.metadata.reported_path, grandchild);
     }
 
     #[test]
