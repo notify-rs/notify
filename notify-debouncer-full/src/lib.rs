@@ -97,7 +97,7 @@ use file_id::FileId;
 use notify::{
     event::{ModifyKind, RemoveKind, RenameMode},
     Error, ErrorKind, Event, EventKind, PathOp, RecommendedWatcher, RecursiveMode,
-    UpdatePathsError, Watcher, WatcherKind,
+    UpdatePathsError, WatchFilter, Watcher, WatcherKind,
 };
 
 /// The set of requirements for watcher debounce event handling functions.
@@ -214,7 +214,7 @@ pub(crate) struct DebounceDataInner<T> {
     queues: HashMap<PathBuf, Queue>,
     /// Registered watch roots, kept **sorted by path** so that `add_root`
     /// can dedupe via binary search in O(log N) and doesn't suffer from injection
-    roots: VecDeque<(PathBuf, RecursiveMode)>,
+    roots: VecDeque<(PathBuf, RecursiveMode, WatchFilter)>,
     cache: T,
     rename_event: Option<(DebouncedEvent, Option<FileId>)>,
     rescan_event: Option<DebouncedEvent>,
@@ -313,9 +313,9 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
         match &event.kind {
             EventKind::Create(_) => {
-                let recursive_mode = self.recursive_mode(path);
+                let (recursive_mode, watch_filter) = self.coverage_for(path);
 
-                self.cache.add_path(path, recursive_mode);
+                self.cache.add_path(path, recursive_mode, &watch_filter);
 
                 self.push_event(event, now());
             }
@@ -350,9 +350,9 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             }
             _ => {
                 if self.cache.cached_file_id(path).is_none() {
-                    let recursive_mode = self.recursive_mode(path);
+                    let (recursive_mode, watch_filter) = self.coverage_for(path);
 
-                    self.cache.add_path(path, recursive_mode);
+                    self.cache.add_path(path, recursive_mode, &watch_filter);
                 }
 
                 self.push_event(event, now());
@@ -360,19 +360,49 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         }
     }
 
-    fn recursive_mode(&self, path: &Path) -> RecursiveMode {
-        for ancestor in path.ancestors() {
+    /// The effective coverage of `path` across the registered roots: the recursive mode
+    /// and the filter of the covering watches, used when re-adding event paths to the file
+    /// ID cache. A recursive root covers its whole subtree; a non-recursive root covers
+    /// only itself and its direct children. The backends' overlap barrier guarantees at
+    /// most one covering root carries a real filter, so that root's filter is used as-is;
+    /// otherwise the result is accept-all. A third-party watcher without the barrier
+    /// degrades to whichever filtered covering root is found.
+    fn coverage_for(&self, path: &Path) -> (RecursiveMode, WatchFilter) {
+        let mut recursive = false;
+        let mut filter: Option<WatchFilter> = None;
+
+        for (depth, ancestor) in path.ancestors().enumerate() {
             if let Ok(index) = self
                 .roots
-                .binary_search_by(|(root, _)| root.as_path().cmp(ancestor))
+                .binary_search_by(|(root, _, _)| root.as_path().cmp(ancestor))
             {
-                if self.roots[index].1 == RecursiveMode::Recursive {
-                    return RecursiveMode::Recursive;
+                let (_, recursive_mode, watch_filter) = &self.roots[index];
+                let covers = match recursive_mode {
+                    RecursiveMode::Recursive => true,
+                    // A non-recursive root only spans itself (depth 0) and its direct
+                    // children (depth 1); deeper roots do not cover `path` at all.
+                    RecursiveMode::NonRecursive => depth <= 1,
+                };
+                if !covers {
+                    continue;
+                }
+                if *recursive_mode == RecursiveMode::Recursive {
+                    recursive = true;
+                }
+                if filter.is_none() && !watch_filter.is_accept_all() {
+                    filter = Some(watch_filter.clone());
                 }
             }
         }
 
-        RecursiveMode::NonRecursive
+        (
+            if recursive {
+                RecursiveMode::Recursive
+            } else {
+                RecursiveMode::NonRecursive
+            },
+            filter.unwrap_or_else(WatchFilter::accept_all),
+        )
     }
 
     fn handle_rename_from(&mut self, event: Event) {
@@ -389,9 +419,10 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     }
 
     fn handle_rename_to(&mut self, event: Event) {
-        let recursive_mode = self.recursive_mode(&event.paths[0]);
+        let (recursive_mode, watch_filter) = self.coverage_for(&event.paths[0]);
 
-        self.cache.add_path(&event.paths[0], recursive_mode);
+        self.cache
+            .add_path(&event.paths[0], recursive_mode, &watch_filter);
 
         let trackers_match = self
             .rename_event
@@ -593,31 +624,59 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     #[deprecated = "`Debouncer` now manages root paths automatically. Remove all calls to `add_root` and `remove_root`."]
     pub fn cache(&mut self) {}
 
-    fn add_root(&mut self, path: impl Into<PathBuf>, recursive_mode: RecursiveMode) {
+    fn add_root(
+        &mut self,
+        path: impl Into<PathBuf>,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) {
         let path = path.into();
 
         let mut data = self.data.inner.lock().unwrap();
 
         match data
             .roots
-            .binary_search_by(|(p, _)| p.as_path().cmp(path.as_path()))
+            .binary_search_by(|(p, _, _)| p.as_path().cmp(path.as_path()))
         {
-            Ok(_) => return, // already registered
+            Ok(pos) => {
+                // Rewatching with an unchanged mode and filter leaves the backend's watch
+                // as-is, so skip the re-fingerprint: it's a full walk under the data mutex
+                // that would block event ingestion and delivery for nothing.
+                let (_, current_mode, current_filter) = &data.roots[pos];
+                if *current_mode == recursive_mode && current_filter.same_filter(&watch_filter) {
+                    return;
+                }
+                // Rewatch: the backend replaced the watch, so replace the recorded mode and
+                // filter too and refresh the cache under the new filter.
+                data.roots[pos] = (path.clone(), recursive_mode, watch_filter.clone());
+            }
             Err(pos) => {
                 // `VecDeque::insert` is O(min(pos, len - pos))
-                data.roots.insert(pos, (path.clone(), recursive_mode));
+                data.roots
+                    .insert(pos, (path.clone(), recursive_mode, watch_filter.clone()));
             }
         }
 
-        data.cache.add_path(&path, recursive_mode);
+        data.cache.add_path(&path, recursive_mode, &watch_filter);
     }
 
     fn remove_root(&mut self, path: impl AsRef<Path>) {
         let mut data = self.data.inner.lock().unwrap();
+        let path = path.as_ref();
 
-        data.roots.retain(|(root, _)| !root.starts_with(&path));
+        let surviving_nested_roots: Vec<_> = data
+            .roots
+            .iter()
+            .filter(|(root, _, _)| root.starts_with(path) && root.as_path() != path)
+            .cloned()
+            .collect();
 
-        data.cache.remove_path(path.as_ref());
+        data.roots.retain(|(root, _, _)| root.as_path() != path);
+
+        data.cache.remove_path(path);
+        for (root, recursive_mode, watch_filter) in surviving_nested_roots {
+            data.cache.add_path(&root, recursive_mode, &watch_filter);
+        }
     }
 
     pub fn watch(
@@ -625,8 +684,21 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         path: impl AsRef<Path>,
         recursive_mode: RecursiveMode,
     ) -> notify::Result<()> {
-        self.watcher.watch(path.as_ref(), recursive_mode)?;
-        self.add_root(path.as_ref(), recursive_mode);
+        self.watch_filtered(path, recursive_mode, WatchFilter::accept_all())
+    }
+
+    /// Begin watching a new path, excluding directories rejected by `watch_filter`.
+    ///
+    /// See [`Watcher::watch_filtered`] for the filter semantics.
+    pub fn watch_filtered(
+        &mut self,
+        path: impl AsRef<Path>,
+        recursive_mode: RecursiveMode,
+        watch_filter: notify::WatchFilter,
+    ) -> notify::Result<()> {
+        self.watcher
+            .watch_filtered(path.as_ref(), recursive_mode, watch_filter.clone())?;
+        self.add_root(path.as_ref(), recursive_mode, watch_filter);
         Ok(())
     }
 
@@ -673,6 +745,9 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     /// # Ok(())
     /// # }
     /// ```
+    // The error intentionally carries the failed and unapplied `PathOp`s back to the caller,
+    // which makes it larger than clippy's default threshold.
+    #[allow(clippy::result_large_err)]
     pub fn update_paths<Op: Into<PathOp>>(
         &mut self,
         ops: impl IntoIterator<Item = Op>,
@@ -685,7 +760,9 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
                 paths.push((
                     op.as_path().to_path_buf(),
                     match op {
-                        PathOp::Watch(_, config) => Some(config.recursive_mode()),
+                        PathOp::Watch(_, config) => {
+                            Some((config.recursive_mode(), config.watch_filter()))
+                        }
                         PathOp::Unwatch(_) => None,
                     },
                 ));
@@ -703,7 +780,9 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         let updated_paths = &paths[..updated_len];
         for (path, watch_mode) in updated_paths {
             match watch_mode {
-                Some(recursive_mode) => self.add_root(path, *recursive_mode),
+                Some((recursive_mode, watch_filter)) => {
+                    self.add_root(path, *recursive_mode, watch_filter.clone());
+                }
                 None => self.remove_root(path),
             }
         }
@@ -924,7 +1003,12 @@ mod tests {
             })
         }
 
-        fn watch(&mut self, path: &Path, _recursive_mode: RecursiveMode) -> notify::Result<()> {
+        fn watch_filtered(
+            &mut self,
+            path: &Path,
+            _recursive_mode: RecursiveMode,
+            _watch_filter: notify::WatchFilter,
+        ) -> notify::Result<()> {
             if path == self.fail_path {
                 Err(Error::path_not_found())
             } else {
@@ -948,6 +1032,7 @@ mod tests {
     #[derive(Debug, Default)]
     struct TrackingWatcher {
         watched: Vec<(PathBuf, RecursiveMode)>,
+        last_filter: Option<notify::WatchFilter>,
     }
 
     impl Watcher for TrackingWatcher {
@@ -958,7 +1043,20 @@ mod tests {
             Ok(Self::default())
         }
 
-        fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> notify::Result<()> {
+        fn watch_filtered(
+            &mut self,
+            path: &Path,
+            recursive_mode: RecursiveMode,
+            watch_filter: notify::WatchFilter,
+        ) -> notify::Result<()> {
+            // Mirror the real backends' contract: watching a directory root the filter
+            // rejects fails with `PathExcluded` and changes nothing.
+            let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+            if watch_filter.rejects_root(&absolute, path.is_dir()) {
+                return Err(Error::path_excluded());
+            }
+            self.last_filter = Some(watch_filter);
+            self.watched.retain(|(watched, _)| watched != path);
             self.watched.push((path.to_path_buf(), recursive_mode));
             Ok(())
         }
@@ -1039,7 +1137,11 @@ mod tests {
         MockTime::set_time(time);
 
         let mut state = test_case.state.into_debounce_data_inner(time);
-        state.roots = VecDeque::from([(PathBuf::from("/"), RecursiveMode::Recursive)]);
+        state.roots = VecDeque::from([(
+            PathBuf::from("/"),
+            RecursiveMode::Recursive,
+            WatchFilter::accept_all(),
+        )]);
 
         let mut prev_event_time = Duration::default();
 
@@ -1121,12 +1223,20 @@ mod tests {
     }
 
     #[test]
-    fn recursive_mode_uses_recursive_root_for_overlapping_watches() {
+    fn coverage_for_uses_recursive_root_for_overlapping_watches() {
         let state = DebounceDataInner {
             queues: HashMap::default(),
             roots: VecDeque::from([
-                (PathBuf::from("root"), RecursiveMode::NonRecursive),
-                (PathBuf::from("root/nested"), RecursiveMode::Recursive),
+                (
+                    PathBuf::from("root"),
+                    RecursiveMode::NonRecursive,
+                    WatchFilter::accept_all(),
+                ),
+                (
+                    PathBuf::from("root/nested"),
+                    RecursiveMode::Recursive,
+                    WatchFilter::accept_all(),
+                ),
             ]),
             cache: NoCache,
             rename_event: None,
@@ -1136,13 +1246,46 @@ mod tests {
         };
 
         assert_eq!(
-            state.recursive_mode(Path::new("root/nested/child")),
+            state.coverage_for(Path::new("root/nested/child")).0,
             RecursiveMode::Recursive
         );
         assert_eq!(
-            state.recursive_mode(Path::new("root/other")),
+            state.coverage_for(Path::new("root/other")).0,
             RecursiveMode::NonRecursive
         );
+    }
+
+    #[test]
+    fn coverage_for_preserves_recursive_filter_under_non_recursive_root() {
+        let state = DebounceDataInner {
+            queues: HashMap::default(),
+            roots: VecDeque::from([
+                (
+                    PathBuf::from("root"),
+                    RecursiveMode::Recursive,
+                    WatchFilter::with_filter(|p: &Path| {
+                        p.file_name() != Some(std::ffi::OsStr::new("skip"))
+                    }),
+                ),
+                (
+                    PathBuf::from("root/a"),
+                    RecursiveMode::NonRecursive,
+                    WatchFilter::accept_all(),
+                ),
+            ]),
+            cache: NoCache,
+            rename_event: None,
+            rescan_event: None,
+            errors: Vec::new(),
+            timeout: Duration::from_millis(50),
+        };
+
+        // The outer recursive root is the unique covering root with a real filter, so
+        // `coverage_for` must use it; the accept-all inner root contributes nothing.
+        let (recursive_mode, watch_filter) = state.coverage_for(Path::new("root/a/b"));
+        assert_eq!(recursive_mode, RecursiveMode::Recursive);
+        assert!(!watch_filter.should_watch(Path::new("root/a/b/skip")));
+        assert!(watch_filter.should_watch(Path::new("root/a/b/keep")));
     }
 
     #[test]
@@ -1453,11 +1596,97 @@ mod tests {
         assert!(err.origin.is_some());
         assert_eq!(err.remaining.len(), 1);
 
-        let roots = debouncer.data.inner.lock().unwrap().roots.clone();
+        let roots: Vec<_> = debouncer
+            .data
+            .inner
+            .lock()
+            .unwrap()
+            .roots
+            .iter()
+            .map(|(path, mode, _)| (path.clone(), *mode))
+            .collect();
         assert_eq!(
             roots,
-            VecDeque::from([(PathBuf::from("ok1"), RecursiveMode::Recursive)])
+            vec![(PathBuf::from("ok1"), RecursiveMode::Recursive)]
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejected_root_propagates_error_and_registers_nothing(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut debouncer = new_debouncer_opt::<_, TrackingWatcher, testing::TestCache>(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            |_| {},
+            testing::TestCache::new(Default::default(), Default::default()),
+            notify::Config::default(),
+        )?;
+
+        // Use a real directory so the directory-gating check applies.
+        let tmpdir = tempdir()?;
+        let root = tmpdir.path().to_path_buf();
+        let rejecting = std::path::absolute(&root)?;
+        let result = debouncer.watch_filtered(
+            &root,
+            RecursiveMode::Recursive,
+            notify::WatchFilter::with_filter(move |p: &Path| p != rejecting),
+        );
+
+        // Watching a rejected directory root fails and changes nothing.
+        assert!(
+            matches!(&result, Err(error) if matches!(error.kind, ErrorKind::PathExcluded)),
+            "watching a rejected root must fail with PathExcluded, got {result:?}"
+        );
+        assert!(debouncer.watched_paths()?.is_empty());
+
+        let data = debouncer.data.inner.lock().unwrap();
+        assert!(
+            data.roots.is_empty(),
+            "a rejected root must not be registered in the debouncer's bookkeeping"
+        );
+        assert_eq!(
+            data.cache.add_path_calls, 0,
+            "a rejected root must not touch the cache"
+        );
+        drop(data);
+
+        Ok(())
+    }
+
+    #[test]
+    fn watch_filtered_forwards_filter_and_registers_root() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let mut debouncer = new_debouncer_opt::<_, TrackingWatcher, NoCache>(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            |_| {},
+            NoCache::new(),
+            notify::Config::default(),
+        )?;
+
+        let path = PathBuf::from("root");
+        debouncer.watch_filtered(
+            &path,
+            RecursiveMode::Recursive,
+            notify::WatchFilter::with_filter(|p: &Path| {
+                p.file_name() != Some(std::ffi::OsStr::new("excluded"))
+            }),
+        )?;
+
+        assert_eq!(
+            debouncer.watched_paths()?,
+            vec![(path.clone(), RecursiveMode::Recursive)]
+        );
+
+        let filter = debouncer
+            .watcher
+            .last_filter
+            .clone()
+            .expect("the filter must be forwarded to the inner watcher");
+        assert!(!filter.should_watch(Path::new("root/excluded")));
+        assert!(filter.should_watch(Path::new("root/other")));
 
         Ok(())
     }
@@ -1503,6 +1732,111 @@ mod tests {
             debouncer.watched_paths()?,
             vec![(path3, RecursiveMode::Recursive)]
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn unwatch_parent_preserves_nested_root() -> Result<(), Box<dyn std::error::Error>> {
+        let mut debouncer = new_debouncer_opt::<_, TrackingWatcher, FileIdMap>(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            |_| {},
+            FileIdMap::new(),
+            notify::Config::default(),
+        )?;
+
+        let tmpdir = tempdir()?;
+        let nested = tmpdir.path().join("nested");
+        fs::create_dir(&nested)?;
+        let nested_file = nested.join("file.txt");
+        fs::write(&nested_file, b"content")?;
+
+        debouncer.watch(tmpdir.path(), RecursiveMode::Recursive)?;
+        debouncer.watch(&nested, RecursiveMode::Recursive)?;
+        debouncer.unwatch(tmpdir.path())?;
+
+        let data = debouncer.data.inner.lock().unwrap();
+        assert_eq!(
+            data.roots
+                .iter()
+                .map(|(path, _, _)| path.clone())
+                .collect::<Vec<_>>(),
+            vec![nested.clone()]
+        );
+        assert!(
+            data.cache.cached_file_id(&nested_file).is_some(),
+            "removing the parent must rebuild cache coverage for the surviving nested root"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn unwatch_not_found_preserves_nested_roots() -> Result<(), Box<dyn std::error::Error>> {
+        let mut debouncer = new_debouncer_opt::<_, TrackingWatcher, FileIdMap>(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            |_| {},
+            FileIdMap::new(),
+            notify::Config::default(),
+        )?;
+
+        let tmpdir = tempdir()?;
+        let nested = tmpdir.path().join("nested");
+        fs::create_dir(&nested)?;
+        let nested_file = nested.join("file.txt");
+        fs::write(&nested_file, b"content")?;
+
+        debouncer.watch(&nested, RecursiveMode::Recursive)?;
+
+        // The parent was never watched: the backend reports WatchNotFound and changes
+        // nothing, so the error propagates and the nested root's bookkeeping and cached
+        // IDs must stay untouched.
+        let result = debouncer.unwatch(tmpdir.path());
+        assert!(matches!(&result, Err(error) if matches!(error.kind, ErrorKind::WatchNotFound)));
+
+        let data = debouncer.data.inner.lock().unwrap();
+        assert_eq!(
+            data.roots
+                .iter()
+                .map(|(path, _, _)| path.clone())
+                .collect::<Vec<_>>(),
+            vec![nested.clone()]
+        );
+        assert!(data.cache.cached_file_id(&nested_file).is_some());
+        drop(data);
+
+        Ok(())
+    }
+
+    #[test]
+    fn rewatch_with_same_filter_skips_refingerprint() -> Result<(), Box<dyn std::error::Error>> {
+        let mut debouncer = new_debouncer_opt::<_, TrackingWatcher, testing::TestCache>(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            |_| {},
+            testing::TestCache::new(Default::default(), Default::default()),
+            notify::Config::default(),
+        )?;
+
+        let path = PathBuf::from("root");
+        let filter = notify::WatchFilter::with_filter(|_: &Path| true);
+
+        debouncer.watch_filtered(&path, RecursiveMode::Recursive, filter.clone())?;
+        debouncer.watch_filtered(&path, RecursiveMode::Recursive, filter.clone())?;
+        assert_eq!(
+            debouncer.data.inner.lock().unwrap().cache.add_path_calls,
+            1,
+            "rewatching with the same mode and filter must not re-fingerprint"
+        );
+
+        debouncer.watch_filtered(
+            &path,
+            RecursiveMode::Recursive,
+            notify::WatchFilter::with_filter(|_: &Path| true),
+        )?;
+        assert_eq!(debouncer.data.inner.lock().unwrap().cache.add_path_calls, 2);
 
         Ok(())
     }

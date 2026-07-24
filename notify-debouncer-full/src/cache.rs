@@ -1,5 +1,5 @@
 use file_id::FileId;
-use notify::RecursiveMode;
+use notify::{RecursiveMode, WatchFilter};
 use std::path::{Path, PathBuf};
 
 /// The interface of a file ID cache.
@@ -14,7 +14,16 @@ pub trait FileIdCache {
     /// Add a new path to the cache or update its value.
     ///
     /// This will be called if a new file or directory is created or if an existing file is overridden.
-    fn add_path(&mut self, path: &Path, recursive_mode: RecursiveMode);
+    ///
+    /// `watch_filter` gates directories the same way it does for the watch itself:
+    /// implementations should not descend into directories the filter rejects, since events
+    /// beneath them are suppressed and cached entries could never be invalidated. A rejected
+    /// directory's own ID should still be cached: its own events are delivered by its watched
+    /// parent and rename stitching needs the ID. The documented `WatchFilter` contract passes
+    /// backend-resolved absolute paths, so implementations should evaluate the filter against
+    /// absolutized paths even when `path` is relative; absolutization only approximates the
+    /// canonical form the macOS backends resolve to (known limitation).
+    fn add_path(&mut self, path: &Path, recursive_mode: RecursiveMode, watch_filter: &WatchFilter);
 
     /// Remove a path from the cache.
     ///
@@ -25,11 +34,13 @@ pub trait FileIdCache {
     ///
     /// This will be called if the notification back-end has dropped events.
     /// The root paths are passed as argument, so the implementer doesn't have to store them.
+    /// Each root carries the `WatchFilter` it was watched with; implementations must honor it
+    /// the same way `add_path` does and not walk excluded directories.
     ///
     /// The default implementation calls `add_path` for each root path.
-    fn rescan(&mut self, root_paths: &[(PathBuf, RecursiveMode)]) {
-        for (path, recursive_mode) in root_paths {
-            self.add_path(path, *recursive_mode);
+    fn rescan(&mut self, root_paths: &[(PathBuf, RecursiveMode, WatchFilter)]) {
+        for (path, recursive_mode, watch_filter) in root_paths {
+            self.add_path(path, *recursive_mode, watch_filter);
         }
     }
 }
@@ -53,7 +64,13 @@ impl FileIdCache for NoCache {
         Option::<&FileId>::None
     }
 
-    fn add_path(&mut self, _path: &Path, _recursive_mode: RecursiveMode) {}
+    fn add_path(
+        &mut self,
+        _path: &Path,
+        _recursive_mode: RecursiveMode,
+        _watch_filter: &WatchFilter,
+    ) {
+    }
 
     fn remove_path(&mut self, _path: &Path) {}
 }

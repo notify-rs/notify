@@ -257,13 +257,17 @@ impl Default for Config {
 #[derive(Debug)]
 pub struct WatchPathConfig {
     recursive_mode: RecursiveMode,
+    watch_filter: crate::WatchFilter,
 }
 
 impl WatchPathConfig {
     /// Creates new instance with provided [`RecursiveMode`]
     #[must_use]
     pub fn new(recursive_mode: RecursiveMode) -> Self {
-        Self { recursive_mode }
+        Self {
+            recursive_mode,
+            watch_filter: crate::WatchFilter::accept_all(),
+        }
     }
 
     /// Set [`RecursiveMode`] for the watch
@@ -273,10 +277,25 @@ impl WatchPathConfig {
         self
     }
 
+    /// Set a [`WatchFilter`](crate::WatchFilter) for the watch.
+    ///
+    /// See [`Watcher::watch_filtered`](crate::Watcher::watch_filtered) for the filter semantics.
+    #[must_use]
+    pub fn with_watch_filter(mut self, watch_filter: crate::WatchFilter) -> Self {
+        self.watch_filter = watch_filter;
+        self
+    }
+
     /// Returns current setting
     #[must_use]
     pub fn recursive_mode(&self) -> RecursiveMode {
         self.recursive_mode
+    }
+
+    /// Returns the configured [`WatchFilter`](crate::WatchFilter)
+    #[must_use]
+    pub fn watch_filter(&self) -> crate::WatchFilter {
+        self.watch_filter.clone()
     }
 }
 

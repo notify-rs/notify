@@ -6,15 +6,17 @@
 
 use super::event::*;
 use super::{
-    Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result, Watcher,
+    Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result, WatchFilter,
+    Watcher,
 };
 use crate::paths::{
-    absolute_path, is_preserved_watch_root, preserved_watch_mode, preserved_watch_roots,
+    absolute_path, check_watch_barriers, filter_allows_dir, filter_keeps_walk_entry,
+    is_preserved_watch_root, preserved_watch_mode, preserved_watch_roots,
     recursive_user_watch_ancestor, reported_path, WatchMetadata as Watch, WatchPath,
 };
 use crate::{unbounded, Receiver, Sender};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::metadata;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -39,6 +41,10 @@ struct EventLoop {
     kqueue: kqueue::Watcher,
     event_handler: Box<dyn EventHandler>,
     watches: HashMap<PathBuf, Watch>,
+    // Directories the filter excluded from watching. New-entry discovery treats "not watched"
+    // as "new", so excluded directories must be remembered or they would be re-discovered
+    // (and re-reported as created) on every write to their parent.
+    seen_excluded: HashSet<PathBuf>,
     follow_symlinks: bool,
     event_kinds: EventKindMask,
 }
@@ -51,7 +57,7 @@ pub struct KqueueWatcher {
 }
 
 enum EventLoopMsg {
-    AddWatch(WatchPath, RecursiveMode, Sender<Result<()>>),
+    AddWatch(WatchPath, RecursiveMode, WatchFilter, Sender<Result<()>>),
     RemoveWatch(PathBuf, Sender<Result<()>>),
     GetWatchedPaths(Sender<Vec<(PathBuf, RecursiveMode)>>),
     Shutdown,
@@ -83,6 +89,7 @@ impl EventLoop {
             kqueue,
             event_handler,
             watches: HashMap::new(),
+            seen_excluded: HashSet::new(),
             follow_symlinks,
             event_kinds,
         };
@@ -139,8 +146,13 @@ impl EventLoop {
     fn handle_messages(&mut self) {
         while let Ok(msg) = self.event_loop_rx.try_recv() {
             match msg {
-                EventLoopMsg::AddWatch(path, recursive_mode, tx) => {
-                    let _ = tx.send(self.add_watch(path, recursive_mode.is_recursive(), true));
+                EventLoopMsg::AddWatch(path, recursive_mode, watch_filter, tx) => {
+                    let _ = tx.send(self.add_watch(
+                        path,
+                        recursive_mode.is_recursive(),
+                        true,
+                        watch_filter,
+                    ));
                 }
                 EventLoopMsg::RemoveWatch(path, tx) => {
                     let _ = tx.send(self.remove_watch(path, false));
@@ -188,7 +200,7 @@ impl EventLoop {
                     let event_path = watch
                         .map(|watch| watch.reported_path.clone())
                         .unwrap_or_else(|| path.clone());
-                    let is_user_watch = watch.is_some_and(|watch| watch.is_user_watch);
+                    let mut extra_events: Vec<Result<Event>> = Vec::new();
                     let event = match data {
                         /*
                         TODO: Differentiate folders and files
@@ -217,42 +229,82 @@ impl EventLoop {
                                 } =>
                         {
                             // find which file is new in the directory by comparing it with our
-                            // list of known watches
-                            std::fs::read_dir(&path)
-                                .map(|dir| {
-                                    dir.filter_map(std::result::Result::ok)
+                            // list of known watches (and remembered excluded directories)
+                            match std::fs::read_dir(&path) {
+                                Ok(dir) => {
+                                    let watch_filter = watch
+                                        .map(|watch| watch.watch_filter.clone())
+                                        .unwrap_or_else(WatchFilter::accept_all);
+                                    // Tombstoned excluded directories that vanished from this
+                                    // directory never had their own watch to report their
+                                    // deletion; synthesize the Remove event the other backends
+                                    // deliver, and drop the tombstone so a re-creation is
+                                    // reported again (this also covers replacement by a file,
+                                    // which discovery below then announces as created).
+                                    self.seen_excluded.retain(|p| {
+                                        let still_excluded_dir = std::fs::symlink_metadata(p)
+                                            .is_ok_and(|metadata| metadata.is_dir());
+                                        if p.parent() != Some(path.as_path()) || still_excluded_dir
+                                        {
+                                            return true;
+                                        }
+                                        extra_events.push(Ok(Event::new(EventKind::Remove(
+                                            RemoveKind::Folder,
+                                        ))
+                                        .add_path(reported_path(&path, &event_path, p))));
+                                        false
+                                    });
+                                    let new_entry = dir
+                                        .filter_map(std::result::Result::ok)
                                         .map(|f| f.path())
-                                        .find(|f| !self.watches.contains_key(f))
-                                })
-                                .map(|file| {
-                                    if let Some(file) = file {
-                                        // watch this new file
+                                        .find(|f| {
+                                            !self.watches.contains_key(f)
+                                                && !self.seen_excluded.contains(f)
+                                        });
+                                    if let Some(file) = new_entry {
                                         let reported_file =
                                             reported_path(&path, &event_path, &file);
-                                        add_watches.push((
-                                            WatchPath::from_parts(
-                                                file.clone(),
-                                                reported_file.clone(),
-                                            ),
-                                            false,
-                                        ));
+                                        let is_symlink = std::fs::symlink_metadata(&file)
+                                            .map(|meta| meta.file_type().is_symlink())
+                                            .unwrap_or(false);
+                                        if file.is_dir()
+                                            && !filter_allows_dir(&watch_filter, &file, is_symlink)
+                                        {
+                                            // The filter gates directories: an excluded
+                                            // directory is reported as created but never
+                                            // watched. Remember it so it is not "discovered"
+                                            // again on every later write to this directory.
+                                            self.seen_excluded.insert(file.clone());
+                                        } else {
+                                            // watch this new file
+                                            add_watches.push((
+                                                WatchPath::from_parts(
+                                                    file.clone(),
+                                                    reported_file.clone(),
+                                                ),
+                                                false,
+                                                true,
+                                                watch_filter,
+                                            ));
+                                        }
 
-                                        Event::new(EventKind::Create(if file.is_dir() {
+                                        Ok(Event::new(EventKind::Create(if file.is_dir() {
                                             CreateKind::Folder
                                         } else if file.is_file() {
                                             CreateKind::File
                                         } else {
                                             CreateKind::Other
                                         }))
-                                        .add_path(reported_file)
+                                        .add_path(reported_file))
                                     } else {
-                                        Event::new(EventKind::Modify(ModifyKind::Data(
+                                        Ok(Event::new(EventKind::Modify(ModifyKind::Data(
                                             DataChange::Any,
                                         )))
-                                        .add_path(event_path)
+                                        .add_path(event_path))
                                     }
-                                })
-                                .map_err(Into::into)
+                                }
+                                Err(e) => Err(e.into()),
+                            }
                         }
 
                         // data was written to this file
@@ -298,15 +350,25 @@ impl EventLoop {
                             // also introduce a race condition, where multiple files could
                             // all ready be remove from the directory, and we could get out
                             // of sync.
-                            // So for now, until we find a better solution, let remove and
-                            // readd the whole directory.
-                            // This is a expensive operation, as we recursive through all
-                            // subdirectories.
-                            remove_watches.push((path.clone(), false));
-                            add_watches.push((
-                                WatchPath::from_parts(path.clone(), event_path.clone()),
-                                is_user_watch,
-                            ));
+                            // So for now, until we find a better solution, re-add the whole
+                            // directory: the walk registers watches for entries that appeared
+                            // (kqueue treats re-adding an existing kevent as an update, and
+                            // deleted children fire their own NOTE_DELETE), merging into the
+                            // existing entries. This is an expensive operation, as we recurse
+                            // through all subdirectories.
+                            //
+                            // The re-add is a non-user merge: it must not disturb the entry's
+                            // user metadata (requested mode and filter), so it re-walks with
+                            // the entry's current merged mode and stored chain coverage and
+                            // lets `WatchMetadata::new` preserve the user fields.
+                            if let Some(watch) = watch {
+                                add_watches.push((
+                                    WatchPath::from_parts(path.clone(), event_path.clone()),
+                                    false,
+                                    watch.is_recursive,
+                                    watch.watch_filter.clone(),
+                                ));
+                            }
                             Ok(Event::new(EventKind::Modify(ModifyKind::Any)).add_path(event_path))
                         }
 
@@ -332,11 +394,13 @@ impl EventLoop {
                     };
                     // Filter events based on EventKindMask
                     // Errors always pass through, OK events only if they match the mask
-                    match &event {
-                        Ok(e) if !self.event_kinds.matches(&e.kind) => {
-                            // Event filtered out
+                    for event in extra_events.into_iter().chain(std::iter::once(event)) {
+                        match &event {
+                            Ok(e) if !self.event_kinds.matches(&e.kind) => {
+                                // Event filtered out
+                            }
+                            _ => self.event_handler.handle_event(event),
                         }
-                        _ => self.event_handler.handle_event(event),
                     }
                 }
                 // as we don't add any other EVFILTER to kqueue we should never get here
@@ -348,8 +412,9 @@ impl EventLoop {
             self.remove_watch(path, remove_recursive).ok();
         }
 
-        for (path, is_user_watch) in add_watches {
-            self.add_watch(path, true, is_user_watch).ok();
+        for (path, is_user_watch, is_recursive, watch_filter) in add_watches {
+            self.add_watch(path, is_recursive, is_user_watch, watch_filter)
+                .ok();
         }
     }
 
@@ -358,83 +423,107 @@ impl EventLoop {
         path: WatchPath,
         is_recursive: bool,
         is_user_watch: bool,
+        watch_filter: WatchFilter,
     ) -> Result<()> {
         let path_is_dir = metadata(&path.absolute).map_err(Error::io)?.is_dir();
         let requested_is_recursive = is_recursive && path_is_dir;
+        let mut inherited_recursive_root = None;
         if is_user_watch {
+            check_watch_barriers(
+                &path.absolute,
+                &path.requested,
+                path_is_dir,
+                requested_is_recursive,
+                &watch_filter,
+                self.watches
+                    .iter()
+                    .filter(|(_, watch)| watch.is_user_watch)
+                    .map(|(path, watch)| {
+                        (
+                            path,
+                            watch.is_dir,
+                            watch.user_is_recursive,
+                            &watch.watch_filter,
+                        )
+                    }),
+            )?;
             if let Some(watch) = self
                 .watches
                 .get(&path.absolute)
                 .filter(|watch| watch.is_user_watch)
             {
-                if watch.user_is_recursive == requested_is_recursive
-                    && watch.reported_path == path.requested
-                {
+                if watch.rewatch_is_noop(&path, requested_is_recursive, &watch_filter) {
                     return Ok(());
                 }
 
-                // Rewatching an explicit user watch replaces its requested mode and reported path
-                // instead of merging with the previous metadata. If the current entry also carries
-                // recursive coverage from an ancestor, remember that ancestor before removal so we
-                // can rebuild that inherited coverage below.
-                let inherited_recursive_root =
-                    if !requested_is_recursive && path_is_dir && watch.is_recursive {
+                // Rewatching an explicit user watch replaces its requested mode, reported
+                // path, and filter instead of merging with the previous metadata. If a
+                // recursive ancestor also covers this directory, remember it so coverage
+                // the removal drops (or the new mode no longer provides) is rebuilt below;
+                // the overlap barrier guarantees such an ancestor is unfiltered.
+                inherited_recursive_root =
+                    if path_is_dir && !requested_is_recursive && watch.is_recursive {
                         recursive_user_watch_ancestor(&path.absolute, self.watches.iter())
                     } else {
                         None
                     };
-                let replaced_path = path.absolute.clone();
-                self.remove_watch(replaced_path.clone(), false)?;
-
-                if let Some((ancestor_path, ancestor_reported_path)) = inherited_recursive_root {
-                    // Removing a directory watch removes its recursively inherited children too.
-                    // Re-add them as non-user watches so the ancestor recursive watch still covers
-                    // this subtree after the user watch is replaced.
-                    for entry in WalkDir::new(&replaced_path)
-                        .follow_links(self.follow_symlinks)
-                        .into_iter()
-                    {
-                        let absolute = match entry {
-                            Ok(entry) => entry.into_path(),
-                            Err(err) if walkdir_error_is_not_found(&err) => continue,
-                            Err(err) => return Err(map_walkdir_error(err)),
-                        };
-                        let requested =
-                            reported_path(&ancestor_path, &ancestor_reported_path, &absolute);
-                        let result = self.add_single_watch(
-                            WatchPath::from_parts(absolute, requested),
-                            true,
-                            false,
-                        );
-                        if let Err(err) = result {
-                            if !error_is_not_found(&err) {
-                                return Err(err);
-                            }
-                        }
-                    }
-                }
+                self.remove_watch(path.absolute.clone(), false)?;
             }
         }
 
-        // If the watch is not recursive, or if we determine (by stat'ing the path to get its
-        // metadata) that the watched path is not a directory, add a single path watch.
+        // If the watch is not recursive, or if we determine (by stat'ing the path to get
+        // its metadata) that the watched path is not a directory, add a single path watch.
         if !requested_is_recursive {
-            self.add_single_watch(path, false, is_user_watch)?;
+            self.add_single_watch(path.clone(), false, is_user_watch, watch_filter)?;
         } else {
-            let root = path;
+            let root = path.clone();
             let mut first = true;
-            for entry in WalkDir::new(&root.absolute)
+            // Prune rejected directories manually: don't watch them and don't descend
+            // into them (shielding the walk from errors inside excluded subtrees), and
+            // remember them so runtime discovery doesn't treat them as new entries.
+            let mut walk = WalkDir::new(&root.absolute)
                 .follow_links(self.follow_symlinks)
-                .into_iter()
-            {
+                .into_iter();
+            while let Some(entry) = walk.next() {
                 let entry = entry.map_err(map_walkdir_error)?;
+                if !filter_keeps_walk_entry(&watch_filter, &entry) {
+                    let excluded = entry.into_path();
+                    walk.skip_current_dir();
+                    self.seen_excluded.insert(excluded);
+                    continue;
+                }
                 // WalkDir yields the root first; only it is the user-requested watch.
                 self.add_single_watch(
                     root.child(entry.into_path()),
                     is_recursive,
                     is_user_watch && first,
+                    watch_filter.clone(),
                 )?;
                 first = false;
+            }
+        }
+
+        if let Some((ancestor_path, ancestor_reported_path)) = inherited_recursive_root {
+            // Re-add, as non-user watches, the coverage the covering ancestor provides but
+            // the removal above dropped (or the new non-recursive mode no longer provides).
+            for entry in WalkDir::new(&path.absolute).follow_links(self.follow_symlinks) {
+                let absolute = match entry {
+                    Ok(entry) => entry.into_path(),
+                    Err(err) if walkdir_error_is_not_found(&err) => continue,
+                    Err(err) => return Err(map_walkdir_error(err)),
+                };
+                let requested = reported_path(&ancestor_path, &ancestor_reported_path, &absolute);
+                let result = self.add_single_watch(
+                    WatchPath::from_parts(absolute, requested),
+                    true,
+                    false,
+                    WatchFilter::accept_all(),
+                );
+                if let Err(err) = result {
+                    if !error_is_not_found(&err) {
+                        return Err(err);
+                    }
+                }
             }
         }
 
@@ -452,6 +541,7 @@ impl EventLoop {
         path: WatchPath,
         is_recursive: bool,
         is_user_watch: bool,
+        watch_filter: WatchFilter,
     ) -> Result<()> {
         let event_filter = EventFilter::EVFILT_VNODE;
         let filter_flags = FilterFlag::NOTE_DELETE
@@ -470,10 +560,12 @@ impl EventLoop {
         let existing_watch = self.watches.get(&path.absolute);
         let watch = Watch::new(
             &path,
+            path.absolute.is_dir(),
             is_recursive,
             is_user_watch,
             existing_watch,
             self.watches.iter(),
+            watch_filter,
         );
         self.watches.insert(path.absolute, watch);
 
@@ -525,6 +617,12 @@ impl EventLoop {
                         .map_err(|e| Error::io(e).add_path(path.clone()))?;
                 }
 
+                // Drop excluded-directory tombstones under the removed path. The overlap
+                // barrier guarantees they belonged to this watch alone (no other watch may
+                // overlap a filtered one). Runs only after a successful removal; a failed
+                // unwatch must not disturb tombstones.
+                self.seen_excluded.retain(|p| !p.starts_with(&path));
+
                 self.kqueue.watch()?;
             }
         }
@@ -565,10 +663,15 @@ impl KqueueWatcher {
         Ok(KqueueWatcher { channel, waker })
     }
 
-    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+    fn watch_inner(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> Result<()> {
         let pb = WatchPath::new(path)?;
         let (tx, rx) = unbounded();
-        let msg = EventLoopMsg::AddWatch(pb, recursive_mode, tx);
+        let msg = EventLoopMsg::AddWatch(pb, recursive_mode, watch_filter, tx);
 
         self.channel
             .send(msg)
@@ -611,8 +714,13 @@ impl Watcher for KqueueWatcher {
         )
     }
 
-    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path, recursive_mode)
+    fn watch_filtered(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> Result<()> {
+        self.watch_inner(path, recursive_mode, watch_filter)
     }
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {
@@ -663,6 +771,316 @@ mod tests {
     }
 
     #[test]
+    fn watch_filter_prunes_excluded_directories(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let excluded = dir.path().join("excluded");
+        let excluded_sub = excluded.join("sub");
+        let included = dir.path().join("included");
+        std::fs::create_dir_all(&excluded_sub)?;
+        std::fs::create_dir_all(&included)?;
+
+        let kqueue = kqueue::Watcher::new()?;
+        let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
+
+        event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            true,
+            true,
+            WatchFilter::with_filter(|p: &Path| {
+                p.file_name() != Some(std::ffi::OsStr::new("excluded"))
+            }),
+        )?;
+
+        assert!(event_loop.watches.contains_key(dir.path()));
+        assert!(event_loop.watches.contains_key(&included));
+        assert!(!event_loop.watches.contains_key(&excluded));
+        assert!(
+            !event_loop.watches.contains_key(&excluded_sub),
+            "descent into excluded directories must be pruned"
+        );
+        assert!(
+            event_loop.seen_excluded.contains(&excluded),
+            "the walk must seed tombstones so discovery doesn't re-report pre-existing \
+             excluded directories as new"
+        );
+        assert!(
+            !event_loop.seen_excluded.contains(&excluded_sub),
+            "tombstones only cover the pruned root, not its unvisited contents"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn nonrecursive_rewatch_preserves_ancestor_filter(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let child = dir.path().join("child");
+        std::fs::create_dir_all(&child)?;
+
+        let kqueue = kqueue::Watcher::new()?;
+        let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
+
+        event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            true,
+            true,
+            WatchFilter::with_filter(|p: &Path| {
+                p.file_name() != Some(std::ffi::OsStr::new("excluded"))
+            }),
+        )?;
+        // Simulates a plain `watch(child, NonRecursive)`, which passes an accept-all filter.
+        let result = event_loop.add_watch(
+            WatchPath::new(&child)?,
+            false,
+            true,
+            WatchFilter::accept_all(),
+        );
+        assert!(
+            matches!(result, Err(ref e) if matches!(e.kind, ErrorKind::Generic(_))),
+            "overlapping a filtered ancestor must fail, got {result:?}"
+        );
+
+        let stored = event_loop.watches.get(&child).expect("child watch");
+        assert!(stored.is_recursive, "child keeps inherited coverage");
+        assert!(
+            !stored.watch_filter.should_watch(&child.join("excluded")),
+            "the ancestor's filter must survive a non-recursive rewatch"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn rewatch_with_different_filter_rebuilds_watch(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let excluded = dir.path().join("excluded");
+        std::fs::create_dir_all(&excluded)?;
+
+        let kqueue = kqueue::Watcher::new()?;
+        let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
+
+        event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            true,
+            true,
+            WatchFilter::with_filter(|p: &Path| {
+                p.file_name() != Some(std::ffi::OsStr::new("excluded"))
+            }),
+        )?;
+        assert!(!event_loop.watches.contains_key(&excluded));
+
+        // Re-watching with a different filter (here: accept-all) must rebuild the watch
+        // instead of short-circuiting as unchanged.
+        event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            true,
+            true,
+            WatchFilter::accept_all(),
+        )?;
+        assert!(
+            event_loop.watches.contains_key(&excluded),
+            "a rewatch with a different filter must take effect"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejected_root_preserves_existing_watch(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let child = dir.path().join("child");
+        std::fs::create_dir_all(&child)?;
+
+        let kqueue = kqueue::Watcher::new()?;
+        let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
+
+        event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            true,
+            true,
+            WatchFilter::accept_all(),
+        )?;
+        let before = event_loop
+            .watches
+            .keys()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+
+        let rejecting = dir.path().to_path_buf();
+        let result = event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            true,
+            true,
+            WatchFilter::with_filter(move |p: &Path| p != rejecting.as_path()),
+        );
+
+        assert!(
+            matches!(result, Err(ref e) if matches!(e.kind, ErrorKind::PathExcluded)),
+            "watching a rejected root must fail with PathExcluded: {result:?}"
+        );
+        assert_eq!(
+            event_loop
+                .watches
+                .keys()
+                .cloned()
+                .collect::<std::collections::HashSet<_>>(),
+            before,
+            "a failed rewatch must leave existing watches unchanged"
+        );
+
+        Ok(())
+    }
+
+    // A directory the filter excludes is reported (its watched parent sees the change) but
+    // never watched, and is remembered as a tombstone so runtime discovery does not keep
+    // re-reporting it. Prove both halves: the create surfaces, and nothing beneath it leaks.
+    #[test]
+    fn runtime_excluded_directory_is_reported_but_not_watched() {
+        use crate::Watcher;
+        use std::time::{Duration, Instant};
+
+        let tmpdir = testdir();
+        let root = tmpdir.path();
+
+        let (mut watcher, mut rx) = watcher();
+        watcher
+            .watcher
+            .watch_filtered(root, RecursiveMode::Recursive, reject_name("excluded"))
+            .expect("watch filtered");
+
+        let excluded = root.join("excluded");
+        let included = root.join("included");
+
+        // kqueue discovers one new directory entry per write notification, so create the
+        // entries one at a time and wait for each discovery before creating the next.
+        std::fs::create_dir(&excluded).expect("create excluded");
+        rx.wait_unordered([expected(&excluded).create_folder()]);
+
+        std::fs::create_dir(&included).expect("create included");
+        rx.wait_unordered([expected(&included).create_folder()]);
+
+        // The runtime watch on `included` is installed just after its create event is
+        // emitted, so a single write could race ahead of the watch. Keep writing to both
+        // directories until an event from `included` arrives, and assert nothing ever
+        // leaks from inside the excluded (tombstoned, unwatched) directory.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut saw_included_file = false;
+        while !saw_included_file && Instant::now() < deadline {
+            std::fs::write(excluded.join("hidden.txt"), "x").expect("write hidden");
+            std::fs::write(included.join("seen.txt"), "x").expect("write seen");
+
+            let attempt_deadline = Instant::now() + Duration::from_millis(200);
+            while !saw_included_file && Instant::now() < attempt_deadline {
+                if let Ok(Ok(event)) = rx.rx.recv_timeout(Duration::from_millis(50)) {
+                    assert!(
+                        !event
+                            .paths
+                            .iter()
+                            .any(|p| p.starts_with(&excluded) && *p != excluded),
+                        "event leaked from inside the excluded directory: {event:?}"
+                    );
+                    saw_included_file = event.paths.iter().any(|p| p.starts_with(&included));
+                }
+            }
+        }
+        assert!(
+            saw_included_file,
+            "expected an event from inside the included directory"
+        );
+    }
+
+    // A pre-existing excluded directory is tombstoned by the initial walk and has no fd of
+    // its own, so it cannot signal its own deletion. When it vanishes, the write to its
+    // watched parent must make the backend synthesize the Remove event it could not emit.
+    #[test]
+    fn deleting_tombstoned_excluded_directory_reports_synthesized_remove() {
+        use crate::Watcher;
+
+        let tmpdir = testdir();
+        let root = tmpdir.path();
+
+        let excluded = root.join("excluded");
+        std::fs::create_dir(&excluded).expect("create excluded");
+
+        let (mut watcher, mut rx) = watcher();
+        watcher
+            .watcher
+            .watch_filtered(root, RecursiveMode::Recursive, reject_name("excluded"))
+            .expect("watch filtered");
+
+        std::fs::remove_dir(&excluded).expect("remove excluded");
+        rx.wait_unordered([expected(&excluded).remove_folder()]);
+    }
+
+    // Deleting a tombstoned excluded directory must also drop its tombstone, so that a later
+    // re-creation is discovered and reported as new again rather than being swallowed as an
+    // already-known entry. This is the observable proof that the tombstone drop happened.
+    #[test]
+    fn recreating_excluded_directory_after_deletion_is_reported_again() {
+        use crate::Watcher;
+
+        let tmpdir = testdir();
+        let root = tmpdir.path();
+
+        let excluded = root.join("excluded");
+        std::fs::create_dir(&excluded).expect("create excluded");
+
+        let (mut watcher, mut rx) = watcher();
+        watcher
+            .watcher
+            .watch_filtered(root, RecursiveMode::Recursive, reject_name("excluded"))
+            .expect("watch filtered");
+
+        std::fs::remove_dir(&excluded).expect("remove excluded");
+        rx.wait_unordered([expected(&excluded).remove_folder()]);
+
+        std::fs::create_dir(&excluded).expect("recreate excluded");
+        rx.wait_unordered([expected(&excluded).create_folder()]);
+    }
+
+    // Unwatching a root drops the tombstones seeded beneath it. The overlap barrier
+    // guarantees those tombstones belonged to this watch alone, so none may survive it.
+    #[test]
+    fn unwatch_drops_excluded_tombstones() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let excluded = dir.path().join("excluded");
+        std::fs::create_dir_all(&excluded)?;
+
+        let kqueue = kqueue::Watcher::new()?;
+        let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
+
+        event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            true,
+            true,
+            reject_name("excluded"),
+        )?;
+        assert!(
+            event_loop.seen_excluded.contains(&excluded),
+            "the initial walk must seed a tombstone for the excluded directory"
+        );
+
+        // `false` mirrors the real `unwatch()` path; the watch's own recursive flag still
+        // drives the recursive teardown that reaches the tombstone cleanup.
+        event_loop.remove_watch(dir.path().to_path_buf(), false)?;
+        assert!(
+            !event_loop.seen_excluded.contains(&excluded),
+            "unwatching the root must drop tombstones beneath it"
+        );
+        assert!(
+            event_loop.seen_excluded.is_empty(),
+            "no tombstone may outlive removal of its only watch: {:?}",
+            event_loop.seen_excluded
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn internal_recursive_refresh_preserves_explicit_child(
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
@@ -672,8 +1090,18 @@ mod tests {
         let kqueue = kqueue::Watcher::new()?;
         let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
 
-        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
-        event_loop.add_watch(WatchPath::new(&child)?, false, true)?;
+        event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            true,
+            true,
+            WatchFilter::accept_all(),
+        )?;
+        event_loop.add_watch(
+            WatchPath::new(&child)?,
+            false,
+            true,
+            WatchFilter::accept_all(),
+        )?;
 
         event_loop.remove_watch(dir.path().to_path_buf(), false)?;
         assert!(
@@ -684,7 +1112,12 @@ mod tests {
             "internal refresh removed explicit child watch"
         );
 
-        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
+        event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            true,
+            true,
+            WatchFilter::accept_all(),
+        )?;
 
         let watched: HashMap<_, _> = event_loop
             .watches
@@ -708,7 +1141,12 @@ mod tests {
         let kqueue = kqueue::Watcher::new()?;
         let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
 
-        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
+        event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            true,
+            true,
+            WatchFilter::accept_all(),
+        )?;
         assert!(event_loop.watches.contains_key(&child));
 
         std::fs::remove_file(&child)?;
@@ -729,10 +1167,20 @@ mod tests {
         let kqueue = kqueue::Watcher::new()?;
         let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
 
-        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
+        event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            true,
+            true,
+            WatchFilter::accept_all(),
+        )?;
         assert!(event_loop.watches.contains_key(&child));
 
-        event_loop.add_watch(WatchPath::new(dir.path())?, false, true)?;
+        event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            false,
+            true,
+            WatchFilter::accept_all(),
+        )?;
 
         let watch = event_loop.watches.get(dir.path()).expect("root watch");
         assert!(watch.is_user_watch);
@@ -754,12 +1202,23 @@ mod tests {
         let kqueue = kqueue::Watcher::new()?;
         let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
 
-        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
-        event_loop.add_watch(WatchPath::new(&child)?, false, true)?;
+        event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            true,
+            true,
+            WatchFilter::accept_all(),
+        )?;
+        event_loop.add_watch(
+            WatchPath::new(&child)?,
+            false,
+            true,
+            WatchFilter::accept_all(),
+        )?;
         event_loop.add_watch(
             WatchPath::from_parts(child.clone(), PathBuf::from("reported-child")),
             false,
             true,
+            WatchFilter::accept_all(),
         )?;
 
         let child_watch = event_loop.watches.get(&child).expect("child watch");
@@ -789,13 +1248,24 @@ mod tests {
         let kqueue = kqueue::Watcher::new()?;
         let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
 
-        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
+        event_loop.add_watch(
+            WatchPath::new(dir.path())?,
+            true,
+            true,
+            WatchFilter::accept_all(),
+        )?;
         event_loop.remove_watch(child.clone(), false)?;
-        event_loop.add_watch(WatchPath::new(&child)?, false, true)?;
+        event_loop.add_watch(
+            WatchPath::new(&child)?,
+            false,
+            true,
+            WatchFilter::accept_all(),
+        )?;
         event_loop.add_watch(
             WatchPath::from_parts(child.clone(), PathBuf::from("reported-child")),
             false,
             true,
+            WatchFilter::accept_all(),
         )?;
 
         let child_watch = event_loop.watches.get(&child).expect("child watch");

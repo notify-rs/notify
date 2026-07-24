@@ -2,6 +2,9 @@
 
 ## unreleased
 
+- FEATURE: add `WatchFilter` and `Watcher::watch_filtered` to exclude directories from watches; walk-based backends prune excluded directories, FSEvents and Windows suppress matching events at delivery time, and filters propagate to directories discovered while watching. The filter gates directories only (file watches are never affected) and re-watching a path with a different filter rebuilds the watch. Two restrictions apply: watching a directory the filter itself rejects returns `ErrorKind::PathExcluded` **breaking**, and a filtered directory watch must not overlap another directory watch (overlap is refused with an error; accept-all watches may overlap as before) [#481]
+- FEATURE: add `WatchPathConfig::with_watch_filter` so `Watcher::update_paths` batches can carry a `WatchFilter` per watch
+- CHANGE: `Watcher::watch_filtered` is now the required `Watcher` trait method; `Watcher::watch` is a provided method that forwards to it with `WatchFilter::accept_all()`. Implementors of `Watcher` must implement `watch_filtered` instead of `watch` **breaking**
 - FEATURE: [macOS] add `Config::with_fsevent_latency` to configure FSEvents stream latency [#930]
 - FIX: [windows] emit a Remove event when a watched directory is deleted, matching inotify and FSEvents
 - FIX: [windows] surface `ReadDirectoryChangesW` read-start failures [#935]
@@ -10,6 +13,7 @@
 - CHANGE: [macOS] improve FSEvents callback performance by avoiding unnecessary allocations and repeated handler locking
 - PERF: [kqueue] avoid filesystem walks for recursive kqueue unwatch
 
+[#481]: https://github.com/notify-rs/notify/issues/481
 [#930]: https://github.com/notify-rs/notify/pull/930
 [#935]: https://github.com/notify-rs/notify/issues/935
 [#958]: https://github.com/notify-rs/notify/pull/958

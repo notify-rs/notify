@@ -177,6 +177,7 @@ pub use config::{Config, PathOp, RecursiveMode, WatchPathConfig, WindowsPathSepa
 pub use error::{Error, ErrorKind, Result, UpdatePathsError};
 pub use notify_types::event::{self, Event, EventKind, EventKindMask};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub(crate) type StdResult<T, E> = std::result::Result<T, E>;
 pub(crate) type Receiver<T> = std::sync::mpsc::Receiver<T>;
@@ -323,6 +324,121 @@ pub enum WatcherKind {
     NullWatcher,
 }
 
+type FilterFn = dyn Fn(&Path) -> bool + Send + Sync;
+
+/// Directory filter to limit what gets watched.
+///
+/// A directory for which the filter returns `false` is not watched: recursive scans do not
+/// descend into it and events beneath it are suppressed. The filter receives backend-resolved
+/// absolute paths. It is only ever applied to directories: it is not applied to non-directory
+/// children of an accepted directory (events for files inside a watched directory are always
+/// delivered), and watching a non-directory path is never affected by the filter.
+#[derive(Clone)]
+pub struct WatchFilter(Option<Arc<FilterFn>>);
+
+impl std::fmt::Debug for WatchFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("WatchFilter")
+            .field(&self.0.as_ref().map_or("no filter", |_| "filter fn"))
+            .finish()
+    }
+}
+
+impl WatchFilter {
+    /// A filter that accepts any path, use to watch all paths.
+    #[must_use]
+    pub fn accept_all() -> WatchFilter {
+        WatchFilter(None)
+    }
+
+    /// A filter to limit the paths that get watched.
+    ///
+    /// Only paths for which `filter` returns `true` will be watched. The filter must not
+    /// panic; a panic is caught, logged, and treated as `false` (with `panic = "abort"` there
+    /// is no unwinding to catch, so a panicking filter aborts the process instead).
+    #[must_use]
+    pub fn with_filter(filter: impl Fn(&Path) -> bool + Send + Sync + 'static) -> WatchFilter {
+        WatchFilter(Some(Arc::new(filter)))
+    }
+
+    /// Returns whether `path` passes this filter.
+    ///
+    /// Always returns `true` for [`WatchFilter::accept_all`]. If the filter closure panics,
+    /// the panic is caught and logged, and the path is treated as rejected. `Watcher`
+    /// implementations call this to decide whether a directory should be watched.
+    #[must_use]
+    pub fn should_watch(&self, path: &Path) -> bool {
+        let Some(filter) = self.0.as_ref() else {
+            return true;
+        };
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| filter(path))).unwrap_or_else(
+            |_| {
+                log::error!(
+                    "watch filter panicked for path {}; treating it as rejected",
+                    path.display()
+                );
+                false
+            },
+        )
+    }
+
+    /// Returns whether this filter is [`WatchFilter::accept_all`], i.e. it never rejects any
+    /// path. `Watcher` implementations can use this to skip filtering work entirely.
+    #[must_use]
+    pub fn is_accept_all(&self) -> bool {
+        self.0.is_none()
+    }
+
+    /// Returns whether `self` and `other` are the same filter: both accept-all, or both
+    /// sharing the same underlying closure (pointer identity, not behavioral equality). Two
+    /// independently-built filters with identical behavior are not considered the same.
+    ///
+    /// `Watcher` implementations and wrappers use this to detect filter changes on rewatch:
+    /// re-registering a path with the same mode and the same filter can be treated as a
+    /// no-op instead of tearing the watch down and rebuilding it.
+    #[must_use]
+    pub fn same_filter(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+
+    /// Whether a watch root at `absolute` is rejected by this filter under the documented
+    /// contract: the filter gates directories only, so non-directory roots are never
+    /// rejected. This is the basic root check for already-resolved paths; backends that
+    /// accept symlink paths must also check the resolved directory target.
+    #[must_use]
+    pub fn rejects_root(&self, absolute: &Path, is_dir: bool) -> bool {
+        is_dir && !self.should_watch(absolute)
+    }
+
+    /// Event-time equivalent of directory gating for backends that cannot selectively watch
+    /// directories (FSEvents, ReadDirectoryChangesW): an event is allowed unless one of the
+    /// strict ancestors of its path below `root` (exclusive) is rejected by the filter.
+    // Only used by the FSEvents and Windows backends; dead on targets that compile neither
+    // (including macOS builds where `macos_kqueue` replaces the FSEvents backend).
+    #[allow(dead_code)]
+    pub(crate) fn allows_event_under(&self, root: &Path, path: &Path) -> bool {
+        if self.is_accept_all() {
+            return true;
+        }
+        let Some(parent) = path.parent() else {
+            return true;
+        };
+        for ancestor in parent.ancestors() {
+            if ancestor == root || !ancestor.starts_with(root) {
+                break;
+            }
+            if !self.should_watch(ancestor) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 /// Type that can deliver file activity notifications
 ///
 /// `Watcher` is implemented per platform using the best implementation available on that platform.
@@ -376,7 +492,72 @@ pub trait Watcher {
     ///
     /// [#165]: https://github.com/notify-rs/notify/issues/165
     /// [#166]: https://github.com/notify-rs/notify/issues/166
-    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
+    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+        self.watch_filtered(path, recursive_mode, WatchFilter::accept_all())
+    }
+
+    /// Begin watching a new path, excluding directories rejected by `watch_filter`.
+    ///
+    /// Behaves like [`Watcher::watch`], except that directories for which `watch_filter`
+    /// returns `false` are not watched: recursive scans do not descend into them, directories
+    /// discovered later (e.g. created under a recursive watch) are checked against the filter
+    /// before being watched, and events beneath rejected directories are suppressed. The filter
+    /// receives backend-resolved absolute paths, so match on path components or prefixes, not
+    /// on relative names. Events for non-directory children of an accepted directory are always
+    /// delivered. Events for an excluded directory itself may still be reported by a watched
+    /// parent (for example, its creation or removal), but events beneath that directory are
+    /// suppressed.
+    ///
+    /// The filter only applies to directories: watching a non-directory `path` is never
+    /// affected by the filter.
+    ///
+    /// # Errors
+    ///
+    /// Violating either restriction below returns an error and leaves all watches
+    /// unchanged:
+    ///
+    /// - Watching a directory the filter itself rejects returns
+    ///   [`ErrorKind::PathExcluded`]. A `path` that is a symlink to a directory is checked
+    ///   against both the link path and its resolved target.
+    /// - A directory watch carrying a filter must not overlap another directory watch in
+    ///   either direction; filters are never merged across watches. Watches whose filters
+    ///   are all [`WatchFilter::accept_all`] may overlap as before, file watches never
+    ///   conflict, and re-watching the same `path` replaces that watch as usual. To
+    ///   observe a region inside a filtered subtree, use a separate `Watcher` instance.
+    ///
+    /// Backend notes: the `PollWatcher` applies the filter when scanning; FSEvents (macOS) and
+    /// ReadDirectoryChangesW (Windows) cannot selectively watch directories, so the filter is
+    /// applied to event paths at delivery time with equivalent semantics (an event is
+    /// suppressed when a strict ancestor below the watch root is rejected). On macOS the
+    /// filter sees canonicalized paths (symlinks resolved, e.g. `/private/tmp` rather than
+    /// `/tmp`); on Windows it sees native `\`-separated absolute paths regardless of
+    /// [`Config::with_windows_path_separator_style`], so match on [`Path::components`] rather
+    /// than on separator-sensitive strings.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use notify::{RecursiveMode, WatchFilter, Watcher};
+    /// use std::path::Path;
+    ///
+    /// # fn main() -> notify::Result<()> {
+    /// let mut watcher = notify::recommended_watcher(|_res| {})?;
+    /// watcher.watch_filtered(
+    ///     Path::new("."),
+    ///     RecursiveMode::Recursive,
+    ///     WatchFilter::with_filter(|path: &Path| {
+    ///         path.file_name() != Some(std::ffi::OsStr::new(".git"))
+    ///     }),
+    /// )?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn watch_filtered(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> Result<()>;
 
     /// Stop watching a path.
     ///
@@ -422,10 +603,13 @@ pub trait Watcher {
     /// # Ok(())
     /// # }
     /// ```
+    // The error intentionally carries the failed and unapplied `PathOp`s back to the caller,
+    // which makes it larger than clippy's default threshold.
+    #[allow(clippy::result_large_err)]
     fn update_paths(&mut self, ops: Vec<PathOp>) -> StdResult<(), UpdatePathsError> {
         update_paths(ops, |op| match op {
             PathOp::Watch(path, config) => self
-                .watch(&path, config.recursive_mode())
+                .watch_filtered(&path, config.recursive_mode(), config.watch_filter())
                 .map_err(|e| (PathOp::Watch(path, config), e)),
             PathOp::Unwatch(path) => self.unwatch(&path).map_err(|e| (PathOp::Unwatch(path), e)),
         })
@@ -520,6 +704,9 @@ where
     RecommendedWatcher::new(event_handler, Config::default())
 }
 
+// The error intentionally carries the failed and unapplied `PathOp`s back to the caller,
+// which makes it larger than clippy's default threshold.
+#[allow(clippy::result_large_err)]
 pub(crate) fn update_paths<F>(ops: Vec<PathOp>, mut apply: F) -> StdResult<(), UpdatePathsError>
 where
     F: FnMut(PathOp) -> StdResult<(), (PathOp, Error)>,
@@ -551,13 +738,84 @@ mod tests {
 
     use super::{
         Config, Error, ErrorKind, Event, NullWatcher, PathOp, PollWatcher, RecommendedWatcher,
-        RecursiveMode, Result, StdResult, WatchPathConfig, Watcher, WatcherKind,
+        RecursiveMode, Result, StdResult, WatchFilter, WatchPathConfig, Watcher, WatcherKind,
     };
     use crate::test::*;
 
     #[test]
     fn test_object_safe() {
         let _watcher: &dyn Watcher = &NullWatcher;
+    }
+
+    #[test]
+    fn watch_filter_accept_all_accepts_everything() {
+        let filter = WatchFilter::accept_all();
+        assert!(filter.is_accept_all());
+        assert!(filter.should_watch(Path::new("/any/path")));
+    }
+
+    #[test]
+    fn watch_filter_applies_closure() {
+        let filter = reject_name("excluded");
+        assert!(!filter.is_accept_all());
+        assert!(filter.should_watch(Path::new("/root/included")));
+        assert!(!filter.should_watch(Path::new("/root/excluded")));
+    }
+
+    #[test]
+    fn watch_filter_panic_is_caught_and_rejects() {
+        let filter = WatchFilter::with_filter(|_: &Path| panic!("filter panicked"));
+        assert!(!filter.should_watch(Path::new("/some/path")));
+    }
+
+    #[test]
+    fn watch_filter_allows_event_under_gates_on_ancestor_directories() {
+        let root = Path::new("/watch/root");
+        let filter = reject_name("excluded");
+
+        // Files directly under the root are always allowed.
+        assert!(filter.allows_event_under(root, Path::new("/watch/root/file.txt")));
+        // An event on the rejected directory itself is delivered (its parent is watched),
+        // matching the walk-based backends.
+        assert!(filter.allows_event_under(root, Path::new("/watch/root/excluded")));
+        // Events beneath a rejected directory are suppressed, at any depth.
+        assert!(!filter.allows_event_under(root, Path::new("/watch/root/excluded/file.txt")));
+        assert!(!filter.allows_event_under(root, Path::new("/watch/root/excluded/deep/file.txt")));
+        assert!(filter.allows_event_under(root, Path::new("/watch/root/ok/file.txt")));
+        // The accept-all fast path never rejects.
+        assert!(WatchFilter::accept_all()
+            .allows_event_under(root, Path::new("/watch/root/excluded/file.txt")));
+        // An event on the watch root itself has no gating ancestors.
+        assert!(filter.allows_event_under(root, root));
+    }
+
+    #[test]
+    fn watch_filter_debug_names_the_type() {
+        assert!(format!("{:?}", WatchFilter::accept_all()).contains("WatchFilter"));
+        assert!(format!("{:?}", WatchFilter::with_filter(|_: &Path| true)).contains("WatchFilter"));
+    }
+
+    #[test]
+    fn watch_filter_same_filter_uses_identity() {
+        let f = WatchFilter::with_filter(|_: &Path| true);
+        assert!(f.same_filter(&f.clone()), "clones share the closure");
+        assert!(WatchFilter::accept_all().same_filter(&WatchFilter::accept_all()));
+        assert!(!f.same_filter(&WatchFilter::accept_all()));
+        assert!(
+            !f.same_filter(&WatchFilter::with_filter(|_: &Path| true)),
+            "independently built filters are distinct even if behaviorally identical"
+        );
+    }
+
+    #[test]
+    fn watch_path_config_carries_watch_filter() {
+        let config = WatchPathConfig::new(RecursiveMode::Recursive).with_watch_filter(
+            WatchFilter::with_filter(|p: &Path| !p.ends_with("excluded")),
+        );
+        assert!(config.watch_filter().should_watch(Path::new("/root/other")));
+        assert!(!config
+            .watch_filter()
+            .should_watch(Path::new("/root/excluded")));
     }
 
     #[test]

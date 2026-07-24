@@ -33,6 +33,11 @@ pub enum ErrorKind {
 
     /// Can't watch (more) files, limit on the total number of inotify watches reached
     MaxFilesWatch,
+
+    /// The watched path is a directory rejected by the watch's own
+    /// [`WatchFilter`](crate::WatchFilter); nothing was watched and existing watches are
+    /// unchanged. See [`Watcher::watch_filtered`](crate::Watcher::watch_filtered).
+    PathExcluded,
 }
 
 /// Notify error type.
@@ -109,6 +114,12 @@ impl Error {
         Self::new(ErrorKind::WatchNotFound)
     }
 
+    /// Creates a new "path excluded" error.
+    #[must_use]
+    pub fn path_excluded() -> Self {
+        Self::new(ErrorKind::PathExcluded)
+    }
+
     /// Creates a new "invalid config" error from the given `Config`.
     #[must_use]
     pub fn invalid_config(config: &Config) -> Self {
@@ -125,6 +136,7 @@ impl fmt::Display for Error {
             ErrorKind::Generic(ref err) => err.clone(),
             ErrorKind::Io(ref err) => err.to_string(),
             ErrorKind::MaxFilesWatch => "OS file watch limit reached.".into(),
+            ErrorKind::PathExcluded => "The path is excluded by the watch filter.".into(),
         };
 
         if self.paths.is_empty() {

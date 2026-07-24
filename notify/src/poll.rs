@@ -5,7 +5,7 @@
 
 use crate::{
     paths::{absolute_path, WatchPath},
-    unbounded, Config, Error, EventHandler, Receiver, RecursiveMode, Sender, Watcher,
+    unbounded, Config, Error, EventHandler, Receiver, RecursiveMode, Sender, WatchFilter, Watcher,
 };
 use std::{
     collections::HashMap,
@@ -72,7 +72,7 @@ use data::{DataBuilder, WatchData};
 mod data {
     use crate::{
         event::{CreateKind, DataChange, Event, EventKind, MetadataKind, ModifyKind, RemoveKind},
-        paths::{reported_path, WatchPath},
+        paths::{filter_keeps_walk_entry, reported_path, WatchPath},
         EventHandler, RecursiveMode,
     };
     use notify_types::event::EventKindMask;
@@ -149,8 +149,9 @@ mod data {
             root: WatchPath,
             is_recursive: bool,
             follow_symlinks: bool,
+            watch_filter: crate::WatchFilter,
         ) -> Option<WatchData> {
-            WatchData::new(self, root, is_recursive, follow_symlinks)
+            WatchData::new(self, root, is_recursive, follow_symlinks, watch_filter)
         }
 
         /// Create [`PathData`].
@@ -173,8 +174,10 @@ mod data {
         // config part, won't change.
         root: PathBuf,
         requested_root: PathBuf,
+        root_is_dir: bool,
         is_recursive: bool,
         follow_symlinks: bool,
+        watch_filter: crate::WatchFilter,
 
         // current status part.
         all_path_data: HashMap<PathBuf, PathData>,
@@ -191,6 +194,7 @@ mod data {
             root: WatchPath,
             is_recursive: bool,
             follow_symlinks: bool,
+            watch_filter: crate::WatchFilter,
         ) -> Option<Self> {
             // If metadata read error at `root` path, it will emit
             // a error event and stop to create the whole `WatchData`.
@@ -210,10 +214,13 @@ mod data {
             //
             // FIXME: Can we always allow to watch a path, even file not
             // found at this path?
-            if let Err(e) = fs::metadata(&root.absolute) {
-                data_builder.emitter.emit_io_err(e, Some(&root.requested));
-                return None;
-            }
+            let root_is_dir = match fs::metadata(&root.absolute) {
+                Ok(metadata) => metadata.is_dir(),
+                Err(e) => {
+                    data_builder.emitter.emit_io_err(e, Some(&root.requested));
+                    return None;
+                }
+            };
 
             let all_path_data = Self::scan_all_path_data(
                 data_builder,
@@ -221,6 +228,7 @@ mod data {
                 root.requested.clone(),
                 is_recursive,
                 follow_symlinks,
+                watch_filter.clone(),
                 true,
             )
             .collect();
@@ -228,8 +236,10 @@ mod data {
             Some(Self {
                 root: root.absolute,
                 requested_root: root.requested,
+                root_is_dir,
                 is_recursive,
                 follow_symlinks,
+                watch_filter,
                 all_path_data,
             })
         }
@@ -247,6 +257,7 @@ mod data {
                 self.requested_root.clone(),
                 self.is_recursive,
                 self.follow_symlinks,
+                self.watch_filter.clone(),
                 false,
             ) {
                 let event_kind = if let Some(old_path_data) = self.all_path_data.get_mut(&path) {
@@ -304,6 +315,7 @@ mod data {
             requested_root: PathBuf,
             is_recursive: bool,
             follow_symlinks: bool,
+            watch_filter: crate::WatchFilter,
             // whether this is an initial scan, used only for events
             is_initial: bool,
         ) -> impl Iterator<Item = (PathBuf, PathData)> + '_ {
@@ -312,53 +324,77 @@ mod data {
             // so we can use single logic to do the both file & dir's jobs.
             //
             // See: https://docs.rs/walkdir/2.0.1/walkdir/struct.WalkDir.html#method.new
-            WalkDir::new(root.clone())
+            let mut walk = WalkDir::new(root.clone())
                 .follow_links(follow_symlinks)
                 .max_depth(Self::dir_scan_depth(is_recursive))
-                .into_iter()
-                .filter_map(|entry_res| match entry_res {
-                    Ok(entry) => Some(entry),
-                    Err(err) => {
-                        log::warn!("walkdir error scanning {err:?}");
+                .into_iter();
+            // A rejected directory is still yielded (so its own creation and removal are
+            // reported, matching the other backends) but never descended into, which keeps
+            // everything beneath it out of the scan. This applies to the walk root
+            // too: a symlink root is checked against its target (the root gate normally
+            // rejects such a watch upfront, but the target can change between scans).
+            std::iter::from_fn(move || {
+                let entry_res = walk.next()?;
+                let mut excluded = false;
+                if let Ok(entry) = &entry_res {
+                    if !filter_keeps_walk_entry(&watch_filter, entry) {
+                        excluded = true;
+                        walk.skip_current_dir();
+                    }
+                }
+                Some((entry_res, excluded))
+            })
+            .filter_map(|(entry_res, excluded)| match entry_res {
+                Ok(entry) => Some((entry, excluded)),
+                Err(err) => {
+                    log::warn!("walkdir error scanning {err:?}");
 
-                        if let Some(io_error) = err.io_error() {
-                            // clone an io::Error, so we have to create a new one.
-                            let new_io_error = io::Error::new(io_error.kind(), err.to_string());
-                            data_builder.emitter.emit_io_err(new_io_error, err.path());
-                        } else {
-                            let crate_err =
-                                crate::Error::new(crate::ErrorKind::Generic(err.to_string()));
-                            data_builder.emitter.emit(Err(crate_err));
+                    if let Some(io_error) = err.io_error() {
+                        // clone an io::Error, so we have to create a new one.
+                        let new_io_error = io::Error::new(io_error.kind(), err.to_string());
+                        data_builder.emitter.emit_io_err(new_io_error, err.path());
+                    } else {
+                        let crate_err =
+                            crate::Error::new(crate::ErrorKind::Generic(err.to_string()));
+                        data_builder.emitter.emit(Err(crate_err));
+                    }
+                    None
+                }
+            })
+            .filter_map(move |(entry, excluded)| match entry.metadata() {
+                Ok(metadata) => {
+                    let path = entry.into_path();
+                    if is_initial {
+                        // emit initial scans
+                        if let Some(ref emitter) = data_builder.scan_emitter {
+                            emitter.borrow_mut().handle_event(Ok(reported_path(
+                                &root,
+                                &requested_root,
+                                &path,
+                            )));
                         }
-                        None
                     }
-                })
-                .filter_map(move |entry| match entry.metadata() {
-                    Ok(metadata) => {
-                        let path = entry.into_path();
-                        if is_initial {
-                            // emit initial scans
-                            if let Some(ref emitter) = data_builder.scan_emitter {
-                                emitter.borrow_mut().handle_event(Ok(reported_path(
-                                    &root,
-                                    &requested_root,
-                                    &path,
-                                )));
-                            }
-                        }
-                        let meta_path = MetaPath::from_parts_unchecked(path, metadata);
-                        let data_path = data_builder.build_path_data(&meta_path);
+                    let meta_path = MetaPath::from_parts_unchecked(path, metadata);
+                    let mut data_path = data_builder.build_path_data(&meta_path);
+                    if excluded {
+                        // The excluded directory is tracked only so its own creation and
+                        // removal are reported. Activity inside its (unscanned) subtree
+                        // bumps its mtime, and comparing that would leak a Modify event
+                        // every poll cycle, so its metadata is pinned instead.
+                        data_path.mtime = 0;
+                        data_path.hash = None;
+                    }
 
-                        Some((meta_path.into_path(), data_path))
-                    }
-                    Err(e) => {
-                        // emit event.
-                        let path = entry.into_path();
-                        data_builder.emitter.emit_io_err(e, Some(path));
+                    Some((meta_path.into_path(), data_path))
+                }
+                Err(e) => {
+                    // emit event.
+                    let path = entry.into_path();
+                    data_builder.emitter.emit_io_err(e, Some(path));
 
-                        None
-                    }
-                })
+                    None
+                }
+            })
         }
 
         fn dir_scan_depth(is_recursive: bool) -> usize {
@@ -377,8 +413,16 @@ mod data {
             }
         }
 
+        pub(super) fn root_is_dir(&self) -> bool {
+            self.root_is_dir
+        }
+
         pub(super) fn requested_root(&self) -> &Path {
             &self.requested_root
+        }
+
+        pub(super) fn watch_filter(&self) -> &crate::WatchFilter {
+            &self.watch_filter
         }
     }
 
@@ -690,7 +734,12 @@ impl PollWatcher {
     ///
     /// QUESTION: this function never return an Error, is it as intend?
     /// Please also consider the IO Error event problem.
-    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> crate::Result<()> {
+    fn watch_inner(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> crate::Result<()> {
         let watch_path = WatchPath::new(path)?;
 
         // HINT: Make sure always lock in the same order to avoid deadlock.
@@ -699,12 +748,34 @@ impl PollWatcher {
         let mut watches = self.watches.lock().unwrap_or_else(|e| e.into_inner());
         let mut data_builder = self.data_builder.lock().unwrap_or_else(|e| e.into_inner());
 
+        // Missing paths fall through so the scan reports the IO error the way it always
+        // has.
+        let path_is_dir = std::fs::metadata(&watch_path.absolute)
+            .map(|metadata| metadata.is_dir())
+            .unwrap_or(false);
+        crate::paths::check_watch_barriers(
+            &watch_path.absolute,
+            &watch_path.requested,
+            path_is_dir,
+            recursive_mode.is_recursive() && path_is_dir,
+            &watch_filter,
+            watches.iter().map(|(path, data)| {
+                (
+                    path,
+                    data.root_is_dir(),
+                    data.recursive_mode().is_recursive(),
+                    data.watch_filter(),
+                )
+            }),
+        )?;
+
         data_builder.update_timestamp();
 
         let watch_data = data_builder.build_watch_data(
             watch_path.clone(),
             recursive_mode.is_recursive(),
             self.follow_sylinks,
+            watch_filter,
         );
 
         // if create watch_data successful, add it to watching list.
@@ -737,8 +808,13 @@ impl Watcher for PollWatcher {
         Self::new(event_handler, config)
     }
 
-    fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> crate::Result<()> {
-        self.watch_inner(path, recursive_mode)
+    fn watch_filtered(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+        watch_filter: WatchFilter,
+    ) -> crate::Result<()> {
+        self.watch_inner(path, recursive_mode, watch_filter)
     }
 
     fn unwatch(&mut self, path: &Path) -> crate::Result<()> {
@@ -771,6 +847,22 @@ mod tests {
 
     fn watcher() -> (TestWatcher<PollWatcher>, Receiver) {
         poll_watcher_channel()
+    }
+
+    fn manual_watcher() -> (
+        PollWatcher,
+        std::sync::mpsc::Receiver<crate::Result<notify_types::event::Event>>,
+    ) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let watcher =
+            PollWatcher::new(tx, Config::default().with_manual_polling()).expect("create watcher");
+        (watcher, rx)
+    }
+
+    fn drain(
+        rx: &std::sync::mpsc::Receiver<crate::Result<notify_types::event::Event>>,
+    ) -> Vec<notify_types::event::Event> {
+        rx.try_iter().filter_map(|r| r.ok()).collect()
     }
 
     #[test]
@@ -1001,6 +1093,299 @@ mod tests {
         );
 
         rx.wait_unordered([expected(&overwritten_file).modify_data_any()]);
+    }
+
+    #[test]
+    fn update_paths_carries_watch_filter() {
+        use crate::{PathOp, WatchPathConfig, Watcher};
+
+        let tmpdir = testdir();
+        let root = tmpdir.path();
+        let excluded = root.join("excluded");
+        std::fs::create_dir_all(&excluded).expect("create excluded");
+
+        let (mut watcher, rx) = manual_watcher();
+        watcher
+            .update_paths(vec![PathOp::Watch(
+                root.to_path_buf(),
+                WatchPathConfig::new(crate::RecursiveMode::Recursive)
+                    .with_watch_filter(reject_name("excluded")),
+            )])
+            .expect("update_paths");
+
+        std::fs::write(excluded.join("ignored.txt"), "data").expect("write excluded file");
+        watcher.poll_blocking().expect("poll");
+
+        let events = drain(&rx);
+        assert!(
+            events.iter().all(|e| e
+                .paths
+                .iter()
+                .all(|p| !p.starts_with(&excluded) || *p == excluded)),
+            "the filter carried by update_paths was not applied: {events:?}"
+        );
+        // Guard against a vacuous pass: prove the watch itself is alive.
+        std::fs::write(root.join("seen.txt"), "data").expect("write included file");
+        watcher.poll_blocking().expect("poll 2");
+        let events = drain(&rx);
+        assert!(
+            events
+                .iter()
+                .any(|e| e.paths.iter().any(|p| p.ends_with("seen.txt"))),
+            "expected an event proving the update_paths watch is active, got: {events:?}"
+        );
+    }
+
+    #[test]
+    fn filtered_watch_conflicts_with_deleted_directory_watch() {
+        use crate::Watcher;
+
+        let tmpdir = testdir();
+        let root = tmpdir.path();
+        let nested = root.join("nested");
+        std::fs::create_dir(&nested).expect("create nested");
+
+        let (mut watcher, _rx) = manual_watcher();
+        watcher
+            .watch(&nested, crate::RecursiveMode::Recursive)
+            .expect("watch nested");
+        std::fs::remove_dir_all(&nested).expect("remove nested");
+
+        let result = watcher.watch_filtered(
+            root,
+            crate::RecursiveMode::Recursive,
+            reject_name("excluded"),
+        );
+        assert!(
+            result.is_err(),
+            "a deleted directory watch still reserves its overlap region: {result:?}"
+        );
+        assert_eq!(
+            watcher.watched_paths().expect("watched"),
+            vec![(nested, crate::RecursiveMode::Recursive)]
+        );
+    }
+
+    #[test]
+    fn rejected_root_preserves_existing_watch() {
+        use crate::{ErrorKind, WatchFilter, Watcher};
+
+        let tmpdir = testdir();
+        let root = tmpdir.path();
+
+        let (mut watcher, _rx) = manual_watcher();
+        watcher
+            .watch(root, crate::RecursiveMode::Recursive)
+            .expect("watch");
+        let before = watcher.watched_paths().expect("watched");
+
+        let rejecting = root.to_path_buf();
+        let result = watcher.watch_filtered(
+            root,
+            crate::RecursiveMode::Recursive,
+            WatchFilter::with_filter(move |p: &std::path::Path| p != rejecting.as_path()),
+        );
+
+        assert!(
+            matches!(result, Err(ref e) if matches!(e.kind, ErrorKind::PathExcluded)),
+            "watching a rejected root must fail with PathExcluded: {result:?}"
+        );
+        assert_eq!(
+            watcher.watched_paths().expect("watched"),
+            before,
+            "a failed rewatch must leave existing watches unchanged"
+        );
+    }
+
+    #[test]
+    fn watch_filter_does_not_apply_to_files() {
+        use crate::Watcher;
+
+        let tmpdir = testdir();
+        let root = tmpdir.path();
+
+        let (mut watcher, rx) = manual_watcher();
+        watcher
+            .watch_filtered(
+                root,
+                crate::RecursiveMode::Recursive,
+                reject_name("seen.txt"),
+            )
+            .expect("watch filtered");
+
+        std::fs::write(root.join("seen.txt"), "data").expect("write file");
+        watcher.poll_blocking().expect("poll");
+
+        let events = drain(&rx);
+        assert!(
+            events
+                .iter()
+                .any(|e| e.paths.iter().any(|p| p.ends_with("seen.txt"))),
+            "the filter gates directories only; file events must still be delivered: {events:?}"
+        );
+    }
+
+    #[test]
+    fn excluded_directory_own_events_are_reported() {
+        use crate::Watcher;
+
+        let tmpdir = testdir();
+        let root = tmpdir.path();
+
+        let (mut watcher, rx) = manual_watcher();
+        watcher
+            .watch_filtered(
+                root,
+                crate::RecursiveMode::Recursive,
+                reject_name("excluded"),
+            )
+            .expect("watch filtered");
+
+        let excluded = root.join("excluded");
+        std::fs::create_dir(&excluded).expect("create excluded");
+        std::fs::write(excluded.join("inside.txt"), "data").expect("write inside excluded");
+        watcher.poll_blocking().expect("poll");
+
+        let events = drain(&rx);
+        assert!(
+            events
+                .iter()
+                .any(|e| e.kind.is_create() && e.paths.contains(&excluded)),
+            "the excluded directory's own creation must be reported: {events:?}"
+        );
+        assert!(
+            events.iter().all(|e| e
+                .paths
+                .iter()
+                .all(|p| !p.starts_with(&excluded) || *p == excluded)),
+            "events leaked from inside the excluded directory: {events:?}"
+        );
+
+        std::fs::remove_dir_all(&excluded).expect("remove excluded");
+        watcher.poll_blocking().expect("poll 2");
+        let events = drain(&rx);
+        assert!(
+            events
+                .iter()
+                .any(|e| e.kind.is_remove() && e.paths.contains(&excluded)),
+            "the excluded directory's own removal must be reported: {events:?}"
+        );
+    }
+
+    #[test]
+    fn excluded_directory_mtime_changes_are_not_reported() {
+        use crate::Watcher;
+
+        let tmpdir = testdir();
+        let root = tmpdir.path();
+        let excluded = root.join("excluded");
+        std::fs::create_dir(&excluded).expect("create excluded");
+
+        let (mut watcher, rx) = manual_watcher();
+        watcher
+            .watch_filtered(
+                root,
+                crate::RecursiveMode::Recursive,
+                reject_name("excluded"),
+            )
+            .expect("watch filtered");
+
+        // Activity inside the excluded subtree bumps the excluded directory's own mtime.
+        // Only the directory's creation and removal are reportable; a Modify per poll cycle
+        // would leak the excluded activity through the directory's metadata.
+        std::fs::write(excluded.join("inside.txt"), "data").expect("write inside excluded");
+        std::fs::write(root.join("seen.txt"), "data").expect("write included file");
+        watcher.poll_blocking().expect("poll");
+
+        let events = drain(&rx);
+        assert!(
+            events
+                .iter()
+                .all(|e| !e.kind.is_modify() || !e.paths.contains(&excluded)),
+            "excluded-subtree activity leaked as a Modify on the excluded directory: {events:?}"
+        );
+        // Guard against a vacuous pass: prove the watch itself is alive.
+        assert!(
+            events
+                .iter()
+                .any(|e| e.paths.iter().any(|p| p.ends_with("seen.txt"))),
+            "expected an event proving the watch is active, got: {events:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_root_to_excluded_directory_watches_nothing() {
+        use crate::Watcher;
+
+        let tmpdir = testdir();
+        let root = tmpdir.path();
+        let excluded = root.join("excluded");
+        std::fs::create_dir(&excluded).expect("create excluded");
+        std::fs::write(excluded.join("inside.txt"), "data").expect("write inside");
+        let link = root.join("link");
+        std::os::unix::fs::symlink(&excluded, &link).expect("symlink");
+
+        let (mut watcher, rx) = manual_watcher();
+
+        // The root gate resolves symlink roots: a link to an excluded directory is a
+        // rejected root, matching the walk backends; the excluded target must not be
+        // scanned under the link's name.
+        let result = watcher.watch_filtered(
+            &link,
+            crate::RecursiveMode::Recursive,
+            reject_name("excluded"),
+        );
+        assert!(
+            matches!(result, Err(ref e) if matches!(e.kind, crate::ErrorKind::PathExcluded)),
+            "a symlink root resolving to an excluded directory must be rejected: {result:?}"
+        );
+        assert!(watcher.watched_paths().expect("watched").is_empty());
+
+        std::fs::write(excluded.join("more.txt"), "data").expect("write more");
+        watcher.poll_blocking().expect("poll");
+        let events = drain(&rx);
+        assert!(
+            events.is_empty(),
+            "nothing is watched, so nothing may be reported: {events:?}"
+        );
+    }
+
+    #[test]
+    fn file_roots_are_not_filtered() {
+        use crate::{WatchFilter, Watcher};
+
+        let tmpdir = testdir();
+        let file = tmpdir.path().join("watched.txt");
+        std::fs::write(&file, "data").expect("write file");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        // compare_contents so the same-second modification below is detectable (poll's
+        // mtime comparison has whole-second granularity).
+        let config = Config::default()
+            .with_manual_polling()
+            .with_compare_contents(true);
+        let mut watcher = PollWatcher::new(tx, config).expect("create watcher");
+
+        // The filter gates directories only: even a filter rejecting this exact path must
+        // not prevent watching a file.
+        let rejecting = file.clone();
+        watcher
+            .watch_filtered(
+                &file,
+                crate::RecursiveMode::NonRecursive,
+                WatchFilter::with_filter(move |p: &std::path::Path| p != rejecting),
+            )
+            .expect("watch file");
+
+        std::fs::write(&file, "changed").expect("modify file");
+        watcher.poll_blocking().expect("poll");
+
+        let events = drain(&rx);
+        assert!(
+            events.iter().any(|e| e.paths.contains(&file)),
+            "file watches must not be affected by the directory filter: {events:?}"
+        );
     }
 
     #[test]

@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- FEATURE: add `Debouncer::watch_filtered`, forwarding notify's new `WatchFilter` support; errors from the inner watcher (e.g. `PathExcluded` for a rejected root) propagate to the caller, and a failed `watch_filtered` or `unwatch` leaves the debouncer's bookkeeping untouched
+- CHANGE: `FileIdCache::add_path` and `FileIdCache::rescan` now receive the watch's `WatchFilter`, so caches do not walk or fingerprint excluded directories; custom `FileIdCache` implementations must be updated **breaking**
 - PERF: park the debouncer thread to avoid idle polling [#933]
 
 [#933]: https://github.com/notify-rs/notify/pull/933
