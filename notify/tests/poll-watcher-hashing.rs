@@ -56,9 +56,12 @@ impl TestHarness {
     pub fn setup() -> Self {
         let tempdir = tempfile::tempdir().unwrap();
 
+        // Manual polling: `write_file_keep_time` restores the write time in a second syscall
+        // after the write, and a background scan landing in between would see the new content
+        // with a new write time and report `Metadata(WriteTime)` instead of `Data`.
         let config = Config::default()
             .with_compare_contents(true)
-            .with_poll_interval(Duration::from_millis(10));
+            .with_manual_polling();
         let (tx, rx) = sync::mpsc::channel();
         let watcher = PollWatcher::new(
             move |event: notify::Result<Event>| {
@@ -116,11 +119,23 @@ impl TestHarness {
     }
 
     fn expect_recv<P: AsRef<Path>>(&self, expected_path: P, expected_kind: EventKind) {
-        let actual = self
-            .rx
-            .recv_timeout(Duration::from_secs(15))
-            .unwrap()
-            .expect("Watch I/O error not expected under test");
+        self.watcher.poll_blocking().expect("poll");
+
+        let watched_dir = vec![self.testdir.path().to_path_buf()];
+        let actual = loop {
+            let event = self
+                .rx
+                .recv_timeout(Duration::from_secs(15))
+                .unwrap()
+                .expect("Watch I/O error not expected under test");
+            // Creating an entry bumps the containing directory's own write time, and the scan
+            // reports a directory before the entries inside it. That event is not what this
+            // test is about.
+            if event.paths != watched_dir {
+                break event;
+            }
+        };
+
         assert_eq!(actual.paths, vec![expected_path.as_ref().to_path_buf()]);
         assert_eq!(expected_kind, actual.kind);
     }

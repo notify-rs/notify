@@ -773,6 +773,20 @@ mod tests {
         poll_watcher_channel()
     }
 
+    /// Dates a path's write time an hour ahead. `PathData::mtime` has whole-second resolution
+    /// and is compared before the content hash, so a change to an entry is reported as
+    /// `Metadata(WriteTime)` unless its recorded write time is one that nothing happening
+    /// afterwards can exceed.
+    fn set_write_time_ahead(path: &std::path::Path) {
+        let ahead = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .expect("open to set write time")
+            .set_modified(ahead)
+            .expect("set write time");
+    }
+
     #[test]
     fn poll_watcher_is_send_and_sync() {
         fn check<T: Send + Sync>() {}
@@ -879,7 +893,10 @@ mod tests {
         rx.sleep_until_exists(&path);
         rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
 
-        rx.wait_ordered_exact([expected(&path).create_any()]);
+        rx.wait_unordered_exact([
+            expected(&path).create_any(),
+            expected(tmpdir.path()).modify_meta_mtime().optional(),
+        ]);
     }
 
     #[test]
@@ -895,7 +912,10 @@ mod tests {
         rx.sleep_until_exists(&path);
         rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
 
-        rx.wait_ordered_exact([expected(&path).create_any()]);
+        rx.wait_unordered_exact([
+            expected(&path).create_any(),
+            expected(tmpdir.path()).modify_meta_mtime().optional(),
+        ]);
     }
 
     #[test]
@@ -909,7 +929,9 @@ mod tests {
         rx.sleep_until_exists(&path);
         rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
 
+        set_write_time_ahead(&path);
         watcher.watch_recursively(&tmpdir);
+
         std::fs::write(&path, b"123").expect("Unable to write");
 
         assert!(
@@ -938,7 +960,10 @@ mod tests {
         rx.sleep_while_parent_contains(&path);
         rx.sleep_until_walkdir_returns_set::<&str>(tmpdir.path(), []);
 
-        rx.wait_ordered_exact([expected(&path).remove_any()]);
+        rx.wait_unordered_exact([
+            expected(&path).remove_any(),
+            expected(tmpdir.path()).modify_meta_mtime().optional(),
+        ]);
     }
 
     #[test]
@@ -968,6 +993,7 @@ mod tests {
         rx.wait_unordered_exact([
             expected(&path).remove_any(),
             expected(&new_path).create_any(),
+            expected(tmpdir.path()).modify_meta_mtime().optional(),
         ]);
     }
 
@@ -982,6 +1008,8 @@ mod tests {
         rx.sleep_until_parent_contains(&overwritten_file);
         rx.sleep_until_exists(&overwritten_file);
         rx.sleep_until_walkdir_returns_set(tmpdir.path(), [overwritten_file.clone()]);
+
+        set_write_time_ahead(&overwritten_file);
 
         watcher.watch_nonrecursively(&tmpdir);
 
