@@ -655,6 +655,16 @@ mod tests {
         channel()
     }
 
+    fn test_event_loop() -> std::result::Result<EventLoop, Box<dyn std::error::Error>> {
+        let kqueue = kqueue::Watcher::new()?;
+        Ok(EventLoop::new(
+            kqueue,
+            Box::new(|_| {}),
+            false,
+            EventKindMask::ALL,
+        )?)
+    }
+
     #[test]
     fn test_remove_recursive() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let path = PathBuf::from("src");
@@ -719,8 +729,7 @@ mod tests {
         let child = dir.path().join("child");
         std::fs::create_dir(&child)?;
 
-        let kqueue = kqueue::Watcher::new()?;
-        let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
+        let mut event_loop = test_event_loop()?;
 
         event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
         event_loop.add_watch(WatchPath::new(&child)?, false, true)?;
@@ -755,8 +764,7 @@ mod tests {
         let child = dir.path().join("child");
         std::fs::write(&child, "")?;
 
-        let kqueue = kqueue::Watcher::new()?;
-        let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
+        let mut event_loop = test_event_loop()?;
 
         event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
         assert!(event_loop.watches.contains_key(&child));
@@ -776,8 +784,7 @@ mod tests {
         let child = dir.path().join("child");
         std::fs::create_dir(&child)?;
 
-        let kqueue = kqueue::Watcher::new()?;
-        let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
+        let mut event_loop = test_event_loop()?;
 
         event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
         assert!(event_loop.watches.contains_key(&child));
@@ -801,8 +808,7 @@ mod tests {
         let grandchild = child.join("grandchild");
         std::fs::create_dir_all(&grandchild)?;
 
-        let kqueue = kqueue::Watcher::new()?;
-        let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
+        let mut event_loop = test_event_loop()?;
 
         event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
         event_loop.add_watch(WatchPath::new(&child)?, false, true)?;
@@ -836,8 +842,7 @@ mod tests {
         let grandchild = child.join("grandchild");
         std::fs::create_dir_all(&grandchild)?;
 
-        let kqueue = kqueue::Watcher::new()?;
-        let mut event_loop = EventLoop::new(kqueue, Box::new(|_| {}), false, EventKindMask::ALL)?;
+        let mut event_loop = test_event_loop()?;
 
         event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
         event_loop.remove_watch(child.clone(), false)?;

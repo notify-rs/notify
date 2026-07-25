@@ -1176,6 +1176,10 @@ mod tests {
         EventLoop::new(inotify, Box::new(|_| {}), config).unwrap()
     }
 
+    fn test_event_loop() -> EventLoop {
+        test_event_loop_with_config(&Config::default())
+    }
+
     /// Create a watcher configured to receive ALL events including Access events.
     /// Use this for tests that verify Access event behavior.
     fn watcher_with_all_events() -> (TestWatcher<INotifyWatcher>, Receiver) {
@@ -1247,8 +1251,7 @@ mod tests {
         fs::create_dir(&disappearing).unwrap();
         fs::remove_dir_all(&disappearing).unwrap();
 
-        let inotify = super::inotify_sys::Inotify::init().unwrap();
-        let mut event_loop = EventLoop::new(inotify, Box::new(|_| {}), &Config::default()).unwrap();
+        let mut event_loop = test_event_loop();
 
         // Simulate the TOCTOU: we *intend* to watch a subdirectory discovered during initial scan,
         // but it's already gone by the time we call `inotify_add_watch`.
@@ -1273,8 +1276,7 @@ mod tests {
         let child = root.join("child");
         std::fs::create_dir(&child).unwrap();
 
-        let inotify = super::inotify_sys::Inotify::init().unwrap();
-        let mut event_loop = EventLoop::new(inotify, Box::new(|_| {}), &Config::default()).unwrap();
+        let mut event_loop = test_event_loop();
 
         event_loop
             .add_watch(WatchPath::new(&root).unwrap(), recursive_watch(), true)
@@ -1300,8 +1302,7 @@ mod tests {
         let grandchild = child.join("grandchild");
         std::fs::create_dir_all(&grandchild).unwrap();
 
-        let inotify = super::inotify_sys::Inotify::init().unwrap();
-        let mut event_loop = EventLoop::new(inotify, Box::new(|_| {}), &Config::default()).unwrap();
+        let mut event_loop = test_event_loop();
 
         event_loop
             .add_watch(WatchPath::new(&root).unwrap(), recursive_watch(), true)
@@ -1342,8 +1343,7 @@ mod tests {
         let grandchild = child.join("grandchild");
         std::fs::create_dir_all(&grandchild).unwrap();
 
-        let inotify = super::inotify_sys::Inotify::init().unwrap();
-        let mut event_loop = EventLoop::new(inotify, Box::new(|_| {}), &Config::default()).unwrap();
+        let mut event_loop = test_event_loop();
 
         event_loop
             .add_watch(WatchPath::new(&root).unwrap(), recursive_watch(), true)
@@ -1565,7 +1565,7 @@ mod tests {
     fn duplicate_watch_removals_are_coalesced() {
         let tmpdir = tempfile::tempdir().expect("tmpdir");
         let path = tmpdir.path().to_path_buf();
-        let mut event_loop = test_event_loop_with_config(&Config::default());
+        let mut event_loop = test_event_loop();
         event_loop
             .add_watch(WatchPath::new(&path).unwrap(), non_recursive_watch(), true)
             .expect("add_watch");
@@ -1649,8 +1649,7 @@ mod tests {
         let watched = tmpdir.path().join("watched");
         std::fs::create_dir(&watched).unwrap();
 
-        let inotify = super::inotify_sys::Inotify::init().unwrap();
-        let mut event_loop = EventLoop::new(inotify, Box::new(|_| {}), &Config::default()).unwrap();
+        let mut event_loop = test_event_loop();
 
         event_loop
             .add_watch(
