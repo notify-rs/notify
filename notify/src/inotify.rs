@@ -26,6 +26,13 @@ use walkdir::WalkDir;
 const INOTIFY: mio::Token = mio::Token(0);
 const MESSAGE: mio::Token = mio::Token(1);
 
+/// Flags for a single `inotify_add_watch` call, not event kinds. Never store them in
+/// [`Watch::watch_mask`], which is merged into later adds for the same path.
+const RESOLUTION_FLAGS: WatchMask = WatchMask::DONT_FOLLOW
+    .union(WatchMask::MASK_ADD)
+    .union(WatchMask::MASK_CREATE)
+    .union(WatchMask::ONLYDIR);
+
 /// Convert an EventKindMask to the corresponding inotify WatchMask.
 ///
 /// When `is_recursive` is true, CREATE and MOVED_TO are always included
@@ -627,15 +634,16 @@ impl EventLoop {
         }
 
         let existing_watch = self.watches.get(&path.absolute);
+        let mut add_mask = watchmask;
         if let Some(watch) = existing_watch {
             watchmask.insert(watch.watch_mask);
-            watchmask.insert(WatchMask::MASK_ADD);
+            add_mask = watchmask | WatchMask::MASK_ADD;
         }
 
         if let Some(ref mut inotify) = self.inotify {
             log::trace!("adding inotify watch: {}", path.absolute.display());
 
-            match inotify.watches().add(&path.absolute, watchmask) {
+            match inotify.watches().add(&path.absolute, add_mask) {
                 Err(e) => {
                     Err(if e.raw_os_error() == Some(libc::ENOSPC) {
                         // do not report inotify limits as "no more space" on linux #266
@@ -648,7 +656,7 @@ impl EventLoop {
                     .add_path(path.requested))
                 }
                 Ok(w) => {
-                    watchmask.remove(WatchMask::MASK_ADD);
+                    debug_assert!(!watchmask.intersects(RESOLUTION_FLAGS));
                     let is_dir = match metadata(&path.absolute) {
                         Ok(metadata) => metadata.is_dir(),
                         Err(e) => {
@@ -988,6 +996,32 @@ mod tests {
                 kind: ErrorKind::PathNotFound
             })
         ))
+    }
+
+    #[test]
+    fn stored_watch_mask_keeps_no_resolution_flags() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().to_path_buf();
+        let child = root.join("child");
+        std::fs::create_dir(&child).unwrap();
+
+        let inotify = super::inotify_sys::Inotify::init().unwrap();
+        let mut event_loop = EventLoop::new(inotify, Box::new(|_| {}), &Config::default()).unwrap();
+
+        event_loop
+            .add_watch(WatchPath::new(&root).unwrap(), true, true)
+            .expect("watch recursively");
+        event_loop
+            .add_watch(WatchPath::new(&root).unwrap(), false, true)
+            .expect("rewatch non-recursively");
+
+        for (path, watch) in &event_loop.watches {
+            assert!(
+                !watch.watch_mask.intersects(super::RESOLUTION_FLAGS),
+                "{path:?} stored {:?}",
+                watch.watch_mask
+            );
+        }
     }
 
     // Regression test for https://github.com/notify-rs/notify/issues/579.
