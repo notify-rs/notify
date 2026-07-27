@@ -378,6 +378,19 @@ pub trait Watcher {
     /// [#166]: https://github.com/notify-rs/notify/issues/166
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
 
+    /// Begin watching a path with per-path settings.
+    ///
+    /// Behaves like [`Watcher::watch`], with the options in `config` applied to this watch alone.
+    /// Backends that do not implement a given option ignore it, so the default implementation
+    /// applies only [`WatchPathConfig::recursive_mode`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error in the case that `path` does not exist or if adding the watch fails.
+    fn watch_with(&mut self, path: &Path, config: WatchPathConfig) -> Result<()> {
+        self.watch(path, config.recursive_mode())
+    }
+
     /// Stop watching a path.
     ///
     /// # Errors
@@ -425,7 +438,7 @@ pub trait Watcher {
     fn update_paths(&mut self, ops: Vec<PathOp>) -> StdResult<(), UpdatePathsError> {
         update_paths(ops, |op| match op {
             PathOp::Watch(path, config) => self
-                .watch(&path, config.recursive_mode())
+                .watch_with(&path, config.clone())
                 .map_err(|e| (PathOp::Watch(path, config), e)),
             PathOp::Unwatch(path) => self.unwatch(&path).map_err(|e| (PathOp::Unwatch(path), e)),
         })
@@ -577,6 +590,7 @@ mod tests {
         assert_debug_impl!(PollWatcher);
         assert_debug_impl!(RecommendedWatcher);
         assert_debug_impl!(RecursiveMode);
+        assert_debug_impl!(WatchPathConfig);
         assert_debug_impl!(WatcherKind);
     }
 

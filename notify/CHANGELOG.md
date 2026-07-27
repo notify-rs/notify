@@ -9,7 +9,9 @@
 - FEATURE: [windows] report created file/folder kinds when they can be determined [#935]
 - CHANGE: [macOS] improve FSEvents callback performance by avoiding unnecessary allocations and repeated handler locking
 - PERF: [kqueue] avoid filesystem walks for recursive kqueue unwatch
+- FEATURE: add `Watcher::watch_with` to pass per-path settings, and `WatchPathConfig::with_dereference_symlinks` to watch a symbolic link itself instead of its destination, which also makes a dangling link watchable [#255]
 
+[#255]: https://github.com/notify-rs/notify/issues/255
 [#930]: https://github.com/notify-rs/notify/pull/930
 [#935]: https://github.com/notify-rs/notify/issues/935
 [#958]: https://github.com/notify-rs/notify/pull/958
