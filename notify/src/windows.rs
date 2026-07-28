@@ -21,8 +21,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ACCESS_DENIED, ERROR_OPERATION_ABORTED, ERROR_SUCCESS, HANDLE,
-    INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_NOTIFY_ENUM_DIR, ERROR_OPERATION_ABORTED,
+    ERROR_SUCCESS, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FileStandardInfo, GetFileInformationByHandleEx, ReadDirectoryChangesW,
@@ -38,7 +38,11 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::Win32::System::IO::{CancelIo, OVERLAPPED};
 
-const BUF_SIZE: u32 = 16384;
+// A 16KB buffer is too small for directories with high churn (e.g. build artifact
+// directories inside large repositories); bursts of changes overflow it easily.
+// 64KB reduces the overflow frequency. Overflows are still handled by the
+// ERROR_NOTIFY_ENUM_DIR / zero-bytes branches in handle_event.
+const BUF_SIZE: u32 = 65536;
 
 #[derive(Clone, Copy)]
 enum SeparatorStyle {
@@ -519,7 +523,7 @@ fn is_delete_pending(handle: HANDLE) -> bool {
 
 unsafe extern "system" fn handle_event(
     error_code: u32,
-    _bytes_written: u32,
+    bytes_written: u32,
     overlapped: *mut OVERLAPPED,
 ) {
     let overlapped: Box<OVERLAPPED> = Box::from_raw(overlapped);
@@ -576,6 +580,34 @@ unsafe extern "system" fn handle_event(
         ERROR_SUCCESS => {
             // Success, continue to handle the event
         }
+        ERROR_NOTIFY_ENUM_DIR => {
+            // The kernel buffer overflowed: the changes accumulated since the last
+            // completion do not fit into the buffer and some events were lost, but
+            // the directory handle is still valid. Re-arm the read and report a
+            // rescan event so consumers can reconcile their state, instead of
+            // silently unwatching the directory and losing the watch forever.
+            log::warn!(
+                "ReadDirectoryChangesW buffer overflow for directory {}; some events were lost, emitting rescan",
+                request.data.dir.display()
+            );
+            if let Err(error) = start_read(
+                &request.data,
+                request.event_handler.clone(),
+                request.event_kinds,
+                request.handle,
+                request.action_tx.clone(),
+            ) {
+                log::error!(
+                    "failed to re-arm ReadDirectoryChangesW after overflow for directory {}: {}",
+                    request.data.dir.display(),
+                    error
+                );
+            }
+            let event = Event::new(EventKind::Other).set_flag(Flag::Rescan);
+            emit_event(&request.event_handler, Ok(event));
+            ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+            return;
+        }
         _ => {
             // Some unidentified error occurred, log and unwatch the directory, then return.
             log::error!(
@@ -598,6 +630,22 @@ unsafe extern "system" fn handle_event(
         request.action_tx.clone(),
     )
     .err();
+
+    // On some Windows versions a buffer overflow surfaces as ERROR_SUCCESS with
+    // zero bytes written (rather than ERROR_NOTIFY_ENUM_DIR): the accumulated
+    // changes did not even fit into a single entry. The buffer is all zeros, and
+    // parsing it would silently discard every event. Treat this as an overflow
+    // and report a rescan so consumers can reconcile their state.
+    if error_code == ERROR_SUCCESS && bytes_written == 0 {
+        log::warn!(
+            "ReadDirectoryChangesW reported zero bytes for directory {}; some events were lost, emitting rescan",
+            request.data.dir.display()
+        );
+        let event = Event::new(EventKind::Other).set_flag(Flag::Rescan);
+        emit_event(&request.event_handler, Ok(event));
+        ReleaseSemaphore(request.data.complete_sem, 1, ptr::null_mut());
+        return;
+    }
 
     // The FILE_NOTIFY_INFORMATION struct has a variable length due to the variable length
     // string as its last member. Each struct contains an offset for getting the next entry in
@@ -1092,6 +1140,140 @@ pub mod tests {
 
         assert!(event_rx.try_iter().next().is_none(), "unexpected event");
         assert!(action_rx.try_iter().next().is_none(), "unexpected action");
+    }
+
+    #[test]
+    fn enum_dir_overflow_completion_emits_rescan_and_keeps_watch() {
+        use std::ptr;
+        use windows_sys::Win32::Foundation::{
+            CloseHandle, ERROR_NOTIFY_ENUM_DIR, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
+        };
+        use windows_sys::Win32::System::Threading::{CreateSemaphoreW, WaitForSingleObjectEx};
+        use windows_sys::Win32::System::IO::OVERLAPPED;
+
+        let complete_sem = unsafe { CreateSemaphoreW(ptr::null_mut(), 0, 2, ptr::null_mut()) };
+        assert!(!complete_sem.is_null());
+        assert_ne!(complete_sem, INVALID_HANDLE_VALUE);
+
+        let (event_tx, event_rx) = mpsc::channel();
+        let (action_tx, action_rx) = crate::unbounded();
+        let event_handler: Arc<Mutex<dyn crate::EventHandler>> = Arc::new(Mutex::new(event_tx));
+        let request = Box::new(super::ReadDirectoryRequest {
+            event_handler,
+            event_kinds: crate::EventKindMask::ALL,
+            buffer: [0u8; super::BUF_SIZE as usize],
+            // The invalid handle makes the rearm attempt fail deterministically.
+            handle: INVALID_HANDLE_VALUE,
+            data: super::ReadData {
+                watch_path: PathBuf::from(r"C:\watched"),
+                dir: PathBuf::from(r"C:\watched"),
+                reported_dir: PathBuf::from(r"C:\watched"),
+                file: None,
+                complete_sem,
+                is_recursive: false,
+                separator_style: SeparatorStyle::Backslash,
+                stopping: Arc::new(AtomicBool::new(false)),
+            },
+            action_tx,
+        });
+        let mut overlapped = Box::new(unsafe { std::mem::zeroed::<OVERLAPPED>() });
+        overlapped.hEvent = Box::into_raw(request) as _;
+
+        unsafe {
+            super::handle_event(ERROR_NOTIFY_ENUM_DIR, 0, Box::into_raw(overlapped));
+            assert_eq!(
+                WaitForSingleObjectEx(complete_sem, 0, 0),
+                WAIT_OBJECT_0,
+                "completion callback did not release the watch semaphore"
+            );
+            CloseHandle(complete_sem);
+        }
+
+        let event = event_rx
+            .try_iter()
+            .next()
+            .expect("overflow should emit an event")
+            .expect("overflow event should not be an error");
+        assert!(
+            event.need_rescan(),
+            "overflow should emit a rescan, got {event:?}"
+        );
+        assert!(
+            event_rx.try_iter().next().is_none(),
+            "unexpected extra event"
+        );
+        assert!(
+            action_rx.try_iter().next().is_none(),
+            "overflow must not unwatch the directory"
+        );
+    }
+
+    #[test]
+    fn zero_bytes_completion_emits_rescan_and_keeps_watch() {
+        use std::ptr;
+        use windows_sys::Win32::Foundation::{
+            CloseHandle, ERROR_SUCCESS, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
+        };
+        use windows_sys::Win32::System::Threading::{CreateSemaphoreW, WaitForSingleObjectEx};
+        use windows_sys::Win32::System::IO::OVERLAPPED;
+
+        let complete_sem = unsafe { CreateSemaphoreW(ptr::null_mut(), 0, 2, ptr::null_mut()) };
+        assert!(!complete_sem.is_null());
+        assert_ne!(complete_sem, INVALID_HANDLE_VALUE);
+
+        let (event_tx, event_rx) = mpsc::channel();
+        let (action_tx, action_rx) = crate::unbounded();
+        let event_handler: Arc<Mutex<dyn crate::EventHandler>> = Arc::new(Mutex::new(event_tx));
+        let request = Box::new(super::ReadDirectoryRequest {
+            event_handler,
+            event_kinds: crate::EventKindMask::ALL,
+            buffer: [0u8; super::BUF_SIZE as usize],
+            // The invalid handle makes the rearm attempt fail deterministically.
+            handle: INVALID_HANDLE_VALUE,
+            data: super::ReadData {
+                watch_path: PathBuf::from(r"C:\watched"),
+                dir: PathBuf::from(r"C:\watched"),
+                reported_dir: PathBuf::from(r"C:\watched"),
+                file: None,
+                complete_sem,
+                is_recursive: false,
+                separator_style: SeparatorStyle::Backslash,
+                stopping: Arc::new(AtomicBool::new(false)),
+            },
+            action_tx,
+        });
+        let mut overlapped = Box::new(unsafe { std::mem::zeroed::<OVERLAPPED>() });
+        overlapped.hEvent = Box::into_raw(request) as _;
+
+        unsafe {
+            // Some Windows versions report buffer overflows as a successful
+            // completion with zero bytes transferred.
+            super::handle_event(ERROR_SUCCESS, 0, Box::into_raw(overlapped));
+            assert_eq!(
+                WaitForSingleObjectEx(complete_sem, 0, 0),
+                WAIT_OBJECT_0,
+                "completion callback did not release the watch semaphore"
+            );
+            CloseHandle(complete_sem);
+        }
+
+        let event = event_rx
+            .try_iter()
+            .next()
+            .expect("overflow should emit an event")
+            .expect("overflow event should not be an error");
+        assert!(
+            event.need_rescan(),
+            "overflow should emit a rescan, got {event:?}"
+        );
+        assert!(
+            event_rx.try_iter().next().is_none(),
+            "unexpected extra event"
+        );
+        assert!(
+            action_rx.try_iter().next().is_none(),
+            "overflow must not unwatch the directory"
+        );
     }
 
     #[test]

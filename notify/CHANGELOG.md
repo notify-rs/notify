@@ -6,6 +6,8 @@
 - FIX: [windows] emit a Remove event when a watched directory is deleted, matching inotify and FSEvents
 - FIX: [windows] surface `ReadDirectoryChangesW` read-start failures [#935]
 - FIX: [windows] prevent watch shutdown and watched-directory deletion races from emitting spurious I/O errors [#958]
+- FIX: [windows] report a rescan instead of silently unwatching the directory when the `ReadDirectoryChangesW` buffer overflows (`ERROR_NOTIFY_ENUM_DIR`); also treat zero transferred bytes as an overflow, since some Windows versions report overflows that way
+- PERF: [windows] increase the `ReadDirectoryChangesW` buffer from 16KB to 64KB to reduce overflow frequency under high churn
 - FEATURE: [windows] report created file/folder kinds when they can be determined [#935]
 - CHANGE: [macOS] improve FSEvents callback performance by avoiding unnecessary allocations and repeated handler locking
 - PERF: [kqueue] avoid filesystem walks for recursive kqueue unwatch
