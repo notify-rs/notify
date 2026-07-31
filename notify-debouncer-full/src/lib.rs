@@ -47,15 +47,16 @@
 //!
 //! # Features
 //!
-//! The following crate features can be turned on or off in your cargo dependency config:
+//! The following crate features can be configured in your Cargo dependency:
 //!
-//! - `serde` passed down to notify-types, off by default
-//! - `web-time` passed down to notify-types, off by default
-//! - `crossbeam-channel` passed down to notify, off by default
-//! - `flume` passed down to notify, off by default
-//! - `macos_fsevent` passed down to notify, off by default
-//! - `macos_kqueue` passed down to notify, off by default
-//! - `serialization-compat-6` passed down to notify, off by default
+//! - `macos_fsevent` (default) enables notify's FSEvents backend on macOS
+//! - `freebsd_inotify` enables notify's native inotify backend on FreeBSD 15+
+//! - `macos_kqueue` enables notify's kqueue backend on macOS
+//! - `serde` enables serialization support in notify-types
+//! - `web-time` uses `web_time::Instant` for debounced events
+//! - `crossbeam-channel`, `flume`, `futures`, and `tokio` enable the corresponding
+//!   channel senders as event handlers
+//! - `serialization-compat-6` restores notify 6 serialization behavior
 //!
 //! # Caveats
 //!

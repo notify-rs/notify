@@ -1,4 +1,4 @@
-//! Watcher implementation for the inotify Linux API
+//! Inotify watcher implementation for Linux, Android, and FreeBSD 15.0+.
 //!
 //! The inotify API provides a mechanism for monitoring filesystem events.  Inotify can be used to
 //! monitor individual files, or to monitor directories.  When a directory is monitored, inotify
@@ -1693,7 +1693,8 @@ mod tests {
                 break event;
             }
         };
-        assert_eq!(event, expected(&path).modify_data_any());
+        // Linux and FreeBSD classify this modification differently.
+        assert_eq!(event, expected(&path).modify());
     }
 
     #[test]
@@ -1779,7 +1780,9 @@ mod tests {
         ]);
     }
 
+    // FreeBSD reports writes through any hard link to the watched inode.
     #[test]
+    #[cfg(not(target_os = "freebsd"))]
     fn write_to_a_hardlink_pointed_to_the_file_in_the_watched_dir_doesnt_trigger_an_event() {
         let tmpdir = testdir();
         let (mut watcher, mut rx) = watcher();
