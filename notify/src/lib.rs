@@ -15,9 +15,9 @@
 //! List of compilation features, see below for details
 //!
 //! - `serde` for serialization of events
-//! - `macos_fsevent` enabled by default, for fsevent backend on macos
-//! - `macos_kqueue` for kqueue backend on macos
-//! - `freebsd_inotify` enabled by default; native inotify as FreeBSD recommended backend (15.0+). Disable default features on FreeBSD 14.x to use kqueue.
+//! - `macos_fsevent` (default) for the FSEvents backend on macOS
+//! - `macos_kqueue` for the kqueue backend on macOS
+//! - `freebsd_inotify` for native inotify on FreeBSD 15.0+
 //! - `serialization-compat-6` restores the serialization behavior of notify 6, off by default
 //!
 //! ### Serde
@@ -328,7 +328,7 @@ impl EventHandler for std::sync::mpsc::Sender<Result<Event>> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum WatcherKind {
-    /// inotify backend (Linux, Android, FreeBSD 15+ with `freebsd_inotify`)
+    /// Inotify backend (Linux, Android, and FreeBSD 15+ with `freebsd_inotify`)
     Inotify,
     /// FS-Event backend (mac)
     Fsevent,

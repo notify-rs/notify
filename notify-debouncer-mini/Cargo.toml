@@ -13,7 +13,7 @@ homepage.workspace = true
 repository.workspace = true
 
 [features]
-default = ["macos_fsevent", "freebsd_inotify"]
+default = ["macos_fsevent"]
 serde = ["notify-types/serde"]
 crossbeam-channel = ["dep:crossbeam-channel", "notify/crossbeam-channel"]
 flume = ["dep:flume", "notify/flume"]

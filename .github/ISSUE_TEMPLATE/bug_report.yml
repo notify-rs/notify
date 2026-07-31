@@ -64,8 +64,8 @@ body:
       options:
         - Unknown/Auto-detected
         - inotify (Linux/Android/FreeBSD 15+)
-        - fsevents (macOS)
-        - kqueue (macOS/BSD/FreeBSD 14.x)
+        - FSEvents (macOS)
+        - kqueue (macOS/iOS/BSDs)
         - ReadDirectoryChangesW (Windows)
         - polling (all platforms)
     validations:
