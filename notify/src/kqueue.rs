@@ -174,6 +174,7 @@ impl EventLoop {
     fn handle_kqueue(&mut self) {
         let mut add_watches = Vec::new();
         let mut remove_watches = Vec::new();
+        let mut pending_events = Vec::new();
 
         while let Some(event) = self.kqueue.poll(None) {
             log::trace!("kqueue event: {event:?}");
@@ -336,7 +337,7 @@ impl EventLoop {
                         Ok(e) if !self.event_kinds.matches(&e.kind) => {
                             // Event filtered out
                         }
-                        _ => self.event_handler.handle_event(event),
+                        _ => pending_events.push(event),
                     }
                 }
                 // as we don't add any other EVFILTER to kqueue we should never get here
@@ -350,6 +351,13 @@ impl EventLoop {
 
         for (path, is_user_watch) in add_watches {
             self.add_watch(path, true, is_user_watch).ok();
+        }
+
+        // Apply recursive watch changes before reporting the events that caused them. Event
+        // handlers may react to a newly created directory immediately; once its create event is
+        // delivered, changes made by that handler must be covered by the new directory watch.
+        for event in pending_events {
+            self.event_handler.handle_event(event);
         }
     }
 
@@ -660,6 +668,48 @@ mod tests {
             result.unwrap_err()
         );
         Ok(())
+    }
+
+    #[test]
+    fn recursive_watch_is_installed_before_directory_create_event_is_delivered() {
+        let tmpdir = testdir();
+        let root = tmpdir.path();
+        let child = root.join("child");
+        let file = child.join("created-from-handler.txt");
+
+        let callback_child = child.clone();
+        let callback_file = file.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = KqueueWatcher::new(
+            move |event: Result<Event>| {
+                if event.as_ref().is_ok_and(|event| {
+                    matches!(event.kind, EventKind::Create(CreateKind::Folder))
+                        && event.paths.contains(&callback_child)
+                }) {
+                    std::fs::write(&callback_file, "created by event handler")
+                        .expect("create file from directory-create event handler");
+                }
+                let _ = tx.send(event);
+            },
+            Config::default(),
+        )
+        .expect("create watcher");
+        watcher
+            .watch(root, RecursiveMode::Recursive)
+            .expect("watch recursively");
+
+        std::fs::create_dir(&child).expect("create child directory");
+
+        let mut rx = test::Receiver {
+            rx,
+            timeout: Duration::from_secs(5),
+            detect_changes: None,
+            kind: crate::WatcherKind::Kqueue,
+        };
+        rx.wait_unordered([
+            expected(&child).create_folder(),
+            expected(&file).create_file(),
+        ]);
     }
 
     #[test]
