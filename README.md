@@ -45,7 +45,7 @@ We follow these MSRV rules:
 ## Platforms
 
 - Linux / Android: inotify
-- FreeBSD: kqueue (default) or inotify, see features
+- FreeBSD: inotify when built natively on 15.0+; kqueue otherwise (use `freebsd_inotify` for cross-builds)
 - macOS: FSEvents (default) or kqueue, see features
 - Windows: ReadDirectoryChangesW
 - iOS / NetBSD / OpenBSD / DragonflyBSD: kqueue

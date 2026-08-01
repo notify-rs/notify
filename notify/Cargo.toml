@@ -22,8 +22,8 @@ default = ["macos_fsevent"]
 serde = ["notify-types/serde"]
 macos_kqueue = ["kqueue", "mio"]
 macos_fsevent = ["objc2-core-foundation", "objc2-core-services"]
-# Opt-in native inotify backend for FreeBSD 15+.
-freebsd_inotify = ["dep:inotify"]
+# Force native inotify when cross-compiling for FreeBSD 15+.
+freebsd_inotify = []
 serialization-compat-6 = ["notify-types/serialization-compat-6"]
 tokio = ["dep:tokio"]
 futures = ["dep:futures"]
@@ -72,9 +72,9 @@ windows-sys = { workspace = true, features = [
   "Win32_System_IO",
 ] }
 
-# Keep kqueue available when the inotify backend is enabled.
+# Both backends must be available for build-time selection.
 [target.'cfg(target_os="freebsd")'.dependencies]
-inotify = { workspace = true, default-features = false, optional = true }
+inotify = { workspace = true, default-features = false }
 kqueue.workspace = true
 mio.workspace = true
 

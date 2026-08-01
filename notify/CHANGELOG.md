@@ -2,7 +2,7 @@
 
 ## unreleased
 
-- FEATURE: [FreeBSD] add native inotify support on FreeBSD 15.0+ behind the `freebsd_inotify` feature. kqueue remains the default backend.
+- FEATURE: [FreeBSD] select native inotify automatically when building on FreeBSD 15.0+ and kqueue otherwise. The `freebsd_inotify` feature enables inotify when cross-compiling for FreeBSD 15.0+.
 - DEPS: bump `inotify` to 0.11.4 for native FreeBSD support
 - FEATURE: [macOS] add `Config::with_fsevent_latency` to configure FSEvents stream latency [#930]
 - FIX: [linux] coalesce duplicate inotify cleanup events and handle kernel-removed descriptors without spurious `EINVAL` or `WatchNotFound` logs
