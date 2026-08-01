@@ -1,4 +1,4 @@
-//! Watcher implementation for the inotify Linux API
+//! Inotify watcher implementation for Linux, Android, and FreeBSD 15.0+.
 //!
 //! The inotify API provides a mechanism for monitoring filesystem events.  Inotify can be used to
 //! monitor individual files, or to monitor directories.  When a directory is monitored, inotify
@@ -16,7 +16,7 @@ use crate::{bounded, unbounded, BoundSender, Receiver, Sender};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use notify_types::event::EventKindMask;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
 use std::fs::{metadata, symlink_metadata, Metadata};
 use std::os::unix::io::AsRawFd;
@@ -159,15 +159,32 @@ fn add_watch_by_event(
     }
 }
 
+/// Queue `path` for removal, if it is watched and `descriptor` still matches its watch.
 #[inline]
-fn remove_watch_by_event(
-    path: &PathBuf,
+fn queue_watch_removal(
+    path: &Path,
+    descriptor: Option<&WatchDescriptor>,
     watches: &HashMap<PathBuf, Watch>,
-    remove_watches: &mut Vec<PathBuf>,
+    remove_watches: &mut BTreeMap<PathBuf, WatchRemoval>,
+    removal: WatchRemoval,
 ) {
-    if watches.contains_key(path) {
-        remove_watches.push(path.to_owned());
+    let watched = watches
+        .get(path)
+        .is_some_and(|watch| descriptor.is_none_or(|wd| &watch.watch_descriptor == wd));
+    if watched {
+        let pending = remove_watches.entry(path.to_owned()).or_insert(removal);
+        *pending = (*pending).max(removal);
     }
+}
+
+/// Variant order is load-bearing: coalescing keeps the greater of two pending removals.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+enum WatchRemoval {
+    /// The watch may still be installed, so remove it from inotify as well as local state.
+    WithOsCall,
+    /// The kernel removed the event's root descriptor, but descendant descriptors may still be
+    /// installed if their filesystem objects survived, for example after being moved elsewhere.
+    DescriptorAlreadyRemoved,
 }
 
 #[inline]
@@ -306,8 +323,7 @@ impl EventLoop {
 
     fn handle_inotify(&mut self) {
         let mut add_watches = Vec::new();
-        let mut remove_watches = Vec::new();
-        let mut remove_watches_no_syscall = Vec::new();
+        let mut remove_watches = BTreeMap::new();
 
         if let Some(ref mut inotify) = self.inotify {
             let mut buffer = [0; 1024];
@@ -323,6 +339,30 @@ impl EventLoop {
                             if event.mask.contains(EventMask::Q_OVERFLOW) {
                                 let ev = Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan));
                                 self.event_handler.handle_event(ev);
+                            }
+
+                            if event.mask.contains(EventMask::IGNORED) {
+                                // The kernel sends IGNORED whenever it removes a descriptor,
+                                // regardless of the configured mask. A replacement watch may
+                                // already occupy the same pathname, hence the descriptor check.
+                                if let Some(path) = self.paths.get(&event.wd).cloned() {
+                                    if self
+                                        .watches
+                                        .get(&path)
+                                        .is_some_and(|watch| watch.watch_descriptor == event.wd)
+                                    {
+                                        queue_watch_removal(
+                                            &path,
+                                            None,
+                                            &self.watches,
+                                            &mut remove_watches,
+                                            WatchRemoval::DescriptorAlreadyRemoved,
+                                        );
+                                    } else {
+                                        self.paths.remove(&event.wd);
+                                    }
+                                }
+                                continue;
                             }
 
                             let paths = self.paths.get(&event.wd).and_then(|root| {
@@ -351,7 +391,13 @@ impl EventLoop {
                             let mut evs = Vec::new();
 
                             if event.mask.contains(EventMask::MOVED_FROM) {
-                                remove_watch_by_event(&path, &self.watches, &mut remove_watches);
+                                queue_watch_removal(
+                                    &path,
+                                    None,
+                                    &self.watches,
+                                    &mut remove_watches,
+                                    WatchRemoval::WithOsCall,
+                                );
 
                                 let event = Event::new(EventKind::Modify(ModifyKind::Name(
                                     RenameMode::From,
@@ -421,7 +467,13 @@ impl EventLoop {
                                     ))
                                     .add_path(event_path.clone()),
                                 );
-                                remove_watch_by_event(&path, &self.watches, &mut remove_watches);
+                                queue_watch_removal(
+                                    &path,
+                                    None,
+                                    &self.watches,
+                                    &mut remove_watches,
+                                    WatchRemoval::WithOsCall,
+                                );
                             }
                             if event.mask.contains(EventMask::DELETE_SELF) {
                                 let remove_kind = match self.watches.get(&path) {
@@ -433,17 +485,27 @@ impl EventLoop {
                                     Event::new(EventKind::Remove(remove_kind))
                                         .add_path(event_path.clone()),
                                 );
-                                remove_watch_by_event(&path, &self.watches, &mut remove_watches);
+                                // Deleting a watched inode removes its watch in the kernel and
+                                // queues IGNORED, so calling inotify_rm_watch would return EINVAL.
+                                queue_watch_removal(
+                                    &path,
+                                    Some(&event.wd),
+                                    &self.watches,
+                                    &mut remove_watches,
+                                    WatchRemoval::DescriptorAlreadyRemoved,
+                                );
                             }
                             if event.mask.contains(EventMask::UNMOUNT) {
                                 evs.push(unmount_event(event_path.clone()));
                                 // The kernel has already removed this watch descriptor and will
                                 // emit IGNORED; clean up internal state without inotify_rm_watch.
                                 // ref. https://www.man7.org/linux/man-pages/man7/inotify.7.html
-                                remove_watch_by_event(
+                                queue_watch_removal(
                                     &path,
+                                    Some(&event.wd),
                                     &self.watches,
-                                    &mut remove_watches_no_syscall,
+                                    &mut remove_watches,
+                                    WatchRemoval::DescriptorAlreadyRemoved,
                                 );
                             }
                             if event.mask.contains(EventMask::MODIFY) {
@@ -511,14 +573,21 @@ impl EventLoop {
             }
         }
 
-        for path in remove_watches_no_syscall {
-            if let Err(err) = self.remove_watch_without_os_call(path, true) {
-                log::warn!("Unable to remove the path from the watches: {err:?}");
+        // An ancestor sorts before its descendants, so reverse order removes descendants first:
+        // recursive ancestor cleanup then neither repeats syscalls for kernel-removed watches nor
+        // drops the mapping for a live, moved-out descendant.
+        for (path, removal) in remove_watches.into_iter().rev() {
+            if !self.watches.contains_key(&path) {
+                continue;
             }
-        }
 
-        for path in remove_watches {
-            if let Err(err) = self.remove_watch(path, true) {
+            let result = match removal {
+                WatchRemoval::WithOsCall => self.remove_watch(path, true),
+                WatchRemoval::DescriptorAlreadyRemoved => {
+                    self.remove_watch_without_root_os_call(path, true)
+                }
+            };
+            if let Err(err) = result {
                 log::warn!("Unable to remove the path from the watches: {err:?}");
             }
         }
@@ -826,7 +895,11 @@ impl EventLoop {
         Ok(())
     }
 
-    fn remove_watch_without_os_call(
+    /// Remove a root watch after the kernel has already invalidated its descriptor.
+    ///
+    /// Only the root skips `inotify_rm_watch`. Recursive descendants are removed individually
+    /// because their filesystem objects—and therefore their descriptors—may still be live.
+    fn remove_watch_without_root_os_call(
         &mut self,
         path: PathBuf,
         remove_recursive: bool,
@@ -845,6 +918,8 @@ impl EventLoop {
                 self.paths.remove(&watch.watch_descriptor);
 
                 if watch.metadata.is_recursive || remove_recursive {
+                    let mut inotify_watches =
+                        self.inotify.as_mut().map(|inotify| inotify.watches());
                     let mut remove_list = Vec::new();
                     let mut reset_list = Vec::new();
                     for (w, p) in &self.paths {
@@ -860,6 +935,11 @@ impl EventLoop {
                                 continue;
                             }
 
+                            // The kernel removing the root does not prove that this descendant's
+                            // descriptor was removed, for example if it was moved elsewhere.
+                            if let Some(inotify_watches) = inotify_watches.as_mut() {
+                                Self::remove_single_descriptor(inotify_watches, w.clone());
+                            }
                             self.watches.remove(p);
                             remove_list.push(w.clone());
                         }
@@ -875,34 +955,22 @@ impl EventLoop {
                 }
             }
         }
+
         Ok(())
     }
 
-    /// As long as we use the `inotify` crate its behaviour is specified by the documentation of
-    /// a [`inotify::Watches::remove`] method:
-    /// ```text
-    /// Directly returns the error from the call to [inotify_rm_watch].
-    /// Returns an [io::Error] with [ErrorKind]::InvalidInput,
-    /// if the given WatchDescriptor did not originate from this [Inotify] instance.
-    /// ```
+    /// Remove a descriptor while tolerating the deletion race documented by inotify.
     ///
-    /// inotify documentation says, that `inotify_rm_watch` may fail with two specific errors:
-    /// * EBADF - fd is not a valid file descriptor.
-    /// * EINVAL - The watch descriptor wd is not valid or fd is not an inotify file descriptor.
-    ///
-    /// Therefore, we can ignore this errors (and log it), because
-    /// * in the case, when we are removing a watch because of an caught `DELETE` or `DELETE_SELF` event we want the
-    ///   path to be not watched, and in error cases it's already done (unknown file descriptor == it is not watched)
-    /// * in the case, when user is trying to remove the watch, they can do nothing with that kind of an error,
-    ///   it's totally internal. BUT, if there are no "strange" states (like races between user call and internal call,
-    ///   when internal inotify file descriptor has already been invalidated, but the event still hasn't been handled)
-    ///   they will get an [`ErrorKind::WatchNotFound`] error and can deal with it
-    ///
-    /// Log level is info, because it is not a "real" error. Expectedly, it may occurred only by race condition
-    /// (like described above), in other cases it is a bug (but we aren't able to distinguish that states)
+    /// Linux may invalidate a watch before its queued deletion event is handled. In that case
+    /// `inotify_rm_watch` returns EINVAL, but the requested end state has already been reached.
+    /// Other errors indicate an unexpected descriptor or inotify-instance failure and stay visible.
     fn remove_single_descriptor(watches: &mut inotify::Watches, wd: WatchDescriptor) {
         if let Err(err) = watches.remove(wd) {
-            log::info!("unable to remove watch descriptor from inotify: {err:?}");
+            if err.raw_os_error() == Some(libc::EINVAL) {
+                log::trace!("watch descriptor was already removed from inotify: {err:?}");
+            } else {
+                log::warn!("unable to remove watch descriptor from inotify: {err:?}");
+            }
         }
     }
 
@@ -1048,6 +1116,11 @@ mod tests {
 
     fn watcher() -> (TestWatcher<INotifyWatcher>, Receiver) {
         channel()
+    }
+
+    fn test_event_loop_with_config(config: &Config) -> EventLoop {
+        let inotify = super::inotify_sys::Inotify::init().unwrap();
+        EventLoop::new(inotify, Box::new(|_| {}), config).unwrap()
     }
 
     /// Create a watcher configured to receive ALL events including Access events.
@@ -1392,6 +1465,115 @@ mod tests {
     }
 
     #[test]
+    fn ignored_event_removes_watch_when_remove_events_are_filtered_out() {
+        let tmpdir = tempfile::tempdir().expect("tmpdir");
+        let root = tmpdir.path().to_path_buf();
+        let child = root.join("child");
+        std::fs::create_dir(&child).expect("create child");
+
+        // Recursive setup still installs a watch for `child`, but the parent does not receive a
+        // DELETE event with this mask. IGNORED is therefore the only cleanup signal and must be
+        // handled independently of the user-visible event filter.
+        let config = Config::default().with_event_kinds(EventKindMask::MODIFY_DATA);
+        let mut event_loop = test_event_loop_with_config(&config);
+        event_loop
+            .add_watch(WatchPath::new(&root).unwrap(), true, true)
+            .expect("watch recursively");
+
+        let child_descriptor = event_loop
+            .watches
+            .get(&child)
+            .expect("child watch")
+            .watch_descriptor
+            .clone();
+
+        std::fs::remove_dir(&child).expect("remove child");
+        event_loop.handle_inotify();
+
+        assert!(event_loop.watches.contains_key(&root));
+        assert!(
+            !event_loop.watches.contains_key(&child),
+            "IGNORED must remove the stale child watch"
+        );
+        assert!(
+            !event_loop.paths.contains_key(&child_descriptor),
+            "IGNORED must remove the stale descriptor-to-path mapping"
+        );
+    }
+
+    #[test]
+    fn duplicate_watch_removals_are_coalesced() {
+        let tmpdir = tempfile::tempdir().expect("tmpdir");
+        let path = tmpdir.path().to_path_buf();
+        let mut event_loop = test_event_loop_with_config(&Config::default());
+        event_loop
+            .add_watch(WatchPath::new(&path).unwrap(), false, true)
+            .expect("add_watch");
+
+        // DELETE may queue a normal removal before DELETE_SELF or IGNORED confirms that the
+        // kernel already removed the same descriptor. Keep one entry with the stronger mode.
+        let mut queued = std::collections::BTreeMap::new();
+        for removal in [
+            super::WatchRemoval::WithOsCall,
+            super::WatchRemoval::DescriptorAlreadyRemoved,
+        ] {
+            super::queue_watch_removal(&path, None, &event_loop.watches, &mut queued, removal);
+        }
+
+        assert_eq!(
+            queued.into_iter().collect::<Vec<_>>(),
+            vec![(path, super::WatchRemoval::DescriptorAlreadyRemoved)]
+        );
+    }
+
+    #[test]
+    fn deleting_parent_still_removes_live_moved_out_descendant_descriptor() {
+        let tmpdir = tempfile::tempdir().expect("tmpdir");
+        let root = tmpdir.path().join("root");
+        let child = root.join("child");
+        let moved_child = tmpdir.path().join("moved-child");
+        std::fs::create_dir_all(&child).expect("create watched tree");
+
+        // Excluding rename/remove events deliberately leaves the moved child's old path in the
+        // recursive bookkeeping until deleting the root triggers descriptor cleanup. Unlike the
+        // deleted root descriptor, the descriptor follows the moved child and remains live.
+        let config = Config::default().with_event_kinds(EventKindMask::MODIFY_DATA);
+        let mut event_loop = test_event_loop_with_config(&config);
+        event_loop
+            .add_watch(WatchPath::new(&root).unwrap(), true, true)
+            .expect("watch recursively");
+
+        let child_descriptor = event_loop
+            .watches
+            .get(&child)
+            .expect("child watch")
+            .watch_descriptor
+            .clone();
+
+        std::fs::rename(&child, &moved_child).expect("move child out of watched root");
+        std::fs::remove_dir(&root).expect("remove watched root");
+        event_loop.handle_inotify();
+
+        assert!(event_loop.watches.is_empty());
+        assert!(event_loop.paths.is_empty());
+
+        // EINVAL here is expected because recursive cleanup should already have issued rm_watch
+        // for the live moved-out descendant. Skipping every syscall for a deleted root would leak
+        // that descriptor even though the local maps looked empty.
+        let remove_result = event_loop
+            .inotify
+            .as_mut()
+            .expect("inotify instance")
+            .watches()
+            .remove(child_descriptor);
+        assert_eq!(
+            remove_result.unwrap_err().raw_os_error(),
+            Some(libc::EINVAL),
+            "the moved-out descendant descriptor must already have been removed"
+        );
+    }
+
+    #[test]
     fn unmount_event_maps_to_remove_other_with_unmount_info() {
         let path = PathBuf::from("/tmp/notify-unmount");
         let event = super::unmount_event(path.clone());
@@ -1402,7 +1584,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_watch_without_os_call_removes_internal_state() {
+    fn descriptor_removed_cleanup_removes_internal_state() {
         let tmpdir = tempfile::tempdir().unwrap();
         let watched = tmpdir.path().join("watched");
         std::fs::create_dir(&watched).unwrap();
@@ -1419,8 +1601,8 @@ mod tests {
             .expect("add_watch");
 
         event_loop
-            .remove_watch_without_os_call(watched.clone(), true)
-            .expect("remove_watch_without_os_call");
+            .remove_watch_without_root_os_call(watched.clone(), true)
+            .expect("remove_watch_without_root_os_call");
 
         let result = event_loop.remove_watch(watched.clone(), false);
         assert!(
@@ -1818,7 +2000,8 @@ mod tests {
                 break event;
             }
         };
-        assert_eq!(event, expected(&path).modify_data_any());
+        // Linux and FreeBSD classify this modification differently.
+        assert_eq!(event, expected(&path).modify());
     }
 
     #[test]
@@ -1904,7 +2087,9 @@ mod tests {
         ]);
     }
 
+    // FreeBSD reports writes through any hard link to the watched inode.
     #[test]
+    #[cfg(not(target_os = "freebsd"))]
     fn write_to_a_hardlink_pointed_to_the_file_in_the_watched_dir_doesnt_trigger_an_event() {
         let tmpdir = testdir();
         let (mut watcher, mut rx) = watcher();

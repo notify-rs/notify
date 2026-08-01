@@ -45,9 +45,10 @@ We follow these MSRV rules:
 ## Platforms
 
 - Linux / Android: inotify
-- macOS: FSEvents or kqueue, see features
+- FreeBSD: kqueue (default) or inotify, see features
+- macOS: FSEvents (default) or kqueue, see features
 - Windows: ReadDirectoryChangesW
-- iOS / FreeBSD / NetBSD / OpenBSD / DragonflyBSD: kqueue
+- iOS / NetBSD / OpenBSD / DragonflyBSD: kqueue
 - All platforms: polling
 
 ## License

@@ -2,10 +2,14 @@
 
 ## unreleased
 
+- FEATURE: [FreeBSD] add native inotify support on FreeBSD 15.0+ behind the `freebsd_inotify` feature. kqueue remains the default backend.
+- DEPS: bump `inotify` to 0.11.4 for native FreeBSD support
 - FEATURE: [macOS] add `Config::with_fsevent_latency` to configure FSEvents stream latency [#930]
+- FIX: [linux] coalesce duplicate inotify cleanup events and handle kernel-removed descriptors without spurious `EINVAL` or `WatchNotFound` logs
 - FIX: [windows] emit a Remove event when a watched directory is deleted, matching inotify and FSEvents
 - FIX: [windows] surface `ReadDirectoryChangesW` read-start failures [#935]
 - FIX: [windows] prevent watch shutdown and watched-directory deletion races from emitting spurious I/O errors [#958]
+- FIX: [windows] emit a rescan event when `ReadDirectoryChangesW` discards change details [#964]
 - FEATURE: [windows] report created file/folder kinds when they can be determined [#935]
 - CHANGE: [macOS] improve FSEvents callback performance by avoiding unnecessary allocations and repeated handler locking
 - PERF: [kqueue] avoid filesystem walks for recursive kqueue unwatch
