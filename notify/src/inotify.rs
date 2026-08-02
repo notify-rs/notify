@@ -1477,7 +1477,7 @@ mod tests {
         let config = Config::default().with_event_kinds(EventKindMask::MODIFY_DATA);
         let mut event_loop = test_event_loop_with_config(&config);
         event_loop
-            .add_watch(WatchPath::new(&root).unwrap(), true, true)
+            .add_watch(WatchPath::new(&root).unwrap(), recursive_watch(), true)
             .expect("watch recursively");
 
         let child_descriptor = event_loop
@@ -1507,7 +1507,7 @@ mod tests {
         let path = tmpdir.path().to_path_buf();
         let mut event_loop = test_event_loop_with_config(&Config::default());
         event_loop
-            .add_watch(WatchPath::new(&path).unwrap(), false, true)
+            .add_watch(WatchPath::new(&path).unwrap(), non_recursive_watch(), true)
             .expect("add_watch");
 
         // DELETE may queue a normal removal before DELETE_SELF or IGNORED confirms that the
@@ -1540,7 +1540,7 @@ mod tests {
         let config = Config::default().with_event_kinds(EventKindMask::MODIFY_DATA);
         let mut event_loop = test_event_loop_with_config(&config);
         event_loop
-            .add_watch(WatchPath::new(&root).unwrap(), true, true)
+            .add_watch(WatchPath::new(&root).unwrap(), recursive_watch(), true)
             .expect("watch recursively");
 
         let child_descriptor = event_loop
