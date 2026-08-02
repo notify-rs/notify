@@ -17,8 +17,12 @@
 //! - `serde` for serialization of events
 //! - `macos_fsevent` (default) for the FSEvents backend on macOS
 //! - `macos_kqueue` for the kqueue backend on macOS
-//! - `freebsd_inotify` for native inotify on FreeBSD 15.0+
+//! - `freebsd_inotify` enables notify's inotify backend on FreeBSD 15+
+//!   - inotify is automatically enabled when built natively, this feature is only needed for cross-compilation
 //! - `serialization-compat-6` restores the serialization behavior of notify 6, off by default
+//!
+//! Native FreeBSD builds use inotify on 15.0+ and kqueue on older releases. When
+//! cross-compiling for FreeBSD 15.0+, enable `freebsd_inotify` explicitly.
 //!
 //! ### Serde
 //!
@@ -185,7 +189,7 @@ pub(crate) type Sender<T> = std::sync::mpsc::Sender<T>;
 #[cfg(any(
     target_os = "linux",
     target_os = "android",
-    all(target_os = "freebsd", feature = "freebsd_inotify"),
+    all(target_os = "freebsd", notify_freebsd_inotify),
     target_os = "windows",
 ))]
 pub(crate) type BoundSender<T> = std::sync::mpsc::SyncSender<T>;
@@ -198,7 +202,7 @@ pub(crate) fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
 #[cfg(any(
     target_os = "linux",
     target_os = "android",
-    all(target_os = "freebsd", feature = "freebsd_inotify"),
+    all(target_os = "freebsd", notify_freebsd_inotify),
     target_os = "windows",
 ))]
 #[inline]
@@ -211,7 +215,7 @@ pub use crate::fsevent::FsEventWatcher;
 #[cfg(any(
     target_os = "linux",
     target_os = "android",
-    all(target_os = "freebsd", feature = "freebsd_inotify"),
+    all(target_os = "freebsd", notify_freebsd_inotify),
 ))]
 pub use crate::inotify::INotifyWatcher;
 #[cfg(any(
@@ -233,7 +237,7 @@ pub mod fsevent;
 #[cfg(any(
     target_os = "linux",
     target_os = "android",
-    all(target_os = "freebsd", feature = "freebsd_inotify"),
+    all(target_os = "freebsd", notify_freebsd_inotify),
 ))]
 pub mod inotify;
 #[cfg(any(
@@ -328,7 +332,7 @@ impl EventHandler for std::sync::mpsc::Sender<Result<Event>> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum WatcherKind {
-    /// Inotify backend (Linux, Android, and FreeBSD 15+ with `freebsd_inotify`)
+    /// Inotify backend (Linux, Android, and FreeBSD 15+)
     Inotify,
     /// FS-Event backend (mac)
     Fsevent,
@@ -487,7 +491,7 @@ pub trait Watcher {
 #[cfg(any(
     target_os = "linux",
     target_os = "android",
-    all(target_os = "freebsd", feature = "freebsd_inotify"),
+    all(target_os = "freebsd", notify_freebsd_inotify),
 ))]
 pub type RecommendedWatcher = INotifyWatcher;
 /// The recommended [`Watcher`] implementation for the current platform
@@ -498,7 +502,7 @@ pub type RecommendedWatcher = FsEventWatcher;
 pub type RecommendedWatcher = ReadDirectoryChangesWatcher;
 /// The recommended [`Watcher`] implementation for the current platform
 #[cfg(any(
-    all(target_os = "freebsd", not(feature = "freebsd_inotify")),
+    all(target_os = "freebsd", not(notify_freebsd_inotify)),
     target_os = "openbsd",
     target_os = "netbsd",
     target_os = "dragonfly",
@@ -601,6 +605,32 @@ mod tests {
         assert_debug_impl!(RecommendedWatcher);
         assert_debug_impl!(RecursiveMode);
         assert_debug_impl!(WatcherKind);
+    }
+
+    #[cfg(target_os = "freebsd")]
+    #[test]
+    fn recommended_watcher_matches_freebsd_version() {
+        let output = std::process::Command::new("/bin/freebsd-version")
+            .arg("-u")
+            .output()
+            .expect("run freebsd-version");
+        assert!(output.status.success(), "freebsd-version failed");
+
+        let version = std::str::from_utf8(&output.stdout).expect("parse freebsd-version output");
+        let major = version
+            .trim()
+            .split('.')
+            .next()
+            .expect("find FreeBSD major version")
+            .parse::<u32>()
+            .expect("parse FreeBSD major version");
+        let expected = if cfg!(feature = "freebsd_inotify") || major >= 15 {
+            WatcherKind::Inotify
+        } else {
+            WatcherKind::Kqueue
+        };
+
+        assert_eq!(RecommendedWatcher::kind(), expected);
     }
 
     fn iter_with_timeout(rx: &mpsc::Receiver<Result<Event>>) -> impl Iterator<Item = Event> + '_ {
