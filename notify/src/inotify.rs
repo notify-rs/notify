@@ -1464,6 +1464,13 @@ mod tests {
         );
     }
 
+    // FIXME: FreeBSD 15.1 does not generate IN_IGNORED unless IN_DELETE_SELF was requested.
+    // Remove this ignore once CI uses a release containing the fix:
+    // https://cgit.freebsd.org/src/commit/?id=242c9c86c8cad6aa29bc1af9161d4f0eec45f29b
+    #[cfg_attr(
+        target_os = "freebsd",
+        ignore = "FreeBSD 15.1 does not generate IN_IGNORED unconditionally"
+    )]
     #[test]
     fn ignored_event_removes_watch_when_remove_events_are_filtered_out() {
         let tmpdir = tempfile::tempdir().expect("tmpdir");
