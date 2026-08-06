@@ -655,17 +655,12 @@ impl EventLoop {
                     // Removing a directory watch removes its recursively inherited children too.
                     // Re-add them as non-user watches so the ancestor recursive watch still covers
                     // this subtree after the user watch is replaced.
-                    let entries = recursive_directory_paths(
+                    let entries = walk_dirs(
                         replaced_path.clone(),
+                        WatchPath::from_parts(ancestor_path, ancestor_reported_path),
                         self.follow_links,
                         self.recursive_walk_barriers(),
-                    )
-                    .map(|entry| {
-                        let absolute = entry;
-                        let requested =
-                            reported_path(&ancestor_path, &ancestor_reported_path, &absolute);
-                        WatchPath::from_parts(absolute, requested)
-                    });
+                    );
                     self.add_watches_for_paths(entries, true, true, false)?;
                 }
             } else if self.watches.get(&path.absolute).is_some_and(|watch| {
@@ -683,13 +678,12 @@ impl EventLoop {
             return self.add_single_watch(path, false, dereference, true);
         }
 
-        let root = path.clone();
-        let entries = recursive_directory_paths(
-            root.absolute.clone(),
+        let entries = walk_dirs(
+            path.absolute.clone(),
+            path.clone(),
             self.follow_links,
             self.recursive_walk_barriers(),
-        )
-        .map(move |entry| root.child(entry));
+        );
 
         self.add_watches_for_paths(entries, is_recursive, dereference, watch_self)
     }
@@ -712,21 +706,33 @@ impl EventLoop {
         mut watch_self: bool,
     ) -> Result<()>
     where
-        I: IntoIterator<Item = WatchPath>,
+        I: IntoIterator<Item = Result<WatchPath>>,
     {
+        let mut last_failed = None;
+
         for path in paths {
             // entries below the root were reached by following links, so they observe what they
             // resolved to
             let entry_dereference = if watch_self { dereference } else { true };
-            match self.add_single_watch(path, is_recursive, entry_dereference, watch_self) {
-                Ok(()) => {}
+            // A path the walk could not reach fails the same way one it could not watch does.
+            match path.and_then(|path| {
+                self.add_single_watch(path, is_recursive, entry_dereference, watch_self)
+            }) {
+                Ok(()) => last_failed = None,
                 // The requested path itself failing is the caller's problem.
                 Err(err) if watch_self => return Err(err),
-                Err(err) => match WalkFailure::of(&err.kind) {
-                    WalkFailure::Skip => {}
-                    WalkFailure::Report => self.event_handler.handle_event(Err(err)),
-                    WalkFailure::Abort => return Err(err),
-                },
+                // A directory that cannot be read cannot be watched either, and walkdir reports
+                // it right after the directory itself. Report the pair once. Errors that name no
+                // path are never the same failure twice, so they stay out of this.
+                Err(err) if last_failed.is_some() && last_failed.as_ref() == err.paths.first() => {}
+                Err(err) => {
+                    last_failed = err.paths.first().cloned();
+                    match WalkFailure::of(&err.kind) {
+                        WalkFailure::Skip => {}
+                        WalkFailure::Report => self.event_handler.handle_event(Err(err)),
+                        WalkFailure::Abort => return Err(err),
+                    }
+                }
             }
             watch_self = false;
         }
@@ -1051,27 +1057,46 @@ impl WalkFailure {
     }
 }
 
-/// return `DirEntry` when it is a directory
-fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry> {
-    if let Ok(e) = e {
-        if e.file_type().is_dir() {
-            return Some(e);
-        }
-    }
-    None
-}
-
-fn recursive_directory_paths(
-    root: PathBuf,
+/// Yields the directories to watch below `from`, and the errors that hid part of the tree.
+///
+/// Each directory is named the way `root` was asked for, and `barriers` are the paths the walk
+/// must not descend into. Dropping the walk's errors would leave whole subtrees unwatched with
+/// nothing to notice, the same silence a failed watch used to cause.
+fn walk_dirs(
+    from: PathBuf,
+    root: WatchPath,
     follow_links: bool,
     barriers: HashSet<PathBuf>,
-) -> impl Iterator<Item = PathBuf> {
-    WalkDir::new(root)
+) -> impl Iterator<Item = Result<WatchPath>> {
+    WalkDir::new(from)
         .follow_links(follow_links)
         .into_iter()
         .filter_entry(move |entry| !barriers.contains(entry.path()))
-        .filter_map(filter_dir)
-        .map(|entry| entry.into_path())
+        .filter_map(move |entry| match entry {
+            Ok(entry) => entry
+                .file_type()
+                .is_dir()
+                .then(|| Ok(root.child(entry.into_path()))),
+            Err(err) => Some(Err(walk_error(err, &root))),
+        })
+}
+
+/// A walk error hides everything below the path it happened on, so name that path the way the
+/// caller asked for it, like a failed watch does.
+fn walk_error(err: walkdir::Error, root: &WatchPath) -> Error {
+    let path = err
+        .path()
+        .map(|path| root.child(path.to_path_buf()).requested);
+    let error = match err.into_io_error() {
+        Some(err) => Error::io_watch(err),
+        // Following a symlink into its own ancestor is the one walk error with no i/o behind it.
+        None => Error::generic("symbolic link loop"),
+    };
+
+    match path {
+        Some(path) => error.add_path(path),
+        None => error,
+    }
 }
 
 impl INotifyWatcher {
@@ -1280,7 +1305,7 @@ mod tests {
         let result = event_loop.add_watches_for_paths(
             [root, disappearing]
                 .into_iter()
-                .map(|path| WatchPath::new(&path).unwrap()),
+                .map(|path| Ok(WatchPath::new(&path).unwrap())),
             true,
             true,
             true,
@@ -1390,9 +1415,59 @@ mod tests {
         assert!(event_loop.watches.contains_key(&readable));
         assert!(event_loop.watches.contains_key(&deeper));
         let errors = errors.lock().unwrap();
+        // Once, not twice: it can neither be watched nor be read, which is one loss to the caller.
+        assert_eq!(
+            errors
+                .iter()
+                .filter(|e| e.paths.contains(&unwatchable))
+                .count(),
+            1,
+            "expected the unwatchable directory to be reported once, got: {errors:?}"
+        );
+    }
+
+    /// A subtree the walk cannot enter is as unwatched as one that cannot be watched, so it has to
+    /// be reported too. Symlinks are followed by default, so a link into its own ancestor is the
+    /// easiest walk error to provoke.
+    #[test]
+    fn recursive_watch_reports_a_walk_error() {
+        use std::fs;
+        use std::os::unix::fs::symlink;
+        use std::sync::Mutex;
+
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().to_path_buf();
+        let readable = root.join("readable");
+        fs::create_dir(&readable).unwrap();
+        symlink(&root, root.join("loop")).unwrap();
+
+        let errors = Arc::new(Mutex::new(Vec::new()));
+        let collected = errors.clone();
+        let inotify = super::inotify_sys::Inotify::init().unwrap();
+        let mut event_loop = EventLoop::new(
+            inotify,
+            Box::new(move |event: Result<Event>| {
+                if let Err(e) = event {
+                    collected.lock().unwrap().push(e);
+                }
+            }),
+            &Config::default(),
+        )
+        .unwrap();
+
+        let result = event_loop.add_watch(WatchPath::new(&root).unwrap(), recursive_watch(), true);
+
         assert!(
-            errors.iter().any(|e| e.paths.contains(&unwatchable)),
-            "expected the unwatchable directory to be reported, got: {errors:?}"
+            result.is_ok(),
+            "expected the watch to succeed, got: {result:?}"
+        );
+        assert!(event_loop.watches.contains_key(&readable));
+        let errors = errors.lock().unwrap();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.paths.iter().any(|p| p.ends_with("loop"))),
+            "expected the symlink loop to be reported, got: {errors:?}"
         );
     }
 

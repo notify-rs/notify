@@ -21,6 +21,7 @@
 - FEATURE: add `Watcher::watch_with` to pass per-path settings, and `WatchPathConfig::with_dereference_symlinks` to watch a symbolic link itself instead of its destination, which also makes a dangling link watchable [#255]
 - FIX: [poll] detect subsecond file mtime changes without content hashing
 - FIX: [inotify] never abandon a recursive watch, report what failed instead [#970]
+- FIX: [inotify] report the directories a recursive watch could not walk into, rather than leaving their subtrees silently unwatched [#970]
 
 [#255]: https://github.com/notify-rs/notify/issues/255
 [#930]: https://github.com/notify-rs/notify/pull/930
