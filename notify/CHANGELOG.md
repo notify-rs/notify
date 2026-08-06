@@ -12,7 +12,7 @@
 - FIX: [windows] emit a rescan event when `ReadDirectoryChangesW` discards change details [#964]
 - FEATURE: [windows] report created file/folder kinds when they can be determined [#935]
 - CHANGE: [macOS] improve FSEvents callback performance by avoiding unnecessary allocations and repeated handler locking
-- FIX: [macOS] refuse to create an FSEvents stream carrying more paths than macOS handles without closing a file descriptor this process owns
+- FIX: [macOS] refuse to create FSEvents streams whose combined path count would make macOS close a file descriptor this process owns
 - PERF: [kqueue] avoid filesystem walks for recursive kqueue unwatch
 
 [#930]: https://github.com/notify-rs/notify/pull/930

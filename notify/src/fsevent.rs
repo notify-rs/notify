@@ -28,7 +28,7 @@ use std::fmt;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::ptr::{self, NonNull};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -79,6 +79,44 @@ pub struct FsEventWatcher {
 struct WatchInfo {
     is_recursive: bool,
     reported_path: PathBuf,
+}
+
+// FSEvents applies the path limit across live streams, so all watcher instances
+// in this process must share the same count.
+static ACTIVE_FSEVENTS_PATHS: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug)]
+struct FseventsPathReservation {
+    active_paths: &'static AtomicUsize,
+    path_count: usize,
+}
+
+impl FseventsPathReservation {
+    fn acquire(
+        active_paths: &'static AtomicUsize,
+        path_count: usize,
+        budget: usize,
+    ) -> std::result::Result<Self, usize> {
+        active_paths
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |active_path_count| {
+                active_path_count
+                    .checked_add(path_count)
+                    .filter(|&combined_path_count| combined_path_count <= budget)
+            })
+            .map(|_| Self {
+                active_paths,
+                path_count,
+            })
+    }
+}
+
+impl Drop for FseventsPathReservation {
+    fn drop(&mut self) {
+        let previous = self
+            .active_paths
+            .fetch_sub(self.path_count, Ordering::Relaxed);
+        debug_assert!(previous >= self.path_count);
+    }
 }
 
 #[derive(Debug)]
@@ -512,19 +550,24 @@ impl FsEventWatcher {
             return Ok(());
         }
 
-        // Over roughly RLIMIT_NOFILE/10 paths, FSEvents closes fd 0, which this
-        // process owns. The corruption then surfaces as EBADF on unrelated files.
-        if let Some(budget) = fsevents_path_budget() {
-            let count = self.paths.iter().count();
-            if count > budget {
-                log::error!(
-                    "refusing to watch {count} paths in one FSEvents stream: more than {budget} \
-                     closes a file descriptor this process owns. Raise RLIMIT_NOFILE, watch fewer \
-                     paths, or build with the macos_kqueue feature."
-                );
-                return Err(Error::new(ErrorKind::MaxFilesWatch));
-            }
-        }
+        // Over roughly RLIMIT_NOFILE/10 paths across all live streams, FSEvents
+        // closes fd 0, which this process owns. The corruption then surfaces as
+        // EBADF on unrelated files.
+        let path_count = self.paths.iter().count();
+        let budget = fsevents_path_budget().unwrap_or(usize::MAX);
+        let path_reservation =
+            match FseventsPathReservation::acquire(&ACTIVE_FSEVENTS_PATHS, path_count, budget) {
+                Ok(reservation) => reservation,
+                Err(active_path_count) => {
+                    let combined_path_count = active_path_count.saturating_add(path_count);
+                    log::error!(
+                        "refusing FSEvents stream: {combined_path_count} active paths exceed the \
+                         safe limit of {budget}. Raise RLIMIT_NOFILE, watch fewer paths, or use \
+                         macos_kqueue."
+                    );
+                    return Err(Error::new(ErrorKind::MaxFilesWatch));
+                }
+            };
 
         // We need to associate the stream context with our callback in order to propagate events
         // to the rest of the system. This will be owned by the stream, and will be freed when the
@@ -585,6 +628,8 @@ impl FsEventWatcher {
         let thread_handle = thread::Builder::new()
             .name("notify-rs fsevents loop".to_string())
             .spawn(move || {
+                // Keep the shared path count reserved until this stream is released.
+                let _path_reservation = path_reservation;
                 let _ = &stream;
                 let stream = stream.0;
 
@@ -1715,6 +1760,24 @@ mod tests {
             matches!(err.source.kind, ErrorKind::MaxFilesWatch),
             "expected MaxFilesWatch, got {err:?}"
         );
+    }
+
+    #[test]
+    fn path_budget_is_shared_across_live_streams() {
+        static ACTIVE_PATHS: AtomicUsize = AtomicUsize::new(0);
+
+        let first = FseventsPathReservation::acquire(&ACTIVE_PATHS, 15, 21)
+            .expect("first stream must fit within the budget");
+        let active_path_count = FseventsPathReservation::acquire(&ACTIVE_PATHS, 15, 21)
+            .expect_err("the combined path count must exceed the budget");
+        assert_eq!(active_path_count, 15);
+
+        drop(first);
+
+        let second = FseventsPathReservation::acquire(&ACTIVE_PATHS, 15, 21)
+            .expect("stopping the first stream must release its paths");
+        drop(second);
+        assert_eq!(ACTIVE_PATHS.load(Ordering::Relaxed), 0);
     }
 
     #[test]
