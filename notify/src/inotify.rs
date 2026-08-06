@@ -723,10 +723,12 @@ impl EventLoop {
             let entry_dereference = if watch_self { dereference } else { true };
             match self.add_single_watch(path, is_recursive, entry_dereference, watch_self) {
                 Ok(()) => {}
-                // TOCTOU: a subdirectory can disappear between walkdir listing it and us adding an
-                // inotify watch for it. This should not fail the overall recursive watch call.
-                Err(err) if !watch_self && matches!(err.kind, ErrorKind::PathNotFound) => {}
-                Err(err) => return Err(err),
+                // The requested path itself failing is the caller's problem.
+                Err(err) if watch_self => return Err(err),
+                Err(err) => match WalkFailure::of(&err.kind) {
+                    WalkFailure::Skip => {}
+                    WalkFailure::Abort => return Err(err),
+                },
             }
             watch_self = false;
         }
@@ -1029,6 +1031,25 @@ impl EventLoop {
     }
 }
 
+/// What a failed watch installation means for the rest of a recursive walk.
+#[derive(Debug, PartialEq, Eq)]
+enum WalkFailure {
+    /// Nothing was lost, so the walk carries on.
+    Skip,
+    /// The walk ends, and the error goes back to the caller.
+    Abort,
+}
+
+impl WalkFailure {
+    fn of(kind: &ErrorKind) -> Self {
+        match kind {
+            // TOCTOU: a directory can disappear between being listed and being watched.
+            ErrorKind::PathNotFound => Self::Skip,
+            _ => Self::Abort,
+        }
+    }
+}
+
 /// return `DirEntry` when it is a directory
 fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry> {
     if let Ok(e) = e {
@@ -1266,6 +1287,23 @@ mod tests {
         assert!(
             result.is_ok(),
             "expected recursive watch to succeed, got: {result:?}"
+        );
+    }
+
+    /// The policy every failed watch in a recursive walk goes through.
+    #[test]
+    fn walk_failure_policy() {
+        use super::WalkFailure;
+        use std::io;
+
+        assert_eq!(WalkFailure::of(&ErrorKind::PathNotFound), WalkFailure::Skip);
+        assert_eq!(
+            WalkFailure::of(&ErrorKind::MaxFilesWatch),
+            WalkFailure::Abort
+        );
+        assert_eq!(
+            WalkFailure::of(&ErrorKind::Io(io::ErrorKind::PermissionDenied.into())),
+            WalkFailure::Abort
         );
     }
 
