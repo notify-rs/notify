@@ -17,7 +17,8 @@
 use crate::paths::{absolute_path, reported_path};
 use crate::{event::*, PathOp};
 use crate::{
-    unbounded, Config, Error, EventHandler, EventKindMask, RecursiveMode, Result, Sender, Watcher,
+    unbounded, Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result,
+    Sender, Watcher,
 };
 use objc2_core_foundation as cf;
 use objc2_core_services as fs;
@@ -27,7 +28,7 @@ use std::fmt;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::ptr::{self, NonNull};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -78,6 +79,44 @@ pub struct FsEventWatcher {
 struct WatchInfo {
     is_recursive: bool,
     reported_path: PathBuf,
+}
+
+// FSEvents applies the path limit across live streams, so all watcher instances
+// in this process must share the same count.
+static ACTIVE_FSEVENTS_PATHS: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug)]
+struct FseventsPathReservation {
+    active_paths: &'static AtomicUsize,
+    path_count: usize,
+}
+
+impl FseventsPathReservation {
+    fn acquire(
+        active_paths: &'static AtomicUsize,
+        path_count: usize,
+        budget: usize,
+    ) -> std::result::Result<Self, usize> {
+        active_paths
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |active_path_count| {
+                active_path_count
+                    .checked_add(path_count)
+                    .filter(|&combined_path_count| combined_path_count <= budget)
+            })
+            .map(|_| Self {
+                active_paths,
+                path_count,
+            })
+    }
+}
+
+impl Drop for FseventsPathReservation {
+    fn drop(&mut self) {
+        let previous = self
+            .active_paths
+            .fetch_sub(self.path_count, Ordering::Relaxed);
+        debug_assert!(previous >= self.path_count);
+    }
 }
 
 #[derive(Debug)]
@@ -511,6 +550,25 @@ impl FsEventWatcher {
             return Ok(());
         }
 
+        // Over roughly RLIMIT_NOFILE/10 paths across all live streams, FSEvents
+        // closes fd 0, which this process owns. The corruption then surfaces as
+        // EBADF on unrelated files.
+        let path_count = self.paths.iter().count();
+        let budget = fsevents_path_budget().unwrap_or(usize::MAX);
+        let path_reservation =
+            match FseventsPathReservation::acquire(&ACTIVE_FSEVENTS_PATHS, path_count, budget) {
+                Ok(reservation) => reservation,
+                Err(active_path_count) => {
+                    let combined_path_count = active_path_count.saturating_add(path_count);
+                    log::error!(
+                        "refusing FSEvents stream: {combined_path_count} active paths exceed the \
+                         safe limit of {budget}. Raise RLIMIT_NOFILE, watch fewer paths, or use \
+                         macos_kqueue."
+                    );
+                    return Err(Error::new(ErrorKind::MaxFilesWatch));
+                }
+            };
+
         // We need to associate the stream context with our callback in order to propagate events
         // to the rest of the system. This will be owned by the stream, and will be freed when the
         // stream is closed. This means we will leak the context if we panic before reaching
@@ -570,6 +628,8 @@ impl FsEventWatcher {
         let thread_handle = thread::Builder::new()
             .name("notify-rs fsevents loop".to_string())
             .spawn(move || {
+                // Keep the shared path count reserved until this stream is released.
+                let _path_reservation = path_reservation;
                 let _ = &stream;
                 let stream = stream.0;
 
@@ -642,6 +702,17 @@ impl FsEventWatcher {
         tx.send(Ok(false))
             .expect("configuration channel disconnect");
     }
+}
+
+// A twelfth rather than a tenth: the edge also shifts with how many descriptors
+// the process already holds.
+fn fsevents_path_budget() -> Option<usize> {
+    let mut limit = unsafe { std::mem::zeroed::<libc::rlimit>() };
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+        return None;
+    }
+    let soft = usize::try_from(limit.rlim_cur).ok()?;
+    Some(soft / 12)
 }
 
 unsafe extern "C-unwind" fn callback(
@@ -1656,37 +1727,57 @@ mod tests {
         );
     }
 
-    // fsevents seems to not allow watching more than 4096 paths at once.
-    // https://github.com/fsnotify/fsevents/issues/48
-    // Based on https://github.com/fsnotify/fsevents/commit/3899270de121c963202e6fed46aa31d5ec7b3908
+    // Replaces a test that watched 4097 paths to provoke an `FSEventStreamStart` failure
+    // (https://github.com/fsnotify/fsevents/issues/48). That path count is exactly what
+    // closes fd 0, so the test corrupted the process it ran in and needed a `catch_unwind`
+    // around its own cleanup to stay green.
     #[test]
-    fn error_properly_on_stream_start_failure() {
+    fn refuses_more_paths_than_fsevents_can_carry() {
+        let budget = fsevents_path_budget().expect("path budget");
+        if budget > 4096 {
+            eprintln!("skipping: RLIMIT_NOFILE leaves a budget of {budget} paths");
+            return;
+        }
+
         let tmpdir = testdir();
         let (mut watcher, _rx) = watcher();
 
         let mut paths = Vec::new();
-
-        for i in 0..=4096 {
-            let path = tmpdir.path().join(format!("dir_{i}/subdir"));
-            std::fs::create_dir_all(&path).expect("create_dir");
+        for i in 0..=budget {
+            let path = tmpdir.path().join(format!("dir_{i}"));
+            std::fs::create_dir(&path).expect("create_dir");
             paths.push(PathOp::Watch(
                 path,
                 WatchPathConfig::new(RecursiveMode::NonRecursive),
             ));
         }
 
-        assert!(watcher.watcher.update_paths(paths).is_err());
+        let err = watcher
+            .watcher
+            .update_paths(paths)
+            .expect_err("watching more paths than the budget must fail");
+        assert!(
+            matches!(err.source.kind, ErrorKind::MaxFilesWatch),
+            "expected MaxFilesWatch, got {err:?}"
+        );
+    }
 
-        // Best-effort cleanup: on macOS + recent rustc, `remove_dir_all` can
-        // panic with `closedir: Bad file descriptor` while tearing down the
-        // 4097 directories created above (likely an interaction with fsevents
-        // having held FDs on those paths). Bypass `TempDir`'s Drop and swallow
-        // the potential panic so the test does not flake.
-        let path = tmpdir.path().to_path_buf();
-        std::mem::forget(tmpdir);
-        let _ = std::panic::catch_unwind(|| {
-            let _ = std::fs::remove_dir_all(&path);
-        });
+    #[test]
+    fn path_budget_is_shared_across_live_streams() {
+        static ACTIVE_PATHS: AtomicUsize = AtomicUsize::new(0);
+
+        let first = FseventsPathReservation::acquire(&ACTIVE_PATHS, 15, 21)
+            .expect("first stream must fit within the budget");
+        let active_path_count = FseventsPathReservation::acquire(&ACTIVE_PATHS, 15, 21)
+            .expect_err("the combined path count must exceed the budget");
+        assert_eq!(active_path_count, 15);
+
+        drop(first);
+
+        let second = FseventsPathReservation::acquire(&ACTIVE_PATHS, 15, 21)
+            .expect("stopping the first stream must release its paths");
+        drop(second);
+        assert_eq!(ACTIVE_PATHS.load(Ordering::Relaxed), 0);
     }
 
     #[test]
