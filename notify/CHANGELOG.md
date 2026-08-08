@@ -14,7 +14,9 @@
 - CHANGE: [macOS] improve FSEvents callback performance by avoiding unnecessary allocations and repeated handler locking
 - FIX: [macOS] refuse to create FSEvents streams whose combined path count would make macOS close a file descriptor this process owns
 - PERF: [kqueue] avoid filesystem walks for recursive kqueue unwatch
+- FIX: [linux] emit a create event for every subdirectory of a directory tree that appears inside a recursive watch in one go, instead of only its topmost directory [#727]
 
+[#727]: https://github.com/notify-rs/notify/issues/727
 [#930]: https://github.com/notify-rs/notify/pull/930
 [#935]: https://github.com/notify-rs/notify/issues/935
 [#958]: https://github.com/notify-rs/notify/pull/958

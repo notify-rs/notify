@@ -168,6 +168,15 @@ enum WatchRemoval {
     DescriptorAlreadyRemoved,
 }
 
+/// Whether the catch-up walk of a recursive watch reports the entries it finds as created.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReportCreated {
+    /// Report nothing. The caller asked for this tree, so its existing contents are not news.
+    Nothing,
+    /// Report every directory below the walk root as created.
+    BelowWalkRoot,
+}
+
 #[inline]
 fn unmount_event(path: PathBuf) -> Event {
     Event::new(EventKind::Remove(RemoveKind::Other))
@@ -574,7 +583,7 @@ impl EventLoop {
         }
 
         for path in add_watches {
-            if let Err(add_watch_error) = self.add_watch(path, true, false) {
+            if let Err(add_watch_error) = self.add_watch_for_new_dir(path) {
                 // The handler should be notified if we have reached the limit.
                 // Otherwise, the user might expect that a recursive watch
                 // is continuing to work correctly, but it's not.
@@ -637,7 +646,7 @@ impl EventLoop {
                                 reported_path(&ancestor_path, &ancestor_reported_path, &absolute);
                             WatchPath::from_parts(absolute, requested)
                         });
-                    self.add_watches_for_paths(entries, true, false)?;
+                    self.add_watches_for_paths(entries, true, false, ReportCreated::Nothing)?;
                 }
             }
         }
@@ -648,14 +657,34 @@ impl EventLoop {
             return self.add_single_watch(path, false, true);
         }
 
-        let root = path.clone();
-        let entries = WalkDir::new(&root.absolute)
+        self.add_watches_for_tree(path, is_recursive, watch_self, ReportCreated::Nothing)
+    }
+
+    /// Watches a directory that appeared inside an existing recursive watch.
+    ///
+    /// The kernel reports the creation of that directory only. Subdirectories it already contains
+    /// by the time the watch is installed - what a single `create_dir_all("a/b/c")` call leaves
+    /// behind - were created before any watch covered them, so the catch-up walk is the only place
+    /// an event for them can come from.
+    fn add_watch_for_new_dir(&mut self, path: WatchPath) -> Result<()> {
+        self.add_watches_for_tree(path, true, false, ReportCreated::BelowWalkRoot)
+    }
+
+    /// Watches `root` and every directory below it.
+    fn add_watches_for_tree(
+        &mut self,
+        root: WatchPath,
+        is_recursive: bool,
+        watch_self: bool,
+        report_created: ReportCreated,
+    ) -> Result<()> {
+        let entries = WalkDir::new(root.absolute.clone())
             .follow_links(self.follow_links)
             .into_iter()
             .filter_map(filter_dir)
             .map(move |entry| root.child(entry.into_path()));
 
-        self.add_watches_for_paths(entries, is_recursive, watch_self)
+        self.add_watches_for_paths(entries, is_recursive, watch_self, report_created)
     }
 
     fn add_watches_for_paths<I>(
@@ -663,19 +692,37 @@ impl EventLoop {
         paths: I,
         is_recursive: bool,
         mut watch_self: bool,
+        report_created: ReportCreated,
     ) -> Result<()>
     where
         I: IntoIterator<Item = WatchPath>,
     {
+        // The walk root is the path the caller already knows about, either because the user asked
+        // for it or because the kernel announced it, so it is never reported here.
+        let mut at_walk_root = true;
+
         for path in paths {
+            let created_path = (!at_walk_root && report_created == ReportCreated::BelowWalkRoot)
+                .then(|| path.requested.clone());
             match self.add_single_watch(path, is_recursive, watch_self) {
-                Ok(()) => {}
+                // Report only once the watch is in place, so that a handler reacting to the new
+                // directory cannot make a change that nothing is watching for yet.
+                Ok(()) => {
+                    if let Some(created_path) = created_path {
+                        let event = Event::new(EventKind::Create(CreateKind::Folder))
+                            .add_path(created_path);
+                        if self.event_kind_mask.matches(&event.kind) {
+                            self.event_handler.handle_event(Ok(event));
+                        }
+                    }
+                }
                 // TOCTOU: a subdirectory can disappear between walkdir listing it and us adding an
                 // inotify watch for it. This should not fail the overall recursive watch call.
                 Err(err) if !watch_self && matches!(err.kind, ErrorKind::PathNotFound) => {}
                 Err(err) => return Err(err),
             }
             watch_self = false;
+            at_walk_root = false;
         }
 
         Ok(())
@@ -1016,7 +1063,7 @@ mod tests {
         Config, Error, ErrorKind, Event, EventKind, EventLoop, INotifyWatcher, RecursiveMode,
         Result, WatchPath, Watcher,
     };
-    use notify_types::event::{EventKindMask, RemoveKind};
+    use notify_types::event::{CreateKind, EventKindMask, RemoveKind};
 
     use crate::test::*;
 
@@ -1085,11 +1132,41 @@ mod tests {
                 .map(|path| WatchPath::new(&path).unwrap()),
             true,
             true,
+            super::ReportCreated::Nothing,
         );
         assert!(
             result.is_ok(),
             "expected recursive watch to succeed, got: {result:?}"
         );
+    }
+
+    /// Watching a path is not a change, so a tree that is already there must stay unreported,
+    /// unlike one that appears inside an established recursive watch.
+    #[test]
+    fn watching_a_directory_does_not_report_its_existing_contents() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().to_path_buf();
+        std::fs::create_dir_all(root.join("1/2/3")).expect("create nested dirs");
+
+        let (tx, rx) = mpsc::channel();
+        let inotify = super::inotify_sys::Inotify::init().unwrap();
+        let mut event_loop = EventLoop::new(
+            inotify,
+            Box::new(move |event| tx.send(event).unwrap()),
+            &Config::default(),
+        )
+        .unwrap();
+        event_loop
+            .add_watch(WatchPath::new(&root).unwrap(), true, true)
+            .expect("watch recursively");
+        event_loop.handle_inotify();
+
+        let created = rx
+            .try_iter()
+            .map(|event| event.expect("unexpected error from the watcher"))
+            .filter(|event| matches!(event.kind, EventKind::Create(CreateKind::Folder)))
+            .collect::<Vec<_>>();
+        assert!(created.is_empty(), "unexpected create events: {created:#?}");
     }
 
     #[test]
@@ -1998,7 +2075,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "see https://github.com/notify-rs/notify/issues/727"]
     fn recursive_creation() {
         let tmpdir = testdir();
         let nested1 = tmpdir.path().join("1");
