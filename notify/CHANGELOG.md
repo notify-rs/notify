@@ -13,7 +13,7 @@
 - FEATURE: [windows] report created file/folder kinds when they can be determined [#935]
 - CHANGE: [macOS] improve FSEvents callback performance by avoiding unnecessary allocations and repeated handler locking
 - FIX: [macOS] refuse to create FSEvents streams whose combined path count would make macOS close a file descriptor this process owns
-- CHANGE: [macOS] pass a single FSEvents stream root for watches nested inside another watch on the same volume; a nested watch no longer reports a root-changed event of its own when an ancestor is renamed
+- CHANGE: [macOS] pass a single FSEvents stream root for watches nested inside another recursive watch on the same volume; a coalesced watch no longer reports a separate root-changed event when it or one of its ancestors is renamed
 - PERF: [kqueue] avoid filesystem walks for recursive kqueue unwatch
 
 [#930]: https://github.com/notify-rs/notify/pull/930

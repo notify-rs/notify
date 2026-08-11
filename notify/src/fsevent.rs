@@ -525,18 +525,15 @@ impl FsEventWatcher {
         Ok(())
     }
 
-    // A stream root always reports the whole hierarchy below it, and `callback_impl`
-    // attributes each event to the longest watch it falls under, so a watch nested
-    // inside another one only costs a slot against the FSEvents path limit. FSEvents
-    // does not promise that a root reports events from a volume mounted below it, so
-    // only an ancestor on the same volume counts as covering.
+    // A recursive watch covers nested watches on the same volume. Non-recursive
+    // ancestors may filter out deeper events, and FSEvents may not cross mounts.
     fn stream_paths(&self) -> cf::CFRetained<cf::CFMutableArray<cf::CFString>> {
         let paths: cf::CFRetained<cf::CFMutableArray<cf::CFString>> = cf::CFMutableArray::empty();
         for (path, entry) in &self.watches {
             let covered = path.ancestors().skip(1).any(|ancestor| {
-                self.watches
-                    .get(ancestor)
-                    .is_some_and(|covering| covering.device == entry.device)
+                self.watches.get(ancestor).is_some_and(|covering| {
+                    covering.info.is_recursive && covering.device == entry.device
+                })
             });
             if !covered {
                 paths.append(&entry.cf_path);
@@ -972,10 +969,10 @@ mod tests {
     }
 
     #[test]
-    fn nested_watches_share_a_single_stream_root() {
+    fn only_recursive_ancestors_cover_nested_watches() {
         let dir = tempfile::tempdir().unwrap();
         let child = dir.path().join("child");
-        let grandchild = child.join("grandchild");
+        let grandchild = child.join("first").join("second").join("grandchild");
         std::fs::create_dir_all(&grandchild).unwrap();
 
         let mut watcher = FsEventWatcher::new(|_| {}, Config::default()).unwrap();
@@ -991,7 +988,9 @@ mod tests {
         assert_eq!(watcher.watched_paths().expect("watched paths").len(), 3);
 
         watcher.remove_path(dir.path()).expect("unwatch parent");
-        assert_eq!(watcher.stream_paths().iter().count(), 1);
+        // The remaining non-recursive child would discard changes to the deeper
+        // watch's intermediate ancestors, so both watches need stream roots.
+        assert_eq!(watcher.stream_paths().iter().count(), 2);
 
         watcher.remove_path(&child).expect("unwatch child");
         assert_eq!(watcher.stream_paths().iter().count(), 1);
