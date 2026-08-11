@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::ffi::{CStr, OsStr};
 use std::fmt;
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -65,14 +66,22 @@ bitflags::bitflags! {
 
 /// FSEvents-based `Watcher` implementation
 pub struct FsEventWatcher {
-    paths: cf::CFRetained<cf::CFMutableArray<cf::CFString>>,
     since_when: fs::FSEventStreamEventId,
     latency: cf::CFTimeInterval,
     flags: fs::FSEventStreamCreateFlags,
     event_handler: Arc<Mutex<dyn EventHandler>>,
     runloop: Option<RunLoopHandle>,
-    recursive_info: HashMap<PathBuf, WatchInfo>,
+    watches: HashMap<PathBuf, WatchEntry>,
     event_kinds: EventKindMask,
+}
+
+// `cf_path` is kept out of `WatchInfo` because `WatchInfo` is cloned into the stream
+// context, which must stay `Send + Sync`.
+#[derive(Debug)]
+struct WatchEntry {
+    info: WatchInfo,
+    cf_path: cf::CFRetained<cf::CFString>,
+    device: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -129,13 +138,12 @@ struct RunLoopHandle {
 impl fmt::Debug for FsEventWatcher {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("FsEventWatcher")
-            .field("paths", &self.paths)
             .field("since_when", &self.since_when)
             .field("latency", &self.latency)
             .field("flags", &self.flags)
             .field("event_handler", &Arc::as_ptr(&self.event_handler))
             .field("runloop", &self.runloop)
-            .field("recursive_info", &self.recursive_info)
+            .field("watches", &self.watches)
             .finish()
     }
 }
@@ -381,7 +389,6 @@ impl FsEventWatcher {
         latency: cf::CFTimeInterval,
     ) -> Result<Self> {
         Ok(FsEventWatcher {
-            paths: cf::CFMutableArray::empty(),
             since_when: fs::kFSEventStreamEventIdSinceNow,
             latency,
             flags: fs::kFSEventStreamCreateFlagFileEvents
@@ -389,7 +396,7 @@ impl FsEventWatcher {
                 | fs::kFSEventStreamCreateFlagWatchRoot,
             event_handler,
             runloop: None,
-            recursive_info: HashMap::new(),
+            watches: HashMap::new(),
             event_kinds,
         })
     }
@@ -472,47 +479,18 @@ impl FsEventWatcher {
             .canonicalize()
             .ok()
             .or_else(|| {
-                self.recursive_info
+                self.watches
                     .iter()
-                    .find(|(_, info)| info.reported_path == path)
+                    .find(|(_, entry)| entry.info.reported_path == path)
                     .map(|(path, _)| path.clone())
             })
             .or_else(|| absolute_path(path).ok())
             .unwrap_or_else(|| path.to_owned());
-        self.remove_cf_path(&p)?;
 
-        match self.recursive_info.remove(&p) {
+        match self.watches.remove(&p) {
             Some(_) => Ok(()),
             None => Err(Error::watch_not_found()),
         }
-    }
-
-    fn remove_cf_path(&mut self, path: &Path) -> Result<()> {
-        let mut err: *mut cf::CFError = ptr::null_mut();
-        let Some(cf_path) = (unsafe { path_to_cfstring_ref(path, &mut err) }) else {
-            if let Some(err) = NonNull::new(err) {
-                let _ = unsafe { cf::CFRetained::from_raw(err) };
-            }
-            return Err(Error::watch_not_found().add_path(path.into()));
-        };
-
-        let mut to_remove = Vec::new();
-        for (idx, item) in self.paths.iter().enumerate() {
-            if item.compare(
-                Some(&cf_path),
-                cf::CFStringCompareFlags::CompareCaseInsensitive,
-            ) == cf::CFComparisonResult::CompareEqualTo
-            {
-                to_remove.push(idx as cf::CFIndex);
-            }
-        }
-
-        for idx in to_remove.iter().rev() {
-            unsafe {
-                cf::CFMutableArray::remove_value_at_index(Some(self.paths.as_opaque()), *idx)
-            };
-        }
-        Ok(())
     }
 
     // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
@@ -530,30 +508,50 @@ impl FsEventWatcher {
             // while the above code was running.
             return Err(Error::path_not_found().add_path(path.into()));
         };
-        if self.recursive_info.contains_key(&canonical_path) {
-            self.remove_cf_path(&canonical_path)?;
-        }
-        self.paths.append(&cf_path);
 
-        self.recursive_info.insert(
+        let device = std::fs::metadata(&canonical_path)?.dev();
+
+        self.watches.insert(
             canonical_path,
-            WatchInfo {
-                is_recursive: recursive_mode.is_recursive(),
-                reported_path: path.to_path_buf(),
+            WatchEntry {
+                info: WatchInfo {
+                    is_recursive: recursive_mode.is_recursive(),
+                    reported_path: path.to_path_buf(),
+                },
+                cf_path,
+                device,
             },
         );
         Ok(())
     }
 
+    // A recursive watch covers nested watches on the same volume. Non-recursive
+    // ancestors may filter out deeper events, and FSEvents may not cross mounts.
+    fn stream_paths(&self) -> cf::CFRetained<cf::CFMutableArray<cf::CFString>> {
+        let paths: cf::CFRetained<cf::CFMutableArray<cf::CFString>> = cf::CFMutableArray::empty();
+        for (path, entry) in &self.watches {
+            let covered = path.ancestors().skip(1).any(|ancestor| {
+                self.watches.get(ancestor).is_some_and(|covering| {
+                    covering.info.is_recursive && covering.device == entry.device
+                })
+            });
+            if !covered {
+                paths.append(&entry.cf_path);
+            }
+        }
+        paths
+    }
+
     fn run(&mut self) -> Result<()> {
-        if self.paths.is_empty() {
+        let stream_paths = self.stream_paths();
+        if stream_paths.is_empty() {
             return Ok(());
         }
 
         // Over roughly RLIMIT_NOFILE/10 paths across all live streams, FSEvents
         // closes fd 0, which this process owns. The corruption then surfaces as
         // EBADF on unrelated files.
-        let path_count = self.paths.iter().count();
+        let path_count = stream_paths.iter().count();
         let budget = fsevents_path_budget().unwrap_or(usize::MAX);
         let path_reservation =
             match FseventsPathReservation::acquire(&ACTIVE_FSEVENTS_PATHS, path_count, budget) {
@@ -575,7 +573,11 @@ impl FsEventWatcher {
         // `FSEventStreamRelease`.
         let context = Box::into_raw(Box::new(StreamContextInfo {
             event_handler: self.event_handler.clone(),
-            recursive_info: self.recursive_info.clone(),
+            recursive_info: self
+                .watches
+                .iter()
+                .map(|(path, entry)| (path.clone(), entry.info.clone()))
+                .collect(),
             event_kinds: self.event_kinds,
         }));
 
@@ -592,7 +594,7 @@ impl FsEventWatcher {
                 cf::kCFAllocatorDefault,
                 Some(callback),
                 &stream_context as *const _ as *mut _,
-                self.paths.as_opaque(),
+                stream_paths.as_opaque(),
                 self.since_when,
                 self.latency,
                 self.flags,
@@ -870,9 +872,9 @@ impl Watcher for FsEventWatcher {
         // The runloop callback gets a cloned snapshot in `StreamContextInfo`, so it does not
         // mutate or read this map concurrently.
         Ok(self
-            .recursive_info
+            .watches
             .iter()
-            .map(|(_path, info)| {
+            .map(|(_path, WatchEntry { info, .. })| {
                 (
                     info.reported_path.clone(),
                     if info.is_recursive {
@@ -963,7 +965,92 @@ mod tests {
             watched,
             vec![(dir.path().to_path_buf(), RecursiveMode::NonRecursive)]
         );
-        assert_eq!(watcher.paths.iter().count(), 1);
+        assert_eq!(watcher.stream_paths().iter().count(), 1);
+    }
+
+    #[test]
+    fn only_recursive_ancestors_cover_nested_watches() {
+        let dir = tempfile::tempdir().unwrap();
+        let child = dir.path().join("child");
+        let grandchild = child.join("first").join("second").join("grandchild");
+        std::fs::create_dir_all(&grandchild).unwrap();
+
+        let mut watcher = FsEventWatcher::new(|_| {}, Config::default()).unwrap();
+        for (path, mode) in [
+            (dir.path(), RecursiveMode::Recursive),
+            (child.as_path(), RecursiveMode::NonRecursive),
+            (grandchild.as_path(), RecursiveMode::Recursive),
+        ] {
+            watcher.append_path(path, mode).expect("watch");
+        }
+
+        assert_eq!(watcher.stream_paths().iter().count(), 1);
+        assert_eq!(watcher.watched_paths().expect("watched paths").len(), 3);
+
+        watcher.remove_path(dir.path()).expect("unwatch parent");
+        // The remaining non-recursive child would discard changes to the deeper
+        // watch's intermediate ancestors, so both watches need stream roots.
+        assert_eq!(watcher.stream_paths().iter().count(), 2);
+
+        watcher.remove_path(&child).expect("unwatch child");
+        assert_eq!(watcher.stream_paths().iter().count(), 1);
+    }
+
+    #[test]
+    fn sibling_watches_each_get_a_stream_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("first");
+        let second = dir.path().join("second");
+        std::fs::create_dir(&first).unwrap();
+        std::fs::create_dir(&second).unwrap();
+
+        let mut watcher = FsEventWatcher::new(|_| {}, Config::default()).unwrap();
+        watcher
+            .append_path(&first, RecursiveMode::Recursive)
+            .expect("watch first");
+        watcher
+            .append_path(&second, RecursiveMode::Recursive)
+            .expect("watch second");
+
+        assert_eq!(watcher.stream_paths().iter().count(), 2);
+    }
+
+    #[test]
+    fn covering_watch_keeps_receiving_outside_the_nested_watch() {
+        let tmpdir = testdir();
+        let child = tmpdir.path().join("child");
+        let sibling = tmpdir.path().join("sibling");
+        std::fs::create_dir(&child).expect("create child");
+        std::fs::create_dir(&sibling).expect("create sibling");
+
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(&tmpdir);
+        watcher.watch_recursively(&child);
+
+        let path = sibling.join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        rx.wait_unordered([expected(path).create_file()]);
+    }
+
+    #[test]
+    fn nested_watch_keeps_receiving_after_unwatching_its_parent() {
+        let tmpdir = testdir();
+        let child = tmpdir.path().join("child");
+        std::fs::create_dir(&child).expect("create dir");
+
+        let (mut watcher, mut rx) = watcher();
+        watcher.watch_recursively(&tmpdir);
+        watcher.watch_recursively(&child);
+        watcher
+            .watcher
+            .unwatch(tmpdir.path())
+            .expect("unwatch parent");
+
+        let path = child.join("entry");
+        std::fs::File::create_new(&path).expect("create");
+
+        rx.wait_unordered([expected(path).create_file()]);
     }
 
     #[test]
