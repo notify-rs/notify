@@ -90,10 +90,12 @@ mod data {
 
     use super::ScanEventHandler;
 
-    fn system_time_to_seconds(time: std::time::SystemTime) -> i64 {
+    const NANOS_PER_SECOND: i128 = 1_000_000_000;
+
+    fn system_time_to_nanos(time: std::time::SystemTime) -> i128 {
         match time.duration_since(std::time::SystemTime::UNIX_EPOCH) {
-            Ok(d) => d.as_secs() as i64,
-            Err(e) => -(e.duration().as_secs() as i64),
+            Ok(d) => d.as_nanos() as i128,
+            Err(e) => -(e.duration().as_nanos() as i128),
         }
     }
 
@@ -387,8 +389,8 @@ mod data {
     /// See [`WatchData`] for more detail.
     #[derive(Debug, Clone)]
     struct PathData {
-        /// File updated time.
-        mtime: i64,
+        /// File updated time in nanoseconds since the Unix epoch.
+        mtime: i128,
 
         /// Content's hash value, only available if user request compare file
         /// contents and read successful.
@@ -402,10 +404,19 @@ mod data {
         /// Create a new `PathData`.
         fn new(data_builder: &DataBuilder, meta_path: &MetaPath) -> PathData {
             let metadata = meta_path.metadata();
+            let is_file = metadata.is_file();
+            let mut mtime = metadata.modified().map_or(0, system_time_to_nanos);
+            if !is_file || data_builder.compare_contents {
+                // Child changes update directory mtimes. Preserve the existing second precision for
+                // directories to avoid emitting a redundant directory event for every file event.
+                // Hashed watchers also retain second precision so content changes keep their
+                // existing event classification.
+                mtime = mtime / NANOS_PER_SECOND * NANOS_PER_SECOND;
+            }
 
             PathData {
-                mtime: metadata.modified().map_or(0, system_time_to_seconds),
-                hash: if data_builder.compare_contents && metadata.is_file() {
+                mtime,
+                hash: if data_builder.compare_contents && is_file {
                     content_hash(meta_path.path()).ok()
                 } else {
                     None
@@ -777,6 +788,61 @@ mod tests {
     fn poll_watcher_is_send_and_sync() {
         fn check<T: Send + Sync>() {}
         check::<PollWatcher>();
+    }
+
+    #[test]
+    fn detects_subsecond_mtime_change_without_content_hashing() {
+        use std::{
+            fs,
+            sync::mpsc,
+            time::{Duration, SystemTime},
+        };
+
+        use crate::event::{EventKind, MetadataKind, ModifyKind};
+
+        let tmpdir = testdir();
+        let path = tmpdir.path().join("entry");
+        fs::write(&path, "initial").expect("write initial contents");
+
+        let current_second = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("current time must be after the Unix epoch")
+            .as_secs();
+        let initial_mtime = SystemTime::UNIX_EPOCH
+            + Duration::from_secs(current_second)
+            + Duration::from_millis(100);
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .expect("open file to set initial mtime")
+            .set_modified(initial_mtime)
+            .expect("set initial mtime");
+
+        let (tx, rx) = mpsc::channel();
+        let mut watcher =
+            PollWatcher::new(tx, Config::default().with_manual_polling()).expect("create watcher");
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::Recursive)
+            .expect("watch directory");
+
+        fs::write(&path, "updated").expect("write updated contents");
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .expect("open file to set updated mtime")
+            .set_modified(initial_mtime + Duration::from_millis(100))
+            .expect("set updated mtime");
+        watcher.poll().expect("poll for changes");
+
+        let event = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("receive subsecond mtime change")
+            .expect("watch event must not be an error");
+        assert_eq!(event.paths, vec![path]);
+        assert_eq!(
+            event.kind,
+            EventKind::Modify(ModifyKind::Metadata(MetadataKind::WriteTime))
+        );
     }
 
     #[test]
