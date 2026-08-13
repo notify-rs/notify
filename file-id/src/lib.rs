@@ -150,7 +150,7 @@ pub fn get_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
 pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     let file = open_file(path)?;
 
-    unsafe { get_file_info_ex(&file).or_else(|_| get_file_info(&file)) }
+    get_file_info_ex(&file).or_else(|_| get_file_info(&file))
 }
 
 /// Get the `FileId` for the file or directory at `path` without following symlinks/reparse points
@@ -158,7 +158,7 @@ pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
 pub fn get_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
     let file = open_file_no_follow(path)?;
 
-    unsafe { get_file_info_ex(&file).or_else(|_| get_file_info(&file)) }
+    get_file_info_ex(&file).or_else(|_| get_file_info(&file))
 }
 
 /// Get the `FileId` with the low resolution variant for the file or directory at `path`
@@ -166,7 +166,7 @@ pub fn get_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
 pub fn get_low_res_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     let file = open_file(path)?;
 
-    unsafe { get_file_info(&file) }
+    get_file_info(&file)
 }
 
 /// Get the `FileId` with the low resolution variant for the file or directory at `path` without following symlinks/reparse points
@@ -174,7 +174,7 @@ pub fn get_low_res_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
 pub fn get_low_res_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
     let file = open_file_no_follow(path)?;
 
-    unsafe { get_file_info(&file) }
+    get_file_info(&file)
 }
 
 /// Get the `FileId` with the high resolution variant for the file or directory at `path`
@@ -182,7 +182,7 @@ pub fn get_low_res_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileI
 pub fn get_high_res_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     let file = open_file(path)?;
 
-    unsafe { get_file_info_ex(&file) }
+    get_file_info_ex(&file)
 }
 
 /// Get the `FileId` with the high resolution variant for the file or directory at `path` without following symlinks/reparse points
@@ -190,29 +190,34 @@ pub fn get_high_res_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
 pub fn get_high_res_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
     let file = open_file_no_follow(path)?;
 
-    unsafe { get_file_info_ex(&file) }
+    get_file_info_ex(&file)
 }
 
 #[cfg(target_family = "windows")]
-unsafe fn get_file_info_ex(file: &fs::File) -> Result<FileId, io::Error> {
-    use std::{mem, os::windows::prelude::*};
-    use windows_sys::Win32::{
-        Foundation::HANDLE,
-        Storage::FileSystem::{FileIdInfo, GetFileInformationByHandleEx, FILE_ID_INFO},
+fn get_file_info_ex(file: &fs::File) -> Result<FileId, io::Error> {
+    use std::{mem::MaybeUninit, os::windows::prelude::*};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileIdInfo, GetFileInformationByHandleEx, FILE_ID_INFO,
     };
 
-    let mut info: FILE_ID_INFO = mem::zeroed();
-    let ret = GetFileInformationByHandleEx(
-        file.as_raw_handle() as HANDLE,
-        FileIdInfo,
-        &mut info as *mut FILE_ID_INFO as _,
-        mem::size_of::<FILE_ID_INFO>() as u32,
-    );
-
+    let mut info = MaybeUninit::<FILE_ID_INFO>::zeroed();
+    // SAFETY: `file` is an open file, so its handle is valid for the duration of
+    // the call; `info` is a live, writable buffer of `size_of::<FILE_ID_INFO>()`
+    // bytes, matching the `FileIdInfo` information class.
+    let ret = unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileIdInfo,
+            info.as_mut_ptr().cast(),
+            size_of::<FILE_ID_INFO>() as u32,
+        )
+    };
     if ret == 0 {
         return Err(io::Error::last_os_error());
-    };
+    }
 
+    // SAFETY: `info` is initialized by `GetFileInformationByHandleEx`.
+    let info = unsafe { info.assume_init() };
     Ok(FileId::new_high_res(
         info.VolumeSerialNumber,
         u128::from_le_bytes(info.FileId.Identifier),
@@ -220,19 +225,22 @@ unsafe fn get_file_info_ex(file: &fs::File) -> Result<FileId, io::Error> {
 }
 
 #[cfg(target_family = "windows")]
-unsafe fn get_file_info(file: &fs::File) -> Result<FileId, io::Error> {
-    use std::{mem, os::windows::prelude::*};
-    use windows_sys::Win32::{
-        Foundation::HANDLE,
-        Storage::FileSystem::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION},
+fn get_file_info(file: &fs::File) -> Result<FileId, io::Error> {
+    use std::{mem::MaybeUninit, os::windows::prelude::*};
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
     };
 
-    let mut info: BY_HANDLE_FILE_INFORMATION = mem::zeroed();
-    let ret = GetFileInformationByHandle(file.as_raw_handle() as HANDLE, &mut info);
+    let mut info = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+    // SAFETY: `file` is an open file, so its handle is valid for the duration of
+    // the call; `info` is a live, writable `BY_HANDLE_FILE_INFORMATION` buffer.
+    let ret = unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) };
     if ret == 0 {
         return Err(io::Error::last_os_error());
-    };
+    }
 
+    // SAFETY: `info` is initialized by `GetFileInformationByHandle`.
+    let info = unsafe { info.assume_init() };
     Ok(FileId::new_low_res(
         info.dwVolumeSerialNumber,
         ((info.nFileIndexHigh as u64) << 32) | (info.nFileIndexLow as u64),
