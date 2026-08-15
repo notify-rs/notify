@@ -254,16 +254,20 @@ impl Default for Config {
 ///
 /// This contains some settings that may relate to only one specific backend,
 /// such as to correctly configure each backend regardless of what is selected during runtime.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct WatchPathConfig {
     recursive_mode: RecursiveMode,
+    dereference_symlinks: bool,
 }
 
 impl WatchPathConfig {
     /// Creates new instance with provided [`RecursiveMode`]
     #[must_use]
     pub fn new(recursive_mode: RecursiveMode) -> Self {
-        Self { recursive_mode }
+        Self {
+            recursive_mode,
+            dereference_symlinks: true,
+        }
     }
 
     /// Set [`RecursiveMode`] for the watch
@@ -277,6 +281,20 @@ impl WatchPathConfig {
     #[must_use]
     pub fn recursive_mode(&self) -> RecursiveMode {
         self.recursive_mode
+    }
+
+    /// Set whether a symbolic link is followed to its destination, for
+    /// [`RecursiveMode::NonRecursive`] watches on the [INotifyWatcher](crate::INotifyWatcher)
+    #[must_use]
+    pub fn with_dereference_symlinks(mut self, dereference_symlinks: bool) -> Self {
+        self.dereference_symlinks = dereference_symlinks;
+        self
+    }
+
+    /// Returns current setting
+    #[must_use]
+    pub fn dereference_symlinks(&self) -> bool {
+        self.dereference_symlinks
     }
 }
 
