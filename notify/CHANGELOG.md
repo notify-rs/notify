@@ -16,6 +16,7 @@
 - CHANGE: [macOS] pass a single FSEvents stream root for watches nested inside another recursive watch on the same volume; a coalesced watch no longer reports a separate root-changed event when it or one of its ancestors is renamed
 - PERF: [kqueue] avoid filesystem walks for recursive kqueue unwatch
 - FEATURE: add `Watcher::watch_with` to pass per-path settings, and `WatchPathConfig::with_dereference_symlinks` to watch a symbolic link itself instead of its destination, which also makes a dangling link watchable [#255]
+- FIX: [poll] detect subsecond file mtime changes without content hashing
 
 [#255]: https://github.com/notify-rs/notify/issues/255
 [#930]: https://github.com/notify-rs/notify/pull/930
