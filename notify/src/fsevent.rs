@@ -1188,14 +1188,66 @@ mod tests {
         check_send::<StreamContextInfo>();
     }
 
-    #[test]
-    fn callback_impl_handles_non_utf8_paths_without_panicking() {
+    /// Drives `callback_impl` with the given watch table and raw `(path, flags)` events,
+    /// returning everything it delivered. Paths are bytes because FSEvents reports
+    /// whatever the filesystem holds, which need not be UTF-8.
+    fn run_callback(
+        recursive_info: HashMap<PathBuf, WatchInfo>,
+        events: &[(&[u8], u32)],
+    ) -> Vec<crate::Result<Event>> {
         use std::ffi::CString;
-        use std::os::unix::ffi::OsStrExt;
         use std::ptr;
 
         let (tx, rx) = std::sync::mpsc::channel::<crate::Result<Event>>();
         let event_handler: Arc<Mutex<dyn EventHandler>> = Arc::new(Mutex::new(tx));
+
+        let context = Box::new(StreamContextInfo {
+            event_handler,
+            recursive_info,
+            event_kinds: EventKindMask::ALL,
+        });
+        let context_ptr = Box::into_raw(context) as *mut libc::c_void;
+
+        let c_paths: Vec<CString> = events
+            .iter()
+            .map(|(path, _)| CString::new(*path).expect("cstring"))
+            .collect();
+        let path_ptrs: Vec<_> = c_paths.iter().map(|p| p.as_ptr()).collect();
+        let event_paths = NonNull::new(path_ptrs.as_ptr() as *mut libc::c_void).unwrap();
+
+        let flags_arr: Vec<fs::FSEventStreamEventFlags> = events
+            .iter()
+            .map(|(_, flags)| *flags as fs::FSEventStreamEventFlags)
+            .collect();
+        let event_flags =
+            NonNull::new(flags_arr.as_ptr() as *mut fs::FSEventStreamEventFlags).unwrap();
+
+        let ids_arr: Vec<fs::FSEventStreamEventId> = (0..events.len())
+            .map(|i| i as fs::FSEventStreamEventId)
+            .collect();
+        let event_ids = NonNull::new(ids_arr.as_ptr() as *mut fs::FSEventStreamEventId).unwrap();
+
+        let res = std::panic::catch_unwind(|| unsafe {
+            callback_impl(
+                ptr::null(),
+                context_ptr,
+                events.len(),
+                event_paths,
+                event_flags,
+                event_ids,
+            );
+        });
+        unsafe {
+            drop(Box::from_raw(context_ptr as *mut StreamContextInfo));
+        }
+        assert!(res.is_ok(), "callback_impl should not panic");
+
+        rx.try_iter().collect()
+    }
+
+    #[test]
+    fn callback_impl_handles_non_utf8_paths_without_panicking() {
+        use std::os::unix::ffi::OsStrExt;
 
         let mut recursive_info = HashMap::new();
         recursive_info.insert(
@@ -1206,44 +1258,16 @@ mod tests {
             },
         );
 
-        let context = Box::new(StreamContextInfo {
-            event_handler,
-            recursive_info,
-            event_kinds: EventKindMask::ALL,
-        });
-        let context_ptr = Box::into_raw(context) as *mut libc::c_void;
-
         let bytes = b"/tmp/\xff";
-        let c_path = CString::new(bytes.as_slice()).expect("cstring");
-        let path_ptrs = [c_path.as_ptr()];
-        let event_paths = NonNull::new(path_ptrs.as_ptr() as *mut libc::c_void).unwrap();
+        let events = run_callback(
+            recursive_info,
+            &[(bytes.as_slice(), StreamFlags::ITEM_CREATED.bits())],
+        );
 
-        let flags_arr = [StreamFlags::ITEM_CREATED.bits() as fs::FSEventStreamEventFlags];
-        let event_flags =
-            NonNull::new(flags_arr.as_ptr() as *mut fs::FSEventStreamEventFlags).unwrap();
-
-        let ids_arr = [0 as fs::FSEventStreamEventId];
-        let event_ids = NonNull::new(ids_arr.as_ptr() as *mut fs::FSEventStreamEventId).unwrap();
-
-        let res = std::panic::catch_unwind(|| unsafe {
-            callback_impl(
-                ptr::null(),
-                context_ptr,
-                1,
-                event_paths,
-                event_flags,
-                event_ids,
-            );
-        });
-        unsafe {
-            drop(Box::from_raw(context_ptr as *mut StreamContextInfo));
-        }
-
-        assert!(res.is_ok(), "callback_impl should not panic");
-
-        let event = rx
-            .recv_timeout(Duration::from_secs(1))
+        let event = events
+            .first()
             .expect("expected event")
+            .as_ref()
             .expect("expected Ok(Event)");
         assert!(
             event.kind.is_create(),
@@ -1255,32 +1279,6 @@ mod tests {
 
     #[test]
     fn callback_impl_ignores_unknown_flag_bits_without_panicking() {
-        use std::ffi::CString;
-        use std::ptr;
-
-        let (tx, rx) = std::sync::mpsc::channel::<crate::Result<Event>>();
-        let event_handler: Arc<Mutex<dyn EventHandler>> = Arc::new(Mutex::new(tx));
-
-        let mut recursive_info = HashMap::new();
-        recursive_info.insert(
-            PathBuf::from("/tmp"),
-            WatchInfo {
-                is_recursive: true,
-                reported_path: PathBuf::from("/tmp"),
-            },
-        );
-
-        let context = Box::new(StreamContextInfo {
-            event_handler,
-            recursive_info,
-            event_kinds: EventKindMask::ALL,
-        });
-        let context_ptr = Box::into_raw(context) as *mut libc::c_void;
-
-        let c_path = CString::new("/tmp/file").expect("cstring");
-        let path_ptrs = [c_path.as_ptr()];
-        let event_paths = NonNull::new(path_ptrs.as_ptr() as *mut libc::c_void).unwrap();
-
         // Include an unknown bit so the old `from_bits(...).unwrap_or_else(panic!)` behavior
         // would have panicked. New behavior should tolerate it.
         let unknown_mask = !StreamFlags::all().bits();
@@ -1292,32 +1290,21 @@ mod tests {
             "raw_flag must include an unknown bit for this test to be meaningful"
         );
 
-        let flags_arr = [raw_flag as fs::FSEventStreamEventFlags];
-        let event_flags =
-            NonNull::new(flags_arr.as_ptr() as *mut fs::FSEventStreamEventFlags).unwrap();
+        let mut recursive_info = HashMap::new();
+        recursive_info.insert(
+            PathBuf::from("/tmp"),
+            WatchInfo {
+                is_recursive: true,
+                reported_path: PathBuf::from("/tmp"),
+            },
+        );
 
-        let ids_arr = [0 as fs::FSEventStreamEventId];
-        let event_ids = NonNull::new(ids_arr.as_ptr() as *mut fs::FSEventStreamEventId).unwrap();
+        let events = run_callback(recursive_info, &[(b"/tmp/file".as_slice(), raw_flag)]);
 
-        let res = std::panic::catch_unwind(|| unsafe {
-            callback_impl(
-                ptr::null(),
-                context_ptr,
-                1,
-                event_paths,
-                event_flags,
-                event_ids,
-            );
-        });
-        unsafe {
-            drop(Box::from_raw(context_ptr as *mut StreamContextInfo));
-        }
-
-        assert!(res.is_ok(), "callback_impl should not panic");
-
-        let event = rx
-            .recv_timeout(Duration::from_secs(1))
+        let event = events
+            .first()
             .expect("expected event")
+            .as_ref()
             .expect("expected Ok(Event)");
         assert!(
             event.kind.is_create(),
