@@ -4,15 +4,16 @@
 //! Rust stdlib APIs and should work on all of the platforms it supports.
 
 use crate::{
-    paths::{absolute_path, WatchPath},
-    unbounded, Config, Error, EventHandler, Receiver, RecursiveMode, Sender, Watcher,
+    Config, Error, EventHandler, Receiver, RecursiveMode, Sender, Watcher,
+    paths::{WatchPath, absolute_path},
+    unbounded,
 };
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     thread,
     time::Duration,
@@ -71,9 +72,9 @@ impl ScanEventHandler for () {
 use data::{DataBuilder, WatchData};
 mod data {
     use crate::{
-        event::{CreateKind, DataChange, Event, EventKind, MetadataKind, ModifyKind, RemoveKind},
-        paths::{reported_path, WatchPath},
         EventHandler, RecursiveMode,
+        event::{CreateKind, DataChange, Event, EventKind, MetadataKind, ModifyKind, RemoveKind},
+        paths::{WatchPath, reported_path},
     };
     use notify_types::event::EventKindMask;
     use std::{
@@ -364,11 +365,7 @@ mod data {
         }
 
         fn dir_scan_depth(is_recursive: bool) -> usize {
-            if is_recursive {
-                usize::MAX
-            } else {
-                1
-            }
+            if is_recursive { usize::MAX } else { 1 }
         }
 
         pub(super) fn recursive_mode(&self) -> RecursiveMode {
@@ -778,7 +775,7 @@ impl Drop for PollWatcher {
 #[cfg(test)]
 mod tests {
     use super::PollWatcher;
-    use crate::{test::*, Config, RecursiveMode, Watcher};
+    use crate::{Config, RecursiveMode, Watcher, test::*};
 
     fn watcher() -> (TestWatcher<PollWatcher>, Receiver) {
         poll_watcher_channel()

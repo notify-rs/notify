@@ -6,11 +6,11 @@ use std::{
 
 use file_id::FileId;
 use notify::{
+    Error, ErrorKind, Event, EventKind, RecursiveMode,
     event::{
         AccessKind, AccessMode, CreateKind, DataChange, Flag, MetadataKind, ModifyKind, RemoveKind,
         RenameMode,
     },
-    Error, ErrorKind, Event, EventKind, RecursiveMode,
 };
 
 use crate::{DebounceDataInner, DebouncedEvent, FileIdCache, Queue};

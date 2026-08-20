@@ -9,10 +9,10 @@ use super::{
     Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result, Watcher,
 };
 use crate::paths::{
-    absolute_path, is_preserved_watch_root, preserved_watch_mode, preserved_watch_roots,
-    recursive_user_watch_ancestor, reported_path, WatchMetadata as Watch, WatchPath,
+    WatchMetadata as Watch, WatchPath, absolute_path, is_preserved_watch_root,
+    preserved_watch_mode, preserved_watch_roots, recursive_user_watch_ancestor, reported_path,
 };
-use crate::{unbounded, Receiver, Sender};
+use crate::{Receiver, Sender, unbounded};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
 use std::collections::HashMap;
 use std::fs::metadata;
@@ -723,8 +723,8 @@ mod tests {
     }
 
     #[test]
-    fn internal_recursive_refresh_preserves_explicit_child(
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn internal_recursive_refresh_preserves_explicit_child()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let child = dir.path().join("child");
         std::fs::create_dir(&child)?;
@@ -778,8 +778,8 @@ mod tests {
     }
 
     #[test]
-    fn rewatching_same_path_replaces_recursive_state(
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn rewatching_same_path_replaces_recursive_state()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let child = dir.path().join("child");
         std::fs::create_dir(&child)?;
@@ -801,8 +801,8 @@ mod tests {
     }
 
     #[test]
-    fn rewatching_child_preserves_recursive_parent_state(
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn rewatching_child_preserves_recursive_parent_state()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let child = dir.path().join("child");
         let grandchild = child.join("grandchild");
@@ -835,8 +835,8 @@ mod tests {
     }
 
     #[test]
-    fn rewatching_carved_out_child_does_not_restore_parent_recursive_state(
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn rewatching_carved_out_child_does_not_restore_parent_recursive_state()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let child = dir.path().join("child");
         let grandchild = child.join("grandchild");

@@ -197,7 +197,7 @@ pub fn get_high_res_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<File
 fn get_file_info_ex(file: &fs::File) -> Result<FileId, io::Error> {
     use std::{mem::MaybeUninit, os::windows::prelude::*};
     use windows_sys::Win32::Storage::FileSystem::{
-        FileIdInfo, GetFileInformationByHandleEx, FILE_ID_INFO,
+        FILE_ID_INFO, FileIdInfo, GetFileInformationByHandleEx,
     };
 
     let mut info = MaybeUninit::<FILE_ID_INFO>::zeroed();
@@ -228,7 +228,7 @@ fn get_file_info_ex(file: &fs::File) -> Result<FileId, io::Error> {
 fn get_file_info(file: &fs::File) -> Result<FileId, io::Error> {
     use std::{mem::MaybeUninit, os::windows::prelude::*};
     use windows_sys::Win32::Storage::FileSystem::{
-        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
     };
 
     let mut info = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();

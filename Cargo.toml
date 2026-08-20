@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
   "notify",
   "notify-types",
@@ -16,7 +16,7 @@ exclude = [
 rust-version = "1.88"
 homepage = "https://github.com/notify-rs/notify"
 repository = "https://github.com/notify-rs/notify.git"
-edition = "2021"
+edition = "2024"
 
 [workspace.dependencies]
 bitflags = "2.7.0"

@@ -1,6 +1,6 @@
 use futures::{
-    channel::mpsc::{channel, Receiver},
     SinkExt, StreamExt,
+    channel::mpsc::{Receiver, channel},
 };
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
