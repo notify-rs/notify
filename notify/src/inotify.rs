@@ -1,4 +1,4 @@
-//! Inotify watcher implementation for Linux, Android, and FreeBSD 15.0+.
+//! Inotify watcher implementation for Linux, Android, and FreeBSD 14.5+.
 //!
 //! The inotify API provides a mechanism for monitoring filesystem events.  Inotify can be used to
 //! monitor individual files, or to monitor directories.  When a directory is monitored, inotify

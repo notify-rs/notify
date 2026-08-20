@@ -22,7 +22,7 @@ default = ["macos_fsevent"]
 serde = ["notify-types/serde"]
 macos_kqueue = ["kqueue", "mio"]
 macos_fsevent = ["objc2-core-foundation", "objc2-core-services"]
-# Force native inotify when cross-compiling for FreeBSD 15+.
+# Force native inotify when cross-compiling for FreeBSD 14.5+.
 freebsd_inotify = []
 serialization-compat-6 = ["notify-types/serialization-compat-6"]
 tokio = ["dep:tokio"]

@@ -17,12 +17,12 @@
 //! - `serde` for serialization of events
 //! - `macos_fsevent` (default) for the FSEvents backend on macOS
 //! - `macos_kqueue` for the kqueue backend on macOS
-//! - `freebsd_inotify` enables notify's inotify backend on FreeBSD 15+
+//! - `freebsd_inotify` enables notify's inotify backend on FreeBSD 14.5+
 //!   - inotify is automatically enabled when built natively, this feature is only needed for cross-compilation
 //! - `serialization-compat-6` restores the serialization behavior of notify 6, off by default
 //!
-//! Native FreeBSD builds use inotify on 15.0+ and kqueue on older releases. When
-//! cross-compiling for FreeBSD 15.0+, enable `freebsd_inotify` explicitly.
+//! Native FreeBSD builds use inotify on 14.5+ and kqueue on older releases. When
+//! cross-compiling for FreeBSD 14.5+, enable `freebsd_inotify` explicitly.
 //!
 //! ### Serde
 //!
@@ -332,7 +332,7 @@ impl EventHandler for std::sync::mpsc::Sender<Result<Event>> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum WatcherKind {
-    /// Inotify backend (Linux, Android, and FreeBSD 15+)
+    /// Inotify backend (Linux, Android, and FreeBSD 14.5+)
     Inotify,
     /// FS-Event backend (mac)
     Fsevent,
@@ -621,6 +621,35 @@ mod tests {
         assert_debug_impl!(WatcherKind);
     }
 
+    include!("freebsd_version.rs");
+
+    fn freebsd_inotify_supported(output: &str) -> bool {
+        parse_freebsd_release(output).is_some_and(|release| release >= FREEBSD_INOTIFY_MIN)
+    }
+
+    #[test]
+    fn freebsd_inotify_release_threshold() {
+        for (version, expected) in [
+            ("13.5-RELEASE", false),
+            ("14.4-RELEASE", false),
+            ("14.4-RELEASE-p3", false),
+            ("14.4-STABLE", false),
+            ("14.5-BETA1", true),
+            ("14.5-RELEASE", true),
+            ("14.5-RELEASE-p1", true),
+            ("14.5-STABLE", true),
+            ("14.6-RELEASE", true),
+            ("15.0-RELEASE", true),
+            ("15.1-RELEASE", true),
+            ("16.0-CURRENT", true),
+        ] {
+            assert_eq!(freebsd_inotify_supported(version), expected, "{version}");
+        }
+        assert_eq!(parse_freebsd_release(""), None);
+        assert_eq!(parse_freebsd_release("14"), None);
+        assert_eq!(parse_freebsd_release("14."), None);
+    }
+
     #[cfg(target_os = "freebsd")]
     #[test]
     fn recommended_watcher_matches_freebsd_version() {
@@ -631,14 +660,7 @@ mod tests {
         assert!(output.status.success(), "freebsd-version failed");
 
         let version = std::str::from_utf8(&output.stdout).expect("parse freebsd-version output");
-        let major = version
-            .trim()
-            .split('.')
-            .next()
-            .expect("find FreeBSD major version")
-            .parse::<u32>()
-            .expect("parse FreeBSD major version");
-        let expected = if cfg!(feature = "freebsd_inotify") || major >= 15 {
+        let expected = if cfg!(feature = "freebsd_inotify") || freebsd_inotify_supported(version) {
             WatcherKind::Inotify
         } else {
             WatcherKind::Kqueue

@@ -147,7 +147,7 @@ jobs:
         if: matrix.rust == 'stable'
         run: cargo test --workspace --exclude examples --verbose ${{ matrix.features }} --features tokio
 
-  # Verify automatic backend selection on both supported FreeBSD releases.
+  # Verify automatic backend selection: kqueue before 14.5, inotify on 14.5+.
   freebsd:
     name: FreeBSD ${{ matrix.release }} (${{ matrix.backend }}) - ${{ matrix.rust }}
     runs-on: ubuntu-latest

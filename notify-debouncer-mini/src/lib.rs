@@ -46,7 +46,7 @@
 //! The following crate features can be configured in your Cargo dependency:
 //!
 //! - `macos_fsevent` (default) enables notify's FSEvents backend on macOS
-//! - `freebsd_inotify` enables notify's inotify backend on FreeBSD 15+
+//! - `freebsd_inotify` enables notify's inotify backend on FreeBSD 14.5+
 //!   - inotify is automatically enabled when built natively, this feature is only needed for cross-compilation
 //! - `macos_kqueue` enables notify's kqueue backend on macOS
 //! - `serde` enables serialization support in notify-types
