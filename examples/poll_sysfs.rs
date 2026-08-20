@@ -14,7 +14,9 @@ fn not_windows_main() -> notify::Result<()> {
     if paths.is_empty() {
         let lo_stats = Path::new("/sys/class/net/lo/statistics/tx_bytes").to_path_buf();
         if !lo_stats.exists() {
-            eprintln!("Must provide path to watch, default system path was not found (probably you're not running on Linux?)");
+            eprintln!(
+                "Must provide path to watch, default system path was not found (probably you're not running on Linux?)"
+            );
             std::process::exit(1);
         }
         println!("Trying {lo_stats:?}, use `ping localhost` to see changes!");

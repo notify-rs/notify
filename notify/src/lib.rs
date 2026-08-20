@@ -792,8 +792,8 @@ mod tests {
     }
 
     #[test]
-    fn event_paths_preserve_relative_watch_root(
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn event_paths_preserve_relative_watch_root()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
         let cwd = std::env::current_dir()?;
         let dir = tempfile::Builder::new()
             .prefix("notify-relative-")
@@ -948,8 +948,8 @@ mod tests {
     }
 
     #[test]
-    fn watched_paths_reflect_watch_and_unwatch(
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn watched_paths_reflect_watch_and_unwatch()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
         let dir_a = dir.path().join("a");
         let dir_b = dir.path().join("b");
@@ -976,8 +976,8 @@ mod tests {
     }
 
     #[test]
-    fn rewatching_same_path_replaces_recursive_mode(
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn rewatching_same_path_replaces_recursive_mode()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
         let root = canonical_or_path(dir.path());
 
@@ -1004,8 +1004,8 @@ mod tests {
     }
 
     #[test]
-    fn overlapping_recursive_watch_preserves_explicit_child(
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn overlapping_recursive_watch_preserves_explicit_child()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
         let dir = tempdir()?;
         let child = dir.path().join("child");
         fs::create_dir(&child)?;
@@ -1030,8 +1030,8 @@ mod tests {
     }
 
     #[test]
-    fn overlapping_recursive_child_rewrites_descendant_event_paths(
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn overlapping_recursive_child_rewrites_descendant_event_paths()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
         let cwd = std::env::current_dir()?;
         let dir = tempfile::Builder::new()
             .prefix("notify-overlap-")

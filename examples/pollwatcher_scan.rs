@@ -1,4 +1,4 @@
-use notify::{poll::ScanEvent, Config, PollWatcher, RecursiveMode, Watcher};
+use notify::{Config, PollWatcher, RecursiveMode, Watcher, poll::ScanEvent};
 use std::path::Path;
 
 // Example for the pollwatcher scan callback feature.

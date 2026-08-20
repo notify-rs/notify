@@ -1,7 +1,7 @@
 use std::{fs, thread, time::Duration};
 
 use notify::{EventKindMask, RecommendedWatcher, RecursiveMode};
-use notify_debouncer_full::{new_debouncer_opt, notify, RecommendedCache};
+use notify_debouncer_full::{RecommendedCache, new_debouncer_opt, notify};
 use tempfile::tempdir;
 
 /// Advanced example of the notify-debouncer-full with event filtering.

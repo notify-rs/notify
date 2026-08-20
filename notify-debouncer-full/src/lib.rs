@@ -77,8 +77,8 @@ use std::{
     collections::{BinaryHeap, VecDeque},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Condvar, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -97,9 +97,9 @@ pub use notify_types::debouncer_full::DebouncedEvent;
 
 use file_id::FileId;
 use notify::{
-    event::{ModifyKind, RemoveKind, RenameMode},
     Error, ErrorKind, Event, EventKind, PathOp, RecommendedWatcher, RecursiveMode,
     UpdatePathsError, Watcher, WatcherKind,
+    event::{ModifyKind, RemoveKind, RenameMode},
 };
 
 /// The set of requirements for watcher debounce event handling functions.
@@ -770,32 +770,34 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
     let stop_c = stop.clone();
     let thread = std::thread::Builder::new()
         .name("notify-rs debouncer loop".to_string())
-        .spawn(move || loop {
-            let mut lock = data_c.inner.lock().unwrap();
-            while lock.queues.is_empty()
-                && lock.errors.is_empty()
-                && lock.rescan_event.is_none()
-                && !stop_c.load(Ordering::Acquire)
-            {
-                lock = data_c.changed.wait(lock).unwrap();
-            }
-            if stop_c.load(Ordering::Acquire) {
-                break;
-            }
-            drop(lock);
-            std::thread::sleep(tick);
-            if stop_c.load(Ordering::Acquire) {
-                break;
-            }
-            lock = data_c.inner.lock().unwrap();
-            let send_data = lock.debounced_events();
-            let errors = lock.errors();
-            drop(lock);
-            if !send_data.is_empty() {
-                event_handler.handle_event(Ok(send_data));
-            }
-            if !errors.is_empty() {
-                event_handler.handle_event(Err(errors));
+        .spawn(move || {
+            loop {
+                let mut lock = data_c.inner.lock().unwrap();
+                while lock.queues.is_empty()
+                    && lock.errors.is_empty()
+                    && lock.rescan_event.is_none()
+                    && !stop_c.load(Ordering::Acquire)
+                {
+                    lock = data_c.changed.wait(lock).unwrap();
+                }
+                if stop_c.load(Ordering::Acquire) {
+                    break;
+                }
+                drop(lock);
+                std::thread::sleep(tick);
+                if stop_c.load(Ordering::Acquire) {
+                    break;
+                }
+                lock = data_c.inner.lock().unwrap();
+                let send_data = lock.debounced_events();
+                let errors = lock.errors();
+                drop(lock);
+                if !send_data.is_empty() {
+                    event_handler.handle_event(Ok(send_data));
+                }
+                if !errors.is_empty() {
+                    event_handler.handle_event(Err(errors));
+                }
             }
         })?;
 

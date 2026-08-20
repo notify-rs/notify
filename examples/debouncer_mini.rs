@@ -1,7 +1,7 @@
 use std::{path::Path, time::Duration};
 
 use notify::{EventKindMask, RecommendedWatcher, RecursiveMode};
-use notify_debouncer_mini::{new_debouncer_opt, Config};
+use notify_debouncer_mini::{Config, new_debouncer_opt};
 
 /// Example for debouncer mini with event filtering.
 ///

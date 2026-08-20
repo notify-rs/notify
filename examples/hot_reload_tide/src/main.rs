@@ -2,7 +2,7 @@
 // It has a config.json file that acts as a database,
 // you can edit the configuration and the app will pick up changes without the need to restart it.
 // This concept is known as hot-reloading.
-use hot_reload_tide::messages::{load_config, Config};
+use hot_reload_tide::messages::{Config, load_config};
 use notify::{Error, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
 use std::sync::{Arc, Mutex};

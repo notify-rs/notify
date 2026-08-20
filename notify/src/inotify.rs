@@ -9,16 +9,16 @@ use super::{
     Config, Error, ErrorKind, EventHandler, RecursiveMode, Result, WatchPathConfig, Watcher,
 };
 use crate::paths::{
-    absolute_path, is_preserved_watch_root, preserved_watch_mode, preserved_watch_roots,
-    recursive_user_watch_ancestor, reported_path, WatchMetadata, WatchPath,
+    WatchMetadata, WatchPath, absolute_path, is_preserved_watch_root, preserved_watch_mode,
+    preserved_watch_roots, recursive_user_watch_ancestor, reported_path,
 };
-use crate::{bounded, unbounded, BoundSender, Receiver, Sender};
+use crate::{BoundSender, Receiver, Sender, bounded, unbounded};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use notify_types::event::EventKindMask;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsStr;
-use std::fs::{metadata, symlink_metadata, Metadata};
+use std::fs::{Metadata, metadata, symlink_metadata};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1136,7 +1136,7 @@ impl Drop for INotifyWatcher {
 mod tests {
     use std::{
         path::{Path, PathBuf},
-        sync::{atomic::AtomicBool, mpsc, Arc},
+        sync::{Arc, atomic::AtomicBool, mpsc},
         thread::{self, available_parallelism},
         time::Duration,
     };

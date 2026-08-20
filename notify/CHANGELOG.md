@@ -2,6 +2,7 @@
 
 ## unreleased
 
+- CHANGE: update to edition 2024
 - FEATURE: [FreeBSD] select native inotify automatically when building on FreeBSD 14.5+ and kqueue otherwise. The `freebsd_inotify` feature enables inotify when cross-compiling for FreeBSD 14.5+.
 - DEPS: bump `inotify` to 0.11.4 for native FreeBSD support
 - FEATURE: [macOS] add `Config::with_fsevent_latency` to configure FSEvents stream latency [#930]
