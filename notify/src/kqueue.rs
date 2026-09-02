@@ -476,13 +476,7 @@ impl EventLoop {
             .add_filename(&path.absolute, event_filter, filter_flags)
             .map_err(|e| Error::io(e).add_path(path.requested.clone()))?;
         let existing_watch = self.watches.get(&path.absolute);
-        let watch = Watch::new(
-            &path,
-            is_recursive,
-            is_user_watch,
-            existing_watch,
-            self.watches.iter(),
-        );
+        let watch = Watch::new(&path, is_recursive, is_user_watch, existing_watch);
         self.watches.insert(path.absolute, watch);
 
         Ok(())
@@ -830,6 +824,40 @@ mod tests {
             .expect("grandchild still covered by recursive parent");
         assert!(!grandchild_watch.is_user_watch);
         assert!(grandchild_watch.is_recursive);
+
+        Ok(())
+    }
+
+    #[test]
+    fn outer_recursive_watch_respells_inherited_entries_only()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let child = dir.path().join("child");
+        let grandchild = child.join("grandchild");
+        std::fs::create_dir_all(&grandchild)?;
+
+        let mut event_loop = test_event_loop()?;
+
+        event_loop.add_watch(
+            WatchPath::from_parts(child.clone(), PathBuf::from("reported-child")),
+            true,
+            true,
+        )?;
+        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
+
+        // The outer walk reaches both entries, but only the inherited one takes its spelling:
+        // an explicit watch keeps whatever the user asked for, so the two halves of the same
+        // subtree end up reported under different roots.
+        let child_watch = event_loop.watches.get(&child).expect("child watch");
+        assert!(child_watch.is_user_watch);
+        assert_eq!(child_watch.reported_path, PathBuf::from("reported-child"));
+
+        let grandchild_watch = event_loop
+            .watches
+            .get(&grandchild)
+            .expect("grandchild watch");
+        assert!(!grandchild_watch.is_user_watch);
+        assert_eq!(grandchild_watch.reported_path, grandchild);
 
         Ok(())
     }
