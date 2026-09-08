@@ -18,12 +18,12 @@ use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use notify_types::event::EventKindMask;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsStr;
-use std::fs::{Metadata, metadata, symlink_metadata};
+use std::fs::{Metadata, metadata, read_dir, symlink_metadata};
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
-use walkdir::WalkDir;
 
 const INOTIFY: mio::Token = mio::Token(0);
 const MESSAGE: mio::Token = mio::Token(1);
@@ -655,11 +655,12 @@ impl EventLoop {
                     // Removing a directory watch removes its recursively inherited children too.
                     // Re-add them as non-user watches so the ancestor recursive watch still covers
                     // this subtree after the user watch is replaced.
+                    let barriers = self.recursive_walk_barriers();
                     let entries = walk_dirs(
                         replaced_path.clone(),
                         WatchPath::from_parts(ancestor_path, ancestor_reported_path),
                         self.follow_links,
-                        self.recursive_walk_barriers(),
+                        &barriers,
                     );
                     self.add_watches_for_paths(entries, true, true, false)?;
                 }
@@ -678,11 +679,12 @@ impl EventLoop {
             return self.add_single_watch(path, false, dereference, true);
         }
 
+        let barriers = self.recursive_walk_barriers();
         let entries = walk_dirs(
             path.absolute.clone(),
             path.clone(),
             self.follow_links,
-            self.recursive_walk_barriers(),
+            &barriers,
         );
 
         self.add_watches_for_paths(entries, is_recursive, dereference, watch_self)
@@ -721,7 +723,7 @@ impl EventLoop {
                 Ok(()) => last_failed = None,
                 // The requested path itself failing is the caller's problem.
                 Err(err) if watch_self => return Err(err),
-                // A directory that cannot be read cannot be watched either, and walkdir reports
+                // A directory that cannot be read cannot be watched either, and the walk reports
                 // it right after the directory itself. Report the pair once. Errors that name no
                 // path are never the same failure twice, so they stay out of this.
                 Err(err) if last_failed.is_some() && last_failed.as_ref() == err.paths.first() => {}
@@ -1066,37 +1068,100 @@ fn walk_dirs(
     from: PathBuf,
     root: WatchPath,
     follow_links: bool,
-    barriers: HashSet<PathBuf>,
+    barriers: &HashSet<PathBuf>,
 ) -> impl Iterator<Item = Result<WatchPath>> {
-    WalkDir::new(from)
-        .follow_links(follow_links)
-        .into_iter()
-        .filter_entry(move |entry| !barriers.contains(entry.path()))
-        .filter_map(move |entry| match entry {
-            Ok(entry) => entry
-                .file_type()
-                .is_dir()
-                .then(|| Ok(root.child(entry.into_path()))),
-            Err(err) => Some(Err(walk_error(err, &root))),
-        })
-}
-
-/// A walk error hides everything below the path it happened on, so name that path the way the
-/// caller asked for it, like a failed watch does.
-fn walk_error(err: walkdir::Error, root: &WatchPath) -> Error {
-    let path = err
-        .path()
-        .map(|path| root.child(path.to_path_buf()).requested);
-    let error = match err.into_io_error() {
-        Some(err) => Error::io_watch(err),
-        // Following a symlink into its own ancestor is the one walk error with no i/o behind it.
-        None => Error::generic("symbolic link loop"),
-    };
-
-    match path {
-        Some(path) => error.add_path(path),
-        None => error,
+    enum Step {
+        Visit(WatchPath),
+        Read(WatchPath),
+        Leave,
+        Error(Error),
     }
+
+    let mut pending = vec![Step::Visit(root.child(from))];
+    let mut ancestors = Vec::new();
+
+    std::iter::from_fn(move || {
+        loop {
+            match pending.pop()? {
+                Step::Visit(path) => {
+                    // Exclude links before resolving them: resolution errors may not name the link.
+                    if barriers.contains(&path.absolute) {
+                        continue;
+                    }
+                    // Recheck descendant types after enumeration; the walk root is always followed.
+                    let mut metadata = match symlink_metadata(&path.absolute) {
+                        Ok(metadata) => metadata,
+                        Err(err) => {
+                            return Some(Err(Error::io_watch(err).add_path(path.requested)));
+                        }
+                    };
+                    let is_symlink = metadata.file_type().is_symlink();
+                    if is_symlink && (follow_links || ancestors.is_empty()) {
+                        metadata = match std::fs::metadata(&path.absolute) {
+                            Ok(metadata) => metadata,
+                            Err(err) => {
+                                return Some(Err(Error::io_watch(err).add_path(path.requested)));
+                            }
+                        };
+                    }
+                    if !metadata.is_dir() {
+                        continue;
+                    }
+                    let identity = (metadata.dev(), metadata.ino());
+                    // A bind mount can share an ancestor's inode without forming a symlink loop.
+                    if is_symlink && ancestors.contains(&identity) {
+                        return Some(Err(
+                            Error::generic("symbolic link loop").add_path(path.requested)
+                        ));
+                    }
+                    ancestors.push(identity);
+                    pending.push(Step::Leave);
+                    // Yield the directory before reading its contents so its watch is installed first.
+                    pending.push(Step::Read(path.clone()));
+                    return Some(Ok(path));
+                }
+                Step::Read(path) => {
+                    let entries = match read_dir(&path.absolute) {
+                        Ok(entries) => entries,
+                        Err(err) => {
+                            return Some(Err(Error::io_watch(err).add_path(path.requested)));
+                        }
+                    };
+                    let start = pending.len();
+                    // Buffer paths, not directory handles, so deep trees do not exhaust descriptors.
+                    for entry in entries {
+                        let entry = match entry {
+                            Ok(entry) => entry,
+                            Err(err) => {
+                                pending.push(Step::Error(
+                                    Error::io_watch(err).add_path(path.requested.clone()),
+                                ));
+                                continue;
+                            }
+                        };
+                        let absolute = entry.path();
+                        if barriers.contains(&absolute) {
+                            continue;
+                        }
+                        match entry.file_type() {
+                            Ok(kind) if kind.is_dir() || (follow_links && kind.is_symlink()) => {
+                                pending.push(Step::Visit(root.child(absolute)));
+                            }
+                            Ok(_) => {}
+                            Err(err) => pending.push(Step::Error(
+                                Error::io_watch(err).add_path(root.child(absolute).requested),
+                            )),
+                        }
+                    }
+                    pending[start..].reverse();
+                }
+                Step::Leave => {
+                    ancestors.pop();
+                }
+                Step::Error(err) => return Some(Err(err)),
+            }
+        }
+    })
 }
 
 impl INotifyWatcher {
@@ -1469,6 +1534,127 @@ mod tests {
                 .any(|e| e.paths.iter().any(|p| p.ends_with("loop"))),
             "expected the symlink loop to be reported, got: {errors:?}"
         );
+    }
+
+    #[test]
+    fn recursive_walk_reports_loops_without_skipping_directory_aliases() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().join("root");
+        let destination = tmpdir.path().join("destination");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir_all(destination.join("nested")).unwrap();
+        std::os::unix::fs::symlink(".", destination.join("loop")).unwrap();
+        for alias in ["a", "b"] {
+            std::os::unix::fs::symlink(&destination, root.join(alias)).unwrap();
+        }
+
+        let reported = PathBuf::from("relative-root");
+        let barriers = Default::default();
+        let entries = super::walk_dirs(
+            root.clone(),
+            WatchPath::from_parts(root, reported.clone()),
+            true,
+            &barriers,
+        );
+        let mut watched = Vec::new();
+        let mut failures = Vec::new();
+        for entry in entries {
+            match entry {
+                Ok(path) => watched.push(path.requested),
+                Err(err) => failures.extend(err.paths),
+            }
+        }
+        watched.sort();
+        failures.sort();
+        assert_eq!(
+            watched,
+            ["", "a", "a/nested", "b", "b/nested"].map(|path| reported.join(path))
+        );
+        assert_eq!(failures, [reported.join("a/loop"), reported.join("b/loop")]);
+    }
+
+    #[test]
+    fn recursive_walk_visits_directory_aliases_under_a_parent_link() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().join("child");
+        std::fs::create_dir_all(root.join("nested")).unwrap();
+        std::os::unix::fs::symlink("..", root.join("parent")).unwrap();
+
+        let reported = PathBuf::from("relative-root");
+        let barriers = Default::default();
+        let entries = super::walk_dirs(
+            root.clone(),
+            WatchPath::from_parts(root, reported.clone()),
+            true,
+            &barriers,
+        );
+        let mut watched = Vec::new();
+        let mut failures = Vec::new();
+        for entry in entries {
+            match entry {
+                Ok(path) => watched.push(path.requested),
+                Err(err) => failures.extend(err.paths),
+            }
+        }
+        watched.sort();
+        // The parent link reaches `child` again through a regular directory entry.
+        assert_eq!(
+            watched,
+            [
+                "",
+                "nested",
+                "parent",
+                "parent/child",
+                "parent/child/nested"
+            ]
+            .map(|path| reported.join(path))
+        );
+        assert_eq!(failures, [reported.join("parent/child/parent")]);
+    }
+
+    #[test]
+    fn recursive_walk_honors_follow_symlinks_after_directory_replacement() {
+        for follow_links in [false, true] {
+            let tmpdir = tempfile::tempdir().unwrap();
+            let root = tmpdir.path().join("root");
+            let children = ["a", "b", "c"].map(|name| root.join(name));
+            for child in &children {
+                std::fs::create_dir_all(child).unwrap();
+            }
+            let destination = tmpdir.path().join("destination");
+            std::fs::create_dir_all(destination.join("nested")).unwrap();
+
+            let barriers = Default::default();
+            let mut entries = super::walk_dirs(
+                root.clone(),
+                WatchPath::new(&root).unwrap(),
+                follow_links,
+                &barriers,
+            );
+            assert_eq!(entries.next().unwrap().unwrap().absolute, root);
+            let first = entries.next().unwrap().unwrap().absolute;
+
+            // The siblings have been listed but not visited. Pick one regardless of entry order.
+            let replaced = children
+                .iter()
+                .find(|path| **path != first)
+                .unwrap()
+                .clone();
+            std::fs::remove_dir(&replaced).unwrap();
+            std::os::unix::fs::symlink(&destination, &replaced).unwrap();
+
+            let mut remaining: Vec<_> = entries.map(|entry| entry.unwrap().absolute).collect();
+            let mut expected: Vec<_> = children
+                .into_iter()
+                .filter(|path| *path != first && (follow_links || *path != replaced))
+                .collect();
+            if follow_links {
+                expected.push(replaced.join("nested"));
+            }
+            remaining.sort();
+            expected.sort();
+            assert_eq!(remaining, expected, "follow_links = {follow_links}");
+        }
     }
 
     /// The same when the directory appears later: the failure has to reach the handler.
@@ -2776,6 +2962,107 @@ mod tests {
             !event_loop.watches.contains_key(&link.join("nested")),
             "the recursive walk crossed an explicit non-dereferenced link"
         );
+    }
+
+    #[test]
+    fn recursive_watch_does_not_report_errors_for_an_explicit_non_dereferenced_link() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().to_path_buf();
+        let link = root.join("loop");
+        std::os::unix::fs::symlink(".", &link).unwrap();
+
+        let (tx, rx) = mpsc::channel::<Result<Event>>();
+        let inotify = super::inotify_sys::Inotify::init().unwrap();
+        let mut event_loop = EventLoop::new(inotify, Box::new(tx), &Config::default()).unwrap();
+
+        event_loop
+            .add_watch(
+                WatchPath::new(&link).unwrap(),
+                non_recursive_watch().with_dereference_symlinks(false),
+                true,
+            )
+            .expect("watch link itself");
+        event_loop
+            .add_watch(WatchPath::new(&root).unwrap(), recursive_watch(), true)
+            .expect("watch root recursively");
+
+        assert!(event_loop.watches.contains_key(&root));
+        let watch = event_loop.watches.get(&link).expect("link remains watched");
+        assert!(!watch.dereference);
+
+        // The walk reports errors synchronously from add_watch.
+        let errors: Vec<_> = rx.try_iter().filter_map(Result::err).collect();
+        assert!(
+            errors.is_empty(),
+            "the excluded link must not produce walk errors: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn recursive_watch_only_reports_unreadable_links_that_are_not_excluded() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().join("root");
+        let destination = tmpdir.path().join("unreadable");
+        std::fs::create_dir(&root).unwrap();
+        if !unwatchable_dir(&destination) {
+            return;
+        }
+        let excluded = root.join("excluded");
+        let included = root.join("included");
+        std::os::unix::fs::symlink(&destination, &excluded).unwrap();
+        std::os::unix::fs::symlink(&destination, &included).unwrap();
+
+        let (tx, rx) = mpsc::channel::<Result<Event>>();
+        let inotify = super::inotify_sys::Inotify::init().unwrap();
+        let mut event_loop = EventLoop::new(inotify, Box::new(tx), &Config::default()).unwrap();
+        event_loop
+            .add_watch(
+                WatchPath::new(&excluded).unwrap(),
+                non_recursive_watch().with_dereference_symlinks(false),
+                true,
+            )
+            .expect("watch excluded link itself");
+
+        let result = event_loop.add_watch(WatchPath::new(&root).unwrap(), recursive_watch(), true);
+        make_readable(&destination);
+        result.expect("watch root recursively");
+
+        let errors: Vec<_> = rx.try_iter().filter_map(Result::err).collect();
+        assert_eq!(errors.len(), 1, "unexpected walk errors: {errors:?}");
+        assert_eq!(errors[0].paths, [included]);
+        assert!(matches!(
+            &errors[0].kind,
+            ErrorKind::Io(err) if err.kind() == std::io::ErrorKind::PermissionDenied
+        ));
+    }
+
+    #[test]
+    fn recursive_watch_follows_only_root_symlink_when_follow_symlinks_is_disabled() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let destination = tmpdir.path().join("destination");
+        std::fs::create_dir_all(destination.join("child")).unwrap();
+        std::os::unix::fs::symlink("child", destination.join("alias")).unwrap();
+        std::os::unix::fs::symlink(".", destination.join("loop")).unwrap();
+        let root = tmpdir.path().join("root");
+        std::os::unix::fs::symlink(&destination, &root).unwrap();
+
+        let (tx, rx) = mpsc::channel::<Result<Event>>();
+        let inotify = super::inotify_sys::Inotify::init().unwrap();
+        let mut event_loop = EventLoop::new(
+            inotify,
+            Box::new(tx),
+            &Config::default().with_follow_symlinks(false),
+        )
+        .unwrap();
+        event_loop
+            .add_watch(WatchPath::new(&root).unwrap(), recursive_watch(), true)
+            .expect("watch root recursively");
+
+        assert_eq!(event_loop.watches.len(), 2);
+        assert!(event_loop.watches[&root].metadata.is_user_watch);
+        assert!(event_loop.watches.contains_key(&root.join("child")));
+        let errors: Vec<_> = rx.try_iter().filter_map(Result::err).collect();
+        assert!(errors.is_empty(), "unexpected walk errors: {errors:?}");
     }
 
     #[test]
