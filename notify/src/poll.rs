@@ -401,19 +401,19 @@ mod data {
         /// Create a new `PathData`.
         fn new(data_builder: &DataBuilder, meta_path: &MetaPath) -> PathData {
             let metadata = meta_path.metadata();
-            let is_file = metadata.is_file();
+            let compare_contents = data_builder.compare_contents && metadata.is_file();
             let mut mtime = metadata.modified().map_or(0, system_time_to_nanos);
-            if !is_file || data_builder.compare_contents {
+            if metadata.is_dir() || compare_contents {
                 // Child changes update directory mtimes. Preserve the existing second precision for
                 // directories to avoid emitting a redundant directory event for every file event.
-                // Hashed watchers also retain second precision so content changes keep their
+                // Files with content comparison also retain second precision so changes keep their
                 // existing event classification.
                 mtime = mtime / NANOS_PER_SECOND * NANOS_PER_SECOND;
             }
 
             PathData {
                 mtime,
-                hash: if data_builder.compare_contents && is_file {
+                hash: if compare_contents {
                     content_hash(meta_path.path()).ok()
                 } else {
                     None
@@ -854,6 +854,73 @@ mod tests {
             event.kind,
             EventKind::Modify(ModifyKind::Metadata(MetadataKind::WriteTime))
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detects_subsecond_symlink_mtime_changes() {
+        use std::{os::unix::fs::symlink, sync::mpsc};
+
+        use nix::{
+            fcntl::AT_FDCWD,
+            sys::{
+                stat::{UtimensatFlags, utimensat},
+                time::TimeSpec,
+            },
+        };
+
+        use crate::event::{Event, EventKind, MetadataKind, ModifyKind};
+
+        for compare_contents in [false, true] {
+            let tmpdir = testdir();
+            let path = tmpdir.path().join("link");
+            symlink("missing", &path).expect("create dangling symlink");
+
+            let set_mtime = |nanos| {
+                utimensat(
+                    AT_FDCWD,
+                    &path,
+                    &TimeSpec::UTIME_OMIT,
+                    &TimeSpec::new(1_700_000_000, nanos),
+                    UtimensatFlags::NoFollowSymlink,
+                )
+                .expect("set symlink mtime");
+            };
+            set_mtime(100_000_000);
+
+            let (tx, rx) = mpsc::channel();
+            let config = Config::default()
+                .with_manual_polling()
+                .with_follow_symlinks(false)
+                .with_compare_contents(compare_contents);
+            let mut watcher = PollWatcher::new(tx, config).expect("create watcher");
+            watcher
+                .watch(tmpdir.path(), RecursiveMode::Recursive)
+                .expect("watch directory");
+
+            for nanos in [200_000_000, 300_000_000] {
+                set_mtime(nanos);
+                watcher.poll_blocking().expect("poll for changes");
+
+                let events = rx
+                    .try_iter()
+                    .collect::<crate::Result<Vec<_>>>()
+                    .expect("watch events must not be errors");
+                assert_eq!(
+                    events,
+                    vec![
+                        Event::new(EventKind::Modify(ModifyKind::Metadata(
+                            MetadataKind::WriteTime,
+                        )))
+                        .add_path(path.clone())
+                    ],
+                    "compare_contents={compare_contents}, nanos={nanos}"
+                );
+            }
+
+            watcher.poll_blocking().expect("poll without changes");
+            assert!(rx.try_recv().is_err(), "unchanged symlink emitted an event");
+        }
     }
 
     #[test]
