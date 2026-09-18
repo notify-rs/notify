@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- FIX: [poll] detect subsecond symlink mtime changes when symlink following is disabled, with or without content comparison
+
 ## notify 9.0.0-rc.5 (2026-08-30)
 
 - CHANGE: update to edition 2024
