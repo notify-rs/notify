@@ -152,7 +152,7 @@ mod data {
             root: WatchPath,
             is_recursive: bool,
             follow_symlinks: bool,
-        ) -> Option<WatchData> {
+        ) -> crate::Result<WatchData> {
             WatchData::new(self, root, is_recursive, follow_symlinks)
         }
 
@@ -194,29 +194,18 @@ mod data {
             root: WatchPath,
             is_recursive: bool,
             follow_symlinks: bool,
-        ) -> Option<Self> {
-            // If metadata read error at `root` path, it will emit
-            // a error event and stop to create the whole `WatchData`.
+        ) -> crate::Result<Self> {
+            // Creating a watch on a path that cannot be stat-ed (e.g. because it
+            // does not exist) fails the `poll_watcher.watch(root, ..)` call, so
+            // the error is reported to the caller instead of silently skipping
+            // the path. `Error::io_watch` maps `io::ErrorKind::NotFound` to
+            // `ErrorKind::PathNotFound`, matching the other backends.
             //
-            // QUESTION: inconsistent?
-            //
-            // When user try to *CREATE* a watch by `poll_watcher.watch(root, ..)`,
-            // if `root` path hit an io error, then watcher will reject to
-            // create this new watch.
-            //
-            // This may inconsistent with *POLLING* a watch. When watcher
-            // continue polling, io error at root path will not delete
-            // a existing watch. polling still working.
-            //
-            // So, consider a config file may not exists at first time but may
-            // create after a while, developer cannot watch it.
-            //
-            // FIXME: Can we always allow to watch a path, even file not
-            // found at this path?
-            if let Err(e) = fs::metadata(&root.absolute) {
-                data_builder.emitter.emit_io_err(e, Some(&root.requested));
-                return None;
-            }
+            // This is intentionally different from *POLLING* a watch: when a
+            // watched path disappears, the existing watch is kept and io errors
+            // encountered while scanning are emitted as events instead.
+            fs::metadata(&root.absolute)
+                .map_err(|e| crate::Error::io_watch(e).add_path(root.requested.clone()))?;
 
             let all_path_data = Self::scan_all_path_data(
                 data_builder,
@@ -228,7 +217,7 @@ mod data {
             )
             .collect();
 
-            Some(Self {
+            Ok(Self {
                 root: root.absolute,
                 requested_root: root.requested,
                 is_recursive,
@@ -696,8 +685,8 @@ impl PollWatcher {
 
     /// Watch a path location.
     ///
-    /// QUESTION: this function never return an Error, is it as intend?
-    /// Please also consider the IO Error event problem.
+    /// Return `Err(_)` if the path cannot be watched, e.g. because it does not
+    /// exist or its metadata cannot be read.
     fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> crate::Result<()> {
         let watch_path = WatchPath::new(path)?;
 
@@ -713,12 +702,9 @@ impl PollWatcher {
             watch_path.clone(),
             recursive_mode.is_recursive(),
             self.follow_sylinks,
-        );
+        )?;
 
-        // if create watch_data successful, add it to watching list.
-        if let Some(watch_data) = watch_data {
-            watches.insert(watch_path.absolute, watch_data);
-        }
+        watches.insert(watch_path.absolute, watch_data);
 
         Ok(())
     }
@@ -799,6 +785,44 @@ mod tests {
     fn poll_watcher_is_send_and_sync() {
         fn check<T: Send + Sync>() {}
         check::<PollWatcher>();
+    }
+
+    #[test]
+    fn watch_nonexistent_path_returns_path_not_found() {
+        let tmpdir = testdir();
+        let path = tmpdir.path().join("does_not_exist");
+
+        let mut watcher = PollWatcher::new(|_| {}, Config::default()).expect("create watcher");
+        let err = watcher
+            .watch(&path, RecursiveMode::Recursive)
+            .expect_err("watching a nonexistent path must return an error");
+
+        assert!(matches!(err.kind, crate::ErrorKind::PathNotFound));
+        assert_eq!(err.paths, vec![path]);
+
+        let watched = watcher.watched_paths().expect("list watched paths");
+        assert!(
+            watched.is_empty(),
+            "a failed watch must not be registered, got {watched:?}"
+        );
+    }
+
+    #[test]
+    fn watch_existing_paths_succeed() {
+        let tmpdir = testdir();
+        let file = tmpdir.path().join("entry");
+        std::fs::write(&file, "contents").expect("write file");
+
+        let mut watcher = PollWatcher::new(|_| {}, Config::default()).expect("create watcher");
+        watcher
+            .watch(&file, RecursiveMode::NonRecursive)
+            .expect("watch existing file");
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::Recursive)
+            .expect("watch existing directory");
+
+        let watched = watcher.watched_paths().expect("list watched paths");
+        assert_eq!(watched.len(), 2);
     }
 
     #[test]
