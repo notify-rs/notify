@@ -3,6 +3,7 @@
 ## unreleased
 
 - FIX: [poll] return an error from `watch` when the path does not exist instead of failing silently, matching the other backends [#998]
+- FIX: [poll] detect subsecond symlink mtime changes when symlink following is disabled, with or without content comparison
 
 [#998]: https://github.com/notify-rs/notify/issues/998
 
@@ -24,11 +25,14 @@
 - PERF: [kqueue] avoid filesystem walks for recursive kqueue unwatch
 - FEATURE: add `Watcher::watch_with` to pass per-path settings, and `WatchPathConfig::with_dereference_symlinks` to watch a symbolic link itself instead of its destination, which also makes a dangling link watchable [#255]
 - FIX: [poll] detect subsecond file mtime changes without content hashing
+- FIX: [inotify] never abandon a recursive watch, report what failed instead [#970]
+- FIX: [inotify] report the directories a recursive watch could not walk into, rather than leaving their subtrees silently unwatched [#970]
 
 [#255]: https://github.com/notify-rs/notify/issues/255
 [#930]: https://github.com/notify-rs/notify/pull/930
 [#935]: https://github.com/notify-rs/notify/issues/935
 [#958]: https://github.com/notify-rs/notify/pull/958
+[#970]: https://github.com/notify-rs/notify/pull/970
 
 ## notify 9.0.0-rc.4 (2026-05-02)
 
