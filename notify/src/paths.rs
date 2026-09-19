@@ -40,39 +40,22 @@ impl WatchPath {
 }
 
 impl WatchMetadata {
-    pub(crate) fn new<'a, I>(
+    pub(crate) fn new(
         path: &WatchPath,
         is_recursive: bool,
         is_user_watch: bool,
         existing_watch: Option<&Self>,
-        user_roots: I,
-    ) -> Self
-    where
-        I: IntoIterator<Item = (&'a PathBuf, &'a Self)>,
-    {
-        let existing_reported_path = existing_watch.map(|watch| watch.reported_path.clone());
+    ) -> Self {
         let existing_is_user_watch = existing_watch.is_some_and(|watch| watch.is_user_watch);
         let existing_user_is_recursive =
             existing_watch.is_some_and(|watch| watch.user_is_recursive);
         let existing_is_recursive = existing_watch.is_some_and(|watch| watch.is_recursive);
 
-        let reported_path = if is_user_watch {
-            path.requested.clone()
-        } else if existing_is_user_watch {
-            existing_reported_path.unwrap_or_else(|| path.requested.clone())
-        } else {
-            user_roots
-                .into_iter()
-                .filter(|(candidate, watch)| {
-                    watch.is_user_watch
-                        && watch.user_is_recursive
-                        && path.absolute.starts_with(candidate)
-                })
-                .max_by_key(|(candidate, _)| candidate.as_os_str().len())
-                .map_or_else(
-                    || path.requested.clone(),
-                    |(root, watch)| reported_path(root, &watch.reported_path, &path.absolute),
-                )
+        let reported_path = match existing_watch {
+            Some(existing) if !is_user_watch && existing.is_user_watch => {
+                existing.reported_path.clone()
+            }
+            _ => path.requested.clone(),
         };
 
         Self {
