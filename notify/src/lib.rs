@@ -99,6 +99,13 @@
 //! When watching a very large amount of files, notify may fail to receive all events.
 //! For example the linux backend is documented to not be a 100% reliable source. See also issue [#412](https://github.com/notify-rs/notify/issues/412).
 //!
+//! ### Watching many paths on macOS
+//!
+//! Use [`Watcher::update_paths`] to register many paths in one batch. The FSEvents backend
+//! rebuilds its stream when adding a path that is not already covered by a recursive watch on
+//! the same volume. Adding N independent paths with separate [`Watcher::watch`] calls therefore
+//! registers O(N²) paths in total; a single batch rebuilds the stream only once.
+//!
 //! # Examples
 //!
 //! For more examples visit the [examples folder](https://github.com/notify-rs/notify/tree/main/examples) in the repository.
@@ -393,6 +400,9 @@ pub trait Watcher {
     /// independent watch is not added, and a single call to [`Watcher::unwatch`] removes the
     /// watched path.
     ///
+    /// To add many paths at once, use [`Watcher::update_paths`]. On macOS, this avoids rebuilding
+    /// the FSEvents stream for each path.
+    ///
     /// On some platforms, if the `path` is renamed or removed while being watched, behaviour may
     /// be unexpected. See discussions in [#165] and [#166]. If less surprising behaviour is wanted
     /// one may non-recursively watch the _parent_ directory as well and manage related events.
@@ -426,6 +436,7 @@ pub trait Watcher {
     ///
     /// For some [`Watcher`] implementations this method provides better performance than multiple
     /// calls to [`Watcher::watch`] and [`Watcher::unwatch`] if you want to add/remove many paths at once.
+    /// In particular, the FSEvents backend on macOS rebuilds its stream only once for the whole batch.
     ///
     /// # Errors
     ///
