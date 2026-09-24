@@ -82,7 +82,10 @@ pub enum TargetMode {
     /// (e.g., by a move/rename operation), the watch continues to monitor the new entity
     /// that now occupies the path.
     ///
-    /// TODO: watching nested non-existent paths is not implemented yet. <https://github.com/rolldown/notify/issues/32>
+    /// The path is tracked through every ancestor: when a directory above it is moved away or
+    /// deleted, the path is reported as removed; when the path is reachable again, it is reported
+    /// as created and watched again. A path below directories that do not exist yet can be
+    /// watched, and is reported once it appears.
     TrackPath,
 
     /// Does not track the file path, nor the physical entity.

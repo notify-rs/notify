@@ -1,9 +1,14 @@
 # Changelog
 
 ## notify (unreleased)
+- FEATURE: `INotifyWatcher` tracks a `TrackPath` watch through every ancestor: the watched path is reported as removed when a directory above it is moved away or deleted, reported as created and watched again when it is reachable again, and a path below directories that do not exist yet can be watched [#32]
+- FEATURE: `FsEventWatcher` reports a `TrackPath` watch as created when it is reachable again after a directory above it was moved away, instead of dropping the root change [#32]
+- FEATURE: `KqueueWatcher` tracks a `TrackPath` watch through every ancestor like `INotifyWatcher`, and removes the watches below a moved or deleted directory by the watches it holds instead of walking the disk, which left them on the moved files [#32]
+- FEATURE: `ReadDirectoryChangesWatcher` tracks a `TrackPath` watch through every ancestor, and watches a tracked directory once it appears [#32]
 - FIX: Fix the bug that `FsEventWatcher` crashes when dealing with empty path [#718]
 
 [#718]: https://github.com/notify-rs/notify/pull/718
+[#32]: https://github.com/rolldown/notify/issues/32
 
 
 ## notify 8.2.0 (2025-08-03)
