@@ -15,9 +15,7 @@ use crate::{WatcherKind, event::*};
 use rustc_hash::FxBuildHasher;
 use std::alloc;
 use std::cell::RefCell;
-use std::collections::HashMap;
-#[cfg(test)]
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::OsString;
 use std::os::raw::c_void;
@@ -93,6 +91,9 @@ struct ResolvedWatch {
 struct ReadData {
     dir: PathBuf, // directory that is being watched
     watches: Rc<RefCell<HashMap<PathBuf, WatchMode, FxBuildHasher>>>,
+    /// The ancestors of the tracked paths; a change to one of them changes what the paths below
+    /// it can reach.
+    ancestors: Rc<RefCell<HashSet<PathBuf, FxBuildHasher>>>,
     complete_sem: HANDLE,
     is_recursive: bool,
 }
@@ -120,6 +121,8 @@ enum Action {
     Watch(PathBuf, WatchMode),
     Unwatch(PathBuf),
     UnwatchRaw(PathBuf),
+    /// A tracked path, or a directory on the way to one, came or went.
+    Changed(PathBuf),
     StageAndCommit(Vec<StagedChange>, BoundSender<Result<()>>),
     Stop,
     Configure(Config, BoundSender<Result<bool>>),
@@ -149,6 +152,10 @@ struct ReadDirectoryChangesServer {
     /// here rather than recomputed on every rebuild.
     resolved_watches: HashMap<PathBuf, ResolvedWatch, FxBuildHasher>,
     watch_handles: HashMap<PathBuf, (WatchState, /* is_recursive */ bool), FxBuildHasher>,
+    /// The ancestors of the tracked paths, shared with the event thread.
+    ancestors: Rc<RefCell<HashSet<PathBuf, FxBuildHasher>>>,
+    /// The handles opened only to see an ancestor of a tracked path come or go.
+    chain_handles: HashSet<PathBuf, FxBuildHasher>,
     wakeup_sem: HANDLE,
 }
 
@@ -175,6 +182,8 @@ impl ReadDirectoryChangesServer {
                         watches: Rc::new(RefCell::new(HashMap::default())),
                         resolved_watches: HashMap::default(),
                         watch_handles: HashMap::default(),
+                        ancestors: Rc::new(RefCell::new(HashSet::default())),
+                        chain_handles: HashSet::default(),
                         wakeup_sem,
                     };
                     server.run();
@@ -202,6 +211,7 @@ impl ReadDirectoryChangesServer {
                     }
                     Action::Unwatch(path) => self.remove_watch(&path),
                     Action::UnwatchRaw(path) => self.remove_watch_raw(&path),
+                    Action::Changed(path) => self.reresolve_below(&path),
                     Action::StageAndCommit(staged, tx) => {
                         let res = self.apply_staged(staged);
                         if let Err(e) = tx.send(res) {
@@ -220,7 +230,12 @@ impl ReadDirectoryChangesServer {
                     }
                     #[cfg(test)]
                     Action::GetWatchHandles(tx) => {
-                        let handles = self.watch_handles.keys().cloned().collect();
+                        let handles = self
+                            .watch_handles
+                            .keys()
+                            .filter(|path| !self.chain_handles.contains(*path))
+                            .cloned()
+                            .collect();
                         tx.send(handles).unwrap();
                     }
                 }
@@ -331,10 +346,33 @@ impl ReadDirectoryChangesServer {
             if resolved.needs_tracked_parent
                 && let Some(parent) = path.parent()
                 && !target.contains_key(parent)
+                && parent.is_dir()
             {
                 target.insert(parent.to_path_buf(), false);
             }
         }
+
+        // The ancestors of the tracked paths, so that a directory moved away or deleted above a
+        // tracked path is seen, and a missing one is seen once it appears. The ones below a
+        // recursive watch are seen through it.
+        let mut ancestors: HashSet<PathBuf, FxBuildHasher> = HashSet::default();
+        for (path, mode) in self.watches.borrow().iter() {
+            if mode.target_mode == TargetMode::TrackPath {
+                ancestors.extend(path.ancestors().skip(1).map(Path::to_path_buf));
+            }
+        }
+        self.chain_handles.clear();
+        for ancestor in &ancestors {
+            let covered = target.iter().any(|(dir, recursive)| {
+                dir == ancestor || (*recursive && ancestor.starts_with(dir))
+            });
+            if covered || !ancestor.is_dir() {
+                continue;
+            }
+            target.insert(ancestor.clone(), false);
+            self.chain_handles.insert(ancestor.clone());
+        }
+        *self.ancestors.borrow_mut() = ancestors;
         tracing::trace!(desired = ?target, "rebuilding watch handles");
 
         let to_remove: Vec<PathBuf> = self
@@ -430,6 +468,7 @@ impl ReadDirectoryChangesServer {
         let rd = ReadData {
             dir: path.clone(),
             watches: Rc::clone(&self.watches),
+            ancestors: Rc::clone(&self.ancestors),
             complete_sem: semaphore,
             is_recursive,
         };
@@ -479,6 +518,57 @@ impl ReadDirectoryChangesServer {
     fn configure_raw_mode(_config: Config, tx: &BoundSender<Result<bool>>) {
         tx.send(Ok(false))
             .expect("configuration channel disconnect");
+    }
+
+    /// `path` came or went: the tracked paths at or below it may be reachable or out of reach
+    /// now. Re-resolve them, report the ones whose presence changed, and converge the handles.
+    /// The event on `path` itself was reported by the handle that saw it.
+    fn reresolve_below(&mut self, path: &Path) {
+        let roots: Vec<(PathBuf, WatchMode)> = self
+            .watches
+            .borrow()
+            .iter()
+            .filter(|(root, mode)| {
+                mode.target_mode == TargetMode::TrackPath && root.starts_with(path)
+            })
+            .map(|(root, mode)| (root.clone(), *mode))
+            .collect();
+        for (root, mode) in roots {
+            let was_present = self
+                .resolved_watches
+                .get(&root)
+                .is_some_and(|resolved| resolved.primary.is_some());
+            let resolved = match resolve_user_watch(&root, mode) {
+                Ok(resolved) => resolved,
+                Err(e) => {
+                    tracing::debug!(?e, "cannot resolve tracked path: {}", root.display());
+                    continue;
+                }
+            };
+            let is_present = resolved.primary.is_some();
+            self.resolved_watches.insert(root.clone(), resolved);
+            if root.as_path() == path || was_present == is_present {
+                continue;
+            }
+            let kind = if is_present {
+                EventKind::Create(if root.is_dir() {
+                    CreateKind::Folder
+                } else {
+                    CreateKind::File
+                })
+            } else {
+                EventKind::Remove(RemoveKind::Any)
+            };
+            if let Ok(mut handler) = self.event_handler.lock() {
+                handler.handle_event(Ok(Event::new(kind).add_path(root)));
+            }
+        }
+        if let Err(e) = self.rebuild_watch_handles() {
+            tracing::error!(
+                ?e,
+                "failed to rebuild watch handles after a tracked path changed"
+            );
+        }
     }
 }
 
@@ -703,6 +793,7 @@ unsafe extern "system" fn handle_event(
     }
 
     // Get the next request queued up as soon as possible
+    let action_tx = request.action_tx.clone();
     start_read(
         &request.data,
         Arc::clone(&request.event_handler),
@@ -739,6 +830,28 @@ unsafe extern "system" fn handle_event(
                 .dir
                 .join(PathBuf::from(OsString::from_wide(encoded_path))),
         );
+
+        // A tracked path, or a directory on the way to one, came or went: the server re-resolves
+        // what can be reached now.
+        let structural = matches!(
+            cur_entry.Action,
+            FILE_ACTION_ADDED
+                | FILE_ACTION_REMOVED
+                | FILE_ACTION_RENAMED_OLD_NAME
+                | FILE_ACTION_RENAMED_NEW_NAME
+        );
+        if structural
+            && (request.data.ancestors.borrow().contains(&path)
+                || request
+                    .data
+                    .watches
+                    .borrow()
+                    .get(&path)
+                    .is_some_and(|mode| mode.target_mode == TargetMode::TrackPath))
+            && let Err(e) = action_tx.send(Action::Changed(path.clone()))
+        {
+            tracing::error!(?e, "failed to send Changed action");
+        }
 
         let skip = !is_event_covered(&request.data.watches.borrow(), &path);
 
@@ -1162,7 +1275,6 @@ pub mod tests {
     }
 
     #[test]
-    #[ignore = "TODO: not implemented"]
     fn create_self_file_nested() {
         let tmpdir = testdir();
         let (mut watcher, rx) = watcher();
@@ -1170,16 +1282,60 @@ pub mod tests {
         let path = tmpdir.path().join("entry/nested");
 
         watcher.watch_nonrecursively(&path);
+        assert_eq!(watcher.get_watch_handles(), HashSet::from([]));
 
         std::fs::create_dir_all(path.parent().unwrap()).expect("create");
         std::fs::File::create_new(&path).expect("create");
 
-        rx.wait_ordered_exact([expected(&path).create_any()])
-            .ensure_no_tail();
-        assert_eq!(
-            watcher.get_watch_handles(),
-            HashSet::from([tmpdir.to_path_buf()])
+        // Reported by the parent once it is watched, or by the watcher if the file is there by
+        // then; the kind differs.
+        rx.wait_ordered([expected(&path).create()]);
+        assert!(
+            watcher
+                .get_watch_handles()
+                .is_superset(&HashSet::from([tmpdir.path().join("entry")]))
         );
+    }
+
+    #[test]
+    fn track_path_reports_roots_when_an_ancestor_moves_away_and_back() {
+        let tmpdir = testdir();
+        let (mut watcher, rx) = watcher();
+
+        let lib = tmpdir.path().join("lib");
+        let a = lib.join("a.js");
+        let b = lib.join("sub").join("b.js");
+        let moved = tmpdir.path().join("moved");
+        std::fs::create_dir_all(lib.join("sub")).expect("create_dir_all");
+        std::fs::write(&a, "1").expect("write");
+        std::fs::write(&b, "1").expect("write");
+
+        watcher.watch_nonrecursively(&a);
+        watcher.watch_nonrecursively(&b);
+
+        std::fs::rename(&lib, &moved).expect("rename away");
+        rx.wait_unordered([expected(&a).remove_any(), expected(&b).remove_any()]);
+
+        std::fs::rename(&moved, &lib).expect("rename back");
+        rx.wait_unordered([expected(&a).create_file(), expected(&b).create_file()]);
+
+        std::fs::write(&a, "2").expect("write");
+        rx.wait_unordered([expected(&a).modify_any()]);
+    }
+
+    #[test]
+    fn track_path_watches_a_directory_root_once_it_appears() {
+        let tmpdir = testdir();
+        let (mut watcher, rx) = watcher();
+
+        let dir = tmpdir.path().join("dir");
+        watcher.watch_recursively(&dir);
+
+        std::fs::create_dir(&dir).expect("create_dir");
+        rx.wait_unordered([expected(&dir).create()]);
+
+        std::fs::File::create_new(dir.join("file")).expect("create");
+        rx.wait_unordered([expected(dir.join("file")).create()]);
     }
 
     #[test]
