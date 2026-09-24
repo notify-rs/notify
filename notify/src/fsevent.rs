@@ -64,6 +64,8 @@ bitflags::bitflags! {
   }
 }
 
+const RUNLOOP_STOP_RECHECK_SECONDS: cf::CFTimeInterval = 0.5;
+
 /// FSEvents-based `Watcher` implementation
 pub struct FsEventWatcher {
     since_when: fs::FSEventStreamEventId,
@@ -684,10 +686,17 @@ impl FsEventWatcher {
                         .send(Ok(CFRunLoopSendWrapper(cur_runloop)))
                         .expect("Unable to send runloop to watcher");
 
-                    // Avoid polling the runloop: block indefinitely until `CFRunLoopStop` is
-                    // called (or until the runloop is otherwise finished).
-                    if !stop_flag_thread.load(Ordering::Acquire) {
-                        cf::CFRunLoop::run();
+                    // `CFRunLoopStop` is discarded if `stop()` calls it before this thread
+                    // enters the runloop, so re-check the stop flag after each bounded run.
+                    while !stop_flag_thread.load(Ordering::Acquire) {
+                        let result = cf::CFRunLoop::run_in_mode(
+                            cf::kCFRunLoopDefaultMode,
+                            RUNLOOP_STOP_RECHECK_SECONDS,
+                            false,
+                        );
+                        if result == cf::CFRunLoopRunResult::Finished {
+                            break;
+                        }
                     }
                     fs::FSEventStreamStop(stream);
                     fs::FSEventStreamInvalidate(stream);
