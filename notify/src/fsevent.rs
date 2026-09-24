@@ -136,9 +136,9 @@ unsafe impl Send for FsEventWatcher {}
 unsafe impl Sync for FsEventWatcher {}
 
 #[expect(clippy::too_many_lines)]
-fn translate_flags(flags: &StreamFlags, precise: bool, root_path_exists: bool) -> Vec<Event> {
+fn translate_flags(flags: &StreamFlags, precise: bool, root_path: Option<bool>) -> Vec<Event> {
     let mut evs = Vec::new();
-    translate_flags_with(flags, precise, root_path_exists, |ev| evs.push(ev));
+    translate_flags_with(flags, precise, root_path, |ev| evs.push(ev));
     evs
 }
 
@@ -168,10 +168,11 @@ fn translated_event_count(flags: &StreamFlags, precise: bool) -> usize {
     count
 }
 
+/// `root_path` says, for a `ROOT_CHANGED` event, whether the root exists now and is a directory.
 fn translate_flags_with(
     flags: &StreamFlags,
     precise: bool,
-    root_path_exists: bool,
+    root_path: Option<bool>,
     mut emit: impl FnMut(Event),
 ) {
     // «Denotes a sentinel event sent to mark the end of the "historical" events
@@ -230,30 +231,39 @@ fn translate_flags_with(
         return;
     }
 
-    // A watched root changed (renamed or removed). If the flags provide a hint,
-    // prefer that over guessing. Otherwise, treat it as a removal to avoid
-    // misclassifying a delete as a rename.
+    // A watched root changed: it, or a directory above it, was renamed, removed or brought back.
+    // The disk says which. A root that is there is reported as created, unless the flags carry
+    // its own creation, which is reported below. For a root that is gone, the flags say whether
+    // it was renamed; otherwise it is treated as removed rather than guessed to be renamed.
     let root_changed = flags.contains(StreamFlags::ROOT_CHANGED);
     if root_changed {
-        let kind = if flags.contains(StreamFlags::ITEM_REMOVED) {
-            if flags.contains(StreamFlags::IS_DIR) {
-                EventKind::Remove(RemoveKind::Folder)
-            } else if flags.contains(StreamFlags::IS_FILE) {
-                EventKind::Remove(RemoveKind::File)
-            } else {
-                EventKind::Remove(RemoveKind::Any)
+        match root_path {
+            Some(is_dir) => {
+                if !flags.contains(StreamFlags::ITEM_CREATED) {
+                    let kind = if is_dir {
+                        CreateKind::Folder
+                    } else {
+                        CreateKind::File
+                    };
+                    emit_event(Event::new(EventKind::Create(kind)).set_info("root changed"));
+                }
             }
-        } else if flags.contains(StreamFlags::ITEM_RENAMED) {
-            EventKind::Modify(ModifyKind::Name(RenameMode::From))
-        } else {
-            EventKind::Remove(RemoveKind::Any)
-        };
-
-        // When ROOT_CHANGED fires but the path still exists on disk, the
-        // remove is spurious (e.g. creating a previously non-existent watched
-        // path, or recreating a deleted one).
-        if !kind.is_remove() || !root_path_exists {
-            emit_event(Event::new(kind).set_info("root changed"));
+            None => {
+                let kind = if flags.contains(StreamFlags::ITEM_REMOVED) {
+                    if flags.contains(StreamFlags::IS_DIR) {
+                        EventKind::Remove(RemoveKind::Folder)
+                    } else if flags.contains(StreamFlags::IS_FILE) {
+                        EventKind::Remove(RemoveKind::File)
+                    } else {
+                        EventKind::Remove(RemoveKind::Any)
+                    }
+                } else if flags.contains(StreamFlags::ITEM_RENAMED) {
+                    EventKind::Modify(ModifyKind::Name(RenameMode::From))
+                } else {
+                    EventKind::Remove(RemoveKind::Any)
+                };
+                emit_event(Event::new(kind).set_info("root changed"));
+            }
         }
     }
 
@@ -749,8 +759,12 @@ unsafe fn callback_impl(
             continue;
         }
 
-        let root_path_exists = flag.contains(StreamFlags::ROOT_CHANGED) && path.exists();
-        translate_flags_with(&flag, true, root_path_exists, |mut ev| {
+        let root_path = if flag.contains(StreamFlags::ROOT_CHANGED) {
+            std::fs::metadata(&path).ok().map(|meta| meta.is_dir())
+        } else {
+            None
+        };
+        translate_flags_with(&flag, true, root_path, |mut ev| {
             ev.paths.push(path.to_path_buf());
 
             let event_handler =
@@ -988,12 +1002,12 @@ mod tests {
 
     #[test]
     fn translate_flags_ignores_is_file_only_events() {
-        assert!(translate_flags(&StreamFlags::IS_FILE, true, false).is_empty());
+        assert!(translate_flags(&StreamFlags::IS_FILE, true, None).is_empty());
         assert!(
             translate_flags(
                 &(StreamFlags::IS_FILE | StreamFlags::ITEM_CLONED),
                 true,
-                false
+                None
             )
             .is_empty(),
             "type-only clone flags should not produce events"
@@ -1005,7 +1019,7 @@ mod tests {
         let create = translate_flags(
             &(StreamFlags::ITEM_CREATED | StreamFlags::IS_FILE | StreamFlags::ITEM_CLONED),
             true,
-            false,
+            None,
         );
         assert_eq!(create.len(), 1);
         assert_eq!(create[0].kind, EventKind::Create(CreateKind::File));
@@ -1017,7 +1031,7 @@ mod tests {
                 | StreamFlags::IS_FILE
                 | StreamFlags::ITEM_CLONED),
             true,
-            false,
+            None,
         );
         assert_eq!(modify.len(), 2);
         assert!(
@@ -1044,7 +1058,7 @@ mod tests {
                 | StreamFlags::IS_FILE
                 | StreamFlags::ITEM_CLONED),
             true,
-            false,
+            None,
         );
         assert_eq!(evs.len(), 1);
         assert_eq!(evs[0].info(), Some("root changed"));
@@ -1480,6 +1494,34 @@ mod tests {
         std::fs::rename(&parent, &new_parent).expect("rename");
 
         rx.wait_unordered([expected(&child).remove_any()]);
+    }
+
+    #[test]
+    fn rename_parent_of_watched_paths_and_back() {
+        let tmpdir = testdir();
+        let (mut watcher, rx) = watcher();
+
+        let parent = tmpdir.path().join("parent");
+        let dir = parent.join("dir");
+        let file = parent.join("file");
+        std::fs::create_dir_all(&dir).expect("create_dir_all");
+        std::fs::write(&file, "1").expect("write");
+
+        watcher.watch_recursively(&dir);
+        watcher.watch_nonrecursively(&file);
+
+        let new_parent = tmpdir.path().join("renamed_parent");
+        std::fs::rename(&parent, &new_parent).expect("rename away");
+        rx.wait_unordered([expected(&dir).remove_any(), expected(&file).remove_any()]);
+
+        std::fs::rename(&new_parent, &parent).expect("rename back");
+        rx.wait_unordered([
+            expected(&dir).create_folder(),
+            expected(&file).create_file(),
+        ]);
+
+        std::fs::write(&file, "2").expect("write");
+        rx.wait_unordered([expected(&file).modify_data_content()]);
     }
 
     #[test]
