@@ -235,10 +235,16 @@ impl ReadDirectoryChangesServer {
                             self.add_watch(path, recursive_mode.is_recursive(), separator_style);
                         let _ = self.cmd_tx.send(res);
                     }
-                    Action::Unwatch(path) => self.remove_watch(path),
+                    Action::Unwatch(path) => {
+                        self.remove_watch(path);
+                    }
                     Action::UnwatchAck(path) => {
-                        self.remove_watch(path.clone());
-                        let _ = self.cmd_tx.send(Ok(path));
+                        let res = if self.remove_watch(path.clone()) {
+                            Ok(path)
+                        } else {
+                            Err(Error::watch_not_found().add_path(path))
+                        };
+                        let _ = self.cmd_tx.send(res);
                     }
                     Action::GetWatchedPaths(tx) => {
                         let _ = tx.send(
@@ -408,9 +414,12 @@ impl ReadDirectoryChangesServer {
         Ok(watched_path)
     }
 
-    fn remove_watch(&mut self, path: PathBuf) {
+    fn remove_watch(&mut self, path: PathBuf) -> bool {
         if let Some(ws) = self.watches.remove(&path) {
             stop_watch(&ws, &self.meta_tx);
+            true
+        } else {
+            false
         }
     }
 
@@ -911,8 +920,8 @@ pub mod tests {
         SeparatorStyle, completion_rescan_event, normalize_path_separators, trim_leading_separators,
     };
     use crate::{
-        Event, EventKind, ReadDirectoryChangesWatcher, RecursiveMode, Watcher,
-        WindowsPathSeparatorStyle, test::*,
+        Config, Error, ErrorKind, Event, EventKind, ReadDirectoryChangesWatcher, RecursiveMode,
+        Watcher, WindowsPathSeparatorStyle, test::*,
     };
 
     use std::time::Duration;
@@ -1715,5 +1724,41 @@ pub mod tests {
 
         finish_tx.send(()).expect("finish watcher thread");
         join.join().expect("join watcher thread");
+    }
+
+    #[test]
+    fn unwatch_not_watched_path_returns_watch_not_found() {
+        let tmpdir = tempdir().expect("create tempdir");
+        let mut watcher =
+            ReadDirectoryChangesWatcher::new(|_| {}, Config::default()).expect("create watcher");
+
+        let result = watcher.unwatch(tmpdir.path());
+        assert!(
+            matches!(
+                result,
+                Err(Error {
+                    kind: ErrorKind::WatchNotFound,
+                    ..
+                })
+            ),
+            "unexpected result: {result:?}"
+        );
+
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::Recursive)
+            .expect("watch dir");
+        watcher.unwatch(tmpdir.path()).expect("unwatch dir");
+
+        let result = watcher.unwatch(tmpdir.path());
+        assert!(
+            matches!(
+                result,
+                Err(Error {
+                    kind: ErrorKind::WatchNotFound,
+                    ..
+                })
+            ),
+            "unexpected result: {result:?}"
+        );
     }
 }
