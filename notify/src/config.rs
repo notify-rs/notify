@@ -284,7 +284,7 @@ impl WatchPathConfig {
     }
 
     /// Set whether a symbolic link is followed to its destination, for
-    /// [`RecursiveMode::NonRecursive`] watches on the [INotifyWatcher](crate::INotifyWatcher)
+    /// [`RecursiveMode::NonRecursive`] watches on the [INotifyWatcher](crate::INotifyWatcher).
     #[must_use]
     pub fn with_dereference_symlinks(mut self, dereference_symlinks: bool) -> Self {
         self.dereference_symlinks = dereference_symlinks;
@@ -300,7 +300,7 @@ impl WatchPathConfig {
 
 /// An operation to apply to a watcher
 ///
-/// See [`Watcher::update_paths`] for more information
+/// See [`Watcher::update_paths`](crate::Watcher::update_paths) for more information.
 #[derive(Debug)]
 pub enum PathOp {
     /// Path should be watched
