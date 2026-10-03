@@ -9,7 +9,7 @@ use super::{
     Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result, Watcher,
 };
 use crate::paths::{
-    WatchMetadata as Watch, WatchPath, absolute_path, is_preserved_watch_root,
+    WalkRoots, WatchMetadata as Watch, WatchPath, absolute_path, is_preserved_watch_root,
     preserved_watch_mode, preserved_watch_roots, recursive_user_watch_ancestor, reported_path,
 };
 use crate::{Receiver, Sender, unbounded};
@@ -398,6 +398,10 @@ impl EventLoop {
                     // Removing a directory watch removes its recursively inherited children too.
                     // Re-add them as non-user watches so the ancestor recursive watch still covers
                     // this subtree after the user watch is replaced.
+                    let requested =
+                        reported_path(&ancestor_path, &ancestor_reported_path, &replaced_path);
+                    let mut roots =
+                        WalkRoots::new(WatchPath::from_parts(replaced_path.clone(), requested));
                     for entry in WalkDir::new(&replaced_path)
                         .follow_links(self.follow_symlinks)
                         .into_iter()
@@ -407,13 +411,8 @@ impl EventLoop {
                             Err(err) if walkdir_error_is_not_found(&err) => continue,
                             Err(err) => return Err(map_walkdir_error(err)),
                         };
-                        let requested =
-                            reported_path(&ancestor_path, &ancestor_reported_path, &absolute);
-                        let result = self.add_single_watch(
-                            WatchPath::from_parts(absolute, requested),
-                            true,
-                            false,
-                        );
+                        let path = roots.entry(absolute.clone(), self.watches.get(&absolute));
+                        let result = self.add_single_watch(path, true, false);
                         if let Err(err) = result {
                             if !error_is_not_found(&err) {
                                 return Err(err);
@@ -429,19 +428,14 @@ impl EventLoop {
         if !requested_is_recursive {
             self.add_single_watch(path, false, is_user_watch)?;
         } else {
-            let root = path;
+            let walk = WalkDir::new(&path.absolute).follow_links(self.follow_symlinks);
+            let mut roots = WalkRoots::new(path);
             let mut first = true;
-            for entry in WalkDir::new(&root.absolute)
-                .follow_links(self.follow_symlinks)
-                .into_iter()
-            {
-                let entry = entry.map_err(map_walkdir_error)?;
+            for entry in walk {
+                let entry = entry.map_err(map_walkdir_error)?.into_path();
+                let path = roots.entry(entry.clone(), self.watches.get(&entry));
                 // WalkDir yields the root first; only it is the user-requested watch.
-                self.add_single_watch(
-                    root.child(entry.into_path()),
-                    is_recursive,
-                    is_user_watch && first,
-                )?;
+                self.add_single_watch(path, is_recursive, is_user_watch && first)?;
                 first = false;
             }
         }
@@ -476,13 +470,7 @@ impl EventLoop {
             .add_filename(&path.absolute, event_filter, filter_flags)
             .map_err(|e| Error::io(e).add_path(path.requested.clone()))?;
         let existing_watch = self.watches.get(&path.absolute);
-        let watch = Watch::new(
-            &path,
-            is_recursive,
-            is_user_watch,
-            existing_watch,
-            self.watches.iter(),
-        );
+        let watch = Watch::new(&path, is_recursive, is_user_watch, existing_watch);
         self.watches.insert(path.absolute, watch);
 
         Ok(())
@@ -830,6 +818,44 @@ mod tests {
             .expect("grandchild still covered by recursive parent");
         assert!(!grandchild_watch.is_user_watch);
         assert!(grandchild_watch.is_recursive);
+
+        Ok(())
+    }
+
+    #[test]
+    fn nested_recursive_watch_keeps_its_spelling_under_an_outer_watch()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let child = dir.path().join("child");
+        let grandchild = child.join("grandchild");
+        std::fs::create_dir_all(&grandchild)?;
+
+        let mut event_loop = test_event_loop()?;
+
+        event_loop.add_watch(
+            WatchPath::from_parts(child.clone(), PathBuf::from("reported-child")),
+            true,
+            true,
+        )?;
+        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
+
+        let reported = |event_loop: &EventLoop, path: &Path| {
+            let watch = event_loop.watches.get(path).expect("watch");
+            watch.reported_path.clone()
+        };
+        assert_eq!(reported(&event_loop, dir.path()), dir.path());
+        assert_eq!(reported(&event_loop, &child), Path::new("reported-child"));
+        assert_eq!(
+            reported(&event_loop, &grandchild),
+            Path::new("reported-child/grandchild")
+        );
+
+        event_loop.remove_watch(dir.path().to_path_buf(), false)?;
+
+        assert_eq!(
+            reported(&event_loop, &grandchild),
+            Path::new("reported-child/grandchild")
+        );
 
         Ok(())
     }

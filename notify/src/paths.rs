@@ -39,40 +39,55 @@ impl WatchPath {
     }
 }
 
+/// Names the entries of one recursive walk after the closest recursive user watch above them,
+/// so an outer walk does not respell what a nested watch already reports.
+///
+/// Relies on the walk yielding a directory before its contents.
+pub(crate) struct WalkRoots {
+    roots: Vec<WatchPath>,
+}
+
+impl WalkRoots {
+    pub(crate) fn new(root: WatchPath) -> Self {
+        Self { roots: vec![root] }
+    }
+
+    pub(crate) fn entry(&mut self, path: PathBuf, existing: Option<&WatchMetadata>) -> WatchPath {
+        while self.roots.len() > 1 && !path.starts_with(&self.roots[self.roots.len() - 1].absolute)
+        {
+            self.roots.pop();
+        }
+
+        let entry = self.roots[self.roots.len() - 1].child(path);
+        if let Some(nested) =
+            existing.filter(|watch| watch.is_user_watch && watch.user_is_recursive)
+        {
+            self.roots.push(WatchPath::from_parts(
+                entry.absolute.clone(),
+                nested.reported_path.clone(),
+            ));
+        }
+        entry
+    }
+}
+
 impl WatchMetadata {
-    pub(crate) fn new<'a, I>(
+    pub(crate) fn new(
         path: &WatchPath,
         is_recursive: bool,
         is_user_watch: bool,
         existing_watch: Option<&Self>,
-        user_roots: I,
-    ) -> Self
-    where
-        I: IntoIterator<Item = (&'a PathBuf, &'a Self)>,
-    {
-        let existing_reported_path = existing_watch.map(|watch| watch.reported_path.clone());
+    ) -> Self {
         let existing_is_user_watch = existing_watch.is_some_and(|watch| watch.is_user_watch);
         let existing_user_is_recursive =
             existing_watch.is_some_and(|watch| watch.user_is_recursive);
         let existing_is_recursive = existing_watch.is_some_and(|watch| watch.is_recursive);
 
-        let reported_path = if is_user_watch {
-            path.requested.clone()
-        } else if existing_is_user_watch {
-            existing_reported_path.unwrap_or_else(|| path.requested.clone())
-        } else {
-            user_roots
-                .into_iter()
-                .filter(|(candidate, watch)| {
-                    watch.is_user_watch
-                        && watch.user_is_recursive
-                        && path.absolute.starts_with(candidate)
-                })
-                .max_by_key(|(candidate, _)| candidate.as_os_str().len())
-                .map_or_else(
-                    || path.requested.clone(),
-                    |(root, watch)| reported_path(root, &watch.reported_path, &path.absolute),
-                )
+        let reported_path = match existing_watch {
+            Some(existing) if !is_user_watch && existing.is_user_watch => {
+                existing.reported_path.clone()
+            }
+            _ => path.requested.clone(),
         };
 
         Self {
@@ -169,4 +184,63 @@ where
         })
         .max_by_key(|(candidate, _)| candidate.as_os_str().len())
         .map(|(path, watch)| (path.clone(), watch.reported_path.clone()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user_watch(reported_path: &str, is_recursive: bool) -> WatchMetadata {
+        WatchMetadata {
+            is_recursive,
+            reported_path: PathBuf::from(reported_path),
+            is_user_watch: true,
+            user_is_recursive: is_recursive,
+        }
+    }
+
+    #[test]
+    fn walk_roots_name_entries_after_the_closest_recursive_user_watch() {
+        let mut roots = WalkRoots::new(WatchPath::from_parts("/repo".into(), "/repo".into()));
+        let mut requested = |path: &str, existing: Option<&WatchMetadata>| {
+            roots.entry(path.into(), existing).requested
+        };
+
+        let logs = user_watch("logs", true);
+        let flat = user_watch("flat", false);
+        assert_eq!(requested("/repo", None), Path::new("/repo"));
+        assert_eq!(
+            requested("/repo/logs", Some(&logs)),
+            Path::new("/repo/logs")
+        );
+        assert_eq!(
+            requested("/repo/logs/access", None),
+            Path::new("logs/access")
+        );
+        assert_eq!(requested("/repo/src", None), Path::new("/repo/src"));
+        assert_eq!(
+            requested("/repo/src/flat", Some(&flat)),
+            Path::new("/repo/src/flat")
+        );
+        assert_eq!(
+            requested("/repo/src/flat/deep", None),
+            Path::new("/repo/src/flat/deep")
+        );
+    }
+
+    // A directory's create event can arrive after the user has watched that directory by name.
+    #[test]
+    fn walk_roots_keep_the_spelling_of_a_user_watch_on_the_walk_root() {
+        let mut roots = WalkRoots::new(WatchPath::from_parts(
+            "/repo/logs".into(),
+            "/repo/logs".into(),
+        ));
+        let logs = user_watch("logs", true);
+
+        roots.entry("/repo/logs".into(), Some(&logs));
+        assert_eq!(
+            roots.entry("/repo/logs/access".into(), None).requested,
+            Path::new("logs/access")
+        );
+    }
 }
