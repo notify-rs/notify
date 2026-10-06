@@ -15,11 +15,11 @@
 #![allow(non_upper_case_globals, dead_code)]
 
 use crate::paths::{absolute_path, reported_path};
+use crate::{event::*, PathOp};
 use crate::{
-    Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result, Sender, Watcher,
-    unbounded,
+    unbounded, Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result,
+    Sender, Watcher,
 };
-use crate::{PathOp, event::*};
 use objc2_core_foundation as cf;
 use objc2_core_services as fs;
 use std::collections::HashMap;
@@ -829,6 +829,36 @@ unsafe fn callback_impl(
         }
 
         let Some((watch_path, watch_info)) = watch_match else {
+            // FSEvents reports MustScanSubDirs at an ancestor of the
+            // registered watches (often `/` or the common parent). Those
+            // paths fail membership, but the recovery notice must still
+            // reach the handler.
+            if flag.contains(StreamFlags::MUST_SCAN_SUBDIRS) {
+                drop(recursive_info);
+                let mut ev = Event::new(EventKind::Other).set_flag(Flag::Rescan);
+                ev = if flag.contains(StreamFlags::USER_DROPPED) {
+                    ev.set_info("rescan: user dropped")
+                } else if flag.contains(StreamFlags::KERNEL_DROPPED) {
+                    ev.set_info("rescan: kernel dropped")
+                } else {
+                    ev
+                };
+                ev.paths.push(path.to_path_buf());
+                if event_kinds.matches(&ev.kind) {
+                    let event_handler = event_handler_guard.get_or_insert_with(|| {
+                        match event_handler_mutex.lock() {
+                            Ok(guard) => guard,
+                            Err(poisoned) => poisoned.into_inner(),
+                        }
+                    });
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        event_handler.handle_event(Ok(ev));
+                    }))
+                    .map_err(|_| {
+                        log::error!("panic in FSEvents event handler; dropping event");
+                    });
+                }
+            }
             continue;
         };
         let translated_count = translated_event_count(&flag, true);
@@ -1100,13 +1130,11 @@ mod tests {
 
         watcher.watch_nonrecursively(&alias);
         assert_eq!(runloop_thread_id(&watcher.watcher), thread_id);
-        assert!(
-            watcher
-                .watcher
-                .watched_paths()
-                .expect("watched paths")
-                .contains(&(alias.clone(), RecursiveMode::NonRecursive))
-        );
+        assert!(watcher
+            .watcher
+            .watched_paths()
+            .expect("watched paths")
+            .contains(&(alias.clone(), RecursiveMode::NonRecursive)));
 
         std::fs::File::create_new(child.join("immediate")).expect("create");
         std::fs::File::create_new(nested.join("second")).expect("create");
@@ -1368,6 +1396,69 @@ mod tests {
     }
 
     #[test]
+    fn callback_impl_delivers_rescan_for_ancestor_recovery_paths() {
+        let mut recursive_info = HashMap::new();
+        recursive_info.insert(
+            PathBuf::from("/watched/a"),
+            WatchInfo {
+                is_recursive: true,
+                reported_path: PathBuf::from("/watched/a"),
+            },
+        );
+        recursive_info.insert(
+            PathBuf::from("/watched/b"),
+            WatchInfo {
+                is_recursive: false,
+                reported_path: PathBuf::from("/watched/b"),
+            },
+        );
+
+        let recovery_flags = [
+            StreamFlags::MUST_SCAN_SUBDIRS.bits(),
+            (StreamFlags::MUST_SCAN_SUBDIRS | StreamFlags::USER_DROPPED).bits(),
+            (StreamFlags::MUST_SCAN_SUBDIRS | StreamFlags::KERNEL_DROPPED).bits(),
+        ];
+        for flags in recovery_flags {
+            for path in [
+                b"/watched/a".as_slice(),
+                b"/watched".as_slice(),
+                b"/".as_slice(),
+            ] {
+                let events = run_callback(recursive_info.clone(), &[(path, flags)]);
+                let path_buf = PathBuf::from(std::str::from_utf8(path).unwrap());
+                assert!(
+                    events.iter().any(|event| {
+                        let event = event.as_ref().expect("callback event");
+                        event.need_rescan() && event.paths == [path_buf.clone()]
+                    }),
+                    "missing rescan for {} flags {flags:#x}: {events:?}",
+                    String::from_utf8_lossy(path)
+                );
+            }
+        }
+
+        let ordinary = (StreamFlags::ITEM_MODIFIED | StreamFlags::IS_FILE).bits();
+        for (path, expected) in [
+            (b"/watched".as_slice(), false),
+            (b"/".as_slice(), false),
+            (b"/watched/a/deep/file".as_slice(), true),
+            (b"/watched/b/file".as_slice(), true),
+            (b"/watched/b/deep/file".as_slice(), false),
+        ] {
+            let events = run_callback(recursive_info.clone(), &[(path, ordinary)]);
+            assert_eq!(
+                !events.is_empty(),
+                expected,
+                "ordinary path {}",
+                String::from_utf8_lossy(path)
+            );
+            assert!(events
+                .iter()
+                .all(|event| !event.as_ref().expect("callback event").need_rescan()));
+        }
+    }
+
+    #[test]
     fn callback_impl_handles_non_utf8_paths_without_panicking() {
         use std::os::unix::ffi::OsStrExt;
 
@@ -1461,16 +1552,12 @@ mod tests {
             true,
         );
         assert_eq!(modify.len(), 2);
-        assert!(
-            modify
-                .iter()
-                .any(|e| matches!(e.kind, EventKind::Modify(ModifyKind::Metadata(_))))
-        );
-        assert!(
-            modify
-                .iter()
-                .any(|e| matches!(e.kind, EventKind::Modify(ModifyKind::Data(_))))
-        );
+        assert!(modify
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::Modify(ModifyKind::Metadata(_)))));
+        assert!(modify
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::Modify(ModifyKind::Data(_)))));
         assert!(
             modify.iter().all(|e| e.info() == Some("is: clone")),
             "all events should be annotated as clone-related: {modify:?}"
