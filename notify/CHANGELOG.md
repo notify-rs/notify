@@ -7,6 +7,7 @@
 - FIX: [poll] detect subsecond symlink mtime changes when symlink following is disabled, with or without content comparison
 - PERF: [macOS] avoid restarting the FSEvents stream when adding or updating a watch covered by a recursive ancestor on the same volume; document `Watcher::update_paths` for bulk registration [#988]
 - FIX: [Windows] return `Error::watch_not_found` from `unwatch` when the path is not watched instead of succeeding silently, matching the other backends [#1014]
+- PERF: [macOS] find the watch an FSEvents event belongs to by hash lookups of its path and ancestors instead of scanning every watch, so delivery no longer slows with the number of watched paths
 
 [#998]: https://github.com/notify-rs/notify/issues/998
 [#988]: https://github.com/notify-rs/notify/issues/988
