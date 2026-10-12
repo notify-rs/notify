@@ -44,7 +44,9 @@ pub trait FileIdCache {
 
     /// Add `path` to the cache without the entries below it.
     ///
-    /// This will be called by `add_path` for each entry it walks.
+    /// This will be called for an entry inside a non-recursive watch, and by `add_path` for each
+    /// entry it walks. The watch does not report changes below an entry of a non-recursive watch,
+    /// so the cache does not need their IDs.
     fn add_single_path(&mut self, path: &Path);
 
     /// Remove a path from the cache.
