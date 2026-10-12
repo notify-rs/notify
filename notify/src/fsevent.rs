@@ -773,6 +773,30 @@ unsafe extern "C-unwind" fn callback(
     });
 }
 
+/// The watch an event at `path` belongs to, if any: the most specific of the
+/// path itself, its parent, or an ancestor watched recursively.
+///
+/// The path and its ancestors are looked up by hash, nearest first, rather
+/// than scanning every watched path, so deciding an event costs one lookup
+/// per component of its path, however many paths are watched. The callback
+/// runs this for every event FSEvents delivers, and a scan of every watch
+/// slows delivery in proportion to how many there are.
+fn watch_for<'a>(
+    recursive_info: &'a HashMap<PathBuf, WatchInfo>,
+    path: &Path,
+) -> Option<(&'a PathBuf, &'a WatchInfo)> {
+    if let Some(watch) = recursive_info.get_key_value(path) {
+        return Some(watch);
+    }
+    path.ancestors()
+        .skip(1)
+        .enumerate()
+        .find_map(|(depth, ancestor)| {
+            let (watch_path, watch_info) = recursive_info.get_key_value(ancestor)?;
+            (watch_info.is_recursive || depth == 0).then_some((watch_path, watch_info))
+        })
+}
+
 unsafe fn callback_impl(
     _stream_ref: fs::ConstFSEventStreamRef,
     info: *mut libc::c_void,
@@ -800,35 +824,11 @@ unsafe fn callback_impl(
             log::trace!("unknown FSEventStreamEventFlags bits: 0x{unknown_bits:08x}");
         }
 
-        let mut watch_match = None;
         let recursive_info = (*info)
             .recursive_info
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        for (watch_path, watch_info) in recursive_info.iter() {
-            if path.starts_with(watch_path) {
-                let matches_watch = if watch_info.is_recursive || path == watch_path {
-                    true
-                } else if let Some(parent_path) = path.parent() {
-                    parent_path == watch_path
-                } else {
-                    false
-                };
-
-                if matches_watch
-                    && watch_match.as_ref().is_none_or(
-                        |(matched_path, _): &(&PathBuf, &WatchInfo)| {
-                            watch_path.as_os_str().as_bytes().len()
-                                > matched_path.as_os_str().as_bytes().len()
-                        },
-                    )
-                {
-                    watch_match = Some((watch_path, watch_info));
-                }
-            }
-        }
-
-        let Some((watch_path, watch_info)) = watch_match else {
+        let Some((watch_path, watch_info)) = watch_for(&recursive_info, path) else {
             continue;
         };
         let translated_count = translated_event_count(&flag, true);
@@ -980,6 +980,127 @@ mod tests {
 
     fn watcher() -> (TestWatcher<FsEventWatcher>, Receiver) {
         channel()
+    }
+
+    fn watch_info(is_recursive: bool) -> WatchInfo {
+        WatchInfo {
+            is_recursive,
+            reported_path: PathBuf::from("/reported"),
+        }
+    }
+
+    #[test]
+    fn watch_for_matches_each_kind_of_watch() {
+        let mut recursive_info = HashMap::new();
+        recursive_info.insert(PathBuf::from("/repo"), watch_info(false));
+        recursive_info.insert(PathBuf::from("/repo/src"), watch_info(false));
+        recursive_info.insert(PathBuf::from("/deep"), watch_info(true));
+        recursive_info.insert(PathBuf::from("/deep/inner"), watch_info(false));
+        recursive_info.insert(PathBuf::from("/single/file.txt"), watch_info(false));
+
+        let cases = [
+            // A watched path itself, recursive or not.
+            ("/repo", Some("/repo")),
+            ("/deep", Some("/deep")),
+            ("/single/file.txt", Some("/single/file.txt")),
+            // A direct child of a non-recursive watch.
+            ("/repo/readme.md", Some("/repo")),
+            ("/repo/src/main.rs", Some("/repo/src")),
+            // A grandchild of a non-recursive watch whose own parent is unwatched.
+            ("/repo/target/debug", None),
+            // Any descendant of a recursive watch.
+            ("/deep/a", Some("/deep")),
+            ("/deep/a/b/c", Some("/deep")),
+            // The more specific of a recursive watch and a nested watch.
+            ("/deep/inner/x", Some("/deep/inner")),
+            ("/deep/inner/x/y", Some("/deep")),
+            // A sibling sharing a prefix of characters, not of components.
+            ("/repository/readme.md", None),
+            ("/deeper/a", None),
+            // The parent of a watched file, and its other children.
+            ("/single", None),
+            ("/single/other.txt", None),
+            // Nothing watched above it at all.
+            ("/elsewhere/x", None),
+            ("/", None),
+        ];
+        for (path, expected) in cases {
+            let matched = watch_for(&recursive_info, Path::new(path))
+                .map(|(watch_path, _)| watch_path.as_path());
+            assert_eq!(matched, expected.map(Path::new), "{path}");
+        }
+    }
+
+    #[test]
+    fn watch_for_agrees_with_a_scan_of_every_watch() {
+        // The decision a scan of every watched path makes, keeping the
+        // longest match, which `watch_for` replaces: kept here as the
+        // reference it must agree with.
+        fn scan<'a>(
+            recursive_info: &'a HashMap<PathBuf, WatchInfo>,
+            path: &Path,
+        ) -> Option<&'a PathBuf> {
+            recursive_info
+                .iter()
+                .filter(|(watch_path, watch_info)| {
+                    path.starts_with(watch_path)
+                        && (watch_info.is_recursive
+                            || path == watch_path.as_path()
+                            || path.parent() == Some(watch_path.as_path()))
+                })
+                .map(|(watch_path, _)| watch_path)
+                .max_by_key(|watch_path| watch_path.as_os_str().as_bytes().len())
+        }
+
+        let watches: [(&str, bool); 7] = [
+            ("/a", false),
+            ("/a/b", true),
+            ("/a/b/c", false),
+            ("/a/b/c/d", true),
+            ("/x/y", false),
+            ("/x/y/z.txt", false),
+            ("/r", true),
+        ];
+        let paths = [
+            "/",
+            "/a",
+            "/a/b",
+            "/a/b/c",
+            "/a/b/c/d",
+            "/a/b/c/d/e",
+            "/a/b/c/d/e/f",
+            "/a/b/q/r",
+            "/a/z",
+            "/a/z/q",
+            "/ab",
+            "/x",
+            "/x/y",
+            "/x/y/z.txt",
+            "/x/y/w",
+            "/x/y/w/v",
+            "/r",
+            "/r/s/t",
+            "/rs",
+        ];
+        // Every subset of the watches, so each path is judged against watches
+        // that are recursive, non-recursive, nested in each other and absent.
+        for mask in 0u32..(1 << watches.len()) {
+            let recursive_info: HashMap<PathBuf, WatchInfo> = watches
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| mask & (1 << index) != 0)
+                .map(|(_, &(watch_path, is_recursive))| {
+                    (PathBuf::from(watch_path), watch_info(is_recursive))
+                })
+                .collect();
+            for path in paths {
+                assert_eq!(
+                    watch_for(&recursive_info, Path::new(path)).map(|(watch_path, _)| watch_path),
+                    scan(&recursive_info, Path::new(path)),
+                    "{path} against {recursive_info:?}"
+                );
+            }
+        }
     }
 
     fn runloop_thread_id(watcher: &FsEventWatcher) -> thread::ThreadId {
