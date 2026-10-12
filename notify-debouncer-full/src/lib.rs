@@ -219,7 +219,10 @@ pub(crate) struct DebounceDataInner<T> {
     /// can dedupe via binary search in O(log N) and doesn't suffer from injection
     roots: VecDeque<WatchRoot>,
     cache: T,
-    rename_event: Option<(DebouncedEvent, Option<FileId>)>,
+    /// The sources of the last rename. A backend reports a rename once for each watch that
+    /// covers it, so the sources of one rename share a tracker.
+    rename_events: Vec<(DebouncedEvent, Option<FileId>)>,
+    pending_rename_destinations: Vec<DebouncedEvent>,
     rescan_event: Option<DebouncedEvent>,
     errors: Vec<Error>,
     timeout: Duration,
@@ -231,7 +234,8 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             queues: HashMap::default(),
             roots: VecDeque::new(),
             cache,
-            rename_event: None,
+            rename_events: Vec::new(),
+            pending_rename_destinations: Vec::new(),
             rescan_event: None,
             errors: Vec::new(),
             timeout,
@@ -241,6 +245,15 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     /// Retrieve a vec of debounced events, removing them if not continuous
     pub fn debounced_events(&mut self) -> Vec<DebouncedEvent> {
         let now = now();
+        if self
+            .rename_events
+            .iter()
+            .map(|(event, _)| event)
+            .chain(self.pending_rename_destinations.iter())
+            .any(|event| now.saturating_duration_since(event.time) >= self.timeout)
+        {
+            self.finish_pending_renames();
+        }
         let mut events_expired = Vec::with_capacity(self.queues.len());
 
         if let Some(event) = self.rescan_event.take() {
@@ -298,6 +311,14 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     /// Add new event to debouncer cache
     pub fn add_event(&mut self, event: Event) {
         log::trace!("raw event: {event:?}");
+
+        if self
+            .pending_rename_destinations
+            .first()
+            .is_some_and(|pending| pending.tracker() != event.tracker())
+        {
+            self.finish_pending_renames();
+        }
 
         if event.need_rescan() {
             let roots = self.roots.make_contiguous();
@@ -391,7 +412,17 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
         // store event
         let file_id = self.cache.cached_file_id(path).map(|id| *id.as_ref());
-        self.rename_event = Some((DebouncedEvent::new(event.clone(), time), file_id));
+        let tracker = event.tracker();
+        if tracker.is_none()
+            || self
+                .rename_events
+                .iter()
+                .any(|(source, _)| source.tracker() != tracker)
+        {
+            self.rename_events.clear();
+        }
+        self.rename_events
+            .push((DebouncedEvent::new(event.clone(), time), file_id));
 
         self.cache.remove_path(path);
 
@@ -401,41 +432,74 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     fn handle_rename_to(&mut self, event: Event) {
         self.add_event_path(&event.paths[0]);
 
-        let trackers_match = self
-            .rename_event
-            .as_ref()
-            .and_then(|(e, _)| e.tracker())
-            .and_then(|from_tracker| {
-                event
-                    .attrs
-                    .tracker()
-                    .map(|to_tracker| from_tracker == to_tracker)
+        let tracker = event.attrs.tracker();
+        let trackers_match = |(source, _): &(DebouncedEvent, Option<FileId>)| {
+            tracker.is_some() && source.tracker() == tracker
+        };
+        // Each watch that covers a rename reports a source and a destination. A destination is
+        // paired with the source below the same root first. Two roots that reach one directory
+        // through a symlink then each get a rename with their own paths.
+        let destination_root = self.closest_root(&event.paths[0]);
+        let source = self
+            .rename_events
+            .iter()
+            .position(|source| {
+                trackers_match(source) && self.closest_root(&source.0.paths[0]) == destination_root
             })
-            .unwrap_or_default();
+            .or_else(|| {
+                if self.rename_events.iter().any(trackers_match) {
+                    return None;
+                }
+                let destination_id = self.cache.cached_file_id(&event.paths[0])?;
+                self.rename_events
+                    .iter()
+                    .position(|(_, source_id)| source_id.as_ref() == Some(destination_id.as_ref()))
+            });
 
-        let file_ids_match = self
-            .rename_event
-            .as_ref()
-            .and_then(|(_, id)| id.as_ref())
-            .and_then(|from_file_id| {
-                self.cache
-                    .cached_file_id(&event.paths[0])
-                    .map(|to_file_id| from_file_id == to_file_id.as_ref())
-            })
-            .unwrap_or_default();
-
-        if trackers_match || file_ids_match {
-            // connect rename
-            let (mut rename_event, _) = self.rename_event.take().unwrap(); // unwrap is safe because `rename_event` must be set at this point
-            let path = rename_event.paths.remove(0);
-            let time = rename_event.time;
-            self.push_rename_event(path, event, time);
-        } else {
+        match source {
+            Some(source) => {
+                // connect rename
+                let (mut rename_event, _) = self.rename_events.remove(source);
+                let path = rename_event.paths.remove(0);
+                let time = rename_event.time;
+                self.push_rename_event(path, event, time);
+            }
+            None if self.rename_events.iter().any(trackers_match) => {
+                // An alias destination can arrive before the destination below the source's
+                // root. We defer pairing across roots until the remaining destinations arrive.
+                self.pending_rename_destinations
+                    .push(DebouncedEvent::new(event, now()));
+                return;
+            }
             // move in
-            self.push_event(event, now());
+            None => self.push_event(event, now()),
         }
 
-        self.rename_event = None;
+        // The destinations of the other watches follow with the same tracker.
+        self.rename_events.retain(trackers_match);
+    }
+
+    fn finish_pending_renames(&mut self) {
+        for destination in std::mem::take(&mut self.pending_rename_destinations) {
+            let source = self
+                .rename_events
+                .iter()
+                .position(|(source, _)| source.tracker() == destination.tracker());
+            if let Some(source) = source {
+                let (mut source, _) = self.rename_events.remove(source);
+                let path = source.paths.remove(0);
+                self.push_rename_event(path, destination.event, source.time);
+            } else {
+                self.push_event(destination.event, destination.time);
+            }
+        }
+    }
+
+    /// Returns the path of the closest root at or above `path`.
+    fn closest_root(&self, path: &Path) -> Option<&Path> {
+        path.ancestors()
+            .find_map(|ancestor| root_at(&self.roots, ancestor))
+            .map(|root| root.path.as_path())
     }
 
     fn push_rename_event(&mut self, path: PathBuf, event: Event, time: Instant) {
@@ -814,6 +878,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
             loop {
                 let mut lock = data_c.inner.lock().unwrap();
                 while lock.queues.is_empty()
+                    && lock.pending_rename_destinations.is_empty()
                     && lock.errors.is_empty()
                     && lock.rescan_event.is_none()
                     && !stop_c.load(Ordering::Acquire)
@@ -1140,7 +1205,7 @@ mod tests {
             "queues not as expected"
         );
         assert_eq!(
-            state.rename_event, expected_state.rename_event,
+            state.rename_events, expected_state.rename_events,
             "rename event not as expected"
         );
         assert_eq!(
@@ -1197,6 +1262,142 @@ mod tests {
     }
 
     #[test]
+    fn a_rename_reported_for_two_roots_pairs_the_paths_of_each_root() {
+        let mut state = DebounceDataInner::new(NoCache, Duration::from_millis(50));
+        state.roots = VecDeque::from([
+            WatchRoot {
+                path: PathBuf::from("/alias"),
+                recursive_mode: RecursiveMode::Recursive,
+            },
+            WatchRoot {
+                path: PathBuf::from("/real"),
+                recursive_mode: RecursiveMode::Recursive,
+            },
+        ]);
+        // `/alias` is a symlink to `/real`, and the backend reports the rename for each root.
+        let rename = |mode, path: &str| {
+            Event::new(EventKind::Modify(ModifyKind::Name(mode)))
+                .add_path(PathBuf::from(path))
+                .set_tracker(1)
+        };
+        state.add_event(rename(RenameMode::From, "/real/from"));
+        state.add_event(rename(RenameMode::From, "/alias/from"));
+        state.add_event(rename(RenameMode::To, "/real/to"));
+        state.add_event(rename(RenameMode::To, "/alias/to"));
+
+        for root in ["/alias", "/real"] {
+            let to = Path::new(root).join("to");
+            let events = &state.queues[&to].events;
+            assert!(
+                events.iter().any(|event| event.kind
+                    == EventKind::Modify(ModifyKind::Name(RenameMode::Both))
+                    && event.paths == [Path::new(root).join("from"), to.clone()]),
+                "{events:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_rename_between_two_roots_is_paired() {
+        MockTime::set_time(Instant::now());
+        let mut state = DebounceDataInner::new(NoCache, Duration::from_millis(50));
+        state.roots = VecDeque::from([
+            WatchRoot {
+                path: PathBuf::from("/a"),
+                recursive_mode: RecursiveMode::Recursive,
+            },
+            WatchRoot {
+                path: PathBuf::from("/b"),
+                recursive_mode: RecursiveMode::Recursive,
+            },
+        ]);
+        let rename = |mode, path: &str| {
+            Event::new(EventKind::Modify(ModifyKind::Name(mode)))
+                .add_path(PathBuf::from(path))
+                .set_tracker(1)
+        };
+        state.add_event(rename(RenameMode::From, "/a/from"));
+        state.add_event(rename(RenameMode::To, "/b/to"));
+        MockTime::advance(Duration::from_millis(50));
+        let events = state.debounced_events();
+        assert!(
+            events.iter().any(|event| event.kind
+                == EventKind::Modify(ModifyKind::Name(RenameMode::Both))
+                && event.paths == [PathBuf::from("/a/from"), PathBuf::from("/b/to")]),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn a_new_tracker_finishes_a_pending_rename_between_roots() {
+        let mut state = DebounceDataInner::new(NoCache, Duration::from_millis(50));
+        state.roots = VecDeque::from([
+            WatchRoot {
+                path: PathBuf::from("/a"),
+                recursive_mode: RecursiveMode::Recursive,
+            },
+            WatchRoot {
+                path: PathBuf::from("/b"),
+                recursive_mode: RecursiveMode::Recursive,
+            },
+        ]);
+        let rename = |mode, path: &str, tracker| {
+            Event::new(EventKind::Modify(ModifyKind::Name(mode)))
+                .add_path(PathBuf::from(path))
+                .set_tracker(tracker)
+        };
+        state.add_event(rename(RenameMode::From, "/a/from", 1));
+        state.add_event(rename(RenameMode::To, "/b/to", 1));
+        state.add_event(rename(RenameMode::From, "/b/to", 2));
+        state.add_event(rename(RenameMode::To, "/b/final", 2));
+
+        assert_eq!(
+            state.queues[Path::new("/b/final")].events[0].paths,
+            [PathBuf::from("/a/from"), PathBuf::from("/b/final")]
+        );
+    }
+
+    #[test]
+    fn an_alias_destination_does_not_take_a_later_same_root_source() {
+        for alias_first in [false, true] {
+            let mut state = DebounceDataInner::new(NoCache, Duration::from_millis(50));
+            state.roots = VecDeque::from([
+                WatchRoot {
+                    path: PathBuf::from("/alias"),
+                    recursive_mode: RecursiveMode::Recursive,
+                },
+                WatchRoot {
+                    path: PathBuf::from("/real"),
+                    recursive_mode: RecursiveMode::Recursive,
+                },
+            ]);
+            let rename = |mode, path: &str| {
+                Event::new(EventKind::Modify(ModifyKind::Name(mode)))
+                    .add_path(PathBuf::from(path))
+                    .set_tracker(1)
+            };
+            state.add_event(rename(RenameMode::From, "/real/from"));
+            let mut destinations = ["/real/sub/to", "/alias/to"];
+            if alias_first {
+                destinations.reverse();
+            }
+            for destination in destinations {
+                state.add_event(rename(RenameMode::To, destination));
+            }
+            state.finish_pending_renames();
+
+            assert_eq!(
+                state.queues[Path::new("/real/sub/to")].events[0].paths,
+                [PathBuf::from("/real/from"), PathBuf::from("/real/sub/to")]
+            );
+            assert_eq!(
+                state.queues[Path::new("/alias/to")].events[0].kind,
+                EventKind::Modify(ModifyKind::Name(RenameMode::To))
+            );
+        }
+    }
+
+    #[test]
     fn recursive_mode_uses_recursive_root_for_overlapping_watches() {
         let state = DebounceDataInner {
             queues: HashMap::default(),
@@ -1211,7 +1412,8 @@ mod tests {
                 },
             ]),
             cache: NoCache,
-            rename_event: None,
+            rename_events: Vec::new(),
+            pending_rename_destinations: Vec::new(),
             rescan_event: None,
             errors: Vec::new(),
             timeout: Duration::from_millis(50),
@@ -1225,6 +1427,34 @@ mod tests {
             state.recursive_mode(Path::new("root/other")),
             RecursiveMode::NonRecursive
         );
+    }
+
+    #[test]
+    fn a_pending_destination_is_delivered_without_a_normal_queue()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let debouncer = new_debouncer_opt::<_, TrackingWatcher, NoCache>(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            tx,
+            NoCache,
+            notify::Config::default(),
+        )?;
+        let path = PathBuf::from("/alias/to");
+        {
+            let mut data = debouncer.data.inner.lock().unwrap();
+            data.pending_rename_destinations.push(DebouncedEvent::new(
+                Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::To)))
+                    .add_path(path.clone())
+                    .set_tracker(1),
+                Instant::now(),
+            ));
+            debouncer.data.changed.notify_all();
+        }
+        let events = rx.recv_timeout(Duration::from_secs(5))?.unwrap();
+        assert_eq!(events[0].paths, [path]);
+        debouncer.stop();
+        Ok(())
     }
 
     #[test]
