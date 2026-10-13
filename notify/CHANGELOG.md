@@ -17,6 +17,7 @@
 - FIX: [poll] recover a poisoned watch mutex in `watched_paths`
 - FIX: [macOS] release the FSEvents stream and its context when spawning the runloop thread fails
 - DOCS: clarify kqueue and FSEvents event details, recursive-watch coverage, and kqueue file descriptor limits
+- FIX: [inotify] drop the watch below a followed symbolic link that a rename replaces, so the changes of its old target are no longer reported under its path
 
 [#703]: https://github.com/notify-rs/notify/issues/703
 [#388]: https://github.com/notify-rs/notify/issues/388
