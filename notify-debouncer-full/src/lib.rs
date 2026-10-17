@@ -622,10 +622,24 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
 
     fn remove_root(&mut self, path: impl AsRef<Path>) {
         let mut data = self.data.inner.lock().unwrap();
+        let path = path.as_ref();
 
-        data.roots.retain(|root| !root.path.starts_with(&path));
+        // Unwatching a path only removes that watch, so roots nested under it are still
+        // watched and must keep their bookkeeping. Their cached IDs go away with the
+        // subtree drop below, so re-fingerprint each survivor afterwards.
+        let surviving_nested_roots: Vec<_> = data
+            .roots
+            .iter()
+            .filter(|root| root.path.starts_with(path) && root.path.as_path() != path)
+            .cloned()
+            .collect();
 
-        data.cache.remove_path(path.as_ref());
+        data.roots.retain(|root| root.path.as_path() != path);
+
+        data.cache.remove_path(path);
+        for root in surviving_nested_roots {
+            data.cache.add_path(&root.path, root.recursive_mode);
+        }
     }
 
     pub fn watch(
@@ -1530,6 +1544,93 @@ mod tests {
             debouncer.watched_paths()?,
             vec![(path3, RecursiveMode::Recursive)]
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn unwatch_parent_preserves_nested_root() -> Result<(), Box<dyn std::error::Error>> {
+        let mut debouncer = new_debouncer_opt::<_, TrackingWatcher, FileIdMap>(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            |_| {},
+            FileIdMap::new(),
+            notify::Config::default(),
+        )?;
+
+        let tmpdir = tempdir()?;
+        let nested = tmpdir.path().join("nested");
+        fs::create_dir(&nested)?;
+        let nested_file = nested.join("file.txt");
+        fs::write(&nested_file, b"content")?;
+
+        debouncer.watch(tmpdir.path(), RecursiveMode::Recursive)?;
+        debouncer.watch(&nested, RecursiveMode::Recursive)?;
+        debouncer.unwatch(tmpdir.path())?;
+
+        // Copy out what the assertions need and release the lock first: a panic while the
+        // guard is held poisons the mutex, and the debouncer's drop then panics too.
+        let (roots, nested_file_cached) = {
+            let data = debouncer.data.inner.lock().unwrap();
+            let roots = data
+                .roots
+                .iter()
+                .map(|root| root.path.clone())
+                .collect::<Vec<_>>();
+            let cached = data.cache.cached_file_id(&nested_file).is_some();
+            (roots, cached)
+        };
+
+        assert_eq!(
+            roots,
+            vec![nested.clone()],
+            "unwatching a parent must not drop roots nested under it"
+        );
+        assert!(
+            nested_file_cached,
+            "removing the parent must rebuild cache coverage for the surviving nested root"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn unwatch_not_found_preserves_nested_roots() -> Result<(), Box<dyn std::error::Error>> {
+        let mut debouncer = new_debouncer_opt::<_, TrackingWatcher, FileIdMap>(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            |_| {},
+            FileIdMap::new(),
+            notify::Config::default(),
+        )?;
+
+        let tmpdir = tempdir()?;
+        let nested = tmpdir.path().join("nested");
+        fs::create_dir(&nested)?;
+        let nested_file = nested.join("file.txt");
+        fs::write(&nested_file, b"content")?;
+
+        debouncer.watch(&nested, RecursiveMode::Recursive)?;
+
+        // The parent was never watched: the backend reports WatchNotFound and changes
+        // nothing, so the error propagates and the nested root's bookkeeping and cached
+        // IDs must stay untouched.
+        let result = debouncer.unwatch(tmpdir.path());
+        assert!(matches!(&result, Err(error) if matches!(error.kind, ErrorKind::WatchNotFound)));
+
+        let (roots, nested_file_cached) = {
+            let data = debouncer.data.inner.lock().unwrap();
+            let roots = data
+                .roots
+                .iter()
+                .map(|root| root.path.clone())
+                .collect::<Vec<_>>();
+            let cached = data.cache.cached_file_id(&nested_file).is_some();
+            (roots, cached)
+        };
+
+        assert_eq!(roots, vec![nested.clone()]);
+        assert!(nested_file_cached);
 
         Ok(())
     }

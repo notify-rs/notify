@@ -2,6 +2,7 @@
 
 ## unreleased
 
+- FIX: unwatching a path no longer deregisters roots nested under it, and re-fingerprints the nested roots whose cached IDs the removal dropped
 - PERF: park the debouncer thread to avoid idle polling [#933]
 - CHANGE: `FileIdCache::rescan` takes `&[WatchRoot]` instead of `&[(PathBuf, RecursiveMode)]` **breaking**
 
