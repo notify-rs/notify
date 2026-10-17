@@ -15,11 +15,11 @@
 #![allow(non_upper_case_globals, dead_code)]
 
 use crate::paths::{absolute_path, reported_path};
-use crate::{event::*, PathOp};
 use crate::{
-    unbounded, Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result,
-    Sender, Watcher,
+    Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result, Sender, Watcher,
+    unbounded,
 };
+use crate::{PathOp, event::*};
 use objc2_core_foundation as cf;
 use objc2_core_services as fs;
 use std::collections::HashMap;
@@ -1130,11 +1130,13 @@ mod tests {
 
         watcher.watch_nonrecursively(&alias);
         assert_eq!(runloop_thread_id(&watcher.watcher), thread_id);
-        assert!(watcher
-            .watcher
-            .watched_paths()
-            .expect("watched paths")
-            .contains(&(alias.clone(), RecursiveMode::NonRecursive)));
+        assert!(
+            watcher
+                .watcher
+                .watched_paths()
+                .expect("watched paths")
+                .contains(&(alias.clone(), RecursiveMode::NonRecursive))
+        );
 
         std::fs::File::create_new(child.join("immediate")).expect("create");
         std::fs::File::create_new(nested.join("second")).expect("create");
@@ -1452,9 +1454,11 @@ mod tests {
                 "ordinary path {}",
                 String::from_utf8_lossy(path)
             );
-            assert!(events
-                .iter()
-                .all(|event| !event.as_ref().expect("callback event").need_rescan()));
+            assert!(
+                events
+                    .iter()
+                    .all(|event| !event.as_ref().expect("callback event").need_rescan())
+            );
         }
     }
 
@@ -1552,12 +1556,16 @@ mod tests {
             true,
         );
         assert_eq!(modify.len(), 2);
-        assert!(modify
-            .iter()
-            .any(|e| matches!(e.kind, EventKind::Modify(ModifyKind::Metadata(_)))));
-        assert!(modify
-            .iter()
-            .any(|e| matches!(e.kind, EventKind::Modify(ModifyKind::Data(_)))));
+        assert!(
+            modify
+                .iter()
+                .any(|e| matches!(e.kind, EventKind::Modify(ModifyKind::Metadata(_))))
+        );
+        assert!(
+            modify
+                .iter()
+                .any(|e| matches!(e.kind, EventKind::Modify(ModifyKind::Data(_))))
+        );
         assert!(
             modify.iter().all(|e| e.info() == Some("is: clone")),
             "all events should be annotated as clone-related: {modify:?}"
