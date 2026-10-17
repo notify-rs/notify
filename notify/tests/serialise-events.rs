@@ -36,7 +36,7 @@ fn events_are_debuggable() {
     );
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", not(feature = "serialization-compat-6")))]
 #[test]
 fn events_are_serializable() {
     assert_eq!(json!(EventKind::Any), json!({ "type": "any" }));
@@ -88,7 +88,7 @@ fn events_are_serializable() {
     );
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", not(feature = "serialization-compat-6")))]
 #[test]
 fn events_are_deserializable() {
     assert_eq!(
@@ -140,7 +140,7 @@ fn events_are_deserializable() {
     );
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", not(feature = "serialization-compat-6")))]
 #[test]
 fn access_events_are_serializable() {
     assert_eq!(
@@ -184,7 +184,7 @@ fn access_events_are_serializable() {
     );
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", not(feature = "serialization-compat-6")))]
 #[test]
 fn create_events_are_serializable() {
     assert_eq!(
@@ -208,7 +208,7 @@ fn create_events_are_serializable() {
     );
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", not(feature = "serialization-compat-6")))]
 #[test]
 fn modify_events_are_serializable() {
     assert_eq!(
@@ -312,7 +312,7 @@ fn modify_events_are_serializable() {
     );
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", not(feature = "serialization-compat-6")))]
 #[test]
 fn remove_events_are_serializable() {
     assert_eq!(
@@ -334,4 +334,58 @@ fn remove_events_are_serializable() {
         json!(EventKind::Remove(RemoveKind::Other)),
         json!({ "type": "remove", "kind": "other" })
     );
+}
+
+#[cfg(all(feature = "serde", feature = "serialization-compat-6"))]
+#[test]
+fn event_kinds_are_compatible_with_notify_6() {
+    for (kind, expected) in [
+        (EventKind::Any, json!("any")),
+        (EventKind::Other, json!("other")),
+        (
+            EventKind::Access(AccessKind::Open(AccessMode::Execute)),
+            json!({ "access": { "kind": "open", "mode": "execute" } }),
+        ),
+        (
+            EventKind::Create(CreateKind::File),
+            json!({ "create": { "kind": "file" } }),
+        ),
+        (
+            EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+            json!({ "modify": { "kind": "rename", "mode": "both" } }),
+        ),
+        (
+            EventKind::Remove(RemoveKind::Other),
+            json!({ "remove": { "kind": "other" } }),
+        ),
+    ] {
+        assert_eq!(serde_json::to_value(kind).unwrap(), expected);
+        assert_eq!(serde_json::from_value::<EventKind>(expected).unwrap(), kind);
+    }
+}
+
+#[cfg(all(feature = "serde", feature = "serialization-compat-6"))]
+#[test]
+fn events_are_compatible_with_notify_6() {
+    for (event, expected) in [
+        (
+            Event::new(EventKind::Any),
+            json!({ "type": "any", "paths": [], "attrs": {} }),
+        ),
+        (
+            Event::new(EventKind::Remove(RemoveKind::Other))
+                .add_path("/example".into())
+                .set_tracker(123)
+                .set_flag(Flag::Rescan)
+                .set_info("unmount"),
+            json!({
+                "type": { "remove": { "kind": "other" } },
+                "paths": ["/example"],
+                "attrs": { "tracker": 123, "flag": "Rescan", "info": "unmount" },
+            }),
+        ),
+    ] {
+        assert_eq!(serde_json::to_value(&event).unwrap(), expected);
+        assert_eq!(serde_json::from_value::<Event>(expected).unwrap(), event);
+    }
 }
