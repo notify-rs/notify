@@ -172,8 +172,8 @@ impl EventLoop {
     }
 
     fn handle_kqueue(&mut self) {
-        let mut add_watches = Vec::new();
         let mut remove_watches = Vec::new();
+        let mut refresh_dirs = Vec::new();
         let mut pending_events = Vec::new();
 
         while let Some(event) = self.kqueue.poll(None) {
@@ -189,7 +189,6 @@ impl EventLoop {
                     let event_path = watch
                         .map(|watch| watch.reported_path.clone())
                         .unwrap_or_else(|| path.clone());
-                    let is_user_watch = watch.is_some_and(|watch| watch.is_user_watch);
                     let event = match data {
                         /*
                         TODO: Differentiate folders and files
@@ -217,6 +216,8 @@ impl EventLoop {
                                         .is_ok_and(|metadata| metadata.is_dir())
                                 } =>
                         {
+                            refresh_dirs
+                                .push(WatchPath::from_parts(path.clone(), event_path.clone()));
                             // find which file is new in the directory by comparing it with our
                             // list of known watches
                             std::fs::read_dir(&path)
@@ -227,17 +228,8 @@ impl EventLoop {
                                 })
                                 .map(|file| {
                                     if let Some(file) = file {
-                                        // watch this new file
                                         let reported_file =
                                             reported_path(&path, &event_path, &file);
-                                        add_watches.push((
-                                            WatchPath::from_parts(
-                                                file.clone(),
-                                                reported_file.clone(),
-                                            ),
-                                            false,
-                                        ));
-
                                         Event::new(EventKind::Create(if file.is_dir() {
                                             CreateKind::Folder
                                         } else if file.is_file() {
@@ -284,30 +276,10 @@ impl EventLoop {
                         ))
                         .add_path(event_path)),
 
-                        /*
-                        The link count on a file changed => subdirectory created or
-                        delete.
-                        */
+                        // The link count changed, for example because a subdirectory was created
+                        // or removed. mkdir, rmdir and rename also post NOTE_WRITE on the
+                        // directory. The NOTE_WRITE handler adds watches for the new entries.
                         kqueue::Vnode::Link => {
-                            // As we currently don't have a solution that would allow us
-                            // to only add/remove the new/delete directory and that dosn't include a
-                            // possible race condition. On possible solution would be to
-                            // create a `HashMap<PathBuf, Vec<PathBuf>>` which would
-                            // include every directory and this content add the time of
-                            // adding it to kqueue. While this should allow us to do the
-                            // diff and only add/remove the files necessary. This would
-                            // also introduce a race condition, where multiple files could
-                            // all ready be remove from the directory, and we could get out
-                            // of sync.
-                            // So for now, until we find a better solution, let remove and
-                            // readd the whole directory.
-                            // This is a expensive operation, as we recursive through all
-                            // subdirectories.
-                            remove_watches.push((path.clone(), false));
-                            add_watches.push((
-                                WatchPath::from_parts(path.clone(), event_path.clone()),
-                                is_user_watch,
-                            ));
                             Ok(Event::new(EventKind::Modify(ModifyKind::Any)).add_path(event_path))
                         }
 
@@ -349,8 +321,33 @@ impl EventLoop {
             self.remove_watch(path, remove_recursive).ok();
         }
 
-        for (path, is_user_watch) in add_watches {
-            self.add_watch(path, true, is_user_watch).ok();
+        // Until the removals above run, an entry that was removed and created again under the
+        // same name still has the watch of the removed entry. A scan before the removals would
+        // skip the new entry.
+        let mut add_watches = Vec::new();
+        for dir in refresh_dirs {
+            // If the directory's watch was removed above, for example because the directory was
+            // moved away, the path now names a different directory or nothing.
+            if !self.watches.contains_key(&dir.absolute) {
+                continue;
+            }
+            add_watches.extend(self.untracked_entries(&dir));
+        }
+
+        let watch_count = self.watches.len();
+        for path in add_watches {
+            // A directory that gets more than one NOTE_WRITE in one batch is scanned more than
+            // once, and each scan returns the same new entries.
+            if self.watches.contains_key(&path.absolute) {
+                continue;
+            }
+            self.add_watch_entries(path, true, false).ok();
+        }
+
+        // watch() registers all watches, so call it once for the batch, including any watches
+        // added before a walk failed.
+        if self.watches.len() > watch_count {
+            self.kqueue.watch().ok();
         }
 
         // Apply recursive watch changes before reporting the events that caused them. Event
@@ -359,6 +356,18 @@ impl EventLoop {
         for event in pending_events {
             self.event_handler.handle_event(event);
         }
+    }
+
+    fn untracked_entries(&self, dir: &WatchPath) -> Vec<WatchPath> {
+        let Ok(entries) = std::fs::read_dir(&dir.absolute) else {
+            return Vec::new();
+        };
+        entries
+            .filter_map(std::result::Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| !self.watches.contains_key(path))
+            .map(|path| dir.child(path))
+            .collect()
     }
 
     fn add_watch(
@@ -760,6 +769,119 @@ mod tests {
             .collect();
         assert_eq!(watched.get(dir.path()), Some(&true));
         assert_eq!(watched.get(&child), Some(&false));
+
+        Ok(())
+    }
+
+    #[test]
+    fn write_watches_every_new_entry() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut event_loop = test_event_loop()?;
+        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
+
+        // The NOTE_WRITE handler reports only the first new entry it finds as created. All new
+        // entries and the contents of new subdirectories still need a watch.
+        let first = dir.path().join("first");
+        let second = dir.path().join("second");
+        let file = dir.path().join("file");
+        std::fs::create_dir_all(first.join("nested"))?;
+        std::fs::create_dir_all(second.join("nested"))?;
+        std::fs::write(&file, "")?;
+        event_loop.handle_kqueue();
+
+        assert!(event_loop.watches.contains_key(&first.join("nested")));
+        assert!(event_loop.watches.contains_key(&second.join("nested")));
+        assert!(event_loop.watches.contains_key(&file));
+
+        Ok(())
+    }
+
+    #[test]
+    fn failed_refresh_registers_added_watches()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut event_loop = test_event_loop()?;
+        event_loop.follow_symlinks = true;
+        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
+
+        let child = dir.path().join("child");
+        let cycle = child.join("cycle");
+        std::fs::create_dir(&child)?;
+        std::os::unix::fs::symlink(".", &cycle)?;
+
+        // The walk adds the child watch before failing on the symlink cycle.
+        event_loop.handle_kqueue();
+
+        // Even that partial walk must register its watches to detect later changes.
+        std::fs::remove_file(&cycle)?;
+        let new = child.join("new");
+        std::fs::write(&new, "")?;
+        event_loop.handle_kqueue();
+
+        assert!(event_loop.watches.contains_key(&new));
+
+        Ok(())
+    }
+
+    // rmdir and mkdir of the same name can arrive in one batch. The scan for new entries has to
+    // run after the NOTE_DELETE of the old subdirectory removed its watch.
+    #[test]
+    fn write_rewatches_recreated_subdir() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let child = dir.path().join("child");
+        std::fs::create_dir(&child)?;
+        let mut event_loop = test_event_loop()?;
+        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
+
+        std::fs::remove_dir(&child)?;
+        std::fs::create_dir(&child)?;
+        event_loop.handle_kqueue();
+
+        // A watch on the removed directory does not report entries created in the new one.
+        let new = child.join("new");
+        std::fs::write(&new, "")?;
+        event_loop.handle_kqueue();
+
+        assert!(event_loop.watches.contains_key(&new));
+
+        Ok(())
+    }
+
+    #[test]
+    fn write_watches_file_that_replaced_subdir()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let child = dir.path().join("child");
+        std::fs::create_dir(&child)?;
+        let mut event_loop = test_event_loop()?;
+        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
+
+        std::fs::remove_dir(&child)?;
+        std::fs::write(&child, "")?;
+        event_loop.handle_kqueue();
+
+        // The watch of the removed directory is recursive. A watch on the new file is not.
+        let watch = event_loop.watches.get(&child).expect("child watch");
+        assert!(!watch.is_recursive);
+
+        Ok(())
+    }
+
+    #[test]
+    fn link_change_keeps_non_recursive_watch() -> std::result::Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
+        let mut event_loop = test_event_loop()?;
+        event_loop.add_watch(WatchPath::new(dir.path())?, false, true)?;
+
+        let child = dir.path().join("child");
+        std::fs::create_dir(&child)?;
+        event_loop.handle_kqueue();
+
+        assert!(!event_loop.watches.contains_key(&child));
+        let watch = event_loop.watches.get(dir.path()).expect("root watch");
+        assert!(!watch.is_recursive);
+        assert!(!watch.user_is_recursive);
 
         Ok(())
     }

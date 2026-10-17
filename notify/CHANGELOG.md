@@ -8,6 +8,7 @@
 - PERF: [macOS] avoid restarting the FSEvents stream when adding or updating a watch covered by a recursive ancestor on the same volume; document `Watcher::update_paths` for bulk registration [#988]
 - FIX: [Windows] return `Error::watch_not_found` from `unwatch` when the path is not watched instead of succeeding silently, matching the other backends [#1014]
 - PERF: [macOS] find an event's watch by hash, not by scanning [#1022]
+- FIX: [kqueue] keep a non-recursive watch non-recursive when a subdirectory is created or removed in it, and report changes to every file that is created together with other entries in a recursively watched directory
 
 [#998]: https://github.com/notify-rs/notify/issues/998
 [#988]: https://github.com/notify-rs/notify/issues/988
