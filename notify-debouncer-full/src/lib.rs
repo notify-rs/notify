@@ -86,7 +86,7 @@ use std::{
 use rustc_hash::FxHashMap as HashMap;
 use time::now;
 
-pub use cache::{FileIdCache, NoCache, RecommendedCache};
+pub use cache::{FileIdCache, NoCache, RecommendedCache, WatchRoot};
 
 #[cfg(not(target_family = "wasm"))]
 pub use file_id_map::FileIdMap;
@@ -216,7 +216,7 @@ pub(crate) struct DebounceDataInner<T> {
     queues: HashMap<PathBuf, Queue>,
     /// Registered watch roots, kept **sorted by path** so that `add_root`
     /// can dedupe via binary search in O(log N) and doesn't suffer from injection
-    roots: VecDeque<(PathBuf, RecursiveMode)>,
+    roots: VecDeque<WatchRoot>,
     cache: T,
     rename_event: Option<(DebouncedEvent, Option<FileId>)>,
     rescan_event: Option<DebouncedEvent>,
@@ -366,9 +366,9 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         for ancestor in path.ancestors() {
             if let Ok(index) = self
                 .roots
-                .binary_search_by(|(root, _)| root.as_path().cmp(ancestor))
+                .binary_search_by(|root| root.path.as_path().cmp(ancestor))
             {
-                if self.roots[index].1 == RecursiveMode::Recursive {
+                if self.roots[index].recursive_mode == RecursiveMode::Recursive {
                     return RecursiveMode::Recursive;
                 }
             }
@@ -602,12 +602,18 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
 
         match data
             .roots
-            .binary_search_by(|(p, _)| p.as_path().cmp(path.as_path()))
+            .binary_search_by(|root| root.path.as_path().cmp(path.as_path()))
         {
             Ok(_) => return, // already registered
             Err(pos) => {
                 // `VecDeque::insert` is O(min(pos, len - pos))
-                data.roots.insert(pos, (path.clone(), recursive_mode));
+                data.roots.insert(
+                    pos,
+                    WatchRoot {
+                        path: path.clone(),
+                        recursive_mode,
+                    },
+                );
             }
         }
 
@@ -617,7 +623,7 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     fn remove_root(&mut self, path: impl AsRef<Path>) {
         let mut data = self.data.inner.lock().unwrap();
 
-        data.roots.retain(|(root, _)| !root.starts_with(&path));
+        data.roots.retain(|root| !root.path.starts_with(&path));
 
         data.cache.remove_path(path.as_ref());
     }
@@ -1043,7 +1049,10 @@ mod tests {
         MockTime::set_time(time);
 
         let mut state = test_case.state.into_debounce_data_inner(time);
-        state.roots = VecDeque::from([(PathBuf::from("/"), RecursiveMode::Recursive)]);
+        state.roots = VecDeque::from([WatchRoot {
+            path: PathBuf::from("/"),
+            recursive_mode: RecursiveMode::Recursive,
+        }]);
 
         let mut prev_event_time = Duration::default();
 
@@ -1129,8 +1138,14 @@ mod tests {
         let state = DebounceDataInner {
             queues: HashMap::default(),
             roots: VecDeque::from([
-                (PathBuf::from("root"), RecursiveMode::NonRecursive),
-                (PathBuf::from("root/nested"), RecursiveMode::Recursive),
+                WatchRoot {
+                    path: PathBuf::from("root"),
+                    recursive_mode: RecursiveMode::NonRecursive,
+                },
+                WatchRoot {
+                    path: PathBuf::from("root/nested"),
+                    recursive_mode: RecursiveMode::Recursive,
+                },
             ]),
             cache: NoCache,
             rename_event: None,
@@ -1457,10 +1472,18 @@ mod tests {
         assert!(err.origin.is_some());
         assert_eq!(err.remaining.len(), 1);
 
-        let roots = debouncer.data.inner.lock().unwrap().roots.clone();
+        let roots: Vec<_> = debouncer
+            .data
+            .inner
+            .lock()
+            .unwrap()
+            .roots
+            .iter()
+            .map(|root| (root.path.clone(), root.recursive_mode))
+            .collect();
         assert_eq!(
             roots,
-            VecDeque::from([(PathBuf::from("ok1"), RecursiveMode::Recursive)])
+            vec![(PathBuf::from("ok1"), RecursiveMode::Recursive)]
         );
 
         Ok(())

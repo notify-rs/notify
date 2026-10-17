@@ -2,6 +2,15 @@ use file_id::FileId;
 use notify::RecursiveMode;
 use std::path::{Path, PathBuf};
 
+/// A path registered with the debouncer, together with the options it was watched with.
+#[derive(Debug, Clone)]
+pub struct WatchRoot {
+    /// The watched path.
+    pub path: PathBuf,
+    /// Whether the watch covers the path's descendants.
+    pub recursive_mode: RecursiveMode,
+}
+
 /// The interface of a file ID cache.
 ///
 /// This trait can be implemented for an existing cache, if it already holds `FileId`s.
@@ -21,15 +30,15 @@ pub trait FileIdCache {
     /// This will be called if a file or directory is deleted.
     fn remove_path(&mut self, path: &Path);
 
-    /// Re-scan all `root_paths`.
+    /// Re-scan all `roots`.
     ///
     /// This will be called if the notification back-end has dropped events.
-    /// The root paths are passed as argument, so the implementer doesn't have to store them.
+    /// The roots are passed as argument, so the implementer doesn't have to store them.
     ///
-    /// The default implementation calls `add_path` for each root path.
-    fn rescan(&mut self, root_paths: &[(PathBuf, RecursiveMode)]) {
-        for (path, recursive_mode) in root_paths {
-            self.add_path(path, *recursive_mode);
+    /// The default implementation calls `add_path` for each root.
+    fn rescan(&mut self, roots: &[WatchRoot]) {
+        for root in roots {
+            self.add_path(&root.path, root.recursive_mode);
         }
     }
 }
