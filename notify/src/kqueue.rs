@@ -367,6 +367,20 @@ impl EventLoop {
         is_recursive: bool,
         is_user_watch: bool,
     ) -> Result<()> {
+        let result = self.add_watch_entries(path, is_recursive, is_user_watch);
+        // Register the watches that were added even if adding failed partway. A watch that is in
+        // `self.watches` but not registered never reports the deletion of its path, so it would
+        // never be removed.
+        self.kqueue.watch()?;
+        result
+    }
+
+    fn add_watch_entries(
+        &mut self,
+        path: WatchPath,
+        is_recursive: bool,
+        is_user_watch: bool,
+    ) -> Result<()> {
         let path_is_dir = metadata(&path.absolute).map_err(Error::io)?.is_dir();
         let requested_is_recursive = is_recursive && path_is_dir;
         if is_user_watch {
@@ -432,16 +446,21 @@ impl EventLoop {
             let mut roots = WalkRoots::new(path);
             let mut first = true;
             for entry in walk {
-                let entry = entry.map_err(map_walkdir_error)?.into_path();
+                // An entry below the root can be removed between the listing and the open.
+                let entry = match entry {
+                    Ok(entry) => entry.into_path(),
+                    Err(err) if !first && walkdir_error_is_not_found(&err) => continue,
+                    Err(err) => return Err(map_walkdir_error(err)),
+                };
                 let path = roots.entry(entry.clone(), self.watches.get(&entry));
                 // WalkDir yields the root first; only it is the user-requested watch.
-                self.add_single_watch(path, is_recursive, is_user_watch && first)?;
+                match self.add_single_watch(path, is_recursive, is_user_watch && first) {
+                    Err(err) if !first && error_is_not_found(&err) => {}
+                    result => result?,
+                }
                 first = false;
             }
         }
-
-        // Only make a single `kevent` syscall to add all the watches.
-        self.kqueue.watch()?;
 
         Ok(())
     }
@@ -761,6 +780,38 @@ mod tests {
         event_loop.remove_watch(dir.path().to_path_buf(), false)?;
 
         assert!(!event_loop.watches.contains_key(&child));
+
+        Ok(())
+    }
+
+    // The walk fails on a directory that it cannot open. The watches it added before that have
+    // to be registered, or a new entry in them would never be noticed.
+    #[test]
+    fn failed_walk_registers_added_watches() -> std::result::Result<(), Box<dyn std::error::Error>>
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir()?;
+        let child = dir.path().join("child");
+        let locked = child.join("locked");
+        std::fs::create_dir_all(&locked)?;
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000))?;
+        let readable = std::fs::read_dir(&locked).is_ok();
+
+        let mut event_loop = test_event_loop()?;
+        let result = event_loop.add_watch(WatchPath::new(dir.path())?, true, true);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755))?;
+        // root can open the directory anyway, so the walk does not fail.
+        if readable {
+            return Ok(());
+        }
+        assert!(result.is_err());
+
+        let new = child.join("new");
+        std::fs::create_dir(&new)?;
+        event_loop.handle_kqueue();
+
+        assert!(event_loop.watches.contains_key(&new));
 
         Ok(())
     }
