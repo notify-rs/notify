@@ -2,18 +2,33 @@
 
 ## unreleased
 
-- FIX: Prevent intermittent hangs during rapid watch/unwatch sequences with `FsEventWatcher` on macOS
+## notify 9.0.0-rc.6 (2026-10-17)
+
+- FIX: [macOS] prevent intermittent hangs during rapid watch/unwatch sequences with `FsEventWatcher` [#1013]
 - FIX: [poll] return an error from `watch` when the path does not exist instead of failing silently, matching the other backends [#998]
-- FIX: [poll] detect subsecond symlink mtime changes when symlink following is disabled, with or without content comparison
+- FIX: [poll] detect subsecond symlink mtime changes when symlink following is disabled, with or without content comparison [#1004]
 - PERF: [macOS] avoid restarting the FSEvents stream when adding or updating a watch covered by a recursive ancestor on the same volume; document `Watcher::update_paths` for bulk registration [#988]
 - FIX: [Windows] return `Error::watch_not_found` from `unwatch` when the path is not watched instead of succeeding silently, matching the other backends [#1014]
 - PERF: [macOS] find an event's watch by hash, not by scanning [#1022]
-- FIX: [kqueue] keep a non-recursive watch non-recursive when a subdirectory is created or removed in it, and report changes to every file that is created together with other entries in a recursively watched directory
+- FIX: [kqueue] keep a non-recursive watch non-recursive when a subdirectory is created or removed in it, and watch every new entry in a recursively watched directory, including files removed and recreated in the same batch [#1025]
+- FIX: [kqueue] register watches added before a recursive walk fails, and skip child entries that disappear during the walk [#1017]
+- FIX: [macOS] deliver FSEvents recovery notifications reported at an ancestor of a watched path as rescan events [#1021]
+- FIX: [inotify] never abandon a recursive watch, report what failed instead [#970]
+- FIX: [inotify] report the directories a recursive watch could not walk into, rather than leaving their subtrees silently unwatched [#970]
+- PERF: [inotify, kqueue] avoid scanning all watches for each entry during recursive watch registration while preserving event path representations for nested watches [#986]
+- PERF: [kqueue] watch new directory entries without rewalking the entire watched subtree [#1025]
 
+[#970]: https://github.com/notify-rs/notify/pull/970
+[#986]: https://github.com/notify-rs/notify/pull/986
 [#998]: https://github.com/notify-rs/notify/issues/998
 [#988]: https://github.com/notify-rs/notify/issues/988
+[#1004]: https://github.com/notify-rs/notify/pull/1004
+[#1013]: https://github.com/notify-rs/notify/pull/1013
 [#1014]: https://github.com/notify-rs/notify/issues/1014
+[#1017]: https://github.com/notify-rs/notify/pull/1017
+[#1021]: https://github.com/notify-rs/notify/pull/1021
 [#1022]: https://github.com/notify-rs/notify/issues/1022
+[#1025]: https://github.com/notify-rs/notify/pull/1025
 
 ## notify 9.0.0-rc.5 (2026-08-30)
 
@@ -33,14 +48,11 @@
 - PERF: [kqueue] avoid filesystem walks for recursive kqueue unwatch
 - FEATURE: add `Watcher::watch_with` to pass per-path settings, and `WatchPathConfig::with_dereference_symlinks` to watch a symbolic link itself instead of its destination, which also makes a dangling link watchable [#255]
 - FIX: [poll] detect subsecond file mtime changes without content hashing
-- FIX: [inotify] never abandon a recursive watch, report what failed instead [#970]
-- FIX: [inotify] report the directories a recursive watch could not walk into, rather than leaving their subtrees silently unwatched [#970]
 
 [#255]: https://github.com/notify-rs/notify/issues/255
 [#930]: https://github.com/notify-rs/notify/pull/930
 [#935]: https://github.com/notify-rs/notify/issues/935
 [#958]: https://github.com/notify-rs/notify/pull/958
-[#970]: https://github.com/notify-rs/notify/pull/970
 
 ## notify 9.0.0-rc.4 (2026-05-02)
 
