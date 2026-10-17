@@ -334,13 +334,20 @@ impl EventLoop {
             add_watches.extend(self.untracked_entries(&dir));
         }
 
+        let watch_count = self.watches.len();
         for path in add_watches {
             // A directory that gets more than one NOTE_WRITE in one batch is scanned more than
             // once, and each scan returns the same new entries.
             if self.watches.contains_key(&path.absolute) {
                 continue;
             }
-            self.add_watch(path, true, false).ok();
+            self.add_watch_entries(path, true, false).ok();
+        }
+
+        // watch() registers all watches, so call it once for the batch, including any watches
+        // added before a walk failed.
+        if self.watches.len() > watch_count {
+            self.kqueue.watch().ok();
         }
 
         // Apply recursive watch changes before reporting the events that caused them. Event
@@ -785,6 +792,33 @@ mod tests {
         assert!(event_loop.watches.contains_key(&first.join("nested")));
         assert!(event_loop.watches.contains_key(&second.join("nested")));
         assert!(event_loop.watches.contains_key(&file));
+
+        Ok(())
+    }
+
+    #[test]
+    fn failed_refresh_registers_added_watches()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut event_loop = test_event_loop()?;
+        event_loop.follow_symlinks = true;
+        event_loop.add_watch(WatchPath::new(dir.path())?, true, true)?;
+
+        let child = dir.path().join("child");
+        let cycle = child.join("cycle");
+        std::fs::create_dir(&child)?;
+        std::os::unix::fs::symlink(".", &cycle)?;
+
+        // The walk adds the child watch before failing on the symlink cycle.
+        event_loop.handle_kqueue();
+
+        // Even that partial walk must register its watches to detect later changes.
+        std::fs::remove_file(&cycle)?;
+        let new = child.join("new");
+        std::fs::write(&new, "")?;
+        event_loop.handle_kqueue();
+
+        assert!(event_loop.watches.contains_key(&new));
 
         Ok(())
     }
