@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use file_id::FileId;
@@ -13,7 +13,7 @@ use notify::{
     },
 };
 
-use crate::{DebounceDataInner, DebouncedEvent, FileIdCache, Queue};
+use crate::{DebounceDataInner, DebouncedEvent, FileIdCache, Queue, time::Instant};
 
 pub(crate) use schema::TestCase;
 

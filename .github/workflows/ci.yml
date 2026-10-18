@@ -224,28 +224,59 @@ jobs:
       - name: Build for Android (arm)
         run: cargo ndk --target armv7-linux-androideabi build --verbose
 
-  # # WebAssembly System Interface (WASI)
-  # wasi:
-  #   name: WASI
-  #   runs-on: ubuntu-latest
-  #   needs: quality
-  #   steps:
-  #     - uses: actions/checkout@v4
+  # WebAssembly and WebAssembly System Interface (WASI)
+  wasm:
+    name: WebAssembly ${{ matrix.target }} - ${{ matrix.rust }}
+    runs-on: ubuntu-latest
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [wasm32-unknown-unknown, wasm32-wasip1, wasm32-wasip2]
+        rust: [stable, 1.88]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
-  #     - name: Remove rust-toolchain.toml
-  #       run: rm -f rust-toolchain.toml
+      - name: Install Rust ${{ matrix.rust }}
+        run: |
+          rustup toolchain install ${{ matrix.rust }} --profile minimal
+          rustup target add --toolchain ${{ matrix.rust }} ${{ matrix.target }}
 
-  #     - name: Install Rust
-  #       run: |
-  #       rustup override set stable
-  #       rustup update stable
-  #       rustup target wasm32-wasip2
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: wasm-${{ matrix.rust }}-${{ matrix.target }}
 
-  #     - name: Cache dependencies
-  #       uses: Swatinem/rust-cache@v2
+      # The file-id CLI requires Unix or Windows; its types also support wasm.
+      - name: Build libraries and examples
+        run: cargo +${{ matrix.rust }} build --workspace --lib --examples --target ${{ matrix.target }} --verbose --locked
 
-  #     - name: Build for WASI
-  #       run: cargo build --target wasm32-wasip2 --verbose
+      - name: Build libraries and examples with all features
+        run: cargo +${{ matrix.rust }} build --workspace --lib --examples --all-features --target ${{ matrix.target }} --verbose --locked
 
-  #     - name: Build examples for WASI
-  #       run: cargo build --examples --target wasm32-wasip2 --verbose
+      - name: Compile unit tests
+        run: cargo +${{ matrix.rust }} test --workspace --exclude examples --lib --no-run --target ${{ matrix.target }} --verbose --locked
+
+      - name: Compile unit tests with all features
+        run: cargo +${{ matrix.rust }} test --workspace --exclude examples --lib --no-run --all-features --target ${{ matrix.target }} --verbose --locked
+
+      - name: Install Wasmtime
+        if: matrix.target != 'wasm32-unknown-unknown'
+        uses: taiki-e/install-action@51cd0b8c0499559d9a4d75c0f5c67bec3a894ec8 # v2.75.28
+        with:
+          tool: wasmtime@49.0.3
+
+      # Watchers spawn threads, which these WASI targets do not support.
+      - name: Run portable tests on WASI
+        if: matrix.target != 'wasm32-unknown-unknown'
+        env:
+          INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
+          CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime --dir . --dir ${{ github.workspace }} --env INSTA_WORKSPACE_ROOT
+          CARGO_TARGET_WASM32_WASIP2_RUNNER: wasmtime --dir . --dir ${{ github.workspace }} --env INSTA_WORKSPACE_ROOT
+        run: |
+          cargo +${{ matrix.rust }} test -p notify-types --lib --features serde --target ${{ matrix.target }} --locked -- --test-threads=1
+          cargo +${{ matrix.rust }} test -p notify-types --lib --all-features --target ${{ matrix.target }} --locked -- --test-threads=1
+          cargo +${{ matrix.rust }} test -p notify --lib --target ${{ matrix.target }} --locked -- config:: error:: paths:: --test-threads=1
+          cargo +${{ matrix.rust }} test -p notify-debouncer-full --lib --all-features --target ${{ matrix.target }} --locked -- tests::state tests::sort_events_ties_by_path tests::recursive_mode_uses_recursive_root_for_overlapping_watches --test-threads=1

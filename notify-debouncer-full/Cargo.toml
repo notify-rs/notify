@@ -42,6 +42,5 @@ pretty_assertions.workspace = true
 rstest.workspace = true
 serde.workspace = true
 deser-hjson.workspace = true
-rand.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, default-features = true, features = ["time", "rt", "macros"] }

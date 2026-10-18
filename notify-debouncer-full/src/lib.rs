@@ -80,11 +80,11 @@ use std::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use rustc_hash::FxHashMap as HashMap;
-use time::now;
+use time::{Instant, now};
 
 pub use cache::{FileIdCache, NoCache, RecommendedCache, WatchRoot};
 
@@ -1313,7 +1313,7 @@ mod tests {
 
         let mut state = DebounceDataInner::new(NoCache, Duration::from_millis(50));
 
-        let time = std::time::Instant::now();
+        let time = Instant::now();
         MockTime::set_time(time);
 
         let path = PathBuf::from("/tmp/test_file.txt");

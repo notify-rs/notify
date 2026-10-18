@@ -37,6 +37,7 @@
 //! let file_id = file_id::get_file_id_no_follow(file.path()).unwrap();
 //! println!("{file_id:?}");
 //! ```
+#[cfg(any(unix, windows))]
 use std::{fs, io, path::Path};
 
 #[cfg(feature = "serde")]
