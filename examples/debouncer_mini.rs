@@ -1,7 +1,7 @@
 use std::{path::Path, time::Duration};
 
 use notify::{EventKindMask, RecommendedWatcher, RecursiveMode};
-use notify_debouncer_mini::{Config, new_debouncer_opt};
+use notify_debouncer_mini::{Config, DebouncedEventBatch, new_debouncer_opt};
 
 /// Example for debouncer mini with event filtering.
 ///
@@ -51,9 +51,13 @@ fn main() {
     // print all events, non returning
     for result in rx {
         match result {
-            Ok(events) => events
+            Ok(DebouncedEventBatch::Events(events)) => events
                 .iter()
                 .for_each(|event| log::info!("Event {event:?}")),
+            Ok(DebouncedEventBatch::Rescan) => {
+                // Refresh any cached state for all watched paths here.
+                log::warn!("Events were missed; rescan all watched paths");
+            }
             Err(error) => log::info!("Error {error:?}"),
         }
     }

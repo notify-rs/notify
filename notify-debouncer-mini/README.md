@@ -4,6 +4,14 @@
 
 Tiny debouncer for [notify]. Filters incoming events and emits only one event per timeframe per file.
 
+Successful notifications are either `DebouncedEventBatch::Events`, containing debounced path
+changes, or `DebouncedEventBatch::Rescan`, indicating that cached filesystem state must be
+refreshed for all watched paths. Rescan notifications are delivered without waiting for the
+debounce timeout and must be handled before filtering individual events by path or kind.
+
+Version 0.8 uses notify v9 and changes `DebounceEventResult` from a vector of events to this enum.
+See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#5-mini-debouncer-notifications) for an example.
+
 ## Features
 
 - `crossbeam-channel` passed down to notify, off by default

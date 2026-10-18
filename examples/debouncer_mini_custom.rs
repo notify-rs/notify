@@ -1,7 +1,7 @@
 use std::{path::Path, time::Duration};
 
 use notify::{self, RecursiveMode};
-use notify_debouncer_mini::{Config, new_debouncer_opt};
+use notify_debouncer_mini::{Config, DebouncedEventBatch, new_debouncer_opt};
 
 /// Debouncer with custom backend and waiting for exit
 fn main() {
@@ -33,7 +33,15 @@ fn main() {
     // print all events, non returning
     for result in rx {
         match result {
-            Ok(event) => println!("Event {event:?}"),
+            Ok(DebouncedEventBatch::Events(events)) => {
+                for event in events {
+                    println!("Event {event:?}");
+                }
+            }
+            Ok(DebouncedEventBatch::Rescan) => {
+                // Refresh any cached state for all watched paths here.
+                println!("Events were missed; rescan all watched paths");
+            }
             Err(error) => println!("Error {error:?}"),
         }
     }

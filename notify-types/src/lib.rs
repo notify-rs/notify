@@ -30,6 +30,7 @@ mod tests {
         assert_debug_impl!(event::EventKind);
         assert_debug_impl!(event::EventKindMask);
         assert_debug_impl!(debouncer_mini::DebouncedEvent);
+        assert_debug_impl!(debouncer_mini::DebouncedEventBatch);
         assert_debug_impl!(debouncer_mini::DebouncedEventKind);
         assert_debug_impl!(debouncer_full::DebouncedEvent);
     }

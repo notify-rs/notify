@@ -1,7 +1,8 @@
 # Changelog
 
-## notify-types 2.1.1 (unreleased)
+## notify-types 2.2.0 (unreleased)
 
+- FEATURE: add `debouncer_mini::DebouncedEventBatch` to distinguish path changes from rescan notifications
 - CHANGE: raise MSRV to 1.88
 - CHANGE: add `#[must_use]` annotations to `EventKind` predicates plus `Event` and `EventAttributes` getter/builder APIs
 
