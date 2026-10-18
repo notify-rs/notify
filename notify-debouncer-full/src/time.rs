@@ -1,9 +1,11 @@
+pub(crate) use notify_types::debouncer_full::Instant;
+
 #[cfg(not(test))]
 pub use build::*;
 
 #[cfg(not(test))]
 mod build {
-    use std::time::Instant;
+    use super::Instant;
 
     pub fn now() -> Instant {
         Instant::now()
@@ -15,10 +17,8 @@ pub use test::*;
 
 #[cfg(test)]
 mod test {
-    use std::{
-        sync::Mutex,
-        time::{Duration, Instant},
-    };
+    use super::Instant;
+    use std::{sync::Mutex, time::Duration};
 
     thread_local! {
         static NOW: Mutex<Option<Instant>> = const { Mutex::new(None) };
