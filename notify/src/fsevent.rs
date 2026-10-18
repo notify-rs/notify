@@ -68,7 +68,7 @@ const RUNLOOP_STOP_RECHECK_SECONDS: cf::CFTimeInterval = 0.5;
 
 /// FSEvents-based `Watcher` implementation
 pub struct FsEventWatcher {
-    since_when: fs::FSEventStreamEventId,
+    since_when: Option<fs::FSEventStreamEventId>,
     latency: cf::CFTimeInterval,
     flags: fs::FSEventStreamCreateFlags,
     event_handler: Arc<Mutex<dyn EventHandler>>,
@@ -84,6 +84,7 @@ struct WatchEntry {
     info: WatchInfo,
     cf_path: cf::CFRetained<cf::CFString>,
     device: u64,
+    inode: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -134,7 +135,7 @@ impl Drop for FseventsPathReservation {
 struct RunLoopHandle {
     runloop: cf::CFRetained<cf::CFRunLoop>,
     stop_flag: Arc<AtomicBool>,
-    thread_handle: thread::JoinHandle<()>,
+    thread_handle: thread::JoinHandle<fs::FSEventStreamEventId>,
     recursive_info: Arc<Mutex<HashMap<PathBuf, WatchInfo>>>,
 }
 
@@ -392,7 +393,7 @@ impl FsEventWatcher {
         latency: cf::CFTimeInterval,
     ) -> Result<Self> {
         Ok(FsEventWatcher {
-            since_when: fs::kFSEventStreamEventIdSinceNow,
+            since_when: None,
             latency,
             flags: fs::kFSEventStreamCreateFlagFileEvents
                 | fs::kFSEventStreamCreateFlagNoDefer
@@ -405,9 +406,14 @@ impl FsEventWatcher {
     }
 
     fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        let path = self.append_path(path, recursive_mode)?;
+        let (path, previous) = self.append_path(path, recursive_mode)?;
         let entry = &self.watches[&path];
-        if self.is_covered(&path, entry.device)
+        let unchanged = previous.is_some_and(|previous| {
+            previous.device == entry.device
+                && previous.inode == entry.inode
+                && previous.info.is_recursive == entry.info.is_recursive
+        });
+        if (unchanged || self.is_covered(&path, entry.device))
             && let Some(runloop) = &self.runloop
         {
             // The stream already delivers these events. Update the callback's path
@@ -425,17 +431,33 @@ impl FsEventWatcher {
     }
 
     fn unwatch_inner(&mut self, path: &Path) -> Result<()> {
+        let (path, entry) = self.remove_path(path)?;
+        if self.is_covered(&path, entry.device)
+            && let Some(runloop) = &self.runloop
+        {
+            runloop
+                .recursive_info
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&path);
+            return Ok(());
+        }
+
         self.stop();
-        let result = self.remove_path(path);
-        self.run()?;
-        result
+        self.run()
     }
 
     fn update_paths_inner(
         &mut self,
         ops: Vec<crate::PathOp>,
     ) -> crate::StdResult<(), crate::UpdatePathsError> {
-        self.stop();
+        if ops.is_empty() {
+            return Ok(());
+        }
+        let previous_roots: HashMap<_, _> = self
+            .stream_roots()
+            .map(|(path, entry)| (path.clone(), (entry.device, entry.inode)))
+            .collect();
 
         let result = crate::update_paths(ops, |op| match op {
             crate::PathOp::Watch(path, config) => self
@@ -444,9 +466,27 @@ impl FsEventWatcher {
                 .map_err(|e| (PathOp::Watch(path, config), e)),
             crate::PathOp::Unwatch(path) => self
                 .remove_path(&path)
+                .map(|_| ())
                 .map_err(|e| (PathOp::Unwatch(path), e)),
         });
 
+        let roots_unchanged = self.stream_roots().count() == previous_roots.len()
+            && self.stream_roots().all(|(path, entry)| {
+                previous_roots.get(path) == Some(&(entry.device, entry.inode))
+            });
+        if roots_unchanged && let Some(runloop) = &self.runloop {
+            *runloop
+                .recursive_info
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = self
+                .watches
+                .iter()
+                .map(|(path, entry)| (path.clone(), entry.info.clone()))
+                .collect();
+            return result;
+        }
+
+        self.stop();
         match self.run() {
             Err(run_error) => match result {
                 Ok(()) => Err(crate::UpdatePathsError {
@@ -488,11 +528,11 @@ impl FsEventWatcher {
             runloop.stop();
             runloop.wake_up();
             // Wait for the thread to shut down.
-            thread_handle.join().expect("thread to shut down");
+            self.since_when = Some(thread_handle.join().expect("thread to shut down"));
         }
     }
 
-    fn remove_path(&mut self, path: &Path) -> Result<()> {
+    fn remove_path(&mut self, path: &Path) -> Result<(PathBuf, WatchEntry)> {
         let p = path
             .canonicalize()
             .ok()
@@ -506,13 +546,17 @@ impl FsEventWatcher {
             .unwrap_or_else(|| path.to_owned());
 
         match self.watches.remove(&p) {
-            Some(_) => Ok(()),
+            Some(entry) => Ok((p, entry)),
             None => Err(Error::watch_not_found()),
         }
     }
 
     // https://github.com/thibaudgg/rb-fsevent/blob/master/ext/fsevent_watch/main.c
-    fn append_path(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<PathBuf> {
+    fn append_path(
+        &mut self,
+        path: &Path,
+        recursive_mode: RecursiveMode,
+    ) -> Result<(PathBuf, Option<WatchEntry>)> {
         if !path.exists() {
             return Err(Error::path_not_found().add_path(path.into()));
         }
@@ -527,9 +571,9 @@ impl FsEventWatcher {
             return Err(Error::path_not_found().add_path(path.into()));
         };
 
-        let device = std::fs::metadata(&canonical_path)?.dev();
+        let metadata = std::fs::metadata(&canonical_path)?;
 
-        self.watches.insert(
+        let previous = self.watches.insert(
             canonical_path.clone(),
             WatchEntry {
                 info: WatchInfo {
@@ -537,10 +581,11 @@ impl FsEventWatcher {
                     reported_path: path.to_path_buf(),
                 },
                 cf_path,
-                device,
+                device: metadata.dev(),
+                inode: metadata.ino(),
             },
         );
-        Ok(canonical_path)
+        Ok((canonical_path, previous))
     }
 
     // A recursive watch covers nested watches on the same volume. Non-recursive
@@ -553,12 +598,16 @@ impl FsEventWatcher {
         })
     }
 
+    fn stream_roots(&self) -> impl Iterator<Item = (&PathBuf, &WatchEntry)> {
+        self.watches
+            .iter()
+            .filter(|(path, entry)| !self.is_covered(path, entry.device))
+    }
+
     fn stream_paths(&self) -> cf::CFRetained<cf::CFMutableArray<cf::CFString>> {
         let paths: cf::CFRetained<cf::CFMutableArray<cf::CFString>> = cf::CFMutableArray::empty();
-        for (path, entry) in &self.watches {
-            if !self.is_covered(path, entry.device) {
-                paths.append(&entry.cf_path);
-            }
+        for (_, entry) in self.stream_roots() {
+            paths.append(&entry.cf_path);
         }
         paths
     }
@@ -566,6 +615,7 @@ impl FsEventWatcher {
     fn run(&mut self) -> Result<()> {
         let stream_paths = self.stream_paths();
         if stream_paths.is_empty() {
+            self.since_when = None;
             return Ok(());
         }
 
@@ -612,13 +662,19 @@ impl FsEventWatcher {
             copyDescription: None,
         };
 
+        // Use a concrete starting ID even before the first callback. Otherwise a
+        // restart before any events have been delivered would still use SinceNow
+        // and discard the old stream's pending events.
+        let since_when = self
+            .since_when
+            .unwrap_or_else(|| unsafe { fs::FSEventsGetCurrentEventId() });
         let stream = unsafe {
             fs::FSEventStreamCreate(
                 cf::kCFAllocatorDefault,
                 Some(callback),
                 &stream_context as *const _ as *mut _,
                 stream_paths.as_opaque(),
-                self.since_when,
+                since_when,
                 self.latency,
                 self.flags,
             )
@@ -677,7 +733,7 @@ impl FsEventWatcher {
                         rl_tx
                             .send(Err(Error::generic("unable to start FSEvent stream")))
                             .expect("Unable to send error for FSEventStreamStart");
-                        return;
+                        return since_when;
                     }
 
                     // `stop()` will call `CFRunLoopStop` + `CFRunLoopWakeUp` and then join this
@@ -699,8 +755,15 @@ impl FsEventWatcher {
                         }
                     }
                     fs::FSEventStreamStop(stream);
+                    // The runloop has finished all callbacks. Preserve the last
+                    // delivered ID before releasing the stream so its replacement
+                    // also receives events queued before or during the restart.
+                    // RootChanged events have ID zero; never rewind past the
+                    // point where this stream started.
+                    let since_when = fs::FSEventStreamGetLatestEventId(stream).max(since_when);
                     fs::FSEventStreamInvalidate(stream);
                     fs::FSEventStreamRelease(stream);
+                    since_when
                 }
             })?;
         // block until runloop has been sent
@@ -1001,7 +1064,8 @@ unsafe fn path_to_cfstring_ref(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
 
     use crate::{ErrorKind, WatchPathConfig};
 
@@ -1141,6 +1205,278 @@ mod tests {
             .thread_handle
             .thread()
             .id()
+    }
+
+    fn wait_for_path(rx: &mpsc::Receiver<Result<Event>>, path: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let event = rx
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap_or_else(|err| panic!("missing event for {}: {err}", path.display()))
+                .expect("watcher event");
+            if event.paths.iter().any(|event_path| event_path == path) {
+                return;
+            }
+        }
+    }
+
+    // Block the native runloop, rather than racing a sleep against event delivery.
+    // The source owns its context and is released along with the runloop.
+    fn pause_runloop(watcher: &FsEventWatcher) -> mpsc::Sender<()> {
+        type Pause = (mpsc::Sender<()>, mpsc::Receiver<()>);
+
+        unsafe extern "C-unwind" fn perform(info: *mut libc::c_void) {
+            let (entered, resume) = unsafe { &*info.cast::<Pause>() };
+            let _ = entered.send(());
+            let _ = resume.recv_timeout(Duration::from_secs(20));
+        }
+
+        unsafe extern "C-unwind" fn release(info: *const libc::c_void) {
+            drop(unsafe { Box::from_raw(info.cast_mut().cast::<Pause>()) });
+        }
+
+        let (entered_tx, entered_rx) = mpsc::channel::<()>();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let mut context = cf::CFRunLoopSourceContext {
+            version: 0,
+            info: Box::into_raw(Box::new((entered_tx, resume_rx))).cast(),
+            retain: None,
+            release: Some(release),
+            copyDescription: None,
+            equal: None,
+            hash: None,
+            schedule: None,
+            cancel: None,
+            perform: Some(perform),
+        };
+        let runloop = &watcher.runloop.as_ref().expect("running watcher").runloop;
+        let source = unsafe {
+            cf::CFRunLoopSource::new(cf::kCFAllocatorDefault, isize::MIN, &mut context)
+                .expect("pause source")
+        };
+        runloop.add_source(Some(&source), unsafe { cf::kCFRunLoopDefaultMode });
+        source.signal();
+        runloop.wake_up();
+        entered_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("runloop paused");
+        resume_tx
+    }
+
+    #[test]
+    fn queued_events_survive_watch_changes() {
+        for change in [
+            "watch",
+            "rewatch",
+            "unwatch",
+            "update_paths",
+            "failed_update_paths",
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path().canonicalize().unwrap();
+            let a = root.join("a");
+            let b = root.join("b");
+            let c = root.join("c");
+            for path in [&a, &b, &c] {
+                std::fs::create_dir(path).unwrap();
+            }
+
+            let (tx, rx) = mpsc::channel();
+            let mut watcher = FsEventWatcher::new(tx, Config::default()).unwrap();
+            watcher
+                .update_paths(vec![
+                    PathOp::watch_recursive(a.clone()),
+                    PathOp::watch_recursive(b.clone()),
+                ])
+                .unwrap();
+
+            // A separate stream confirms that FSEvents has produced the pending
+            // event while the stream under test cannot invoke its callback.
+            let (observer_tx, observer_rx) = mpsc::channel();
+            let mut observer = FsEventWatcher::new(observer_tx, Config::default()).unwrap();
+            observer.watch(&a, RecursiveMode::Recursive).unwrap();
+            let resume = pause_runloop(&watcher);
+            let path = a.join("pending");
+            std::fs::write(&path, "pending event").unwrap();
+            wait_for_path(&observer_rx, &path);
+            assert!(
+                rx.try_iter()
+                    .all(|event| !event.unwrap().paths.contains(&path))
+            );
+
+            let stop_flag = watcher.runloop.as_ref().unwrap().stop_flag.clone();
+            thread::scope(|scope| {
+                scope.spawn(move || {
+                    let deadline = Instant::now() + Duration::from_secs(10);
+                    while !stop_flag.load(Ordering::Acquire) && Instant::now() < deadline {
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    let stopped = stop_flag.load(Ordering::Acquire);
+                    resume.send(()).expect("resume runloop");
+                    assert!(stopped, "{change} did not stop the old stream");
+                });
+                match change {
+                    "watch" => watcher.watch(&c, RecursiveMode::Recursive).unwrap(),
+                    "rewatch" => watcher.watch(&a, RecursiveMode::NonRecursive).unwrap(),
+                    "unwatch" => watcher.unwatch(&b).unwrap(),
+                    "update_paths" => watcher
+                        .update_paths(vec![
+                            PathOp::unwatch(b.clone()),
+                            PathOp::watch_recursive(c.clone()),
+                        ])
+                        .unwrap(),
+                    "failed_update_paths" => {
+                        let err = watcher
+                            .update_paths(vec![
+                                PathOp::unwatch(b.clone()),
+                                PathOp::unwatch(root.join("missing")),
+                                PathOp::watch_recursive(c.clone()),
+                            ])
+                            .unwrap_err();
+                        assert!(matches!(err.source.kind, ErrorKind::WatchNotFound));
+                        assert_eq!(err.remaining.len(), 1);
+                    }
+                    _ => unreachable!(),
+                }
+            });
+            wait_for_path(&rx, &path);
+        }
+    }
+
+    #[test]
+    fn events_during_stream_restart_are_replayed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let mut watcher = FsEventWatcher::new(tx, Config::default()).unwrap();
+        watcher.watch(&root, RecursiveMode::Recursive).unwrap();
+
+        let before = root.join("before");
+        std::fs::write(&before, "before restart").unwrap();
+        wait_for_path(&rx, &before);
+        watcher.stop();
+        assert!(watcher.since_when.is_some());
+
+        let (observer_tx, observer_rx) = mpsc::channel();
+        let mut observer = FsEventWatcher::new(observer_tx, Config::default()).unwrap();
+        observer.watch(&root, RecursiveMode::Recursive).unwrap();
+        let during = root.join("during");
+        std::fs::write(&during, "during restart").unwrap();
+        wait_for_path(&observer_rx, &during);
+
+        watcher.run().unwrap();
+        wait_for_path(&rx, &during);
+
+        watcher.unwatch(&root).unwrap();
+        assert_eq!(watcher.since_when, None);
+    }
+
+    #[test]
+    fn unchanged_stream_roots_keep_pending_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let child = root.join("child");
+        let nested = child.join("nested");
+        let missing = root.join("missing");
+        std::fs::create_dir_all(&nested).unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        let mut watcher = FsEventWatcher::new(tx, Config::default()).unwrap();
+        watcher.watch(&root, RecursiveMode::Recursive).unwrap();
+        watcher.watch(&child, RecursiveMode::Recursive).unwrap();
+        let thread_id = runloop_thread_id(&watcher);
+        let resume = pause_runloop(&watcher);
+        let pending = root.join("pending");
+        std::fs::write(&pending, "pending event").unwrap();
+
+        watcher.watch(&root, RecursiveMode::Recursive).unwrap();
+        assert_eq!(runloop_thread_id(&watcher), thread_id);
+        watcher.unwatch(&child).unwrap();
+        assert_eq!(runloop_thread_id(&watcher), thread_id);
+        assert!(matches!(
+            watcher.unwatch(&missing).unwrap_err().kind,
+            ErrorKind::WatchNotFound
+        ));
+        assert_eq!(runloop_thread_id(&watcher), thread_id);
+
+        watcher.update_paths(vec![]).unwrap();
+        assert_eq!(runloop_thread_id(&watcher), thread_id);
+        watcher
+            .update_paths(vec![PathOp::watch_recursive(child.clone())])
+            .unwrap();
+        assert_eq!(runloop_thread_id(&watcher), thread_id);
+        watcher
+            .update_paths(vec![PathOp::unwatch(child.clone())])
+            .unwrap();
+        assert_eq!(runloop_thread_id(&watcher), thread_id);
+
+        let err = watcher
+            .update_paths(vec![PathOp::watch_recursive(missing.clone())])
+            .unwrap_err();
+        assert!(matches!(err.source.kind, ErrorKind::PathNotFound));
+        assert_eq!(runloop_thread_id(&watcher), thread_id);
+
+        // Successful operations before an error must still update the callback,
+        // even when the native stream's roots have not changed.
+        let err = watcher
+            .update_paths(vec![
+                PathOp::Watch(
+                    root.clone(),
+                    WatchPathConfig::new(RecursiveMode::NonRecursive),
+                ),
+                PathOp::unwatch(missing),
+                PathOp::watch_recursive(child),
+            ])
+            .unwrap_err();
+        assert!(matches!(err.source.kind, ErrorKind::WatchNotFound));
+        assert_eq!(err.remaining.len(), 1);
+        assert_eq!(runloop_thread_id(&watcher), thread_id);
+        let recursive_info = watcher
+            .runloop
+            .as_ref()
+            .unwrap()
+            .recursive_info
+            .lock()
+            .unwrap();
+        assert!(!recursive_info[&root].is_recursive);
+        assert!(watch_for(&recursive_info, &nested.join("entry")).is_none());
+        drop(recursive_info);
+        resume.send(()).expect("resume runloop");
+        wait_for_path(&rx, &pending);
+
+        let path = root.join("entry");
+        std::fs::write(&path, "still watched").unwrap();
+        wait_for_path(&rx, &path);
+    }
+
+    #[test]
+    fn rewatching_a_replaced_root_restarts_the_stream() {
+        for batch in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let parent = dir.path().canonicalize().unwrap();
+            let root = parent.join("root");
+            std::fs::create_dir(&root).unwrap();
+
+            let (tx, rx) = mpsc::channel();
+            let mut watcher = FsEventWatcher::new(tx, Config::default()).unwrap();
+            watcher.watch(&root, RecursiveMode::Recursive).unwrap();
+            let thread_id = runloop_thread_id(&watcher);
+
+            std::fs::rename(&root, parent.join("old")).unwrap();
+            std::fs::create_dir(&root).unwrap();
+            if batch {
+                watcher
+                    .update_paths(vec![PathOp::watch_recursive(root.clone())])
+                    .unwrap();
+            } else {
+                watcher.watch(&root, RecursiveMode::Recursive).unwrap();
+            }
+            assert_ne!(runloop_thread_id(&watcher), thread_id);
+
+            let path = root.join("entry");
+            std::fs::write(&path, "replacement root").unwrap();
+            wait_for_path(&rx, &path);
+        }
     }
 
     #[test]
