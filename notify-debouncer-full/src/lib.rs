@@ -1549,6 +1549,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_family = "wasm"))]
     fn unwatch_parent_preserves_nested_root() -> Result<(), Box<dyn std::error::Error>> {
         let mut debouncer = new_debouncer_opt::<_, TrackingWatcher, FileIdMap>(
             Duration::from_millis(20),
@@ -1595,6 +1596,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_family = "wasm"))]
     fn unwatch_not_found_preserves_nested_roots() -> Result<(), Box<dyn std::error::Error>> {
         let mut debouncer = new_debouncer_opt::<_, TrackingWatcher, FileIdMap>(
             Duration::from_millis(20),
