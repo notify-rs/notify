@@ -50,6 +50,12 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+      - name: Test event serialization
+        run: cargo test -p notify --test serialise-events --features serde --locked
+
+      - name: Test notify 6 serialization compatibility
+        run: cargo test -p notify --test serialise-events --features serde,serialization-compat-6 --locked
+
       - name: Install typos-cli
         uses: taiki-e/install-action@51cd0b8c0499559d9a4d75c0f5c67bec3a894ec8 # v2.75.28
         with:
