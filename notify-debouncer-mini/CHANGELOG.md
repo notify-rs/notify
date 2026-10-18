@@ -1,7 +1,10 @@
 # Changelog
 
-## debouncer-mini 0.7.1 (unreleased)
+## debouncer-mini 0.8.0-rc.1 (unreleased)
 
+- CHANGE: update notify to version 9.0.0-rc.6 **breaking**
+- CHANGE: `DebounceEventResult` now returns `DebouncedEventBatch::Events(Vec<DebouncedEvent>)` or `DebouncedEventBatch::Rescan` on success **breaking**
+- FIX: forward rescan notifications immediately, with or without paths, so callers can refresh state for all watched paths
 - CHANGE: raise MSRV to 1.88
 - CHANGE: add `#[must_use]` annotations to debouncer config builder APIs
 - FEATURE: impl `EventHandler` for `futures::channel::mpsc::UnboundedSender` and `tokio::sync::mpsc::UnboundedSender` behind the `futures` and `tokio` feature flags [#767]

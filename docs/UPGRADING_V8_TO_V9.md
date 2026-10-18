@@ -104,6 +104,41 @@ watcher.watch(path, notify::RecursiveMode::NonRecursive)?;
 watcher.unwatch(path)?;
 ```
 
+### 5) Mini debouncer notifications
+
+`notify-debouncer-mini` 0.8 uses notify v9. Its `DebounceEventResult` is now
+`Result<DebouncedEventBatch, notify::Error>` instead of `Result<Vec<DebouncedEvent>, notify::Error>`.
+Replace the `Ok(events)` branch with `Ok(DebouncedEventBatch::Events(events))` and handle the
+new `Rescan` variant:
+
+```rust
+use notify_debouncer_mini::{DebounceEventResult, DebouncedEventBatch};
+
+fn handle_event(result: DebounceEventResult) {
+    match result {
+        Ok(DebouncedEventBatch::Events(events)) => {
+            for event in events {
+                println!("Event {:?} for {:?}", event.kind, event.path);
+            }
+        }
+        Ok(DebouncedEventBatch::Rescan) => {
+            // Refresh any cached state for all watched paths here.
+            println!("Events were missed; rescan all watched paths");
+        }
+        Err(error) => eprintln!("Watch error: {error}"),
+    }
+}
+```
+
+Previously, the mini debouncer discarded rescan flags. It now forwards them without waiting for
+the debounce timeout, including when the backend supplies no paths. `Rescan` applies to all
+watched paths regardless of any paths on the original event, so handle it before applying path
+or event-kind filters. Pending path changes keep their usual debounce deadlines, and errors
+are still delivered immediately.
+
+The existing `DebouncedEvent` and `DebouncedEventKind` types are unchanged. `DebouncedEventBatch`
+is an additive API in `notify-types` 2.2; the breaking change is in `notify-debouncer-mini`.
+
 ## Non-breaking changes but worth mentioning
 
 ### Event-kind filtering was added
