@@ -304,6 +304,12 @@ impl FileIdCache for TestCache {
         }
     }
 
+    fn add_single_path(&mut self, path: &Path) {
+        if let Some(file_id) = self.file_system.get(path) {
+            self.paths.insert(path.to_path_buf(), *file_id);
+        }
+    }
+
     fn remove_path(&mut self, path: &Path) {
         self.paths.remove(path);
     }

@@ -1,6 +1,7 @@
 use file_id::FileId;
 use notify::RecursiveMode;
 use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
 
 /// A path registered with the debouncer, together with the options it was watched with.
 #[derive(Debug, Clone)]
@@ -23,7 +24,28 @@ pub trait FileIdCache {
     /// Add a new path to the cache or update its value.
     ///
     /// This will be called if a new file or directory is created or if an existing file is overridden.
-    fn add_path(&mut self, path: &Path, recursive_mode: RecursiveMode);
+    ///
+    /// The default implementation walks `path` and calls `add_single_path` for each entry. With
+    /// [`RecursiveMode::NonRecursive`], the walk stops at the direct children of `path`.
+    fn add_path(&mut self, path: &Path, recursive_mode: RecursiveMode) {
+        let max_depth = match recursive_mode {
+            RecursiveMode::Recursive => usize::MAX,
+            RecursiveMode::NonRecursive => 1,
+        };
+        for entry in WalkDir::new(path)
+            .follow_links(true)
+            .max_depth(max_depth)
+            .into_iter()
+            .flatten()
+        {
+            self.add_single_path(entry.path());
+        }
+    }
+
+    /// Add `path` to the cache without the entries below it.
+    ///
+    /// This will be called by `add_path` for each entry it walks.
+    fn add_single_path(&mut self, path: &Path);
 
     /// Remove a path from the cache.
     ///
@@ -63,6 +85,8 @@ impl FileIdCache for NoCache {
     }
 
     fn add_path(&mut self, _path: &Path, _recursive_mode: RecursiveMode) {}
+
+    fn add_single_path(&mut self, _path: &Path) {}
 
     fn remove_path(&mut self, _path: &Path) {}
 }
