@@ -315,9 +315,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
         match &event.kind {
             EventKind::Create(_) => {
-                let recursive_mode = self.recursive_mode(path);
-
-                self.cache.add_path(path, recursive_mode);
+                self.add_event_path(path);
 
                 self.push_event(event, now());
             }
@@ -352,13 +350,22 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             }
             _ => {
                 if self.cache.cached_file_id(path).is_none() {
-                    let recursive_mode = self.recursive_mode(path);
-
-                    self.cache.add_path(path, recursive_mode);
+                    self.add_event_path(path);
                 }
 
                 self.push_event(event, now());
             }
+        }
+    }
+
+    /// Adds the path of an event to the cache. A non-recursive root covers itself and its direct
+    /// children, but not the entries below a child, so a child is added without them.
+    fn add_event_path(&mut self, path: &Path) {
+        match self.recursive_mode(path) {
+            RecursiveMode::NonRecursive if root_at(&self.roots, path).is_none() => {
+                self.cache.add_single_path(path)
+            }
+            recursive_mode => self.cache.add_path(path, recursive_mode),
         }
     }
 
@@ -391,9 +398,7 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     }
 
     fn handle_rename_to(&mut self, event: Event) {
-        let recursive_mode = self.recursive_mode(&event.paths[0]);
-
-        self.cache.add_path(&event.paths[0], recursive_mode);
+        self.add_event_path(&event.paths[0]);
 
         let trackers_match = self
             .rename_event
@@ -864,6 +869,13 @@ pub fn new_debouncer<F: DebounceEventHandler>(
     )
 }
 
+fn root_at<'a>(roots: &'a VecDeque<WatchRoot>, path: &Path) -> Option<&'a WatchRoot> {
+    let index = roots
+        .binary_search_by(|root| root.path.as_path().cmp(path))
+        .ok()?;
+    Some(&roots[index])
+}
+
 fn sort_events(events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
     let mut sorted = Vec::with_capacity(events.len());
 
@@ -972,6 +984,18 @@ mod tests {
     #[derive(Debug, Default)]
     struct TrackingWatcher {
         watched: Vec<(PathBuf, RecursiveMode)>,
+    }
+
+    fn tracking_debouncer<C: FileIdCache + Send + 'static>(
+        cache: C,
+    ) -> Result<Debouncer<TrackingWatcher, C>, Error> {
+        new_debouncer_opt(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            |_| {},
+            cache,
+            notify::Config::default(),
+        )
     }
 
     impl Watcher for TrackingWatcher {
@@ -1543,6 +1567,41 @@ mod tests {
         assert_eq!(
             debouncer.watched_paths()?,
             vec![(path3, RecursiveMode::Recursive)]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn child_of_a_non_recursive_root_is_cached_without_its_entries()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut debouncer = tracking_debouncer(FileIdMap::new())?;
+
+        let tmpdir = tempdir()?;
+        debouncer.watch(tmpdir.path(), RecursiveMode::NonRecursive)?;
+        let child = tmpdir.path().join("child");
+        let grandchild = child.join("file.txt");
+        fs::create_dir(&child)?;
+        fs::write(&grandchild, b"content")?;
+
+        // Copy out what the assertions need and release the lock first: a panic while the
+        // guard is held poisons the mutex, and the debouncer's drop then panics too.
+        let (child_cached, grandchild_cached) = {
+            let mut data = debouncer.data.inner.lock().unwrap();
+            data.add_event(
+                Event::new(EventKind::Create(notify::event::CreateKind::Folder))
+                    .add_path(child.clone()),
+            );
+            (
+                data.cache.cached_file_id(&child).is_some(),
+                data.cache.cached_file_id(&grandchild).is_some(),
+            )
+        };
+        assert!(child_cached);
+        assert!(
+            !grandchild_cached,
+            "the non-recursive root does not watch the entries below its children"
         );
 
         Ok(())
