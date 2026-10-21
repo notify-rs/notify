@@ -2,10 +2,12 @@
 
 ## unreleased
 
+- FIX: [kqueue] skip entries a recursive watch is not permitted to open, instead of failing the whole watch, so `/` can be watched [#703]
 - FIX: [macOS] preserve pending FSEvents across stream rebuilds when watches are added, removed, or updated in a batch [#993]
 - PERF: [macOS] keep the FSEvents stream running when rewatching an unchanged path, removing a covered watch, or applying a batch with unchanged stream roots
 
 [#993]: https://github.com/notify-rs/notify/issues/993
+[#703]: https://github.com/notify-rs/notify/issues/703
 
 ## notify 9.0.0-rc.6 (2026-10-17)
 

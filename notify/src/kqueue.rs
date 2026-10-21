@@ -431,13 +431,13 @@ impl EventLoop {
                     {
                         let absolute = match entry {
                             Ok(entry) => entry.into_path(),
-                            Err(err) if walkdir_error_is_not_found(&err) => continue,
+                            Err(err) if walkdir_error_is_skippable(&err) => continue,
                             Err(err) => return Err(map_walkdir_error(err)),
                         };
                         let path = roots.entry(absolute.clone(), self.watches.get(&absolute));
                         let result = self.add_single_watch(path, true, false);
                         if let Err(err) = result {
-                            if !error_is_not_found(&err) {
+                            if !error_is_skippable(&err) {
                                 return Err(err);
                             }
                         }
@@ -458,13 +458,13 @@ impl EventLoop {
                 // An entry below the root can be removed between the listing and the open.
                 let entry = match entry {
                     Ok(entry) => entry.into_path(),
-                    Err(err) if !first && walkdir_error_is_not_found(&err) => continue,
+                    Err(err) if !first && walkdir_error_is_skippable(&err) => continue,
                     Err(err) => return Err(map_walkdir_error(err)),
                 };
                 let path = roots.entry(entry.clone(), self.watches.get(&entry));
                 // WalkDir yields the root first; only it is the user-requested watch.
                 match self.add_single_watch(path, is_recursive, is_user_watch && first) {
-                    Err(err) if !first && error_is_not_found(&err) => {}
+                    Err(err) if !first && error_is_skippable(&err) => {}
                     result => result?,
                 }
                 first = false;
@@ -565,14 +565,24 @@ fn map_walkdir_error(e: walkdir::Error) -> Error {
     }
 }
 
-fn walkdir_error_is_not_found(e: &walkdir::Error) -> bool {
-    e.io_error()
-        .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+/// A child entry that vanished, that the process may not open (`/usr/bin/sudo`) or that cannot be
+/// watched (a socket) must not abort the walk.
+fn io_kind_is_skippable(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::NotFound
+            | std::io::ErrorKind::PermissionDenied
+            | std::io::ErrorKind::Unsupported
+    )
 }
 
-fn error_is_not_found(e: &Error) -> bool {
+fn walkdir_error_is_skippable(e: &walkdir::Error) -> bool {
+    e.io_error().is_some_and(|e| io_kind_is_skippable(e.kind()))
+}
+
+fn error_is_skippable(e: &Error) -> bool {
     matches!(&e.kind, ErrorKind::PathNotFound)
-        || matches!(&e.kind, ErrorKind::Io(io_err) if io_err.kind() == std::io::ErrorKind::NotFound)
+        || matches!(&e.kind, ErrorKind::Io(io_err) if io_kind_is_skippable(io_err.kind()))
 }
 
 impl KqueueWatcher {
@@ -823,6 +833,37 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn recursive_watch_skips_unopenable_entries()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir()?;
+        let denied = dir.path().join("denied");
+        std::fs::write(&denied, "")?;
+        std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o000))?;
+        let locked = dir.path().join("locked");
+        std::fs::create_dir(&locked)?;
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000))?;
+        let dangling = dir.path().join("dangling");
+        std::os::unix::fs::symlink(dir.path().join("missing"), &dangling)?;
+        let ok = dir.path().join("ok");
+        std::fs::write(&ok, "")?;
+
+        let mut event_loop = test_event_loop()?;
+        event_loop.follow_symlinks = true;
+        let result = event_loop.add_watch(WatchPath::new(dir.path())?, true, true);
+
+        // Restore permissions so the temp dir can be removed.
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755))?;
+        std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o644))?;
+
+        result?;
+        assert!(event_loop.watches.contains_key(&ok));
+
+        Ok(())
+    }
+
     // rmdir and mkdir of the same name can arrive in one batch. The scan for new entries has to
     // run after the NOTE_DELETE of the old subdirectory removed its watch.
     #[test]
@@ -906,27 +947,19 @@ mod tests {
         Ok(())
     }
 
-    // The walk fails on a directory that it cannot open. The watches it added before that have
-    // to be registered, or a new entry in them would never be noticed.
+    // The walk fails on a symlink cycle. The watches it added before that have to be registered,
+    // or a new entry in them would never be noticed.
     #[test]
     fn failed_walk_registers_added_watches() -> std::result::Result<(), Box<dyn std::error::Error>>
     {
-        use std::os::unix::fs::PermissionsExt;
-
         let dir = tempfile::tempdir()?;
         let child = dir.path().join("child");
-        let locked = child.join("locked");
-        std::fs::create_dir_all(&locked)?;
-        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000))?;
-        let readable = std::fs::read_dir(&locked).is_ok();
+        std::fs::create_dir(&child)?;
+        std::os::unix::fs::symlink(".", child.join("cycle"))?;
 
         let mut event_loop = test_event_loop()?;
+        event_loop.follow_symlinks = true;
         let result = event_loop.add_watch(WatchPath::new(dir.path())?, true, true);
-        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755))?;
-        // root can open the directory anyway, so the walk does not fail.
-        if readable {
-            return Ok(());
-        }
         assert!(result.is_err());
 
         let new = child.join("new");
