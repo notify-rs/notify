@@ -258,6 +258,7 @@ impl Default for Config {
 pub struct WatchPathConfig {
     recursive_mode: RecursiveMode,
     dereference_symlinks: bool,
+    fsevent_exclusions: Vec<PathBuf>,
 }
 
 impl WatchPathConfig {
@@ -267,6 +268,7 @@ impl WatchPathConfig {
         Self {
             recursive_mode,
             dereference_symlinks: true,
+            fsevent_exclusions: Vec::new(),
         }
     }
 
@@ -295,6 +297,27 @@ impl WatchPathConfig {
     #[must_use]
     pub fn dereference_symlinks(&self) -> bool {
         self.dereference_symlinks
+    }
+
+    /// For the [FsEventWatcher](crate::FsEventWatcher) backend.
+    ///
+    /// Folders under the watched path whose changes the system does not report, set with
+    /// `FSEventStreamSetExclusionPaths`. A folder need not exist yet: one made later is excluded
+    /// too. The exclusions of every watch on a watcher apply to its one stream, so they also hide
+    /// changes from another watch under them, and FSEvents takes at most 8 in all: more is an
+    /// error from `watch_with`. A folder outside the watched path is an error.
+    ///
+    /// Other backends ignore it. Empty by default.
+    #[must_use]
+    pub fn with_fsevent_exclusions(mut self, folders: Vec<PathBuf>) -> Self {
+        self.fsevent_exclusions = folders;
+        self
+    }
+
+    /// Returns current setting
+    #[must_use]
+    pub fn fsevent_exclusions(&self) -> &[PathBuf] {
+        &self.fsevent_exclusions
     }
 }
 
