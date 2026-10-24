@@ -1,12 +1,24 @@
 # Changelog
 
-## notify 9.0.0 (unreleased)
-- CHANGE: raise MSRV to 1.85 **breaking**
-- FIX: Fix the bug that `FsEventWatcher` crashes when dealing with empty path [#718]
-- FIX: Fix the bug that `INotifyWatcher` keeps watching deleted paths [#720]
+## notify 8.2.1 (2026-10-25)
+- CHANGE: raise MSRV from 1.77 to 1.85 [#719] [#723] **breaking**
+- CHANGE: replace `fsevent-sys` with `objc2-core-foundation` and `objc2-core-services` on macOS, preserving the `fsevent-sys` feature for compatibility [#726]
+- CHANGE: update `windows-sys` to 0.61 [#1045]
+- FIX: prevent `FsEventWatcher` from crashing when unwatching an empty path [#718]
+- FIX: clean up deleted paths in `INotifyWatcher` even when the kernel has already removed their watch descriptors [#720]
+- FIX: propagate FSEvents stream startup errors from `watch`, `unwatch`, and `PathsMut::commit` [#733]
+- MISC: expand watcher backend tests and fix flaky polling tests [#728] [#732] [#734]
 
 [#718]: https://github.com/notify-rs/notify/pull/718
+[#719]: https://github.com/notify-rs/notify/pull/719
 [#720]: https://github.com/notify-rs/notify/pull/720
+[#723]: https://github.com/notify-rs/notify/pull/723
+[#726]: https://github.com/notify-rs/notify/pull/726
+[#728]: https://github.com/notify-rs/notify/pull/728
+[#732]: https://github.com/notify-rs/notify/pull/732
+[#733]: https://github.com/notify-rs/notify/pull/733
+[#734]: https://github.com/notify-rs/notify/pull/734
+[#1045]: https://github.com/notify-rs/notify/pull/1045
 
 ## notify 8.2.0 (2025-08-03)
 - FEATURE: notify user if inotify's `max_user_watches` has been reached [#698]

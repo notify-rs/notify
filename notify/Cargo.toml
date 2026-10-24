@@ -1,6 +1,6 @@
 [package]
 name = "notify"
-version = "8.2.0"
+version = "8.2.1"
 description = "Cross-platform filesystem notification library"
 documentation = "https://docs.rs/notify"
 readme = "../README.md"
@@ -21,7 +21,9 @@ repository.workspace = true
 default = ["macos_fsevent"]
 serde = ["notify-types/serde"]
 macos_kqueue = ["kqueue", "mio"]
-macos_fsevent = ["objc2-core-foundation", "objc2-core-services"]
+macos_fsevent = ["fsevent-sys"]
+# Preserve the feature previously exposed by the optional fsevent-sys dependency.
+fsevent-sys = ["objc2-core-foundation", "objc2-core-services"]
 serialization-compat-6 = ["notify-types/serialization-compat-6"]
 
 [dependencies]
