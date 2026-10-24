@@ -6,7 +6,8 @@
 
 use super::event::*;
 use super::{
-    Config, Error, ErrorKind, EventHandler, RecursiveMode, Result, WatchPathConfig, Watcher,
+    Config, Error, ErrorKind, EventHandler, PathOp, RecursiveMode, Result, UpdatePathsError,
+    WatchPathConfig, Watcher,
 };
 use crate::paths::{
     WalkRoots, WatchMetadata, WatchPath, absolute_path, is_preserved_watch_root,
@@ -127,6 +128,10 @@ pub struct INotifyWatcher {
 enum EventLoopMsg {
     AddWatch(WatchPath, WatchPathConfig, Sender<Result<()>>),
     RemoveWatch(PathBuf, Sender<Result<()>>),
+    UpdatePaths(
+        Vec<(PathOp, Result<PathBuf>)>,
+        Sender<std::result::Result<(), UpdatePathsError>>,
+    ),
     GetWatchedPaths(Sender<Vec<(PathBuf, RecursiveMode)>>),
     Shutdown,
     Configure(Config, BoundSender<Result<bool>>),
@@ -285,6 +290,38 @@ impl EventLoop {
                 }
                 EventLoopMsg::RemoveWatch(path, tx) => {
                     let _ = tx.send(self.remove_watch(path, false));
+                }
+                EventLoopMsg::UpdatePaths(ops, tx) => {
+                    let mut ops = ops.into_iter();
+                    let mut result = Ok(());
+                    let mut applied = 0;
+                    while let Some((op, path)) = ops.next() {
+                        let operation = path.and_then(|absolute| match &op {
+                            PathOp::Watch(requested, config) => self.add_watch(
+                                WatchPath::from_parts(absolute, requested.clone()),
+                                config.clone(),
+                                /*watch_self*/ true,
+                            ),
+                            PathOp::Unwatch(_) => {
+                                self.remove_watch(absolute, /*remove_recursive*/ false)
+                            }
+                        });
+                        if let Err(source) = operation {
+                            result = Err(UpdatePathsError {
+                                source,
+                                origin: Some(op),
+                                remaining: ops.map(|(op, _)| op).collect(),
+                            });
+                            break;
+                        }
+                        applied += 1;
+                        // Drain events during large batches instead of overflowing the kernel queue.
+                        if applied % 1024 == 0 {
+                            self.handle_inotify();
+                        }
+                    }
+                    self.handle_inotify();
+                    let _ = tx.send(result);
                 }
                 EventLoopMsg::GetWatchedPaths(tx) => {
                     let _ = tx.send(
@@ -614,6 +651,15 @@ impl EventLoop {
         let is_recursive = config.recursive_mode().is_recursive();
         // a recursive watch has to resolve the path before it can walk it
         let dereference = config.dereference_symlinks() || is_recursive;
+        // add_single_watch validates new paths after registration; no preliminary stat is needed.
+        if !is_recursive && !self.watches.contains_key(&path.absolute) {
+            return self.add_single_watch(
+                path,
+                /*is_recursive*/ false,
+                dereference,
+                /*watch_self*/ true,
+            );
+        }
         let path_is_dir = watch_metadata(&path.absolute, dereference)
             .map_err(Error::io_watch)?
             .is_dir();
@@ -788,7 +834,23 @@ impl EventLoop {
         if let Some(ref mut inotify) = self.inotify {
             log::trace!("adding inotify watch: {}", path.absolute.display());
 
-            match inotify.watches().add(&path.absolute, add_mask) {
+            let (watch_result, directory_verified) = if !is_recursive && existing_watch.is_none() {
+                // ONLYDIR classifies the watched inode without a second pathname lookup.
+                match inotify
+                    .watches()
+                    .add(&path.absolute, add_mask | WatchMask::ONLYDIR)
+                {
+                    Ok(watch) => (Ok(watch), true),
+                    Err(error) if error.raw_os_error() == Some(libc::ENOTDIR) => {
+                        (inotify.watches().add(&path.absolute, add_mask), false)
+                    }
+                    Err(error) => (Err(error), false),
+                }
+            } else {
+                (inotify.watches().add(&path.absolute, add_mask), false)
+            };
+
+            match watch_result {
                 Err(e) => {
                     Err(if e.raw_os_error() == Some(libc::ENOSPC) {
                         // do not report inotify limits as "no more space" on linux #266
@@ -802,13 +864,17 @@ impl EventLoop {
                 }
                 Ok(w) => {
                     debug_assert!(!watchmask.intersects(RESOLUTION_FLAGS));
-                    let is_dir = match watch_metadata(&path.absolute, dereference) {
-                        Ok(metadata) => metadata.is_dir(),
-                        Err(e) => {
-                            // Avoid leaking an inotify watch if we can't stat after adding it.
-                            // This can happen due to racy deletions.
-                            let _ = inotify.watches().remove(w.clone());
-                            return Err(Error::io_watch(e).add_path(path.requested));
+                    let is_dir = if directory_verified {
+                        true
+                    } else {
+                        match watch_metadata(&path.absolute, dereference) {
+                            Ok(metadata) => metadata.is_dir(),
+                            Err(e) => {
+                                // Avoid leaking an inotify watch if we can't stat after adding it.
+                                // This can happen due to racy deletions.
+                                let _ = inotify.watches().remove(w.clone());
+                                return Err(Error::io_watch(e).add_path(path.requested));
+                            }
                         }
                     };
                     let metadata = WatchMetadata::new(
@@ -1233,6 +1299,38 @@ impl Watcher for INotifyWatcher {
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {
         self.unwatch_inner(path)
+    }
+
+    fn update_paths(&mut self, ops: Vec<PathOp>) -> std::result::Result<(), UpdatePathsError> {
+        // Resolve relative paths on the caller, as watch() and unwatch() do.
+        let prepared = ops
+            .iter()
+            .map(|op| {
+                let copy = match op {
+                    PathOp::Watch(path, config) => PathOp::Watch(path.clone(), config.clone()),
+                    PathOp::Unwatch(path) => PathOp::Unwatch(path.clone()),
+                };
+                (copy, absolute_path(op.as_path()))
+            })
+            .collect();
+        let (tx, rx) = unbounded();
+        self.channel
+            .send(EventLoopMsg::UpdatePaths(prepared, tx))
+            .map_err(|source| UpdatePathsError {
+                source: Error::from(source),
+                origin: None,
+                remaining: ops,
+            })?;
+        self.waker
+            .wake()
+            .map_err(Error::from)
+            .and_then(|()| rx.recv().map_err(Error::from))
+            .map_err(|source| UpdatePathsError {
+                source,
+                origin: None,
+                // The batch was enqueued; the applied prefix is unknown without its reply.
+                remaining: Vec::new(),
+            })?
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
@@ -2475,6 +2573,100 @@ mod tests {
         std::fs::remove_dir(&dir).expect("remove");
 
         rx.wait_unordered([expected(&dir).remove_folder()]);
+    }
+
+    #[test]
+    fn non_recursive_directory_symlink_reports_target_events() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = channel_with_config::<INotifyWatcher>(
+            ChannelConfig::default()
+                .with_watcher_config(Config::default().with_follow_symlinks(false)),
+        );
+        let target = tmpdir.path().join("target");
+        let link = tmpdir.path().join("link");
+        std::fs::create_dir(&target).expect("create directory");
+        std::os::unix::fs::symlink(&target, &link).expect("create symlink");
+        watcher.watch_nonrecursively(&link);
+
+        let child = target.join("child");
+        let reported_child = link.join("child");
+        std::fs::File::create_new(&child).expect("create child");
+        rx.wait_ordered([expected(&reported_child).create_file()]);
+        std::fs::remove_file(&child).expect("remove child");
+        rx.wait_ordered([expected(&reported_child).remove_file()]);
+        std::fs::remove_dir(&target).expect("remove directory");
+        rx.wait_ordered([expected(&link).remove_folder()]);
+    }
+
+    #[test]
+    fn non_recursive_file_symlink_reports_target_events() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = channel_with_config::<INotifyWatcher>(
+            ChannelConfig::default()
+                .with_watcher_config(Config::default().with_follow_symlinks(false)),
+        );
+        let target = tmpdir.path().join("target");
+        let link = tmpdir.path().join("link");
+        std::fs::write(&target, "").expect("create file");
+        std::os::unix::fs::symlink(&target, &link).expect("create symlink");
+        watcher.watch_nonrecursively(&link);
+
+        std::fs::write(&target, "changed").expect("write file");
+        rx.wait_ordered([expected(&link).modify_data_any()]);
+        std::fs::remove_file(&target).expect("remove file");
+        rx.wait_ordered([expected(&link).remove_file()]);
+    }
+
+    #[test]
+    fn batch_reply_disconnect_does_not_report_unattempted_operations() {
+        let poll = mio::Poll::new().expect("create poll");
+        let (channel, requests) = mpsc::channel();
+        let mut watcher = INotifyWatcher {
+            channel,
+            waker: Arc::new(
+                mio::Waker::new(poll.registry(), super::MESSAGE).expect("create waker"),
+            ),
+        };
+        let receiver = thread::spawn(move || {
+            let Ok(super::EventLoopMsg::UpdatePaths(_, reply)) = requests.recv() else {
+                panic!("expected batch request");
+            };
+            drop(reply);
+            assert!(matches!(requests.recv(), Ok(super::EventLoopMsg::Shutdown)));
+        });
+
+        let result = watcher.update_paths(vec![
+            crate::PathOp::watch_non_recursive("first"),
+            crate::PathOp::watch_non_recursive("second"),
+        ]);
+        drop(watcher);
+        receiver.join().expect("request receiver finished");
+
+        let error = result.expect_err("batch reply was disconnected");
+        assert!(error.origin.is_none());
+        assert!(error.remaining.is_empty());
+    }
+
+    #[test]
+    fn batch_watch_preserves_symlink_dereference_setting() {
+        let tmpdir = testdir();
+        let link = tmpdir.path().join("link");
+        std::os::unix::fs::symlink(tmpdir.path().join("missing"), &link).expect("create symlink");
+        let (mut watcher, mut rx) = watcher();
+
+        let mut operations: Vec<_> = (0..2048)
+            .map(|_| crate::PathOp::watch_non_recursive(tmpdir.path()))
+            .collect();
+        operations.push(crate::PathOp::Watch(
+            link.clone(),
+            non_recursive_watch().with_dereference_symlinks(false),
+        ));
+        watcher
+            .watcher
+            .update_paths(operations)
+            .expect("watch dangling symlink without dereferencing it");
+        std::fs::remove_file(&link).expect("remove symlink");
+        rx.wait_ordered([expected(&link).remove_file()]);
     }
 
     #[test]
