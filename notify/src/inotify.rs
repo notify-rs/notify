@@ -289,6 +289,10 @@ impl EventLoop {
                     let _ = tx.send(self.remove_watch(path, false));
                 }
                 EventLoopMsg::UpdatePaths(ops, tx) => {
+                    // Buffer events so a bounded handler cannot block the batch reply.
+                    let (events_tx, events_rx) = unbounded();
+                    let event_handler =
+                        std::mem::replace(&mut self.event_handler, Box::new(events_tx));
                     let mut ops = ops.into_iter();
                     let mut result = Ok(());
                     let mut applied = 0;
@@ -318,7 +322,11 @@ impl EventLoop {
                         }
                     }
                     self.handle_inotify();
+                    self.event_handler = event_handler;
                     let _ = tx.send(result);
+                    for event in events_rx.try_iter() {
+                        self.event_handler.handle_event(event);
+                    }
                 }
                 EventLoopMsg::GetWatchedPaths(tx) => {
                     let _ = tx.send(
@@ -2448,6 +2456,52 @@ mod tests {
         rx.wait_ordered([expected(&link).modify_data_any()]);
         std::fs::remove_file(&target).expect("remove file");
         rx.wait_ordered([expected(&link).remove_file()]);
+    }
+
+    fn check_batch_with_bounded_event_handler(batch_size: usize) {
+        let tmpdir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(tmpdir.path().join("child")).unwrap();
+        let path = tmpdir.path().to_path_buf();
+        let (events_tx, events_rx) = mpsc::sync_channel(1);
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let mut watcher = INotifyWatcher::new(
+                move |event| {
+                    let _ = events_tx.send(event);
+                },
+                Config::default(),
+            )
+            .unwrap();
+            let operations = (0..batch_size)
+                .map(|_| crate::PathOp::watch_recursive(&path))
+                .collect();
+            finished_tx.send(watcher.update_paths(operations)).unwrap();
+        });
+
+        // The recursive scan produces access events without any concurrent file changes.
+        // Wait for registration to finish before consuming events, as callers do at startup.
+        let result = finished_rx.recv_timeout(Duration::from_secs(5));
+        let event = events_rx.recv_timeout(Duration::from_secs(5));
+        // Release a blocked handler before asserting, so a regression cannot hang the test.
+        drop(events_rx);
+        worker.join().unwrap();
+
+        result
+            .expect("batch must finish before events are consumed")
+            .expect("watch paths");
+        event
+            .expect("deliver buffered event to the original handler")
+            .expect("event without error");
+    }
+
+    #[test]
+    fn batch_reply_precedes_bounded_event_delivery() {
+        check_batch_with_bounded_event_handler(1);
+    }
+
+    #[test]
+    fn large_batch_reply_precedes_bounded_event_delivery() {
+        check_batch_with_bounded_event_handler(1025);
     }
 
     #[test]
