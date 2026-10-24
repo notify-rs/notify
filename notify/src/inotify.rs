@@ -972,13 +972,11 @@ impl EventLoop {
         Ok(())
     }
 
-    /// Inserts the watch of `path`, and adds `path` to the paths of its descriptor.
+    /// Inserts the watch of `path`, making it the last path of its descriptor even on re-add.
     fn insert_watch(&mut self, path: PathBuf, watch: Watch) {
         let descriptor = watch.watch_descriptor.clone();
-        match self.watches.insert(path.clone(), watch) {
-            Some(previous) if previous.watch_descriptor == descriptor => return,
-            Some(previous) => self.forget_paths([(previous.watch_descriptor, path.clone())]),
-            None => {}
+        if let Some(previous) = self.watches.insert(path.clone(), watch) {
+            self.forget_paths([(previous.watch_descriptor, path.clone())]);
         }
         // Most descriptors have one path, and `Vec::push` reserves room for four.
         self.paths
@@ -1682,6 +1680,13 @@ mod tests {
         }
     }
 
+    // FIXME: FreeBSD 15.1 does not generate IN_IGNORED unless IN_DELETE_SELF was requested.
+    // Remove this ignore once CI uses a release containing the fix:
+    // https://cgit.freebsd.org/src/commit/?id=242c9c86c8cad6aa29bc1af9161d4f0eec45f29b
+    #[cfg_attr(
+        target_os = "freebsd",
+        ignore = "FreeBSD 15.1 does not generate IN_IGNORED unconditionally"
+    )]
     #[test]
     fn deleting_a_directory_shared_through_a_link_removes_every_path() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1779,6 +1784,44 @@ mod tests {
             .filter_map(Result::ok)
             .any(|event| event.kind.is_create() && event.paths == [link.join("file")]);
         assert!(created, "`other/link` must keep receiving events");
+    }
+
+    #[test]
+    fn recursive_parent_added_after_non_recursive_alias_watches_new_subdirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let child = root.join("child");
+        let alias = tmp.path().join("alias");
+        std::fs::create_dir_all(&child).unwrap();
+        std::os::unix::fs::symlink(&child, &alias).unwrap();
+
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        for path in [&child, &alias] {
+            event_loop
+                .add_watch(WatchPath::new(path).unwrap(), non_recursive_watch(), true)
+                .unwrap();
+        }
+        // The parent's walk must use `child` for events again, so new directories
+        // inherit its recursive coverage instead of the alias's non-recursive mode.
+        event_loop
+            .add_watch(WatchPath::new(&root).unwrap(), recursive_watch(), true)
+            .unwrap();
+
+        let new_dir = child.join("new_dir");
+        std::fs::create_dir(&new_dir).unwrap();
+        event_loop.handle_inotify();
+
+        let file = new_dir.join("file");
+        std::fs::write(&file, b"content").unwrap();
+        event_loop.handle_inotify();
+
+        let events: Vec<_> = rx.try_iter().map(Result::unwrap).collect();
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind.is_create() && event.paths == [file.clone()]),
+            "the recursive parent must receive events from new subdirectories: {events:?}"
+        );
     }
 
     #[test]
