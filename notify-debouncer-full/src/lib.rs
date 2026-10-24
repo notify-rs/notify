@@ -792,6 +792,20 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
     };
 
     let data_c = data.clone();
+    let watcher = T::new(
+        move |e: Result<Event, Error>| {
+            let mut lock = data_c.inner.lock().unwrap();
+            match e {
+                Ok(e) => lock.add_event(e),
+                // can't have multiple TX, so we need to pipe that through our debouncer
+                Err(e) => lock.add_error(e),
+            }
+            data_c.changed.notify_all();
+        },
+        config,
+    )?;
+
+    let data_c = data.clone();
     let stop_c = stop.clone();
     let thread = std::thread::Builder::new()
         .name("notify-rs debouncer loop".to_string())
@@ -825,20 +839,6 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
                 }
             }
         })?;
-
-    let data_c = data.clone();
-    let watcher = T::new(
-        move |e: Result<Event, Error>| {
-            let mut lock = data_c.inner.lock().unwrap();
-            match e {
-                Ok(e) => lock.add_event(e),
-                // can't have multiple TX, so we need to pipe that through our debouncer
-                Err(e) => lock.add_error(e),
-            }
-            data_c.changed.notify_all();
-        },
-        config,
-    )?;
 
     let guard = Debouncer {
         watcher,
@@ -974,6 +974,30 @@ mod tests {
             } else {
                 Ok(())
             }
+        }
+
+        fn kind() -> WatcherKind {
+            WatcherKind::NullWatcher
+        }
+    }
+
+    #[derive(Debug)]
+    struct UnconstructibleWatcher;
+
+    impl Watcher for UnconstructibleWatcher {
+        fn new<F: notify::EventHandler>(
+            _event_handler: F,
+            _config: notify::Config,
+        ) -> notify::Result<Self> {
+            Err(Error::generic("watcher construction failed"))
+        }
+
+        fn watch(&mut self, _path: &Path, _recursive_mode: RecursiveMode) -> notify::Result<()> {
+            unreachable!()
+        }
+
+        fn unwatch(&mut self, _path: &Path) -> notify::Result<()> {
+            unreachable!()
         }
 
         fn kind() -> WatcherKind {
@@ -1488,6 +1512,25 @@ mod tests {
         }
 
         panic!("did not receive expected event");
+    }
+
+    #[test]
+    fn watcher_construction_error_releases_event_handler() {
+        let (tx, rx) = std::sync::mpsc::channel::<DebounceEventResult>();
+
+        let result = new_debouncer_opt::<_, UnconstructibleWatcher, NoCache>(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            tx,
+            NoCache::new(),
+            notify::Config::default(),
+        );
+        assert!(result.is_err());
+
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_secs(5)),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected)
+        ));
     }
 
     #[test]
