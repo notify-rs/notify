@@ -4,6 +4,8 @@
 
 - FIX: [macOS] preserve pending FSEvents across stream rebuilds when watches are added, removed, or updated in a batch [#993]
 - PERF: [macOS] keep the FSEvents stream running when rewatching an unchanged path, removing a covered watch, or applying a batch with unchanged stream roots
+- FIX: [inotify] remove every path of a deleted directory or file that two paths share through a symlink or a hard link, so `watched_paths` no longer lists it
+- FIX: [inotify] keep watching a directory below a deleted root that a symlink from outside the root still reaches
 
 [#993]: https://github.com/notify-rs/notify/issues/993
 
