@@ -2,11 +2,13 @@
 
 ## unreleased
 
+- FIX: [inotify] report newly created subdirectories found while extending a recursive watch, including nested directories created before their watches were installed; this recovery covers directories only [#727]
 - FIX: [macOS] preserve pending FSEvents across stream rebuilds when watches are added, removed, or updated in a batch [#993]
 - PERF: [macOS] keep the FSEvents stream running when rewatching an unchanged path, removing a covered watch, or applying a batch with unchanged stream roots
 - FIX: [inotify] remove every path of a deleted directory or file that two paths share through a symlink or a hard link, so `watched_paths` no longer lists it
 - FIX: [inotify] keep watching a directory below a deleted root that a symlink from outside the root still reaches
 
+[#727]: https://github.com/notify-rs/notify/issues/727
 [#993]: https://github.com/notify-rs/notify/issues/993
 
 ## notify 9.0.0-rc.6 (2026-10-17)
