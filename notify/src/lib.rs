@@ -37,9 +37,21 @@
 //! ### Network filesystems
 //!
 //! Network mounted filesystems like NFS may not emit any events for notify to listen to.
-//! This applies especially to WSL programs watching windows paths ([issue #254](https://github.com/notify-rs/notify/issues/254)).
+//! In Linux programs running under WSL, [`RecommendedWatcher`] uses inotify.
+//! On WSL2, changes made by Windows applications to files on Windows filesystems (such as
+//! `/mnt/c/...`) may not produce inotify events, even when [`Watcher::watch`] succeeds.
+//! See [issue #254](https://github.com/notify-rs/notify/issues/254) and
+//! [microsoft/WSL#4739](https://github.com/microsoft/WSL/issues/4739).
 //!
-//! A workaround is the [`PollWatcher`] backend.
+//! A workaround is to use [`PollWatcher`] explicitly for paths affected by these limitations.
+//! Set the scan interval with [`Config::with_poll_interval`] (the default is 30 seconds).
+//! Shorter intervals reduce detection latency but increase filesystem I/O.
+//! Polling compares the state observed at each scan; changes that occur and are reverted between
+//! scans may be missed.
+//!
+//! If modification timestamps do not reliably reflect content changes, enable
+//! [`Config::with_compare_contents`] with `true`.
+//! This reads and hashes each file on every scan, increasing I/O and CPU usage.
 //!
 //! ### Docker with Linux on macOS M1
 //!
@@ -68,7 +80,16 @@
 //!
 //! If you rely on precise events (Write/Delete/Create..), you will notice that the actual events
 //! can differ a lot between file editors. Some truncate the file on save, some create a new one and replace the old one.
-//! See also [this](https://github.com/notify-rs/notify/issues/247) and [this](https://github.com/notify-rs/notify/issues/113#issuecomment-281836995) issues for example.
+//! With inotify, a watch follows the file's inode, so replacing the file can stop notifications
+//! for subsequent saves.
+//!
+//! To observe subsequent saves after a file is replaced, watch its parent directory with
+//! [`RecursiveMode::NonRecursive`] and filter events whose [`Event::paths`] contain the target
+//! file's path. Check all paths in an event, since a rename event can include both the old and
+//! new paths.
+//! This relies on filesystem notifications; for the WSL2 limitation above, use [`PollWatcher`].
+//! See also [issue #247](https://github.com/notify-rs/notify/issues/247) and
+//! [issue #113](https://github.com/notify-rs/notify/issues/113#issuecomment-281836995).
 //!
 //! ### Parent folder deletion
 //!
