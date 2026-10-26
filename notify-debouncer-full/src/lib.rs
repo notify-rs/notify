@@ -61,7 +61,8 @@
 //!
 //! # Caveats
 //!
-//! As all file events are sourced from notify, the [known problems](https://docs.rs/notify/latest/notify/#known-problems) section applies here too.
+//! Notify's [known problems](notify#known-problems), including
+//! [changes to watched paths](notify#changes-to-watched-paths), also apply to debounced events.
 
 mod cache;
 mod time;
