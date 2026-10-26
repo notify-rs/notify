@@ -434,15 +434,21 @@ fn stop_watch(ws: &WatchState, meta_tx: &Sender<MetaEvent>) {
     // first so that callback does not rearm ReadDirectoryChangesW with the handle closed below.
     ws.stopping.store(true, Ordering::Release);
     unsafe {
-        let cio = CancelIo(ws.dir_handle);
-        let ch = CloseHandle(ws.dir_handle);
-        // have to wait for it, otherwise we leak the memory allocated for there read request
-        if cio != 0 && ch != 0 {
+        if CancelIo(ws.dir_handle) == 0 {
+            // A read may still be in flight, and its completion routine would use the directory
+            // handle and release the semaphore. Neither can be closed safely, so leak them
+            // (one handle, one semaphore and one request buffer) instead.
+            log::error!("CancelIo failed; leaking the directory handle of a stopped watch");
+        } else {
+            // have to wait for it, otherwise we leak the memory allocated for there read request
             while WaitForSingleObjectEx(ws.complete_sem, INFINITE, 1) != WAIT_OBJECT_0 {
                 // drain the apc queue, fix for https://github.com/notify-rs/notify/issues/287#issuecomment-801465550
             }
+            // Close the handles only after the wait, so a queued completion routine never sees
+            // a closed handle value, which Windows may already have reused.
+            CloseHandle(ws.dir_handle);
+            CloseHandle(ws.complete_sem);
         }
-        CloseHandle(ws.complete_sem);
     }
     let _ = meta_tx.send(MetaEvent::SingleWatchComplete);
 }
@@ -893,9 +899,9 @@ impl Watcher for ReadDirectoryChangesWatcher {
 
 impl Drop for ReadDirectoryChangesWatcher {
     fn drop(&mut self) {
-        let _ = self.tx.send(Action::Stop);
-        // better wake it up
+        // The server closes `wakeup_sem` once it has handled `Stop`, so release it first.
         self.wakeup_server();
+        let _ = self.tx.send(Action::Stop);
     }
 }
 
@@ -1139,6 +1145,129 @@ pub mod tests {
 
         assert!(event_rx.try_iter().next().is_none(), "unexpected event");
         assert!(action_rx.try_iter().next().is_none(), "unexpected action");
+    }
+
+    #[test]
+    fn stop_watch_closes_handles_after_queued_completion() {
+        use std::os::windows::ffi::OsStrExt;
+        use std::ptr;
+        use std::sync::atomic::{AtomicIsize, AtomicU32};
+        use std::time::Instant;
+        use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
+            FILE_NOTIFY_CHANGE_FILE_NAME, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+            FILE_STANDARD_INFO, FileStandardInfo, GetFileInformationByHandleEx, OPEN_EXISTING,
+            ReadDirectoryChangesW,
+        };
+        use windows_sys::Win32::System::IO::OVERLAPPED;
+        use windows_sys::Win32::System::Threading::{CreateSemaphoreW, ReleaseSemaphore};
+
+        const STATUS_PENDING: usize = 0x103;
+        const NOT_RUN: u32 = 0;
+        const HANDLE_OPEN: u32 = 1;
+        const HANDLE_CLOSED: u32 = 2;
+
+        static WATCHED_HANDLE: AtomicIsize = AtomicIsize::new(0);
+        static COMPLETE_SEM: AtomicIsize = AtomicIsize::new(0);
+        static SEEN: AtomicU32 = AtomicU32::new(NOT_RUN);
+
+        // Stands in for `handle_event`: records whether the directory handle is still open when
+        // the queued completion runs, then releases the semaphore like the real routine does.
+        unsafe extern "system" fn completion(
+            _error: u32,
+            _bytes: u32,
+            overlapped: *mut OVERLAPPED,
+        ) {
+            drop(unsafe { Box::from_raw(overlapped) });
+            let mut info = FILE_STANDARD_INFO::default();
+            let ok = unsafe {
+                GetFileInformationByHandleEx(
+                    WATCHED_HANDLE.load(Ordering::SeqCst) as HANDLE,
+                    FileStandardInfo,
+                    &mut info as *mut _ as *mut _,
+                    std::mem::size_of_val(&info) as u32,
+                )
+            };
+            SEEN.store(
+                if ok != 0 { HANDLE_OPEN } else { HANDLE_CLOSED },
+                Ordering::SeqCst,
+            );
+            unsafe {
+                ReleaseSemaphore(
+                    COMPLETE_SEM.load(Ordering::SeqCst) as HANDLE,
+                    1,
+                    ptr::null_mut(),
+                )
+            };
+        }
+
+        let dir = tempdir().unwrap();
+        let encoded: Vec<u16> = dir
+            .path()
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let dir_handle = unsafe {
+            CreateFileW(
+                encoded.as_ptr(),
+                FILE_LIST_DIRECTORY,
+                FILE_SHARE_READ | FILE_SHARE_DELETE | FILE_SHARE_WRITE,
+                ptr::null_mut(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
+                ptr::null_mut(),
+            )
+        };
+        assert_ne!(dir_handle, INVALID_HANDLE_VALUE);
+        let complete_sem = unsafe { CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
+        assert!(!complete_sem.is_null());
+        WATCHED_HANDLE.store(dir_handle as isize, Ordering::SeqCst);
+        COMPLETE_SEM.store(complete_sem as isize, Ordering::SeqCst);
+
+        // Start a read with `completion` as its routine, leaving it in flight.
+        let mut buffer = Box::new([0u8; super::BUF_SIZE as usize]);
+        let overlapped = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<OVERLAPPED>() }));
+        let ret = unsafe {
+            ReadDirectoryChangesW(
+                dir_handle,
+                buffer.as_mut_ptr() as *mut _,
+                super::BUF_SIZE,
+                0,
+                FILE_NOTIFY_CHANGE_FILE_NAME,
+                ptr::null_mut(),
+                overlapped,
+                Some(completion),
+            )
+        };
+        assert_ne!(ret, 0);
+
+        // Complete the read without waiting alertably, so its routine stays queued as an APC
+        // on this thread until `stop_watch` waits.
+        std::fs::write(dir.path().join("a.log"), b"x").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while unsafe { ptr::read_volatile(&(*overlapped).Internal) } == STATUS_PENDING {
+            assert!(Instant::now() < deadline, "read never completed");
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(SEEN.load(Ordering::SeqCst), NOT_RUN);
+
+        let ws = super::WatchState {
+            dir_handle,
+            complete_sem,
+            recursive_mode: RecursiveMode::NonRecursive,
+            reported_path: dir.path().to_path_buf(),
+            stopping: Arc::new(AtomicBool::new(false)),
+        };
+        let (meta_tx, _meta_rx) = crate::unbounded();
+        super::stop_watch(&ws, &meta_tx);
+
+        assert_eq!(
+            SEEN.load(Ordering::SeqCst),
+            HANDLE_OPEN,
+            "the queued completion must run before the directory handle is closed"
+        );
     }
 
     #[test]
