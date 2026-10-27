@@ -174,6 +174,20 @@ fn add_watch_by_event(
     }
 }
 
+/// Returns the directories above `path` that the walk of a recursive watch passed through to
+/// reach `path`.
+fn walked_ancestors(path: &Path, watches: &HashMap<PathBuf, Watch>) -> Vec<PathBuf> {
+    path.ancestors()
+        .skip(1)
+        .take_while(|ancestor| {
+            watches
+                .get(*ancestor)
+                .is_some_and(|watch| watch.metadata.is_recursive)
+        })
+        .map(Path::to_path_buf)
+        .collect()
+}
+
 /// Queue `path` for removal, if it is watched and `descriptor` still matches its watch.
 #[inline]
 fn queue_watch_removal(
@@ -723,6 +737,7 @@ impl EventLoop {
                         root.clone(),
                         self.follow_links,
                         &barriers,
+                        walked_ancestors(&replaced_path, &self.watches),
                     );
                     self.add_watches_for_paths(
                         root, entries, true, true, false, /*report_created*/ false,
@@ -744,11 +759,19 @@ impl EventLoop {
         }
 
         let barriers = self.recursive_walk_barriers();
+        // The walk of a new directory starts below the recursive watch that covers it. A link
+        // back to a directory above it is a loop, as it is in a walk of the whole watch.
+        let above = if watch_self {
+            Vec::new()
+        } else {
+            walked_ancestors(&path.absolute, &self.watches)
+        };
         let entries = walk_dirs(
             path.absolute.clone(),
             path.clone(),
             self.follow_links,
             &barriers,
+            above,
         );
 
         self.add_watches_for_paths(
@@ -1166,12 +1189,14 @@ impl EventLoop {
 ///
 /// Each directory is named the way `root` was asked for, and `barriers` are the paths the walk
 /// must not descend into. Dropping the walk's errors would leave whole subtrees unwatched with
-/// nothing to notice, the same silence a failed watch used to cause.
+/// nothing to notice, the same silence a failed watch used to cause. `above` contains the
+/// directories above `from` that a walk of the recursive watch passed through to reach `from`.
 fn walk_dirs(
     from: PathBuf,
     root: WatchPath,
     follow_links: bool,
     barriers: &HashSet<PathBuf>,
+    above: Vec<PathBuf>,
 ) -> impl Iterator<Item = Result<WatchPath>> {
     enum Step {
         Visit(WatchPath),
@@ -1182,6 +1207,9 @@ fn walk_dirs(
 
     let mut pending = vec![Step::Visit(root.child(from))];
     let mut ancestors = Vec::new();
+    // Most walks find no link, so the walk only calls `stat` on the directories in `above` when
+    // it finds the first link.
+    let mut above_identities: Option<Vec<(u64, u64)>> = None;
 
     std::iter::from_fn(move || {
         loop {
@@ -1212,7 +1240,18 @@ fn walk_dirs(
                     }
                     let identity = (metadata.dev(), metadata.ino());
                     // A bind mount can share an ancestor's inode without forming a symlink loop.
-                    if is_symlink && ancestors.contains(&identity) {
+                    if is_symlink
+                        && (ancestors.contains(&identity)
+                            || above_identities
+                                .get_or_insert_with(|| {
+                                    above
+                                        .iter()
+                                        .filter_map(|path| std::fs::metadata(path).ok())
+                                        .map(|metadata| (metadata.dev(), metadata.ino()))
+                                        .collect()
+                                })
+                                .contains(&identity))
+                    {
                         return Some(Err(
                             Error::generic("symbolic link loop").add_path(path.requested)
                         ));
@@ -1704,6 +1743,7 @@ mod tests {
             WatchPath::from_parts(root, reported.clone()),
             true,
             &barriers,
+            Vec::new(),
         );
         let mut watched = Vec::new();
         let mut failures = Vec::new();
@@ -1723,6 +1763,37 @@ mod tests {
     }
 
     #[test]
+    fn a_new_directory_with_a_link_back_to_the_root_reports_a_loop() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        std::fs::create_dir(&root).unwrap();
+        let moved = tmp.path().join("moved");
+        std::fs::create_dir(&moved).unwrap();
+        std::os::unix::fs::symlink(&root, moved.join("back")).unwrap();
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        event_loop
+            .add_watch(
+                WatchPath::new(&root).unwrap(),
+                recursive_watch(),
+                true,
+                false,
+            )
+            .unwrap();
+
+        std::fs::rename(&moved, root.join("moved")).unwrap();
+        event_loop.handle_inotify();
+
+        let back = root.join("moved").join("back");
+        let failures: Vec<_> = rx
+            .try_iter()
+            .filter_map(Result::err)
+            .flat_map(|err| err.paths)
+            .collect();
+        assert_eq!(failures, [back.clone()]);
+        assert!(!event_loop.watches.contains_key(&back));
+    }
+
+    #[test]
     fn recursive_walk_visits_directory_aliases_under_a_parent_link() {
         let tmpdir = tempfile::tempdir().unwrap();
         let root = tmpdir.path().join("child");
@@ -1736,6 +1807,7 @@ mod tests {
             WatchPath::from_parts(root, reported.clone()),
             true,
             &barriers,
+            Vec::new(),
         );
         let mut watched = Vec::new();
         let mut failures = Vec::new();
@@ -1779,6 +1851,7 @@ mod tests {
                 WatchPath::new(&root).unwrap(),
                 follow_links,
                 &barriers,
+                Vec::new(),
             );
             assert_eq!(entries.next().unwrap().unwrap().absolute, root);
             let first = entries.next().unwrap().unwrap().absolute;
