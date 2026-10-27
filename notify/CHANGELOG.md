@@ -2,16 +2,27 @@
 
 ## unreleased
 
+## notify 9.0.0-rc.7 (2026-10-28)
+
 - FIX: [inotify] report newly created subdirectories found while extending a recursive watch, including nested directories created before their watches were installed; this recovery covers directories only [#727]
 - FIX: [macOS] preserve pending FSEvents across stream rebuilds when watches are added, removed, or updated in a batch [#993]
-- PERF: [macOS] keep the FSEvents stream running when rewatching an unchanged path, removing a covered watch, or applying a batch with unchanged stream roots
-- FIX: [inotify] remove every path of a deleted directory or file that two paths share through a symlink or a hard link, so `watched_paths` no longer lists it
-- FIX: [inotify] keep watching a directory below a deleted root that a symlink from outside the root still reaches
+- PERF: [macOS] keep the FSEvents stream running when rewatching an unchanged path, removing a covered watch, or applying a batch with unchanged stream roots [#1033]
+- FIX: [inotify] remove every path of a deleted directory or file that two paths share through a symlink or a hard link, so `watched_paths` no longer lists it [#1038]
+- FIX: [inotify] keep watching a directory below a deleted root that a symlink from outside the root still reaches [#1038]
+- PERF: [inotify] batch `Watcher::update_paths` operations and skip redundant metadata reads when adding non-recursive watches [#1041]
 - FIX: [Windows] finish stopping a watch before releasing its handles: release the wakeup semaphore before sending `Stop`, and close the directory handle and completion semaphore only after the pending read has completed (leaked if `CancelIo` fails) [#1051]
+- DEPS: upgrade `notify-types` to 2.2.0 [#1032]
+- DOCS: clarify WSL2 notification limitations, watching files replaced by editors, and backend behavior when watched paths are renamed, moved, or deleted [#1048] [#1053]
 
 [#727]: https://github.com/notify-rs/notify/issues/727
 [#993]: https://github.com/notify-rs/notify/issues/993
+[#1032]: https://github.com/notify-rs/notify/pull/1032
+[#1033]: https://github.com/notify-rs/notify/pull/1033
+[#1038]: https://github.com/notify-rs/notify/pull/1038
+[#1041]: https://github.com/notify-rs/notify/pull/1041
+[#1048]: https://github.com/notify-rs/notify/pull/1048
 [#1051]: https://github.com/notify-rs/notify/issues/1051
+[#1053]: https://github.com/notify-rs/notify/pull/1053
 
 ## notify 9.0.0-rc.6 (2026-10-17)
 

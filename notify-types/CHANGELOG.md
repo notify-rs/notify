@@ -1,10 +1,15 @@
 # Changelog
 
-## notify-types 2.2.0 (unreleased)
+## notify-types 2.2.0 (2026-10-28)
 
-- FEATURE: add `debouncer_mini::DebouncedEventBatch` to distinguish path changes from rescan notifications
+- FEATURE: add `debouncer_mini::DebouncedEventBatch` to distinguish path changes from rescan notifications [#1032]
+- FEATURE: re-export `debouncer_full::Instant` so consumers can use the same instant type with or without the `web-time` feature [#1031]
 - CHANGE: raise MSRV to 1.88
+- CHANGE: update to edition 2024
 - CHANGE: add `#[must_use]` annotations to `EventKind` predicates plus `Event` and `EventAttributes` getter/builder APIs
+
+[#1031]: https://github.com/notify-rs/notify/pull/1031
+[#1032]: https://github.com/notify-rs/notify/pull/1032
 
 ## notify-types 2.1.0 (2026-01-25)
 
