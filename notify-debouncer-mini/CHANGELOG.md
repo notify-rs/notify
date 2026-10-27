@@ -2,7 +2,7 @@
 
 ## debouncer-mini 0.8.0-rc.1 (unreleased)
 
-- CHANGE: update notify to version 9.0.0-rc.6 **breaking**
+- CHANGE: update notify to version 9.0.0-rc.7 **breaking**
 - CHANGE: `DebounceEventResult` now returns `DebouncedEventBatch::Events(Vec<DebouncedEvent>)` or `DebouncedEventBatch::Rescan` on success **breaking**
 - FIX: forward rescan notifications immediately, with or without paths, so callers can refresh state for all watched paths
 - CHANGE: raise MSRV to 1.88
