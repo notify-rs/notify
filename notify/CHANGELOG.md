@@ -7,9 +7,11 @@
 - PERF: [macOS] keep the FSEvents stream running when rewatching an unchanged path, removing a covered watch, or applying a batch with unchanged stream roots
 - FIX: [inotify] remove every path of a deleted directory or file that two paths share through a symlink or a hard link, so `watched_paths` no longer lists it
 - FIX: [inotify] keep watching a directory below a deleted root that a symlink from outside the root still reaches
+- FIX: [Windows] finish stopping a watch before releasing its handles: release the wakeup semaphore before sending `Stop`, and close the directory handle and completion semaphore only after the pending read has completed (leaked if `CancelIo` fails) [#1051]
 
 [#727]: https://github.com/notify-rs/notify/issues/727
 [#993]: https://github.com/notify-rs/notify/issues/993
+[#1051]: https://github.com/notify-rs/notify/issues/1051
 
 ## notify 9.0.0-rc.6 (2026-10-17)
 
