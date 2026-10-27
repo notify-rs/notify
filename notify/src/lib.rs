@@ -91,10 +91,30 @@
 //! See also [issue #247](https://github.com/notify-rs/notify/issues/247) and
 //! [issue #113](https://github.com/notify-rs/notify/issues/113#issuecomment-281836995).
 //!
-//! ### Parent folder deletion
+//! ### Changes to watched paths
 //!
-//! If you want to receive an event for a deletion of folder `b` for the path `/a/b/..`, you will have to watch its parent `/a`.
-//! See [here](https://github.com/notify-rs/notify/issues/403) for more details.
+//! Renaming, moving, or deleting a directly watched file or directory affects backends differently:
+//!
+//! | Backend | Rename / move | Delete | New item at original path |
+//! | --- | --- | --- | --- |
+//! | inotify | Old object, old paths | Watch ends | Rewatch required |
+//! | Windows (directory) | Old object, old paths | Watch ends | Rewatch required |
+//! | Windows (file) | Original path | Watch kept | Events possible |
+//! | FSEvents (macOS) | Original path | Watch kept | Events possible |
+//! | kqueue | Watch ends | Watch ends | Rewatch required |
+//! | [`PollWatcher`] | Original path | Watch kept | Detected on scan |
+//!
+//! Exact events depend on the filesystem and operation; see
+//! [issue #554](https://github.com/notify-rs/notify/issues/554).
+//! Windows may emit no event for a directory rename or move.
+//!
+//! To detect changes to `/a/b`, also watch `/a` with [`RecursiveMode::NonRecursive`] and
+//! recheck the target when the parent reports a change. Remove any surviving watch with
+//! [`Watcher::unwatch`] before watching the desired path again, once it exists.
+//! This assumes the parent stays in place; see [issue #403](https://github.com/notify-rs/notify/issues/403).
+//!
+//! For a fixed path that may disappear and return, use [`PollWatcher`]. The path must exist
+//! when registered; changes that occur and are reverted between scans can be missed.
 //!
 //! ### Pseudo Filesystems like /proc, /sys
 //!
@@ -424,12 +444,8 @@ pub trait Watcher {
     /// To add many paths at once, use [`Watcher::update_paths`]. On macOS, this avoids rebuilding
     /// the FSEvents stream for each path.
     ///
-    /// On some platforms, if the `path` is renamed or removed while being watched, behaviour may
-    /// be unexpected. See discussions in [#165] and [#166]. If less surprising behaviour is wanted
-    /// one may non-recursively watch the _parent_ directory as well and manage related events.
-    ///
-    /// [#165]: https://github.com/notify-rs/notify/issues/165
-    /// [#166]: https://github.com/notify-rs/notify/issues/166
+    /// For rename, move, and deletion behavior, see
+    /// [Changes to watched paths](crate#changes-to-watched-paths).
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()>;
 
     /// Begin watching a path with per-path settings.
