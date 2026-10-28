@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- PERF: [Windows] wait for the wakeup semaphore without a timeout, so an idle watcher no longer wakes 10 times a second; `Watcher::configure` now wakes the server instead of waiting for the timeout, and the semaphore stays open until both the watcher and the server are done with it
+
 ## notify 9.0.0-rc.7 (2026-10-28)
 
 - FIX: [inotify] report newly created subdirectories found while extending a recursive watch, including nested directories created before their watches were installed; this recovery covers directories only [#727]

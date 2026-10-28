@@ -179,6 +179,23 @@ struct WatchState {
     stopping: Arc<AtomicBool>,
 }
 
+/// The semaphore that wakes the server. The watcher and the server share it, and the last owner
+/// closes it, so the watcher can release it after sending `Stop` without racing the server.
+#[derive(Debug)]
+struct WakeupSem(HANDLE);
+
+impl Drop for WakeupSem {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self.0);
+        }
+    }
+}
+
+// It is, in fact, ok to use the semaphore from any thread.
+unsafe impl Send for WakeupSem {}
+unsafe impl Sync for WakeupSem {}
+
 struct ReadDirectoryChangesServer {
     tx: Sender<Action>,
     rx: Receiver<Action>,
@@ -187,7 +204,7 @@ struct ReadDirectoryChangesServer {
     meta_tx: Sender<MetaEvent>,
     cmd_tx: Sender<Result<PathBuf>>,
     watches: HashMap<PathBuf, WatchState>,
-    wakeup_sem: HANDLE,
+    wakeup_sem: Arc<WakeupSem>,
 }
 
 impl ReadDirectoryChangesServer {
@@ -196,17 +213,14 @@ impl ReadDirectoryChangesServer {
         event_kinds: EventKindMask,
         meta_tx: Sender<MetaEvent>,
         cmd_tx: Sender<Result<PathBuf>>,
-        wakeup_sem: HANDLE,
+        wakeup_sem: Arc<WakeupSem>,
     ) -> Sender<Action> {
         let (action_tx, action_rx) = unbounded();
-        // it is, in fact, ok to send the semaphore across threads
-        let sem_temp = wakeup_sem as u64;
         let _ = thread::Builder::new()
             .name("notify-rs windows loop".to_string())
             .spawn({
                 let tx = action_tx.clone();
                 move || {
-                    let wakeup_sem = sem_temp as HANDLE;
                     let server = ReadDirectoryChangesServer {
                         tx,
                         rx: action_rx,
@@ -274,17 +288,14 @@ impl ReadDirectoryChangesServer {
             }
 
             unsafe {
-                // wait with alertable flag so that the completion routine fires
-                let waitres = WaitForSingleObjectEx(self.wakeup_sem, 100, 1);
+                // Wait with alertable flag so that the completion routine fires. No timeout:
+                // every action is followed by `wakeup_server()`, and completion routines and
+                // internal `Unwatch` actions run during this wait, so an idle watcher sleeps.
+                let waitres = WaitForSingleObjectEx(self.wakeup_sem.0, INFINITE, 1);
                 if waitres == WAIT_OBJECT_0 {
                     let _ = self.meta_tx.send(MetaEvent::WatcherAwakened);
                 }
             }
-        }
-
-        // we have to clean this up, since the watcher may be long gone
-        unsafe {
-            CloseHandle(self.wakeup_sem);
         }
     }
 
@@ -756,7 +767,7 @@ unsafe extern "system" fn handle_event(
 pub struct ReadDirectoryChangesWatcher {
     tx: Sender<Action>,
     cmd_rx: Receiver<Result<PathBuf>>,
-    wakeup_sem: HANDLE,
+    wakeup_sem: Arc<WakeupSem>,
     windows_path_separator_style: WindowsPathSeparatorStyle,
 }
 
@@ -786,13 +797,14 @@ impl ReadDirectoryChangesWatcher {
         if wakeup_sem.is_null() || wakeup_sem == INVALID_HANDLE_VALUE {
             return Err(Error::generic("Failed to create wakeup semaphore."));
         }
+        let wakeup_sem = Arc::new(WakeupSem(wakeup_sem));
 
         let action_tx = ReadDirectoryChangesServer::start(
             event_handler,
             event_kinds,
             meta_tx,
             cmd_tx,
-            wakeup_sem,
+            wakeup_sem.clone(),
         );
 
         Ok(ReadDirectoryChangesWatcher {
@@ -804,11 +816,10 @@ impl ReadDirectoryChangesWatcher {
     }
 
     fn wakeup_server(&self) {
-        // breaks the server out of its wait state.  right now this is really just an optimization,
-        // so that if you add a watch you don't block for 100ms in watch() while the
-        // server sleeps.
+        // Breaks the server out of its wait state. The server waits without a timeout, so every
+        // action sent to it must be followed by this call.
         unsafe {
-            ReleaseSemaphore(self.wakeup_sem, 1, ptr::null_mut());
+            ReleaseSemaphore(self.wakeup_sem.0, 1, ptr::null_mut());
         }
     }
 
@@ -885,6 +896,7 @@ impl Watcher for ReadDirectoryChangesWatcher {
     fn configure(&mut self, config: Config) -> Result<bool> {
         let (tx, rx) = bounded(1);
         self.tx.send(Action::Configure(config, tx))?;
+        self.wakeup_server();
         rx.recv()?
     }
 
@@ -899,9 +911,11 @@ impl Watcher for ReadDirectoryChangesWatcher {
 
 impl Drop for ReadDirectoryChangesWatcher {
     fn drop(&mut self) {
-        // The server closes `wakeup_sem` once it has handled `Stop`, so release it first.
-        self.wakeup_server();
+        // Send first, then wake: waking first could let the server check the queue before
+        // `Stop` arrives and sleep forever. `WakeupSem` keeps the handle valid until both
+        // sides are done with it.
         let _ = self.tx.send(Action::Stop);
+        self.wakeup_server();
     }
 }
 
@@ -952,6 +966,44 @@ pub mod tests {
         watcher.watch(dir.path(), RecursiveMode::NonRecursive)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn configure_and_drop_do_not_need_a_timed_wakeup() {
+        let dir = tempdir().expect("tempdir");
+        let (done_tx, done_rx) = mpsc::channel();
+        let path = dir.path().to_path_buf();
+        thread::spawn(move || {
+            let mut watcher = crate::recommended_watcher(|_| {}).expect("watcher");
+            watcher
+                .watch(&path, RecursiveMode::Recursive)
+                .expect("watch");
+            // The server is idle in an untimed wait here.
+            thread::sleep(Duration::from_millis(300));
+            let configured = watcher.configure(Config::default());
+            drop(watcher);
+            let _ = done_tx.send(configured.is_ok());
+        });
+        let configured = done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("configure or drop hung");
+        assert!(configured);
+    }
+
+    #[test]
+    fn events_arrive_after_the_server_has_been_idle() {
+        let dir = tempdir().expect("tempdir");
+        let (tx, rx) = mpsc::channel();
+        let mut watcher = crate::recommended_watcher(tx).expect("watcher");
+        watcher
+            .watch(dir.path(), RecursiveMode::Recursive)
+            .expect("watch");
+        thread::sleep(Duration::from_millis(300));
+        std::fs::write(dir.path().join("file"), b"x").expect("write");
+        let event = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("no event after an idle wait");
+        assert!(event.is_ok());
     }
 
     #[test]
