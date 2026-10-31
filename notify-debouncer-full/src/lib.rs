@@ -245,11 +245,20 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     /// Retrieve a vec of debounced events, removing them if not continuous
     pub fn debounced_events(&mut self) -> Vec<DebouncedEvent> {
         let now = now();
+        // Resolve pending renames before their source or destination queues emit older events,
+        // so paths, rename chains and overwritten events are updated before delivery.
         if self
             .rename_events
             .iter()
             .map(|(event, _)| event)
             .chain(self.pending_rename_destinations.iter())
+            .flat_map(|event| {
+                std::iter::once(event).chain(
+                    self.queues
+                        .get(&event.paths[0])
+                        .and_then(|queue| queue.events.front()),
+                )
+            })
             .any(|event| now.saturating_duration_since(event.time) >= self.timeout)
         {
             self.finish_pending_renames();
@@ -1005,6 +1014,7 @@ mod tests {
 
     use super::*;
 
+    use notify::event::{CreateKind, DataChange};
     use pretty_assertions::assert_eq;
     use rstest::rstest;
     use tempfile::tempdir;
@@ -1328,6 +1338,86 @@ mod tests {
         );
     }
 
+    #[rstest]
+    #[case::created_source("/a/from", EventKind::Create(CreateKind::File))]
+    #[case::modified_source("/a/from", EventKind::Modify(ModifyKind::Data(DataChange::Content)))]
+    #[case::created_destination("/b/to", EventKind::Create(CreateKind::File))]
+    #[case::modified_destination("/b/to", EventKind::Modify(ModifyKind::Data(DataChange::Content)))]
+    #[case::removed_destination("/b/to", EventKind::Remove(RemoveKind::File))]
+    fn a_pending_rename_preserves_earlier_events(
+        #[case] initial_path: &str,
+        #[case] initial_kind: EventKind,
+    ) {
+        MockTime::set_time(Instant::now());
+        // Pair immediately under one root, and defer the same rename between two roots.
+        let mut states = [vec!["/"], vec!["/a", "/b"]].map(|roots| {
+            let mut state = DebounceDataInner::new(NoCache, Duration::from_millis(50));
+            state.roots = roots
+                .into_iter()
+                .map(|path| WatchRoot {
+                    path: PathBuf::from(path),
+                    recursive_mode: RecursiveMode::Recursive,
+                })
+                .collect();
+            state.add_event(Event::new(initial_kind).add_path(PathBuf::from(initial_path)));
+            state
+        });
+
+        MockTime::advance(Duration::from_millis(40));
+        for state in &mut states {
+            for (mode, path) in [(RenameMode::From, "/a/from"), (RenameMode::To, "/b/to")] {
+                state.add_event(
+                    Event::new(EventKind::Modify(ModifyKind::Name(mode)))
+                        .add_path(PathBuf::from(path))
+                        .set_tracker(1),
+                );
+            }
+        }
+
+        // Check before and at both deadlines, then ensure nothing remains to be delivered.
+        let [immediate, pending] = &mut states;
+        for delay in [9, 1, 39, 1, 50] {
+            MockTime::advance(Duration::from_millis(delay));
+            assert_eq!(pending.debounced_events(), immediate.debounced_events());
+        }
+    }
+
+    #[test]
+    fn a_pending_rename_preserves_the_original_path_and_time() {
+        let time = Instant::now();
+        MockTime::set_time(time);
+        let mut state = DebounceDataInner::new(NoCache, Duration::from_millis(50));
+        state.roots = ["/a", "/b"]
+            .map(|path| WatchRoot {
+                path: PathBuf::from(path),
+                recursive_mode: RecursiveMode::Recursive,
+            })
+            .into();
+        let rename = |mode, path: &str, tracker| {
+            Event::new(EventKind::Modify(ModifyKind::Name(mode)))
+                .add_path(PathBuf::from(path))
+                .set_tracker(tracker)
+        };
+        state.add_event(rename(RenameMode::From, "/a/original", 1));
+        state.add_event(rename(RenameMode::To, "/a/intermediate", 1));
+        MockTime::advance(Duration::from_millis(40));
+        state.add_event(rename(RenameMode::From, "/a/intermediate", 2));
+        state.add_event(rename(RenameMode::To, "/b/final", 2));
+
+        MockTime::advance(Duration::from_millis(9));
+        assert!(state.debounced_events().is_empty());
+        MockTime::advance(Duration::from_millis(1));
+        assert_eq!(
+            state.debounced_events(),
+            [DebouncedEvent::new(
+                rename(RenameMode::Both, "/a/original", 2).add_path(PathBuf::from("/b/final")),
+                time,
+            )]
+        );
+        MockTime::advance(Duration::from_millis(40));
+        assert!(state.debounced_events().is_empty());
+    }
+
     #[test]
     fn a_new_tracker_finishes_a_pending_rename_between_roots() {
         let mut state = DebounceDataInner::new(NoCache, Duration::from_millis(50));
@@ -1360,6 +1450,8 @@ mod tests {
     #[test]
     fn an_alias_destination_does_not_take_a_later_same_root_source() {
         for alias_first in [false, true] {
+            let time = Instant::now();
+            MockTime::set_time(time);
             let mut state = DebounceDataInner::new(NoCache, Duration::from_millis(50));
             state.roots = VecDeque::from([
                 WatchRoot {
@@ -1376,14 +1468,23 @@ mod tests {
                     .add_path(PathBuf::from(path))
                     .set_tracker(1)
             };
+            let unrelated = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+                .add_path(PathBuf::from("/real/unrelated"));
+            state.add_event(unrelated.clone());
+            MockTime::advance(Duration::from_millis(40));
             state.add_event(rename(RenameMode::From, "/real/from"));
             let mut destinations = ["/real/sub/to", "/alias/to"];
             if alias_first {
                 destinations.reverse();
             }
-            for destination in destinations {
-                state.add_event(rename(RenameMode::To, destination));
-            }
+            state.add_event(rename(RenameMode::To, destinations[0]));
+            MockTime::advance(Duration::from_millis(10));
+            // Expiring an unrelated queue must not finish the pending alias destination.
+            assert_eq!(
+                state.debounced_events(),
+                [DebouncedEvent::new(unrelated, time)]
+            );
+            state.add_event(rename(RenameMode::To, destinations[1]));
             state.finish_pending_renames();
 
             assert_eq!(
