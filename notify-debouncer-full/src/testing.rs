@@ -255,11 +255,15 @@ impl schema::State {
 
         let cache = TestCache::new(cache, file_system);
 
-        let rename_event = self.rename_event.map(|e| {
-            let file_id = e.file_id.map(|id| FileId::new_inode(id, id));
-            let event = e.into_debounced_event(time, None);
-            (event, file_id)
-        });
+        let rename_events = self
+            .rename_event
+            .into_iter()
+            .map(|e| {
+                let file_id = e.file_id.map(|id| FileId::new_inode(id, id));
+                let event = e.into_debounced_event(time, None);
+                (event, file_id)
+            })
+            .collect();
 
         let rescan_event = self
             .rescan_event
@@ -269,7 +273,8 @@ impl schema::State {
             queues,
             roots: VecDeque::new(),
             cache,
-            rename_event,
+            rename_events,
+            pending_rename_destinations: Vec::new(),
             rescan_event,
             errors: Vec::new(),
             timeout: Duration::from_millis(self.timeout.unwrap_or(50)),
