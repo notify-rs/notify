@@ -31,7 +31,7 @@ pub enum ErrorKind {
     /// An invalid value was passed as runtime configuration.
     InvalidConfig(Config),
 
-    /// Can't watch (more) files, limit on the total number of inotify watches reached
+    /// The OS watch limit was reached, including inotify watch limits and kqueue file descriptor limits.
     MaxFilesWatch,
 }
 

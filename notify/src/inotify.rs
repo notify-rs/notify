@@ -13,6 +13,7 @@ use crate::paths::{
     WalkRoots, WatchMetadata, WatchPath, absolute_path, is_preserved_watch_root,
     preserved_watch_mode, preserved_watch_roots, recursive_user_watch_ancestor, reported_path,
 };
+use crate::walk::WalkFailure;
 use crate::{BoundSender, Receiver, Sender, bounded, unbounded};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
@@ -1158,28 +1159,6 @@ impl EventLoop {
     }
 }
 
-/// What a failed watch installation means for the rest of a recursive walk.
-#[derive(Debug, PartialEq, Eq)]
-enum WalkFailure {
-    /// Nothing was lost, so the walk carries on.
-    Skip,
-    /// This path errored, but the rest of the tree will still be walked.
-    Report,
-    /// Every directory not reached yet would fail the same way, so the walk ends here.
-    Abort,
-}
-
-impl WalkFailure {
-    fn of(kind: &ErrorKind) -> Self {
-        match kind {
-            // TOCTOU: a directory can disappear between being listed and being watched.
-            ErrorKind::PathNotFound => Self::Skip,
-            ErrorKind::MaxFilesWatch => Self::Abort,
-            _ => Self::Report,
-        }
-    }
-}
-
 /// Yields the directories to watch below `from`, and the errors that hid part of the tree.
 ///
 /// Each directory is named the way `root` was asked for, and `barriers` are the paths the walk
@@ -1552,23 +1531,6 @@ mod tests {
         assert!(
             result.is_ok(),
             "expected recursive watch to succeed, got: {result:?}"
-        );
-    }
-
-    /// The policy every failed watch in a recursive walk goes through.
-    #[test]
-    fn walk_failure_policy() {
-        use super::WalkFailure;
-        use std::io;
-
-        assert_eq!(WalkFailure::of(&ErrorKind::PathNotFound), WalkFailure::Skip);
-        assert_eq!(
-            WalkFailure::of(&ErrorKind::MaxFilesWatch),
-            WalkFailure::Abort
-        );
-        assert_eq!(
-            WalkFailure::of(&ErrorKind::Io(io::ErrorKind::PermissionDenied.into())),
-            WalkFailure::Report
         );
     }
 

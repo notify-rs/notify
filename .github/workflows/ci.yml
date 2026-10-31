@@ -144,6 +144,10 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace --exclude examples --verbose ${{ matrix.features }}
+
+      - name: Test kqueue file descriptor limit
+        if: runner.os == 'macOS' && matrix.rust == 'stable' && contains(matrix.features, 'macos_kqueue')
+        run: cargo test -p notify --lib --no-default-features --features macos_kqueue kqueue::tests::fd_limit_stops_watches -- --ignored --exact --test-threads=1
         
       - name: Run tests with futures
         if: matrix.rust == 'stable'
@@ -190,6 +194,9 @@ jobs:
             cargo build --verbose
             cargo build --examples --verbose
             cargo test --verbose
+            if [ "${{ matrix.backend }}" = "kqueue" ] && [ "${{ matrix.rust }}" = "stable" ]; then
+              cargo test -p notify --lib kqueue::tests::fd_limit_stops_watches -- --ignored --exact --test-threads=1
+            fi
 
   # Android cross-compilation
   android:
