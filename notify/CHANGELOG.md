@@ -2,7 +2,15 @@
 
 ## unreleased
 
+- FIX: [kqueue] report child errors and continue recursive watches; preserve errors for the requested root and report failures during event-triggered additions [#703]
+- FIX: [kqueue] report process and system file descriptor limits as `ErrorKind::MaxFilesWatch` and stop further additions in that request or event batch [#455] [#596]
+- CHANGE: [kqueue] skip missing-path errors when a watched directory disappears during write-event processing
+- DOCS: explain partial recursive kqueue coverage and file descriptor limits, and recommend FSEvents for large trees on macOS
 - PERF: [Windows] wait for the wakeup semaphore without a timeout, so an idle watcher no longer wakes 10 times a second; `Watcher::configure` now wakes the server instead of waiting for the timeout, and the semaphore stays open until both the watcher and the server are done with it
+
+[#703]: https://github.com/notify-rs/notify/issues/703
+[#455]: https://github.com/notify-rs/notify/issues/455
+[#596]: https://github.com/notify-rs/notify/issues/596
 
 ## notify 9.0.0-rc.7 (2026-10-28)
 

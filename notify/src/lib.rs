@@ -116,6 +116,30 @@
 //! For a fixed path that may disappear and return, use [`PollWatcher`]. The path must exist
 //! when registered; changes that occur and are reverted between scans can be missed.
 //!
+//! ### kqueue: recursive watches and file descriptor limits
+//!
+//! The kqueue backend keeps an open file descriptor for each watched file and directory.
+//! Large recursive watches, including `/`, can exceed the process or system limit and fail
+//! with [`ErrorKind::MaxFilesWatch`]. On macOS, use FSEvents for large trees: keep the default
+//! features (or enable `macos_fsevent`) and do not enable `macos_kqueue`. Enabling `macos_kqueue`
+//! also changes [`RecommendedWatcher`] to kqueue, even when `macos_fsevent` is enabled.
+//!
+//! During a recursive kqueue watch, missing children are skipped. Other child errors, such as
+//! permission failures or symbolic link cycles, are sent to the event handler while the walk
+//! continues through the rest of the tree. A successful `watch()` can therefore leave some
+//! descendants unwatched; handle error events to detect incomplete coverage.
+//! Failure to watch or read the requested root, reaching the watch limit, or failure to register
+//! the watches returns an error from `watch()`. Already installed watches are not rolled back.
+//!
+//! When filesystem events trigger further watch additions, failures are sent to the event
+//! handler; reaching the watch limit stops the remaining additions in that batch.
+//! Repeated recoverable errors for the same known path are reported once per request or event
+//! batch. Later changes to the parent directory can retry failed entries and report errors again.
+//!
+//! See [issue #703](https://github.com/notify-rs/notify/issues/703),
+//! [issue #455](https://github.com/notify-rs/notify/issues/455), and
+//! [issue #596](https://github.com/notify-rs/notify/issues/596).
+//!
 //! ### Pseudo Filesystems like /proc, /sys
 //!
 //! Some filesystems like `/proc` and `/sys` on *nix do not emit change events or use correct file change dates.
@@ -306,6 +330,17 @@ pub mod poll;
 mod config;
 mod error;
 mod paths;
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly",
+    target_os = "ios",
+    all(target_os = "macos", feature = "macos_kqueue")
+))]
+mod walk;
 
 #[cfg(test)]
 pub(crate) mod test;
