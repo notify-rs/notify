@@ -972,15 +972,18 @@ pub mod tests {
     fn configure_and_drop_do_not_need_a_timed_wakeup() {
         let dir = tempdir().expect("tempdir");
         let (done_tx, done_rx) = mpsc::channel();
+        let (event_tx, event_rx) = mpsc::channel();
         let path = dir.path().to_path_buf();
         thread::spawn(move || {
-            let mut watcher = crate::recommended_watcher(|_| {}).expect("watcher");
+            let mut watcher = crate::recommended_watcher(event_tx).expect("watcher");
             watcher
                 .watch(&path, RecursiveMode::Recursive)
                 .expect("watch");
             // The server is idle in an untimed wait here.
             thread::sleep(Duration::from_millis(300));
             let configured = watcher.configure(Config::default());
+            // Let the server return to its wait before testing the drop wakeup.
+            thread::sleep(Duration::from_millis(300));
             drop(watcher);
             let _ = done_tx.send(configured.is_ok());
         });
@@ -988,6 +991,14 @@ pub mod tests {
             .recv_timeout(Duration::from_secs(10))
             .expect("configure or drop hung");
         assert!(configured);
+        // The server and outstanding reads retain the event sender until shutdown.
+        assert!(
+            matches!(
+                event_rx.recv_timeout(Duration::from_secs(10)),
+                Err(mpsc::RecvTimeoutError::Disconnected)
+            ),
+            "server did not stop after drop"
+        );
     }
 
     #[test]
