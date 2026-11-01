@@ -76,7 +76,7 @@
 //! filter out metadata-only events if they're not relevant (e.g. don't include
 //! `EventKindMask::MODIFY_META` in [`Config::with_event_kinds`]).
 //!
-//! ### Editor Behaviour
+//! ### Editor Behavior
 //!
 //! If you rely on precise events (Write/Delete/Create..), you will notice that the actual events
 //! can differ a lot between file editors. Some truncate the file on save, some create a new one and replace the old one.
@@ -115,6 +115,20 @@
 //!
 //! For a fixed path that may disappear and return, use [`PollWatcher`]. The path must exist
 //! when registered; changes that occur and are reverted between scans can be missed.
+//!
+//! ### kqueue: event details
+//!
+//! kqueue does not identify the type of a deleted entry, and this backend does not cache it,
+//! so removal events use [`event::RemoveKind::Any`].
+//! A non-recursive directory watch reports changes to directory entries as events on the
+//! directory itself, without identifying the affected child. Watch individual files to receive
+//! their data changes, or use [`RecursiveMode::Recursive`] to track children.
+//! See [issue #644](https://github.com/notify-rs/notify/issues/644).
+//!
+//! Recursive watches discover new entries by scanning directories after a notification.
+//! Files created and removed between scans and intermediate paths in rapid renames can be missed.
+//! Descendants found while registering a newly created directory are watched, but do not receive
+//! individual creation events. Do not rely on receiving a separate event for every operation.
 //!
 //! ### kqueue: recursive watches and file descriptor limits
 //!
@@ -220,7 +234,7 @@
 //! ## With different configurations
 //!
 //! It is possible to create several watchers with different configurations or implementations that
-//! all call the same event function. This can accommodate advanced behaviour or work around limits.
+//! all call the same event function. This can accommodate advanced behavior or work around limits.
 //!
 //! ```rust
 //! # use notify::{RecursiveMode, Result, Watcher};

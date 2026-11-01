@@ -8,7 +8,26 @@
 //!
 //! For more information see the [FSEvents API reference][ref].
 //!
-//! TODO: document event translation
+//! # Event translation
+//!
+//! A single FSEvents notification can contain several flags and produce multiple [`Event`]s.
+//! Creation and removal flags map to [`EventKind::Create`] and [`EventKind::Remove`], using
+//! file or directory kinds when FSEvents supplies that information. Content changes map to
+//! [`DataChange::Content`]; metadata flags map to [`MetadataKind::Any`],
+//! [`MetadataKind::Ownership`], [`MetadataKind::Extended`], or [`MetadataKind::Other`]
+//! (Finder information).
+//!
+//! Renames use [`RenameMode::Any`], since FSEvents does not pair the old and new paths.
+//! A root-change notification carries `info = "root changed"` and is translated as a removal
+//! when the removal flag is set, or as [`RenameMode::From`] when only the rename flag is set.
+//! Without either hint, it is reported as [`RemoveKind::Any`]. Mount and unmount notifications
+//! become [`CreateKind::Other`] and [`RemoveKind::Other`], both with `info = "mount"`.
+//!
+//! `MustScanSubDirs` produces an [`EventKind::Other`] event with [`Flag::Rescan`]. When supplied,
+//! the reason is preserved as `info = "rescan: user dropped"` or `"rescan: kernel dropped"`.
+//! Historical-completion notifications (`HistoryDone`) are ignored.
+//! Clone flags add `info = "is: clone"` unless the event already has an information attribute;
+//! events marked as originating in this process carry its process ID.
 //!
 //! [ref]: https://developer.apple.com/library/mac/documentation/Darwin/Reference/FSEvents_Ref/
 
@@ -691,8 +710,12 @@ impl FsEventWatcher {
         // Wrapper to help send FSEventStreamRef types across threads.
         struct FSEventStreamSendWrapper(fs::FSEventStreamRef);
 
-        // TODO: Write docs for the safety of this impl.
-        // SAFETY: Unclear?
+        // SAFETY: The stream is moved before it is scheduled or started. Only the receiving
+        // thread accesses it thereafter: it schedules, starts, stops, invalidates and releases
+        // the stream on its own runloop. The stream owns its boxed StreamContextInfo until
+        // release_context runs; shared handler and watch data are protected by Arc<Mutex<_>>.
+        // See Apple's create-then-schedule lifecycle:
+        // https://developer.apple.com/library/archive/documentation/Darwin/Conceptual/FSEvents_ProgGuide/UsingtheFSEventsFramework/UsingtheFSEventsFramework.html
         unsafe impl Send for FSEventStreamSendWrapper {}
 
         // move into thread
@@ -1025,9 +1048,10 @@ impl Drop for FsEventWatcher {
     }
 }
 
-/// Grabbed from <https://docs.rs/fsevent-sys/4.1.0/src/fsevent_sys/core_foundation.rs.html#149-230>.
+/// Resolve the nearest reachable ancestor through a Core Foundation file reference,
+/// then append any missing path components.
 ///
-/// TODO: Could we simplify this?
+/// Adapted from <https://docs.rs/fsevent-sys/4.1.0/src/fsevent_sys/core_foundation.rs.html#149-230>.
 unsafe fn path_to_cfstring_ref(
     source: &Path,
     err: &mut *mut cf::CFError,

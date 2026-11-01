@@ -274,44 +274,38 @@ impl DebounceDataInner {
     /// Updates the internal tracker for the next tick
     pub fn debounced_events(&mut self) -> Vec<DebouncedEvent> {
         let mut events_expired = Vec::with_capacity(self.event_map.len());
-        let mut data_back = HashMap::with_capacity(self.event_map.len());
-        // TODO: perfect fit for drain_filter https://github.com/rust-lang/rust/issues/59618
         // reset deadline
         self.debounce_deadline = None;
-        for (path, event) in self.event_map.drain() {
-            if event.update.elapsed() >= self.timeout {
-                log::trace!("debounced event: {:?}", DebouncedEventKind::Any);
-                events_expired.push(DebouncedEvent::new(path, DebouncedEventKind::Any));
-            } else if event.insert.elapsed() >= self.timeout {
-                log::trace!("debounced event: {:?}", DebouncedEventKind::AnyContinuous);
-                // set a new deadline, otherwise an 'AnyContinuous' will never resolve to a final 'Any' event
-                Self::check_deadline(
-                    self.batch_mode,
-                    self.timeout,
-                    &mut self.debounce_deadline,
-                    &event,
-                );
-                data_back.insert(path.clone(), event);
-                events_expired.push(DebouncedEvent::new(path, DebouncedEventKind::AnyContinuous));
-            } else {
-                // event is neither old enough for continuous event, nor is it expired for an Any event
-                Self::check_deadline(
-                    self.batch_mode,
-                    self.timeout,
-                    &mut self.debounce_deadline,
-                    &event,
-                );
-                data_back.insert(path, event);
-            }
+        for (path, _) in self
+            .event_map
+            .extract_if(|_, event| event.update.elapsed() >= self.timeout)
+        {
+            log::trace!("debounced event: {:?}", DebouncedEventKind::Any);
+            events_expired.push(DebouncedEvent::new(path, DebouncedEventKind::Any));
         }
-        self.event_map = data_back;
+        for (path, event) in &self.event_map {
+            if event.insert.elapsed() >= self.timeout {
+                log::trace!("debounced event: {:?}", DebouncedEventKind::AnyContinuous);
+                events_expired.push(DebouncedEvent::new(
+                    path.clone(),
+                    DebouncedEventKind::AnyContinuous,
+                ));
+            }
+            // Retained events, including AnyContinuous, still need a final Any event.
+            Self::check_deadline(
+                self.batch_mode,
+                self.timeout,
+                &mut self.debounce_deadline,
+                event,
+            );
+        }
         events_expired
     }
 
     /// Updates the deadline if none is set or when batch mode is disabled and the current deadline would miss the next event.
     /// The new deadline is calculated based on the last event update time and the debounce timeout.
     ///
-    /// can't sub-function this due to `event_map.drain()` holding `&mut self`
+    /// Takes fields separately so the deadline can be updated while borrowing `event_map`.
     fn check_deadline(
         batch_mode: bool,
         timeout: Duration,
@@ -464,6 +458,74 @@ mod tests {
 
         fn kind() -> notify::WatcherKind {
             notify::WatcherKind::NullWatcher
+        }
+    }
+
+    #[test]
+    fn debouncing_retains_pending_events_and_finishes_continuous_events() {
+        for batch_mode in [false, true] {
+            let timeout = Duration::from_secs(60);
+            let now = Instant::now();
+            let expired = now - timeout;
+            let continuous_update = now - Duration::from_secs(1);
+            let mut data = DebounceDataInner::new(timeout, batch_mode);
+            data.event_map = HashMap::from([
+                ("expired".into(), EventData::new_any(expired)),
+                (
+                    "continuous".into(),
+                    EventData {
+                        insert: expired,
+                        update: continuous_update,
+                    },
+                ),
+                ("pending".into(), EventData::new_any(now)),
+            ]);
+            data.debounce_deadline = Some(expired);
+
+            let mut events = data.debounced_events();
+            events.sort_by(|a, b| a.path.cmp(&b.path));
+            assert_eq!(
+                events,
+                vec![
+                    DebouncedEvent::new("continuous".into(), DebouncedEventKind::AnyContinuous),
+                    DebouncedEvent::new("expired".into(), DebouncedEventKind::Any),
+                ],
+            );
+
+            let deadline = data
+                .debounce_deadline
+                .expect("retained events need a deadline");
+            if batch_mode {
+                assert!([continuous_update + timeout, now + timeout].contains(&deadline));
+            } else {
+                assert_eq!(deadline, continuous_update + timeout);
+            }
+
+            // A continuous event stays pending and can be reported on subsequent ticks.
+            assert_eq!(
+                data.debounced_events(),
+                vec![DebouncedEvent::new(
+                    "continuous".into(),
+                    DebouncedEventKind::AnyContinuous,
+                )],
+            );
+
+            // Once updates stop for the timeout, both retained paths receive a final event.
+            for event in data.event_map.values_mut() {
+                event.update = expired;
+            }
+            let mut events = data.debounced_events();
+            events.sort_by(|a, b| a.path.cmp(&b.path));
+            assert_eq!(
+                events,
+                vec![
+                    DebouncedEvent::new("continuous".into(), DebouncedEventKind::Any),
+                    DebouncedEvent::new("pending".into(), DebouncedEventKind::Any),
+                ],
+            );
+            assert!(data.event_map.is_empty());
+            assert_eq!(data.debounce_deadline, None);
+            assert!(data.debounced_events().is_empty());
         }
     }
 

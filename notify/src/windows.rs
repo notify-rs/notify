@@ -990,8 +990,8 @@ impl Watcher for ReadDirectoryChangesWatcher {
             config.windows_extended_information(),
             lookup_read_directory_changes_ex,
         )?;
-        // create dummy channel for meta event
-        // TODO: determine the original purpose of this - can we remove it?
+        // `create` accepts a channel for watch-completion and server-wakeup notifications.
+        // The Watcher trait exposes only filesystem events, so discard these notifications.
         let (meta_tx, _) = unbounded();
         let event_handler = Arc::new(Mutex::new(event_handler));
         Self::create_inner(
