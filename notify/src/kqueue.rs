@@ -8,11 +8,14 @@ use super::event::*;
 use super::{
     Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result, Watcher,
 };
-use crate::paths::{
-    WalkRoots, WatchMetadata as Watch, WatchPath, absolute_path, is_preserved_watch_root,
-    preserved_watch_mode, preserved_watch_roots, recursive_user_watch_ancestor, reported_path,
+use crate::paths::{WatchPath, absolute_path, reported_path};
+use crate::walk::{
+    WalkFailure,
+    recursive::{
+        WalkRoots, WatchMetadata as Watch, is_preserved_watch_root, preserved_watch_mode,
+        preserved_watch_roots, recursive_user_watch_ancestor,
+    },
 };
-use crate::walk::WalkFailure;
 use crate::{Receiver, Sender, unbounded};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
 use std::collections::{HashMap, HashSet};
