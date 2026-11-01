@@ -5,11 +5,32 @@ use walkdir::WalkDir;
 
 /// A path registered with the debouncer, together with the options it was watched with.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct WatchRoot {
     /// The watched path.
     pub path: PathBuf,
     /// Whether the watch covers the path's descendants.
     pub recursive_mode: RecursiveMode,
+}
+
+impl WatchRoot {
+    /// Creates a watch root with the given path and recursive mode.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use notify::RecursiveMode;
+    /// use notify_debouncer_full::WatchRoot;
+    ///
+    /// let root = WatchRoot::new("src".into(), RecursiveMode::Recursive);
+    /// ```
+    #[must_use]
+    pub fn new(path: PathBuf, recursive_mode: RecursiveMode) -> Self {
+        Self {
+            path,
+            recursive_mode,
+        }
+    }
 }
 
 /// The interface of a file ID cache.

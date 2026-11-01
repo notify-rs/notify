@@ -9,7 +9,7 @@
 - FIX: unwatching a path no longer deregisters roots nested under it, and re-fingerprints the nested roots whose cached IDs the removal dropped
 - FIX: if the watcher fails to construct, `new_debouncer_opt` no longer leaks the debouncer thread or the event handler [#1040]
 - PERF: park the debouncer thread to avoid idle polling [#933]
-- CHANGE: `FileIdCache::rescan` takes `&[WatchRoot]` instead of `&[(PathBuf, RecursiveMode)]` **breaking**
+- CHANGE: `FileIdCache::rescan` takes `&[WatchRoot]` instead of `&[(PathBuf, RecursiveMode)]`; `WatchRoot` is `#[non_exhaustive]`, provides `WatchRoot::new`, and requires `..` when destructuring **breaking**
 
 [#933]: https://github.com/notify-rs/notify/pull/933
 
