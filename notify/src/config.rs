@@ -92,7 +92,6 @@ impl Config {
     /// This will enable automatic polling, overwriting [`with_manual_polling()`](Config::with_manual_polling).
     #[must_use]
     pub fn with_poll_interval(mut self, dur: Duration) -> Self {
-        // TODO: v7.0 break signature to option
         self.poll_interval = Some(dur);
         self
     }
@@ -100,7 +99,6 @@ impl Config {
     /// Returns current setting
     #[must_use]
     pub fn poll_interval(&self) -> Option<Duration> {
-        // Changed Signature to Option
         self.poll_interval
     }
 

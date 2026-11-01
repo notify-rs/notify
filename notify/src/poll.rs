@@ -657,9 +657,6 @@ impl PollWatcher {
                     };
 
                     // HINT: Make sure always lock in the same order to avoid deadlock.
-                    //
-                    // FIXME: inconsistent: some place mutex poison cause panic,
-                    // some place just ignore.
                     let scan_res = {
                         let mut watches = watches.lock().unwrap_or_else(|e| e.into_inner());
                         let mut data_builder =
@@ -691,8 +688,6 @@ impl PollWatcher {
         let watch_path = WatchPath::new(path)?;
 
         // HINT: Make sure always lock in the same order to avoid deadlock.
-        //
-        // FIXME: inconsistent: some place mutex poison cause panic, some place just ignore.
         let mut watches = self.watches.lock().unwrap_or_else(|e| e.into_inner());
         let mut data_builder = self.data_builder.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -715,7 +710,6 @@ impl PollWatcher {
     fn unwatch_inner(&mut self, path: &Path) -> crate::Result<()> {
         let path = absolute_path(path)?;
 
-        // FIXME: inconsistent: some place mutex poison cause panic, some place just ignore.
         self.watches
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -740,7 +734,7 @@ impl Watcher for PollWatcher {
     }
 
     fn watched_paths(&self) -> crate::Result<Vec<(PathBuf, RecursiveMode)>> {
-        let watches = self.watches.lock().map_err(crate::Error::from)?;
+        let watches = self.watches.lock().unwrap_or_else(|e| e.into_inner());
         Ok(watches
             .values()
             .map(|watch| (watch.requested_root().to_path_buf(), watch.recursive_mode()))
@@ -948,19 +942,37 @@ mod tests {
     }
 
     #[test]
-    fn unwatch_with_poisoned_mutex_does_not_panic() {
+    fn watch_operations_recover_poisoned_mutexes() {
         use std::{path::Path, sync::Arc};
 
-        let mut watcher = PollWatcher::new(|_| {}, Config::default()).expect("create watcher");
+        let tmpdir = testdir();
+        let mut watcher = PollWatcher::new(|_| {}, Config::default().with_manual_polling())
+            .expect("create watcher");
 
         let watches = Arc::clone(&watcher.watches);
-        let _ = std::thread::spawn(move || {
-            let _guard = watches.lock().expect("lock watches");
-            panic!("poison watches mutex for test");
+        let data_builder = Arc::clone(&watcher.data_builder);
+        std::thread::spawn(move || {
+            let _watches = watches.lock().expect("lock watches");
+            let _data_builder = data_builder.lock().expect("lock data builder");
+            panic!("poison polling mutexes for test");
         })
-        .join();
+        .join()
+        .expect_err("poisoning thread must panic");
 
-        // Ensure poisoned mutex recovery path does not panic in unwatch_inner.
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::Recursive)
+            .expect("watch after poisoning");
+        assert_eq!(
+            watcher.watched_paths().expect("list after poisoning"),
+            vec![(tmpdir.path().to_path_buf(), RecursiveMode::Recursive)]
+        );
+        watcher.poll_blocking().expect("poll after poisoning");
+        watcher
+            .unwatch(tmpdir.path())
+            .expect("unwatch after poisoning");
+        assert!(watcher.watched_paths().unwrap().is_empty());
+
+        // Recovering a poisoned mutex still reports missing watches as errors.
         let result = watcher.unwatch_inner(Path::new("/path/that/is/not/watched"));
         assert!(result.is_err());
     }

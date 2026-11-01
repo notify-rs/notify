@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- DOCS: describe kqueue event-detail limitations and FSEvents event translation
+- FIX: [poll] recover a poisoned watch mutex in `watched_paths`, consistently with watch, unwatch, and polling
 - FEATURE: [Windows] add opt-in `Config::with_windows_extended_information` to classify created and removed entries from `ReadDirectoryChangesExW` attributes, using 64 KiB buffers; unsupported APIs and filesystems return errors without automatic fallback [#261]
 - FIX: [Windows] deliver previously log-only fatal asynchronous read errors to the event handler in both notification modes; `ERROR_ACCESS_DENIED` retains its existing deletion check and rearm behavior
 - FIX: [Windows] bound notification decoding by the received byte count in both modes; malformed records emit an `InvalidData` error and a rescan event

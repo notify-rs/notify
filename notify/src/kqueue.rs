@@ -220,13 +220,8 @@ impl EventLoop {
                         .map(|watch| watch.reported_path.clone())
                         .unwrap_or_else(|| path.clone());
                     let event = match data {
-                        /*
-                        TODO: Differentiate folders and files
-                        kqueue doesn't tell us if this was a file or a dir, so we
-                        could only emulate this inotify behavior if we keep track of
-                        all files and directories internally and then perform a
-                        lookup.
-                        */
+                        // kqueue does not report the deleted entry's type, and watches
+                        // do not retain it, so removals use RemoveKind::Any.
                         kqueue::Vnode::Delete => {
                             remove_watches.push((path.clone(), true));
                             Ok(Event::new(EventKind::Remove(RemoveKind::Any)).add_path(event_path))
@@ -235,7 +230,7 @@ impl EventLoop {
                         // A write to a recursively watched directory may mean that a new file
                         // was created in it. Non-recursive directory watches do not track
                         // children, so guessing from read_dir would be unreliable.
-                        // FIXME: harden guessing for non-recursive watches.
+                        // Non-recursive watches report the directory's data change instead.
                         // Context: https://github.com/notify-rs/notify/issues/644
                         kqueue::Vnode::Write
                             if watch.is_some_and(|watch| watch.is_recursive)
@@ -1794,7 +1789,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "FIXME"]
+    #[ignore = "non-recursive kqueue directory watches do not report individual child events"]
     fn create_write_overwrite() {
         let tmpdir = testdir();
         let (mut watcher, mut rx) = watcher();
@@ -1878,7 +1873,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "FIXME"]
+    #[ignore = "kqueue directory scans can miss the intermediate path between rapid renames"]
     fn rename_dir_twice() {
         let tmpdir = testdir();
         let (mut watcher, mut rx) = watcher();
@@ -1918,8 +1913,9 @@ mod tests {
         rx.wait_unordered([expected(path).rename_any()]);
     }
 
+    // kqueue can also miss files created and removed before child watches are installed.
     #[test]
-    #[ignore = "FIXME"]
+    #[ignore = "expects inotify-style DataChange::Content and RemoveKind::File; kqueue emits Any"]
     fn create_write_write_rename_write_remove() {
         let tmpdir = testdir();
         let (mut watcher, mut rx) = watcher();
@@ -1948,7 +1944,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "FIXME"]
+    #[ignore = "kqueue directory scans can miss the intermediate path between rapid renames"]
     fn rename_twice() {
         let tmpdir = testdir();
         let (mut watcher, mut rx) = watcher();
@@ -2026,7 +2022,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "FIXME"]
+    #[ignore = "kqueue does not emit create events for descendants found while adding child watches"]
     fn recursive_creation() {
         let tmpdir = testdir();
         let nested1 = tmpdir.path().join("1");
