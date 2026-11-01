@@ -141,7 +141,7 @@ impl Receiver {
     ///
     /// It doesn't fail on timeout, instead it returns None
     ///
-    /// This behaviour is better for tests, because it allows us to determine which events were received
+    /// This behavior is better for tests, because it allows us to determine which events were received
     pub fn iter(&mut self) -> impl Iterator<Item = Event> + '_ {
         struct Iter<'a> {
             rx: &'a mut Receiver,
@@ -475,7 +475,7 @@ pub fn poll_watcher_channel() -> (TestWatcher<PollWatcher>, Receiver) {
     (watcher, rx)
 }
 
-/// This is a canonicalized path due to macos behaviour - it creates
+/// This is a canonicalized path due to macos behavior - it creates
 /// a dir with path '/var/...' but actually it is '/private/var/...'
 ///
 /// FsEventWatcher uses canonicalized paths
@@ -551,7 +551,7 @@ mod expect {
     };
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum UnexpectedEventBehaviour {
+    pub enum UnexpectedEventBehavior {
         Ignore,
         Panic,
     }
@@ -561,7 +561,7 @@ mod expect {
     pub struct ExpectedState<C> {
         pub remain: C,
         pub received: Vec<Event>,
-        pub unexpected_event_behaviour: UnexpectedEventBehaviour,
+        pub unexpected_event_behavior: UnexpectedEventBehavior,
         /// If it is Some, then any next equal events are acceptable
         /// while they are equal the stored ones. Ones mismatch clears the field
         multiple_event: Option<Event>,
@@ -584,18 +584,18 @@ mod expect {
             Self {
                 remain: iter.into_iter().collect(),
                 received: Default::default(),
-                unexpected_event_behaviour: UnexpectedEventBehaviour::Ignore,
+                unexpected_event_behavior: UnexpectedEventBehavior::Ignore,
                 multiple_event: None,
             }
         }
 
         pub fn allow_unexpected(mut self) -> Self {
-            self.unexpected_event_behaviour = UnexpectedEventBehaviour::Ignore;
+            self.unexpected_event_behavior = UnexpectedEventBehavior::Ignore;
             self
         }
 
         pub fn disallow_unexpected(mut self) -> Self {
-            self.unexpected_event_behaviour = UnexpectedEventBehaviour::Panic;
+            self.unexpected_event_behavior = UnexpectedEventBehavior::Panic;
             self
         }
 
@@ -619,7 +619,7 @@ mod expect {
             }
 
             if expected.is_none()
-                && self.unexpected_event_behaviour == UnexpectedEventBehaviour::Panic
+                && self.unexpected_event_behavior == UnexpectedEventBehavior::Panic
             {
                 panic!("Unexpected event. State: {self:#?}")
             }

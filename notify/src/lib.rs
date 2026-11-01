@@ -76,7 +76,7 @@
 //! filter out metadata-only events if they're not relevant (e.g. don't include
 //! `EventKindMask::MODIFY_META` in [`Config::with_event_kinds`]).
 //!
-//! ### Editor Behaviour
+//! ### Editor Behavior
 //!
 //! If you rely on precise events (Write/Delete/Create..), you will notice that the actual events
 //! can differ a lot between file editors. Some truncate the file on save, some create a new one and replace the old one.
@@ -234,7 +234,7 @@
 //! ## With different configurations
 //!
 //! It is possible to create several watchers with different configurations or implementations that
-//! all call the same event function. This can accommodate advanced behaviour or work around limits.
+//! all call the same event function. This can accommodate advanced behavior or work around limits.
 //!
 //! ```rust
 //! # use notify::{RecursiveMode, Result, Watcher};

@@ -113,7 +113,7 @@ impl TestHarness {
     }
 
     pub fn advance_clock(&self) {
-        // Unfortunately this entire crate is pretty dependent on real syscall behaviour so let's
+        // Unfortunately this entire crate is pretty dependent on real syscall behavior so let's
         // test "for real" and require a sleep long enough to trigger mtime actually increasing.
         thread::sleep(Duration::from_secs(1));
     }
