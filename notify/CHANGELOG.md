@@ -2,6 +2,7 @@
 
 ## unreleased
 
+- FIX: [kqueue] skip special files and links to them during recursive watch registration and event-triggered additions, avoiding blocking opens of FIFOs; reject explicitly watched special files with an `Unsupported` I/O error
 - FIX: [kqueue] report child errors and continue recursive watches; preserve errors for the requested root and report failures during event-triggered additions [#703]
 - FIX: [kqueue] report process and system file descriptor limits as `ErrorKind::MaxFilesWatch` and stop further additions in that request or event batch [#455] [#596]
 - CHANGE: [kqueue] skip missing-path errors when a watched directory disappears during write-event processing

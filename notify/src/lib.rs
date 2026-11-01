@@ -131,6 +131,10 @@
 //! Failure to watch or read the requested root, reaching the watch limit, or failure to register
 //! the watches returns an error from `watch()`. Already installed watches are not rolled back.
 //!
+//! Recursive kqueue watches skip FIFOs, sockets, and device files without reporting errors.
+//! Symbolic links to these special files are also skipped. Watching a special file directly
+//! returns an [`ErrorKind::Io`] error with [`std::io::ErrorKind::Unsupported`].
+//!
 //! When filesystem events trigger further watch additions, failures are sent to the event
 //! handler; reaching the watch limit stops the remaining additions in that batch.
 //! Repeated recoverable errors for the same known path are reported once per request or event
