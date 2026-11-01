@@ -139,6 +139,25 @@ are still delivered immediately.
 The existing `DebouncedEvent` and `DebouncedEventKind` types are unchanged. `DebouncedEventBatch`
 is an additive API in `notify-types` 2.2; the breaking change is in `notify-debouncer-mini`.
 
+### 6) `ErrorKind` is now non-exhaustive
+
+`notify::ErrorKind` is now marked `#[non_exhaustive]` so future releases can add error kinds.
+If your v8 code matched every variant in `match err.kind { ... }`, add a wildcard arm (`_`).
+It is required even when all currently defined variants are handled.
+
+Keep any existing variant-specific handling and provide a fallback for other error kinds:
+
+```rust
+use notify::{Error, ErrorKind};
+
+fn handle_error(err: Error) {
+    match &err.kind {
+        ErrorKind::PathNotFound => eprintln!("Watched path not found: {:?}", err.paths),
+        _ => eprintln!("Watch error: {err}"),
+    }
+}
+```
+
 ## Non-breaking changes but worth mentioning
 
 ### Event-kind filtering was added

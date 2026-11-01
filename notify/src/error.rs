@@ -12,6 +12,7 @@ pub type Result<T> = StdResult<T, Error>;
 
 /// Error kinds
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ErrorKind {
     /// Generic error
     ///
@@ -174,6 +175,7 @@ impl<T> From<std::sync::PoisonError<T>> for Error {
 /// error carries the failed operation (if known) and any remaining operations that
 /// were not attempted.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct UpdatePathsError {
     /// The original error
     pub source: Error,
@@ -190,6 +192,33 @@ pub struct UpdatePathsError {
     /// This list does not include `origin`. To retry in order, handle `origin`
     /// first (if present), then `remaining`.
     pub remaining: Vec<PathOp>,
+}
+
+impl UpdatePathsError {
+    /// Creates a batch update error.
+    ///
+    /// `origin` is the failed operation, if known. `remaining` contains only operations
+    /// that were not attempted and must not include `origin`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use notify::{Error, PathOp, UpdatePathsError};
+    ///
+    /// let error = UpdatePathsError::new(
+    ///     Error::watch_not_found(),
+    ///     Some(PathOp::unwatch("missing")),
+    ///     vec![PathOp::watch_recursive("next")],
+    /// );
+    /// ```
+    #[must_use]
+    pub fn new(source: Error, origin: Option<PathOp>, remaining: Vec<PathOp>) -> Self {
+        Self {
+            source,
+            origin,
+            remaining,
+        }
+    }
 }
 
 impl fmt::Display for UpdatePathsError {
