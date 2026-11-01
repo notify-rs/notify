@@ -2,6 +2,9 @@
 
 ## unreleased
 
+- FEATURE: [Windows] add opt-in `Config::with_windows_extended_information` to classify created and removed entries from `ReadDirectoryChangesExW` attributes, using 64 KiB buffers; unsupported APIs and filesystems return errors without automatic fallback [#261]
+- FIX: [Windows] deliver previously log-only fatal asynchronous read errors to the event handler in both notification modes; `ERROR_ACCESS_DENIED` retains its existing deletion check and rearm behavior
+- FIX: [Windows] bound notification decoding by the received byte count in both modes; malformed records emit an `InvalidData` error and a rescan event
 - CHANGE: mark `ErrorKind` and `UpdatePathsError` as `#[non_exhaustive]`; match error kinds with a wildcard arm, construct batch errors with the new `UpdatePathsError::new`, and include `..` when destructuring them **breaking**
 - FIX: [kqueue] skip special files and links to them during recursive watch registration and event-triggered additions, avoiding blocking opens of FIFOs; reject explicitly watched special files with an `Unsupported` I/O error
 - FIX: [kqueue] report child errors and continue recursive watches; preserve errors for the requested root and report failures during event-triggered additions [#703]
@@ -13,6 +16,7 @@
 [#703]: https://github.com/notify-rs/notify/issues/703
 [#455]: https://github.com/notify-rs/notify/issues/455
 [#596]: https://github.com/notify-rs/notify/issues/596
+[#261]: https://github.com/notify-rs/notify/issues/261
 
 ## notify 9.0.0-rc.7 (2026-10-28)
 

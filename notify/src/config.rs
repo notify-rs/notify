@@ -74,6 +74,9 @@ pub struct Config {
     /// See [Config::with_windows_path_separator_style]
     windows_path_separator_style: WindowsPathSeparatorStyle,
 
+    /// See [Config::with_windows_extended_information]
+    windows_extended_information: bool,
+
     /// See [Config::with_fsevent_latency]
     fsevent_latency: Duration,
 }
@@ -210,6 +213,28 @@ impl Config {
         self.windows_path_separator_style
     }
 
+    /// Use `ReadDirectoryChangesExW` to classify created and removed entries as files or folders.
+    /// Reparse points are not followed; modification events remain `ModifyKind::Any`.
+    ///
+    /// Requires Windows 10 1709 / Windows Server 2019 or later and NTFS. Unsupported APIs
+    /// fail at construction; unsupported filesystems fail at `watch()` or via the event handler.
+    /// No automatic fallback: use a default-configured watcher for unsupported paths.
+    ///
+    /// Off by default and ignored by other backends. Cannot be changed via
+    /// [`Watcher::configure`](crate::Watcher::configure); create a new watcher to switch modes.
+    /// Uses a 64 KiB read buffer instead of 16 KiB.
+    #[must_use]
+    pub fn with_windows_extended_information(mut self, extended_information: bool) -> Self {
+        self.windows_extended_information = extended_information;
+        self
+    }
+
+    /// Returns whether extended directory notifications are enabled on Windows.
+    #[must_use]
+    pub fn windows_extended_information(&self) -> bool {
+        self.windows_extended_information
+    }
+
     /// For the [`FsEventWatcher`](crate::FsEventWatcher) backend.
     ///
     /// The latency passed to `FSEventStreamCreate`: how long the FSEvents service waits
@@ -245,6 +270,7 @@ impl Default for Config {
             follow_symlinks: true,
             event_kinds: EventKindMask::ALL,
             windows_path_separator_style: WindowsPathSeparatorStyle::Auto,
+            windows_extended_information: false,
             fsevent_latency: Duration::ZERO,
         }
     }

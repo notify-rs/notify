@@ -70,6 +70,7 @@ windows-sys = { workspace = true, features = [
   "Win32_Security",
   "Win32_System_WindowsProgramming",
   "Win32_System_IO",
+  "Win32_System_LibraryLoader",
 ] }
 
 # Both backends must be available for build-time selection.
