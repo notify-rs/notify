@@ -17,6 +17,11 @@ edition.workspace = true
 homepage.workspace = true
 repository.workspace = true
 
+[package.metadata.docs.rs]
+# Enabling macos_kqueue would hide the default FSEvents backend.
+features = ["crossbeam-channel", "flume", "futures", "serde", "tokio"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 default = ["macos_fsevent"]
 serde = ["notify-types/serde"]

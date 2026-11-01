@@ -1,3 +1,5 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 //! Cross-platform file system notification library
 //!
 //! # Installation
@@ -570,7 +572,7 @@ pub trait Watcher {
 
     /// Configure the watcher at runtime.
     ///
-    /// See the [`Config`](config/struct.Config.html) struct for all configuration options.
+    /// See the [`Config`] struct for all configuration options.
     ///
     /// # Returns
     ///
