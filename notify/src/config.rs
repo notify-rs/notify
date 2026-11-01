@@ -27,7 +27,7 @@ impl RecursiveMode {
 
 /// Controls how path separators are represented in emitted event paths on Windows.
 ///
-/// This applies to [`ReadDirectoryChangesWatcher`](crate::ReadDirectoryChangesWatcher).
+/// This applies to `ReadDirectoryChangesWatcher`.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Default)]
 pub enum WindowsPathSeparatorStyle {
     /// Infer separator style from each watched input path.
@@ -135,8 +135,7 @@ impl Config {
         self.compare_contents
     }
 
-    /// For the [INotifyWatcher](crate::INotifyWatcher), [KqueueWatcher](crate::KqueueWatcher),
-    /// and [PollWatcher](crate::PollWatcher).
+    /// For the `INotifyWatcher`, `KqueueWatcher`, and [`PollWatcher`](crate::PollWatcher).
     ///
     /// Determine if symbolic links should be followed when recursively watching a directory.
     ///
@@ -191,7 +190,7 @@ impl Config {
         self.event_kinds
     }
 
-    /// For the [`ReadDirectoryChangesWatcher`](crate::ReadDirectoryChangesWatcher) backend.
+    /// For the `ReadDirectoryChangesWatcher` backend.
     ///
     /// Controls path separator normalization for emitted event paths on Windows.
     ///
@@ -233,7 +232,7 @@ impl Config {
         self.windows_extended_information
     }
 
-    /// For the [`FsEventWatcher`](crate::FsEventWatcher) backend.
+    /// For the `FsEventWatcher` backend.
     ///
     /// The latency passed to `FSEventStreamCreate`: how long the FSEvents service waits
     /// after hearing about an event from the kernel before invoking the callback. A larger
@@ -308,7 +307,7 @@ impl WatchPathConfig {
     }
 
     /// Set whether a symbolic link is followed to its destination, for
-    /// [`RecursiveMode::NonRecursive`] watches on the [INotifyWatcher](crate::INotifyWatcher).
+    /// [`RecursiveMode::NonRecursive`] watches on the `INotifyWatcher`.
     #[must_use]
     pub fn with_dereference_symlinks(mut self, dereference_symlinks: bool) -> Self {
         self.dereference_symlinks = dereference_symlinks;

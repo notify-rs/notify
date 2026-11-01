@@ -1,3 +1,5 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 pub mod debouncer_full;
 pub mod debouncer_mini;
 pub mod event;
