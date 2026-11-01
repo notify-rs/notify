@@ -606,6 +606,26 @@ impl EventLoop {
         is_recursive: bool,
         is_user_watch: bool,
     ) -> Result<()> {
+        // add_filename opens the path for reading, which can block on a FIFO. Check the
+        // target type, including through symlinks, before either watch-addition path opens it.
+        let file_type = metadata(&path.absolute)
+            .map_err(|err| map_kqueue_io_error(err).add_path(path.requested.clone()))?
+            .file_type();
+        if !file_type.is_file() && !file_type.is_dir() {
+            if is_user_watch {
+                return Err(Error::io(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "kqueue only supports watching regular files and directories",
+                ))
+                .add_path(path.requested));
+            }
+            log::debug!(
+                "skipping kqueue watch for special file: {}",
+                path.absolute.display()
+            );
+            return Ok(());
+        }
+
         let event_filter = EventFilter::EVFILT_VNODE;
         let filter_flags = FilterFlag::NOTE_DELETE
             | FilterFlag::NOTE_WRITE
@@ -813,6 +833,21 @@ mod tests {
         (event_loop, rx)
     }
 
+    fn assert_watch_does_not_block(test: impl FnOnce() + Send + 'static) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = thread::spawn(move || {
+            test();
+            let _ = tx.send(());
+        });
+        // A regression must fail instead of hanging the test suite on a FIFO without a writer.
+        if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+            rx.recv_timeout(Duration::from_secs(10))
+        {
+            panic!("watching special files did not finish");
+        }
+        worker.join().unwrap();
+    }
+
     #[test]
     fn watch_io_error_kinds() {
         for errno in [libc::EMFILE, libc::ENFILE] {
@@ -958,6 +993,122 @@ mod tests {
         assert!(rx.try_iter().any(|event| event.is_ok_and(|event| {
             event.kind.is_modify() && event.paths == [PathBuf::from("reported/child/file")]
         })));
+    }
+
+    #[test]
+    fn recursive_watches_skip_special_files() {
+        assert_watch_does_not_block(|| {
+            for follow_symlinks in [false, true] {
+                for triggered_by_event in [false, true] {
+                    let dir = testdir();
+                    let root = dir.path();
+                    let (mut event_loop, rx) = recording_event_loop();
+                    event_loop.follow_symlinks = follow_symlinks;
+                    if triggered_by_event {
+                        event_loop
+                            .add_watch(WatchPath::new(root).unwrap(), true, true)
+                            .unwrap();
+                    }
+
+                    let child = root.join("child");
+                    let file = child.join("file");
+                    std::fs::create_dir(&child).unwrap();
+                    std::fs::write(&file, "").unwrap();
+                    for fifo in [root.join("fifo"), child.join("fifo")] {
+                        nix::unistd::mkfifo(&fifo, nix::sys::stat::Mode::S_IRUSR).unwrap();
+                    }
+                    let _socket =
+                        std::os::unix::net::UnixListener::bind(root.join("socket")).unwrap();
+                    std::os::unix::fs::symlink("fifo", root.join("fifo-link")).unwrap();
+                    std::os::unix::fs::symlink("socket", root.join("socket-link")).unwrap();
+                    std::os::unix::fs::symlink("/dev/null", root.join("device-link")).unwrap();
+                    std::os::unix::fs::symlink("child/file", root.join("file-link")).unwrap();
+                    std::os::unix::fs::symlink("child", root.join("dir-link")).unwrap();
+
+                    if triggered_by_event {
+                        event_loop.handle_kqueue();
+                    } else {
+                        event_loop
+                            .add_watch(WatchPath::new(root).unwrap(), true, true)
+                            .unwrap();
+                    }
+                    for path in [
+                        "fifo",
+                        "child/fifo",
+                        "fifo-link",
+                        "socket",
+                        "socket-link",
+                        "device-link",
+                    ] {
+                        assert!(!event_loop.watches.contains_key(&root.join(path)), "{path}");
+                    }
+                    for path in ["child", "child/file", "file-link", "dir-link"] {
+                        assert!(event_loop.watches.contains_key(&root.join(path)), "{path}");
+                    }
+                    if follow_symlinks {
+                        assert!(event_loop.watches.contains_key(&root.join("dir-link/file")));
+                        assert!(!event_loop.watches.contains_key(&root.join("dir-link/fifo")));
+                    }
+                    assert!(rx.try_iter().all(|event| event.is_ok()));
+
+                    // Ordinary files remain covered even when special files were skipped.
+                    std::fs::write(&file, "changed").unwrap();
+                    event_loop.handle_kqueue();
+                    let events: Vec<_> = rx.try_iter().map(Result::unwrap).collect();
+                    assert!(
+                        events
+                            .iter()
+                            .any(|event| { event.kind.is_modify() && event.paths.contains(&file) })
+                    );
+
+                    // Skipping a FIFO must not exclude a regular file that later replaces it.
+                    let replaced = root.join("fifo");
+                    std::fs::remove_file(&replaced).unwrap();
+                    std::fs::write(&replaced, "regular file").unwrap();
+                    event_loop.handle_kqueue();
+                    assert!(event_loop.watches.contains_key(&replaced));
+                    assert!(rx.try_iter().all(|event| event.is_ok()));
+                    std::fs::write(&replaced, "changed").unwrap();
+                    event_loop.handle_kqueue();
+                    let events: Vec<_> = rx.try_iter().map(Result::unwrap).collect();
+                    assert!(events.iter().any(|event| {
+                        event.kind.is_modify() && event.paths.contains(&replaced)
+                    }));
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn special_file_roots_return_errors() {
+        assert_watch_does_not_block(|| {
+            let dir = testdir();
+            let fifo = dir.path().join("fifo");
+            nix::unistd::mkfifo(&fifo, nix::sys::stat::Mode::S_IRUSR).unwrap();
+            let socket = dir.path().join("socket");
+            let _socket = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+            let link = dir.path().join("link");
+            std::os::unix::fs::symlink("fifo", &link).unwrap();
+            let (mut event_loop, rx) = recording_event_loop();
+
+            for is_recursive in [false, true] {
+                for path in [&fifo, &socket, &link, &PathBuf::from("/dev/null")] {
+                    let error = event_loop
+                        .add_watch(
+                            WatchPath::from_parts(path.clone(), "reported".into()),
+                            is_recursive,
+                            true,
+                        )
+                        .unwrap_err();
+                    assert!(
+                        matches!(error.kind, ErrorKind::Io(err) if err.kind() == io::ErrorKind::Unsupported)
+                    );
+                    assert_eq!(error.paths, [PathBuf::from("reported")]);
+                }
+            }
+            assert!(event_loop.watches.is_empty());
+            assert!(rx.try_iter().next().is_none());
+        });
     }
 
     #[test]
