@@ -668,12 +668,6 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         self.data.changed.notify_all();
     }
 
-    #[deprecated = "`Debouncer` provides all methods from `Watcher` itself now. Remove `.watcher()` and use those methods directly."]
-    pub fn watcher(&mut self) {}
-
-    #[deprecated = "`Debouncer` now manages root paths automatically. Remove all calls to `add_root` and `remove_root`."]
-    pub fn cache(&mut self) {}
-
     fn add_root(&mut self, path: impl Into<PathBuf>, recursive_mode: RecursiveMode) {
         let path = path.into();
 

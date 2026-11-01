@@ -2,6 +2,7 @@
 
 ## unreleased
 
+- CHANGE: remove the deprecated no-op methods `Debouncer::watcher` and `Debouncer::cache` **breaking**
 - FIX: for an event on a direct child of a non-recursive watch, cache only that entry and not the entries below it, which the watch does not report
 - CHANGE: `FileIdCache::add_single_path` is a required method, and `FileIdCache::add_path` is a provided method that walks the path and calls `add_single_path` for each entry; a custom cache only has to cache single paths **breaking**
 - FIX: pair the source and the destination of a rename below the same root when the watcher reports the rename once for each watch, for example for two watches that reach one directory through a symlink
