@@ -9,11 +9,14 @@ use super::{
     Config, Error, ErrorKind, EventHandler, PathOp, RecursiveMode, Result, UpdatePathsError,
     WatchPathConfig, Watcher,
 };
-use crate::paths::{
-    WalkRoots, WatchMetadata, WatchPath, absolute_path, is_preserved_watch_root,
-    preserved_watch_mode, preserved_watch_roots, recursive_user_watch_ancestor, reported_path,
+use crate::paths::{WatchPath, absolute_path, reported_path};
+use crate::walk::{
+    WalkFailure,
+    recursive::{
+        WalkRoots, WatchMetadata, is_preserved_watch_root, preserved_watch_mode,
+        preserved_watch_roots, recursive_user_watch_ancestor,
+    },
 };
-use crate::walk::WalkFailure;
 use crate::{BoundSender, Receiver, Sender, bounded, unbounded};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
