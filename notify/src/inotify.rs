@@ -174,18 +174,23 @@ fn add_watch_by_event(
     }
 }
 
-/// Returns the directories above `path` that the walk of a recursive watch passed through to
-/// reach `path`.
+/// Returns the directories above `path` through the nearest recursive user watch, inclusive.
+/// A nested recursive watch can follow links outside its own root independently of outer watches.
 fn walked_ancestors(path: &Path, watches: &HashMap<PathBuf, Watch>) -> Vec<PathBuf> {
-    path.ancestors()
-        .skip(1)
-        .take_while(|ancestor| {
-            watches
-                .get(*ancestor)
-                .is_some_and(|watch| watch.metadata.is_recursive)
-        })
-        .map(Path::to_path_buf)
-        .collect()
+    let mut ancestors = Vec::new();
+    for ancestor in path.ancestors().skip(1) {
+        let Some(watch) = watches
+            .get(ancestor)
+            .filter(|watch| watch.metadata.is_recursive)
+        else {
+            break;
+        };
+        ancestors.push(ancestor.to_path_buf());
+        if watch.metadata.is_user_watch && watch.metadata.user_is_recursive {
+            break;
+        }
+    }
+    ancestors
 }
 
 /// Queue `path` for removal, if it is watched and `descriptor` still matches its watch.
@@ -1791,6 +1796,48 @@ mod tests {
             .collect();
         assert_eq!(failures, [back.clone()]);
         assert!(!event_loop.watches.contains_key(&back));
+    }
+
+    #[test]
+    fn nested_recursive_watch_keeps_new_parent_link_after_outer_unwatch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let outer = tmp.path().join("outer");
+        let inner = outer.join("inner");
+        let sibling = outer.join("sibling");
+        let staging = tmp.path().join("staging");
+        std::fs::create_dir_all(&inner).unwrap();
+        std::fs::create_dir(&sibling).unwrap();
+        std::fs::create_dir(&staging).unwrap();
+        std::os::unix::fs::symlink(&outer, staging.join("back")).unwrap();
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        for root in [&outer, &inner] {
+            event_loop
+                .add_watch(
+                    WatchPath::new(root).unwrap(),
+                    recursive_watch(),
+                    true,
+                    false,
+                )
+                .unwrap();
+        }
+
+        // The inner watch must follow this link even though the outer watch covers its target.
+        std::fs::rename(&staging, inner.join("moved")).unwrap();
+        event_loop.handle_inotify();
+        event_loop.remove_watch(outer, false).unwrap();
+        event_loop.handle_inotify();
+        // Ignore uninteresting events.
+        rx.try_iter().for_each(drop);
+
+        std::fs::write(sibling.join("probe"), "content").unwrap();
+        event_loop.handle_inotify();
+        let events: Vec<_> = rx.try_iter().map(Result::unwrap).collect();
+        let expected = Event::new(EventKind::Create(CreateKind::File))
+            .add_path(inner.join("moved/back/sibling/probe"));
+        assert!(
+            events.contains(&expected),
+            "the inner watch lost coverage through its parent link: {events:?}"
+        );
     }
 
     #[test]
