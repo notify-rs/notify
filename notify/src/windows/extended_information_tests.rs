@@ -268,12 +268,14 @@ fn complete(request: Box<ReadDirectoryRequest>, error: u32, bytes: u32) {
 fn fatal_errors_reach_the_handler_in_both_formats() {
     for extended in [false, true] {
         let (mut request, events, actions) = request(extended);
+        request.data.user_data = Some(0);
         let sem = semaphore();
         request.data.complete_sem = sem.as_raw_handle();
         request.event_kinds = EventKindMask::empty();
         let path = request.data.watch_path.clone();
         complete(request, ERROR_INVALID_FUNCTION, 0);
         let error = events.recv().unwrap().unwrap_err();
+        assert_eq!(error.user_data(), Some(0));
         assert!(
             matches!(error.kind, ErrorKind::Io(ref error) if error.raw_os_error() == Some(ERROR_INVALID_FUNCTION as i32))
         );
@@ -292,6 +294,7 @@ fn access_denied_without_deletion_reports_only_the_rearm_error() {
     let dir = tempdir().unwrap();
     for extended in [false, true] {
         let (mut request, events, actions) = request(extended);
+        request.data.user_data = Some(u64::MAX);
         let sem = semaphore();
         request.data.complete_sem = sem.as_raw_handle();
         request.data.dir = dir.path().to_path_buf();
@@ -310,6 +313,7 @@ fn access_denied_without_deletion_reports_only_the_rearm_error() {
         let results: Vec<_> = events.try_iter().collect();
         assert_eq!(results.len(), 1, "unexpected events: {results:?}");
         let error = results[0].as_ref().unwrap_err();
+        assert_eq!(error.user_data(), Some(u64::MAX));
         assert!(
             matches!(&error.kind, ErrorKind::Io(error) if error.raw_os_error() == Some(expected_code as i32))
         );
@@ -377,6 +381,9 @@ fn malformed_and_overflow_completions_report_loss_even_when_rearming_fails() {
                 Some(42)
             );
             assert!(results.last().unwrap().is_err());
+            for error in results.iter().filter_map(|result| result.as_ref().err()) {
+                assert_eq!(error.user_data(), Some(42));
+            }
             assert!(matches!(actions.recv().unwrap(), Action::Unwatch(_)));
             assert_eq!(
                 unsafe { WaitForSingleObjectEx(sem.as_raw_handle(), 0, 0) },

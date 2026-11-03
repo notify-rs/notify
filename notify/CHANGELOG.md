@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- FEATURE: add `Error::user_data()` and `Error::set_user_data()` to identify watch operations and watches reporting errors; failed batch watch operations retain the value in `UpdatePathsError.source` [#388]
+- CHANGE: `Error` now has a private field. Construct errors with its constructors and include `..` when destructuring them. Its Debug output now includes `user_data` **breaking**
 - FEATURE: add per-watch `WatchPathConfig::with_user_data(u64)` and expose it through `Event::user_data()` on all backends; inotify and kqueue update value-only changes without reinstalling watches [#1012]
 - DOCS: describe kqueue event-detail limitations and FSEvents event translation
 - FIX: [poll] recover a poisoned watch mutex in `watched_paths`, consistently with watch, unwatch, and polling
@@ -18,6 +20,7 @@
 - FIX: [inotify] report a symbolic link in a new directory that points to a directory above it as a loop, instead of watching the tree a second time below the link
 
 [#703]: https://github.com/notify-rs/notify/issues/703
+[#388]: https://github.com/notify-rs/notify/issues/388
 [#1012]: https://github.com/notify-rs/notify/issues/1012
 [#455]: https://github.com/notify-rs/notify/issues/455
 [#596]: https://github.com/notify-rs/notify/issues/596

@@ -513,8 +513,10 @@ pub trait Watcher {
     /// # Errors
     ///
     /// Returns an error in the case that `path` does not exist or if adding the watch fails.
+    /// The error carries [`WatchPathConfig::user_data`] through [`Error::user_data`].
     fn watch_with(&mut self, path: &Path, config: WatchPathConfig) -> Result<()> {
         self.watch(path, config.recursive_mode())
+            .map_err(|err| err.set_user_data_opt(config.user_data()))
     }
 
     /// Stop watching a path.
@@ -683,7 +685,8 @@ where
                 source,
                 origin: Some(error_op),
                 remaining: iter.collect(),
-            });
+            }
+            .with_origin_user_data());
         }
     }
     Ok(())

@@ -228,12 +228,14 @@ impl ReadDirectoryRequest {
     }
 
     fn error(&self, error: io::Error) -> Error {
-        Error::io(error).add_path(
-            self.data
-                .file
-                .clone()
-                .unwrap_or_else(|| self.data.reported_dir.clone()),
-        )
+        Error::io(error)
+            .add_path(
+                self.data
+                    .file
+                    .clone()
+                    .unwrap_or_else(|| self.data.reported_dir.clone()),
+            )
+            .set_user_data_opt(self.data.user_data)
     }
 
     fn unwatch(&self) {
@@ -1015,7 +1017,9 @@ impl Watcher for ReadDirectoryChangesWatcher {
     }
 
     fn watch_with(&mut self, path: &Path, config: crate::WatchPathConfig) -> Result<()> {
+        let user_data = config.user_data();
         self.watch_inner(path, config)
+            .map_err(|err| err.set_user_data_opt(user_data))
     }
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {

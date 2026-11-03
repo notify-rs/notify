@@ -1531,6 +1531,31 @@ mod tests {
     }
 
     #[test]
+    fn errors_keep_user_data_when_delivered() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let debouncer = new_debouncer_opt::<_, TrackingWatcher, NoCache>(
+            Duration::from_millis(20),
+            Some(Duration::from_millis(5)),
+            tx,
+            NoCache,
+            notify::Config::default(),
+        )
+        .unwrap();
+        {
+            let mut data = debouncer.data.inner.lock().unwrap();
+            data.add_error(Error::path_not_found().set_user_data(42));
+            debouncer.data.changed.notify_all();
+        }
+        let errors = rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].user_data(), Some(42));
+        debouncer.stop();
+    }
+
+    #[test]
     fn a_pending_destination_is_delivered_without_a_normal_queue()
     -> Result<(), Box<dyn std::error::Error>> {
         let (tx, rx) = std::sync::mpsc::channel();

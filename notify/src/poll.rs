@@ -212,6 +212,7 @@ mod data {
                 data_builder,
                 root.absolute.clone(),
                 root.requested.clone(),
+                root.user_data,
                 is_recursive,
                 follow_symlinks,
                 true,
@@ -239,6 +240,7 @@ mod data {
                 data_builder,
                 self.root.clone(),
                 self.requested_root.clone(),
+                self.user_data,
                 self.is_recursive,
                 self.follow_symlinks,
                 false,
@@ -302,6 +304,7 @@ mod data {
             data_builder: &'_ DataBuilder,
             root: PathBuf,
             requested_root: PathBuf,
+            user_data: Option<u64>,
             is_recursive: bool,
             follow_symlinks: bool,
             // whether this is an initial scan, used only for events
@@ -316,7 +319,7 @@ mod data {
                 .follow_links(follow_symlinks)
                 .max_depth(Self::dir_scan_depth(is_recursive))
                 .into_iter()
-                .filter_map(|entry_res| match entry_res {
+                .filter_map(move |entry_res| match entry_res {
                     Ok(entry) => Some(entry),
                     Err(err) => {
                         log::warn!("walkdir error scanning {err:?}");
@@ -324,11 +327,15 @@ mod data {
                         if let Some(io_error) = err.io_error() {
                             // clone an io::Error, so we have to create a new one.
                             let new_io_error = io::Error::new(io_error.kind(), err.to_string());
-                            data_builder.emitter.emit_io_err(new_io_error, err.path());
+                            data_builder
+                                .emitter
+                                .emit_io_err(new_io_error, err.path(), user_data);
                         } else {
                             let crate_err =
                                 crate::Error::new(crate::ErrorKind::Generic(err.to_string()));
-                            data_builder.emitter.emit(Err(crate_err));
+                            data_builder
+                                .emitter
+                                .emit(Err(crate_err.set_user_data_opt(user_data)));
                         }
                         None
                     }
@@ -354,7 +361,7 @@ mod data {
                     Err(e) => {
                         // emit event.
                         let path = entry.into_path();
-                        data_builder.emitter.emit_io_err(e, Some(path));
+                        data_builder.emitter.emit_io_err(e, Some(path), user_data);
 
                         None
                     }
@@ -525,12 +532,12 @@ mod data {
         }
 
         /// Emit io error event.
-        fn emit_io_err<E, P>(&self, err: E, path: Option<P>)
+        fn emit_io_err<E, P>(&self, err: E, path: Option<P>, user_data: Option<u64>)
         where
             E: Into<io::Error>,
             P: Into<PathBuf>,
         {
-            let e = crate::Error::io(err.into());
+            let e = crate::Error::io(err.into()).set_user_data_opt(user_data);
             if let Some(path) = path {
                 self.emit(Err(e.add_path(path.into())));
             } else {
@@ -738,7 +745,9 @@ impl Watcher for PollWatcher {
     }
 
     fn watch_with(&mut self, path: &Path, config: crate::WatchPathConfig) -> crate::Result<()> {
+        let user_data = config.user_data();
         self.watch_inner(path, config)
+            .map_err(|err| err.set_user_data_opt(user_data))
     }
 
     fn unwatch(&mut self, path: &Path) -> crate::Result<()> {
