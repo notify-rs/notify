@@ -462,9 +462,13 @@ impl<T: FileIdCache> DebounceDataInner<T> {
                     return None;
                 }
                 let destination_id = self.cache.cached_file_id(&event.paths[0])?;
-                self.rename_events
-                    .iter()
-                    .position(|(_, source_id)| source_id.as_ref() == Some(destination_id.as_ref()))
+                // A backend with trackers gives every rename its own tracker. A source with
+                // another tracker belongs to an earlier rename, even when that rename moved the
+                // same file.
+                self.rename_events.iter().position(|(source, source_id)| {
+                    (tracker.is_none() || source.tracker().is_none())
+                        && source_id.as_ref() == Some(destination_id.as_ref())
+                })
             });
 
         match source {
@@ -1159,6 +1163,7 @@ mod tests {
             "add_rename_from_and_to_event_with_file_ids",
             "add_rename_from_and_to_event_with_different_file_ids",
             "add_rename_from_and_to_event_with_different_tracker",
+            "add_rename_from_and_to_event_with_file_ids_and_different_trackers",
             "add_rename_both_event",
             "add_remove_event",
             "add_remove_event_after_create_event",
