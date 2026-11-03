@@ -8,13 +8,15 @@ use std::{
 pub(crate) struct WatchPath {
     pub(crate) absolute: PathBuf,
     pub(crate) requested: PathBuf,
+    pub(crate) user_data: Option<u64>,
 }
 
 impl WatchPath {
-    pub(crate) fn new(path: &Path) -> Result<Self> {
+    pub(crate) fn new(path: &Path, user_data: Option<u64>) -> Result<Self> {
         Ok(Self {
             absolute: absolute_path(path)?,
             requested: path.to_path_buf(),
+            user_data,
         })
     }
 }

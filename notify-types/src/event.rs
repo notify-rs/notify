@@ -494,7 +494,7 @@ pub struct Event {
     ///
     /// Arbitrary data may be added to this field, without restriction beyond the `Sync` and
     /// `Clone` properties. Some data added here is considered for comparing and hashing, but not
-    /// all: at this writing this is `Tracker`, `Flag`, `Info`, and `Source`.
+    /// all: at this writing this is `Tracker`, `Flag`, `Info`, `Source`, and `UserData`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub attrs: EventAttributes,
 }
@@ -508,6 +508,13 @@ pub struct Event {
 pub struct EventAttributes {
     #[cfg_attr(feature = "serde", serde(flatten))]
     inner: Option<Box<EventAttributesInner>>,
+
+    // Keep this inline so attaching a watch's value does not require an allocation.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    user_data: Option<u64>,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -556,7 +563,33 @@ impl EventAttributes {
     /// Creates a new `EventAttributes`.
     #[must_use]
     pub fn new() -> Self {
-        Self { inner: None }
+        Self {
+            inner: None,
+            user_data: None,
+        }
+    }
+
+    /// Returns the application-defined value of the watch that reported this event.
+    ///
+    /// The value is set when registering the watch. It participates in [`Event`]'s equality
+    /// and hashing, so otherwise identical events with different values remain distinct.
+    /// Values need not be unique. `None` means this attribute does not identify the reporting
+    /// watch, either because no value was configured or because the event has no specific watch.
+    ///
+    /// For renames, [`RenameMode::From`] carries the source watch's value, while
+    /// [`RenameMode::To`] and [`RenameMode::Both`] carry the destination watch's value.
+    ///
+    /// On a [`Flag::Rescan`] event, `Some(value)` identifies the reporting watch by its
+    /// configured value. It does not guarantee that other watches are unaffected; the recovery
+    /// requirements of [`Flag::Rescan`] still apply.
+    #[must_use]
+    pub fn user_data(&self) -> Option<u64> {
+        self.user_data
+    }
+
+    /// Sets [`EventAttributes::user_data`].
+    pub fn set_user_data(&mut self, user_data: u64) {
+        self.user_data = Some(user_data);
     }
 
     /// Returns a tracking ID (also called a cookie) for related events, if present.
@@ -704,6 +737,12 @@ impl Event {
         self.attrs.tracker()
     }
 
+    /// Returns [`EventAttributes::user_data`].
+    #[must_use]
+    pub fn user_data(&self) -> Option<u64> {
+        self.attrs.user_data()
+    }
+
     /// Retrieves the Notify flag for an event directly, if present.
     #[must_use]
     pub fn flag(&self) -> Option<Flag> {
@@ -763,6 +802,13 @@ impl Event {
         self
     }
 
+    /// Sets [`EventAttributes::user_data`].
+    #[must_use]
+    pub fn set_user_data(mut self, user_data: u64) -> Self {
+        self.attrs.set_user_data(user_data);
+        self
+    }
+
     /// Sets [`EventAttributes::info`].
     #[must_use]
     pub fn set_info(mut self, info: &str) -> Self {
@@ -794,6 +840,7 @@ impl fmt::Debug for Event {
             .field("attr:flag", &self.flag())
             .field("attr:info", &self.info())
             .field("attr:source", &self.source())
+            .field("attr:user_data", &self.user_data())
             .finish()
     }
 }
@@ -816,6 +863,7 @@ impl PartialEq for Event {
             && self.flag().eq(&other.flag())
             && self.info().eq(&other.info())
             && self.source().eq(&other.source())
+            && self.user_data().eq(&other.user_data())
     }
 }
 
@@ -827,6 +875,7 @@ impl Hash for Event {
         self.flag().hash(state);
         self.info().hash(state);
         self.source().hash(state);
+        self.user_data().hash(state);
     }
 }
 
@@ -1004,6 +1053,54 @@ mod event_kind_mask_tests {
         assert!(mask.matches(&EventKind::Access(AccessKind::Read)));
         assert!(mask.matches(&EventKind::Access(AccessKind::Any)));
         assert!(mask.matches(&EventKind::Access(AccessKind::Other)));
+    }
+}
+
+#[cfg(test)]
+mod user_data_tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn user_data_distinguishes_otherwise_identical_events() {
+        let event = Event::new(EventKind::Create(CreateKind::File)).add_path("file".into());
+        let zero = event.clone().set_user_data(0);
+        let max = event.clone().set_user_data(u64::MAX);
+        assert_eq!(zero.user_data(), Some(0));
+        assert_eq!(zero.attrs.user_data(), Some(0));
+        assert!(
+            zero.attrs.inner.is_none(),
+            "user data should not allocate attributes"
+        );
+        assert_eq!(zero, zero.clone());
+        assert_ne!(zero, max);
+        assert_ne!(zero, event);
+        assert_eq!(HashSet::from([event, zero.clone(), zero, max]).len(), 3);
+        assert!(
+            format!("{:?}", Event::default().set_user_data(42))
+                .contains("attr:user_data: Some(42)")
+        );
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn user_data_serialization_preserves_existing_attributes() {
+        let base = Event::default().set_tracker(123).set_info("test");
+        let old = serde_json::to_value(&base).unwrap();
+        assert!(old["attrs"].get("user_data").is_none());
+        assert_eq!(serde_json::from_value::<Event>(old.clone()).unwrap(), base);
+        for value in [0, u64::MAX] {
+            let event = base.clone().set_user_data(value);
+            let mut expected = old.clone();
+            expected["attrs"]["user_data"] = value.into();
+            assert_eq!(serde_json::to_value(&event).unwrap(), expected);
+            assert_eq!(serde_json::from_value::<Event>(expected).unwrap(), event);
+            let event = Event::default().set_user_data(value);
+            assert_eq!(
+                serde_json::from_value::<Event>(serde_json::to_value(&event).unwrap()).unwrap(),
+                event
+            );
+        }
     }
 }
 

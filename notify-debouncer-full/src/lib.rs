@@ -770,6 +770,10 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     /// # Ok(())
     /// # }
     /// ```
+    #[expect(
+        clippy::result_large_err,
+        reason = "Preserve the underlying watcher's public error, including the failed operation's config"
+    )]
     pub fn update_paths<Op: Into<PathOp>>(
         &mut self,
         ops: impl IntoIterator<Item = Op>,

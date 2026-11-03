@@ -197,6 +197,7 @@ struct ReadData {
     separator_style: SeparatorStyle,
     stopping: Arc<AtomicBool>,
     read_directory_changes_ex: Option<ReadDirectoryChangesExFn>,
+    user_data: Option<u64>,
 }
 
 struct ReadDirectoryRequest {
@@ -209,12 +210,17 @@ struct ReadDirectoryRequest {
 }
 
 impl ReadDirectoryRequest {
-    fn emit_event(&self, result: Result<Event>) {
+    fn emit_event(&self, mut result: Result<Event>) {
         if let Ok(event) = &result
             && !event.need_rescan()
             && !self.event_kinds.matches(&event.kind)
         {
             return;
+        }
+        if let Ok(event) = &mut result
+            && let Some(user_data) = self.data.user_data
+        {
+            event.attrs.set_user_data(user_data);
         }
         if let Ok(mut handler) = self.event_handler.lock() {
             handler.handle_event(result);
@@ -481,6 +487,7 @@ impl ReadDirectoryChangesServer {
             separator_style,
             stopping: stopping.clone(),
             read_directory_changes_ex: self.read_directory_changes_ex,
+            user_data: path.user_data,
         };
         let ws = WatchState {
             dir_handle: handle,
@@ -960,11 +967,11 @@ impl ReadDirectoryChangesWatcher {
         }
     }
 
-    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
+    fn watch_inner(&mut self, path: &Path, config: crate::WatchPathConfig) -> Result<()> {
         let separator_style = SeparatorStyle::resolve(self.windows_path_separator_style, path);
-        let pb = WatchPath::new(path)?;
+        let pb = WatchPath::new(path, config.user_data())?;
         self.send_action_require_ack(
-            Action::Watch(pb.clone(), recursive_mode, separator_style),
+            Action::Watch(pb.clone(), config.recursive_mode(), separator_style),
             &pb.absolute,
         )
     }
@@ -1004,7 +1011,11 @@ impl Watcher for ReadDirectoryChangesWatcher {
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path, recursive_mode)
+        self.watch_with(path, crate::WatchPathConfig::new(recursive_mode))
+    }
+
+    fn watch_with(&mut self, path: &Path, config: crate::WatchPathConfig) -> Result<()> {
+        self.watch_inner(path, config)
     }
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {
@@ -1259,6 +1270,7 @@ pub mod tests {
                 separator_style: SeparatorStyle::Backslash,
                 stopping: Arc::new(AtomicBool::new(false)),
                 read_directory_changes_ex: None,
+                user_data: None,
             },
             action_tx,
         });
@@ -1311,6 +1323,7 @@ pub mod tests {
                 separator_style: SeparatorStyle::Backslash,
                 stopping: Arc::new(AtomicBool::new(true)),
                 read_directory_changes_ex: None,
+                user_data: None,
             },
             action_tx,
         });
@@ -1481,6 +1494,7 @@ pub mod tests {
                 separator_style: SeparatorStyle::Backslash,
                 stopping: Arc::new(AtomicBool::new(false)),
                 read_directory_changes_ex: None,
+                user_data: None,
             },
             action_tx,
         };

@@ -281,6 +281,7 @@ impl Default for Config {
 pub struct WatchPathConfig {
     recursive_mode: RecursiveMode,
     dereference_symlinks: bool,
+    user_data: Option<u64>,
 }
 
 impl WatchPathConfig {
@@ -290,6 +291,7 @@ impl WatchPathConfig {
         Self {
             recursive_mode,
             dereference_symlinks: true,
+            user_data: None,
         }
     }
 
@@ -318,6 +320,41 @@ impl WatchPathConfig {
     #[must_use]
     pub fn dereference_symlinks(&self) -> bool {
         self.dereference_symlinks
+    }
+
+    /// Attaches an application-defined value to events from this watch.
+    ///
+    /// All built-in backends expose it through [`Event::user_data`](crate::Event::user_data).
+    /// Recursive descendants inherit the value; explicitly registered watches keep their own.
+    /// Rewatching replaces it, and [`Watcher::watch`](crate::Watcher::watch) resets it to `None`.
+    ///
+    /// ```no_run
+    /// use notify::{Event, RecursiveMode, Result, WatchPathConfig, Watcher};
+    /// use std::path::Path;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let mut watcher = notify::recommended_watcher(|result: Result<Event>| {
+    ///     if let Ok(event) = result {
+    ///         println!("watch {:?}: {:?}", event.user_data(), event.paths);
+    ///     }
+    /// })?;
+    /// watcher.watch_with(
+    ///     Path::new("src"),
+    ///     WatchPathConfig::new(RecursiveMode::Recursive).with_user_data(42),
+    /// )?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn with_user_data(mut self, user_data: u64) -> Self {
+        self.user_data = Some(user_data);
+        self
+    }
+
+    /// Returns the value attached to this watch, or `None` if none was set.
+    #[must_use]
+    pub fn user_data(&self) -> Option<u64> {
+        self.user_data
     }
 }
 

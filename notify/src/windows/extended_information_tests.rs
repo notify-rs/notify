@@ -236,6 +236,7 @@ fn request(
         buffer: read_buffer(extended),
         handle: INVALID_HANDLE_VALUE,
         data: ReadData {
+            user_data: None,
             watch_path: root.clone(),
             dir: root.clone(),
             reported_dir: root,
@@ -326,6 +327,7 @@ fn access_denied_without_deletion_reports_only_the_rearm_error() {
 fn received_length_bounds_decoding_in_both_formats() {
     for extended in [false, true] {
         let (mut request, events, _) = request(extended);
+        request.data.user_data = Some(42);
         let bytes = record(extended, FILE_ACTION_REMOVED, 0, &[b'a' as u16]);
         for (dst, src) in request.buffer.iter_mut().zip(bytes.chunks(4)) {
             let mut word = [0; 4];
@@ -340,6 +342,7 @@ fn received_length_bounds_decoding_in_both_formats() {
         assert!(events.try_recv().is_err());
         process_notifications(&request, bytes.len() as u32).unwrap();
         let event = events.recv().unwrap().unwrap();
+        assert_eq!(event.user_data(), Some(42));
         assert_eq!(
             event.kind,
             EventKind::Remove(if extended {
@@ -356,6 +359,7 @@ fn malformed_and_overflow_completions_report_loss_even_when_rearming_fails() {
     for extended in [false, true] {
         for bytes in [0, 1] {
             let (mut request, events, actions) = request(extended);
+            request.data.user_data = Some(42);
             let sem = semaphore();
             request.data.complete_sem = sem.as_raw_handle();
             request.event_kinds = EventKindMask::empty();
@@ -368,6 +372,10 @@ fn malformed_and_overflow_completions_report_loss_even_when_rearming_fails() {
                 );
             }
             assert!(results[results.len() - 2].as_ref().unwrap().need_rescan());
+            assert_eq!(
+                results[results.len() - 2].as_ref().unwrap().user_data(),
+                Some(42)
+            );
             assert!(results.last().unwrap().is_err());
             assert!(matches!(actions.recv().unwrap(), Action::Unwatch(_)));
             assert_eq!(
