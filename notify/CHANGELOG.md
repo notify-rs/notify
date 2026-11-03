@@ -2,6 +2,7 @@
 
 ## unreleased
 
+- FEATURE: add per-watch `WatchPathConfig::with_user_data(u64)` and expose it through `Event::user_data()` on all backends; inotify and kqueue update value-only changes without reinstalling watches [#1012]
 - DOCS: describe kqueue event-detail limitations and FSEvents event translation
 - FIX: [poll] recover a poisoned watch mutex in `watched_paths`, consistently with watch, unwatch, and polling
 - FEATURE: [Windows] add opt-in `Config::with_windows_extended_information` to classify created and removed entries from `ReadDirectoryChangesExW` attributes, using 64 KiB buffers; unsupported APIs and filesystems return errors without automatic fallback [#261]
@@ -17,6 +18,7 @@
 - FIX: [inotify] report a symbolic link in a new directory that points to a directory above it as a loop, instead of watching the tree a second time below the link
 
 [#703]: https://github.com/notify-rs/notify/issues/703
+[#1012]: https://github.com/notify-rs/notify/issues/1012
 [#455]: https://github.com/notify-rs/notify/issues/455
 [#596]: https://github.com/notify-rs/notify/issues/596
 [#261]: https://github.com/notify-rs/notify/issues/261

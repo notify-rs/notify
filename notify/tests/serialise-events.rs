@@ -31,7 +31,7 @@ fn events_are_debuggable() {
             }
         ),
         String::from(
-            "Event { kind: Remove(Other), paths: [\"/example\"], attr:tracker: None, attr:flag: Some(Rescan), attr:info: Some(\"unmount\"), attr:source: None }"
+            "Event { kind: Remove(Other), paths: [\"/example\"], attr:tracker: None, attr:flag: Some(Rescan), attr:info: Some(\"unmount\"), attr:source: None, attr:user_data: None }"
         )
     );
 }

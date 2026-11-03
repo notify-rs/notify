@@ -508,6 +508,7 @@ pub trait Watcher {
     /// Behaves like [`Watcher::watch`], with the options in `config` applied to this watch alone.
     /// Backends that do not implement a given option ignore it, so the default implementation
     /// applies only [`WatchPathConfig::recursive_mode`].
+    /// All built-in event-producing backends support [`WatchPathConfig::with_user_data`].
     ///
     /// # Errors
     ///
@@ -561,6 +562,10 @@ pub trait Watcher {
     /// # Ok(())
     /// # }
     /// ```
+    #[expect(
+        clippy::result_large_err,
+        reason = "Keep the public error, including the failed PathOp and its configuration, unboxed"
+    )]
     fn update_paths(&mut self, ops: Vec<PathOp>) -> StdResult<(), UpdatePathsError> {
         update_paths(ops, |op| match op {
             PathOp::Watch(path, config) => self
@@ -663,6 +668,10 @@ where
     RecommendedWatcher::new(event_handler, Config::default())
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "Match Watcher::update_paths without changing the public batch error type"
+)]
 pub(crate) fn update_paths<F>(ops: Vec<PathOp>, mut apply: F) -> StdResult<(), UpdatePathsError>
 where
     F: FnMut(PathOp) -> StdResult<(), (PathOp, Error)>,

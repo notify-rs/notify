@@ -14,7 +14,7 @@ use crate::walk::{
     WalkFailure,
     recursive::{
         WalkRoots, WatchMetadata, is_preserved_watch_root, preserved_watch_mode,
-        preserved_watch_roots, recursive_user_watch_ancestor,
+        preserved_watch_roots, recursive_user_watch_ancestor, update_watch_user_data,
     },
 };
 use crate::{BoundSender, Receiver, Sender, bounded, unbounded};
@@ -161,10 +161,17 @@ fn add_watch_by_event(
         if let Some(parent_path) = path.parent() {
             if let Some(watch) = watches.get(parent_path) {
                 if watch.metadata.is_recursive {
+                    let user_data = recursive_user_watch_ancestor(path, |ancestor| {
+                        watches.get(ancestor).map(|watch| &watch.metadata)
+                    })
+                    .and_then(|root| root.user_data);
+                    // Path spelling follows the immediate parent; user data follows the
+                    // recursive owner, which can be above a non-recursive user watch.
                     add_watches.push((
                         WatchPath::from_parts(
                             path.to_owned(),
                             reported_path(parent_path, &watch.metadata.reported_path, path),
+                            user_data,
                         ),
                         event.mask.contains(EventMask::CREATE),
                     ));
@@ -328,7 +335,11 @@ impl EventLoop {
                     while let Some((op, path)) = ops.next() {
                         let operation = path.and_then(|absolute| match &op {
                             PathOp::Watch(requested, config) => self.add_watch(
-                                WatchPath::from_parts(absolute, requested.clone()),
+                                WatchPath::from_parts(
+                                    absolute,
+                                    requested.clone(),
+                                    config.user_data(),
+                                ),
                                 config.clone(),
                                 /*watch_self*/ true,
                                 /*report_created*/ false,
@@ -444,13 +455,17 @@ impl EventLoop {
                                             &watch.metadata.reported_path,
                                             &path,
                                         );
-                                        (path, reported_path)
+                                        (path, reported_path, watch.metadata.user_data)
                                     }
-                                    None => (root.clone(), watch.metadata.reported_path.clone()),
+                                    None => (
+                                        root.clone(),
+                                        watch.metadata.reported_path.clone(),
+                                        watch.metadata.user_data,
+                                    ),
                                 })
                             });
 
-                            let (path, event_path) = match paths {
+                            let (path, event_path, user_data) = match paths {
                                 Some(paths) => paths,
                                 None => {
                                     log::debug!("inotify event with unknown descriptor: {event:?}");
@@ -620,8 +635,11 @@ impl EventLoop {
                             }
 
                             // Filter events based on EventKindMask before delivery
-                            for ev in evs {
+                            for mut ev in evs {
                                 if self.event_kind_mask.matches(&ev.kind) {
+                                    if let Some(user_data) = user_data {
+                                        ev = ev.set_user_data(user_data);
+                                    }
                                     self.event_handler.handle_event(Ok(ev));
                                 }
                             }
@@ -710,6 +728,24 @@ impl EventLoop {
                     && watch.metadata.reported_path == path.requested
                     && watch.dereference == dereference
                 {
+                    if watch.metadata.user_data != path.user_data {
+                        let preserved_roots = preserved_watch_roots(
+                            &path.absolute,
+                            false,
+                            self.watches
+                                .iter()
+                                .map(|(path, watch)| (path, &watch.metadata)),
+                        );
+                        update_watch_user_data(
+                            &path.absolute,
+                            requested_is_recursive,
+                            path.user_data,
+                            &preserved_roots,
+                            self.watches
+                                .iter_mut()
+                                .map(|(path, watch)| (path, &mut watch.metadata)),
+                        );
+                    }
                     return Ok(());
                 }
 
@@ -719,24 +755,20 @@ impl EventLoop {
                 // can rebuild that inherited coverage below.
                 let inherited_recursive_root =
                     if !requested_is_recursive && path_is_dir && watch.metadata.is_recursive {
-                        recursive_user_watch_ancestor(
-                            &path.absolute,
-                            self.watches
-                                .iter()
-                                .map(|(path, watch)| (path, &watch.metadata)),
-                        )
+                        recursive_user_watch_ancestor(&path.absolute, |ancestor| {
+                            self.watches.get(ancestor).map(|watch| &watch.metadata)
+                        })
                     } else {
                         None
                     };
                 let replaced_path = path.absolute.clone();
                 self.remove_watch(replaced_path.clone(), false)?;
 
-                if let Some((ancestor_path, ancestor_reported_path)) = inherited_recursive_root {
+                if let Some(root) = inherited_recursive_root {
                     // Removing a directory watch removes its recursively inherited children too.
                     // Re-add them as non-user watches so the ancestor recursive watch still covers
                     // this subtree after the user watch is replaced.
                     let barriers = self.recursive_walk_barriers();
-                    let root = WatchPath::from_parts(ancestor_path, ancestor_reported_path);
                     let entries = walk_dirs(
                         replaced_path.clone(),
                         root.clone(),
@@ -827,7 +859,7 @@ impl EventLoop {
                     .map(|watch| &watch.metadata);
                 let report_entry = report_created && index > 0 && existing.is_none();
                 let path = roots.entry(path.absolute, existing);
-                created_path = report_entry.then(|| path.requested.clone());
+                created_path = report_entry.then(|| (path.requested.clone(), path.user_data));
                 path
             });
             // entries below the root were reached by following links, so they observe what they
@@ -839,9 +871,12 @@ impl EventLoop {
             }) {
                 Ok(()) => {
                     last_failed = None;
-                    if let Some(path) = created_path {
-                        let event =
+                    if let Some((path, user_data)) = created_path {
+                        let mut event =
                             Event::new(EventKind::Create(CreateKind::Folder)).add_path(path);
+                        if let Some(user_data) = user_data {
+                            event = event.set_user_data(user_data);
+                        }
                         if self.event_kind_mask.matches(&event.kind) {
                             self.event_handler.handle_event(Ok(event));
                         }
@@ -1322,7 +1357,7 @@ impl INotifyWatcher {
     }
 
     fn watch_inner(&mut self, path: &Path, config: WatchPathConfig) -> Result<()> {
-        let pb = WatchPath::new(path)?;
+        let pb = WatchPath::new(path, config.user_data())?;
         let (tx, rx) = unbounded();
         let msg = EventLoopMsg::AddWatch(pb, config, tx);
 
@@ -1480,6 +1515,201 @@ mod tests {
         (event_loop, rx)
     }
 
+    #[test]
+    fn user_data_changes_preserve_descriptors_and_nested_watches() {
+        let dir = testdir();
+        let root = dir.path();
+        for path in ["flat/deep", "nested/deep"] {
+            std::fs::create_dir_all(root.join(path)).unwrap();
+        }
+        let mut event_loop = test_event_loop();
+        event_loop
+            .add_watch(
+                WatchPath::new(root, Some(1)).unwrap(),
+                recursive_watch(),
+                true,
+                false,
+            )
+            .unwrap();
+        event_loop
+            .add_watch(
+                WatchPath::new(&root.join("flat"), Some(2)).unwrap(),
+                non_recursive_watch(),
+                true,
+                false,
+            )
+            .unwrap();
+        event_loop
+            .add_watch(
+                WatchPath::new(&root.join("nested"), None).unwrap(),
+                recursive_watch(),
+                true,
+                false,
+            )
+            .unwrap();
+        let descriptors = event_loop.paths.clone();
+        // A rewalk would discover this entry. A metadata update must leave registrations alone.
+        std::fs::create_dir(root.join("pending")).unwrap();
+        for value in [Some(42), None] {
+            event_loop
+                .add_watch(
+                    WatchPath::new(root, value).unwrap(),
+                    recursive_watch(),
+                    true,
+                    false,
+                )
+                .unwrap();
+            assert_eq!(event_loop.paths, descriptors);
+            assert_eq!(event_loop.watches[root].metadata.user_data, value);
+            assert_eq!(
+                event_loop.watches[&root.join("flat")].metadata.user_data,
+                Some(2)
+            );
+            assert_eq!(
+                event_loop.watches[&root.join("flat/deep")]
+                    .metadata
+                    .user_data,
+                value
+            );
+            assert_eq!(
+                event_loop.watches[&root.join("nested/deep")]
+                    .metadata
+                    .user_data,
+                None
+            );
+        }
+        event_loop
+            .add_watch(
+                WatchPath::new(&root.join("flat"), Some(7)).unwrap(),
+                non_recursive_watch(),
+                true,
+                false,
+            )
+            .unwrap();
+        assert_eq!(event_loop.paths, descriptors);
+        assert_eq!(
+            event_loop.watches[&root.join("flat/deep")]
+                .metadata
+                .user_data,
+            None
+        );
+    }
+
+    #[test]
+    fn dynamic_user_data_uses_recursive_owner_and_keeps_parent_spelling() {
+        let dir = testdir();
+        let root = dir.path().to_path_buf();
+        let flat = root.join("flat");
+        std::fs::create_dir(&flat).unwrap();
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        event_loop
+            .add_watch(
+                WatchPath::from_parts(root.clone(), "root-spelling".into(), Some(1)),
+                recursive_watch(),
+                true,
+                false,
+            )
+            .unwrap();
+        event_loop
+            .add_watch(
+                WatchPath::from_parts(flat.clone(), "flat-spelling".into(), Some(2)),
+                non_recursive_watch(),
+                true,
+                false,
+            )
+            .unwrap();
+        event_loop
+            .add_watch(
+                WatchPath::from_parts(root, "root-spelling".into(), Some(3)),
+                recursive_watch(),
+                true,
+                false,
+            )
+            .unwrap();
+
+        let deep = flat.join("new/deep");
+        std::fs::create_dir_all(&deep).unwrap();
+        event_loop.handle_inotify();
+        assert_eq!(event_loop.watches[&deep].metadata.user_data, Some(3));
+        assert_eq!(
+            event_loop.watches[&deep].metadata.reported_path,
+            Path::new("flat-spelling/new/deep")
+        );
+        let created = rx
+            .try_iter()
+            .map(Result::unwrap)
+            .find(|event| {
+                event.kind.is_create() && event.paths == [Path::new("flat-spelling/new/deep")]
+            })
+            .expect("synthetic create for the directory found by the walk");
+        assert_eq!(created.user_data(), Some(3));
+
+        std::fs::write(deep.join("file"), "content").unwrap();
+        event_loop.handle_inotify();
+        let event = rx
+            .try_iter()
+            .map(Result::unwrap)
+            .find(|event| event.kind.is_create())
+            .unwrap();
+        assert_eq!(event.paths, [Path::new("flat-spelling/new/deep/file")]);
+        assert_eq!(event.user_data(), Some(3));
+
+        // Replacing the child with a non-recursive watch rebuilds the ancestor's coverage.
+        event_loop
+            .add_watch(
+                WatchPath::new(&flat, Some(4)).unwrap(),
+                recursive_watch(),
+                true,
+                false,
+            )
+            .unwrap();
+        event_loop
+            .add_watch(
+                WatchPath::new(&flat, Some(2)).unwrap(),
+                non_recursive_watch(),
+                true,
+                false,
+            )
+            .unwrap();
+        assert_eq!(event_loop.watches[&flat].metadata.user_data, Some(2));
+        assert_eq!(event_loop.watches[&deep].metadata.user_data, Some(3));
+    }
+
+    #[test]
+    fn rename_user_data_follows_source_and_destination_watches() {
+        let dir = testdir();
+        let source = dir.path().join("source");
+        let destination = dir.path().join("destination");
+        std::fs::create_dir(&source).unwrap();
+        std::fs::create_dir(&destination).unwrap();
+        std::fs::write(source.join("file"), "content").unwrap();
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        for (path, id) in [(&source, 1), (&destination, 2)] {
+            event_loop
+                .add_watch(
+                    WatchPath::new(path, Some(id)).unwrap(),
+                    non_recursive_watch(),
+                    true,
+                    false,
+                )
+                .unwrap();
+        }
+        std::fs::rename(source.join("file"), destination.join("file")).unwrap();
+        event_loop.handle_inotify();
+        let events: Vec<_> = rx.try_iter().map(Result::unwrap).collect();
+        for (mode, id) in [
+            (RenameMode::From, 1),
+            (RenameMode::To, 2),
+            (RenameMode::Both, 2),
+        ] {
+            let event = events
+                .iter()
+                .find(|event| event.kind == EventKind::Modify(ModifyKind::Name(mode)))
+                .unwrap();
+            assert_eq!(event.user_data(), Some(id));
+        }
+    }
+
     /// Create a watcher configured to receive ALL events including Access events.
     /// Use this for tests that verify Access event behavior.
     fn watcher_with_all_events() -> (TestWatcher<INotifyWatcher>, Receiver) {
@@ -1526,7 +1756,7 @@ mod tests {
 
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -1534,7 +1764,7 @@ mod tests {
             .expect("watch recursively");
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 non_recursive_watch(),
                 true,
                 false,
@@ -1566,10 +1796,10 @@ mod tests {
         // Simulate the TOCTOU: we *intend* to watch a subdirectory discovered during initial scan,
         // but it's already gone by the time we call `inotify_add_watch`.
         let result = event_loop.add_watches_for_paths(
-            WatchPath::new(&root).unwrap(),
+            WatchPath::new(&root, None).unwrap(),
             [root, disappearing]
                 .into_iter()
-                .map(|path| Ok(WatchPath::new(&path).unwrap())),
+                .map(|path| Ok(WatchPath::new(&path, None).unwrap())),
             true,
             true,
             true,
@@ -1653,7 +1883,7 @@ mod tests {
         .unwrap();
 
         let result = event_loop.add_watch(
-            WatchPath::new(&root).unwrap(),
+            WatchPath::new(&root, None).unwrap(),
             recursive_watch(),
             true,
             false,
@@ -1709,7 +1939,7 @@ mod tests {
         .unwrap();
 
         let result = event_loop.add_watch(
-            WatchPath::new(&root).unwrap(),
+            WatchPath::new(&root, None).unwrap(),
             recursive_watch(),
             true,
             false,
@@ -1745,7 +1975,7 @@ mod tests {
         let barriers = Default::default();
         let entries = super::walk_dirs(
             root.clone(),
-            WatchPath::from_parts(root, reported.clone()),
+            WatchPath::from_parts(root, reported.clone(), None),
             true,
             &barriers,
             Vec::new(),
@@ -1778,7 +2008,7 @@ mod tests {
         let (mut event_loop, rx) = test_event_loop_with_events();
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -1813,7 +2043,7 @@ mod tests {
         for root in [&outer, &inner] {
             event_loop
                 .add_watch(
-                    WatchPath::new(root).unwrap(),
+                    WatchPath::new(root, None).unwrap(),
                     recursive_watch(),
                     true,
                     false,
@@ -1851,7 +2081,7 @@ mod tests {
         let barriers = Default::default();
         let entries = super::walk_dirs(
             root.clone(),
-            WatchPath::from_parts(root, reported.clone()),
+            WatchPath::from_parts(root, reported.clone(), None),
             true,
             &barriers,
             Vec::new(),
@@ -1895,7 +2125,7 @@ mod tests {
             let barriers = Default::default();
             let mut entries = super::walk_dirs(
                 root.clone(),
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 follow_links,
                 &barriers,
                 Vec::new(),
@@ -1946,7 +2176,7 @@ mod tests {
         let (mut event_loop, _rx) = test_event_loop_with_events();
         event_loop
             .add_watch(
-                WatchPath::new(&shared).unwrap(),
+                WatchPath::new(&shared, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -1954,7 +2184,7 @@ mod tests {
             .unwrap();
         event_loop
             .add_watch(
-                WatchPath::new(&outer).unwrap(),
+                WatchPath::new(&outer, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -1988,7 +2218,7 @@ mod tests {
         for path in [&first, &second] {
             event_loop
                 .add_watch(
-                    WatchPath::new(path).unwrap(),
+                    WatchPath::new(path, None).unwrap(),
                     non_recursive_watch(),
                     true,
                     false,
@@ -2025,7 +2255,7 @@ mod tests {
         let (mut event_loop, rx) = test_event_loop_with_events();
         event_loop
             .add_watch(
-                WatchPath::new(&other).unwrap(),
+                WatchPath::new(&other, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -2033,7 +2263,7 @@ mod tests {
             .unwrap();
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -2070,7 +2300,7 @@ mod tests {
         for path in [&child, &alias] {
             event_loop
                 .add_watch(
-                    WatchPath::new(path).unwrap(),
+                    WatchPath::new(path, None).unwrap(),
                     non_recursive_watch(),
                     true,
                     false,
@@ -2081,7 +2311,7 @@ mod tests {
         // inherit its recursive coverage instead of the alias's non-recursive mode.
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -2167,7 +2397,7 @@ mod tests {
 
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -2177,7 +2407,7 @@ mod tests {
 
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 non_recursive_watch(),
                 true,
                 false,
@@ -2203,7 +2433,7 @@ mod tests {
 
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -2211,7 +2441,7 @@ mod tests {
             .expect("watch root recursively");
         event_loop
             .add_watch(
-                WatchPath::new(&child).unwrap(),
+                WatchPath::new(&child, None).unwrap(),
                 non_recursive_watch(),
                 true,
                 false,
@@ -2219,7 +2449,7 @@ mod tests {
             .expect("watch child non-recursively");
         event_loop
             .add_watch(
-                WatchPath::from_parts(child.clone(), PathBuf::from("reported-child")),
+                WatchPath::from_parts(child.clone(), PathBuf::from("reported-child"), None),
                 non_recursive_watch(),
                 true,
                 false,
@@ -2258,7 +2488,7 @@ mod tests {
 
         event_loop
             .add_watch(
-                WatchPath::from_parts(child.clone(), PathBuf::from("reported-child")),
+                WatchPath::from_parts(child.clone(), PathBuf::from("reported-child"), None),
                 recursive_watch(),
                 true,
                 false,
@@ -2266,7 +2496,7 @@ mod tests {
             .expect("watch child recursively under its own spelling");
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -2304,7 +2534,7 @@ mod tests {
         let (mut event_loop, rx) = test_event_loop_with_events();
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -2313,7 +2543,7 @@ mod tests {
         std::fs::create_dir_all(&grandchild).unwrap();
         event_loop
             .add_watch(
-                WatchPath::from_parts(child.clone(), PathBuf::from("reported-child")),
+                WatchPath::from_parts(child.clone(), PathBuf::from("reported-child"), None),
                 recursive_watch(),
                 true,
                 false,
@@ -2350,7 +2580,7 @@ mod tests {
 
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -2361,7 +2591,7 @@ mod tests {
             .expect("carve out child");
         event_loop
             .add_watch(
-                WatchPath::new(&child).unwrap(),
+                WatchPath::new(&child, None).unwrap(),
                 non_recursive_watch(),
                 true,
                 false,
@@ -2369,7 +2599,7 @@ mod tests {
             .expect("watch child non-recursively");
         event_loop
             .add_watch(
-                WatchPath::from_parts(child.clone(), PathBuf::from("reported-child")),
+                WatchPath::from_parts(child.clone(), PathBuf::from("reported-child"), None),
                 non_recursive_watch(),
                 true,
                 false,
@@ -2552,7 +2782,7 @@ mod tests {
         let mut event_loop = test_event_loop_with_config(&config);
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -2587,7 +2817,7 @@ mod tests {
         let mut event_loop = test_event_loop();
         event_loop
             .add_watch(
-                WatchPath::new(&path).unwrap(),
+                WatchPath::new(&path, None).unwrap(),
                 non_recursive_watch(),
                 true,
                 false,
@@ -2625,7 +2855,7 @@ mod tests {
         let mut event_loop = test_event_loop_with_config(&config);
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -2682,7 +2912,7 @@ mod tests {
 
         event_loop
             .add_watch(
-                WatchPath::new(&watched).unwrap(),
+                WatchPath::new(&watched, None).unwrap(),
                 non_recursive_watch(),
                 true,
                 false,
@@ -3403,7 +3633,7 @@ mod tests {
         .unwrap();
         event_loop
             .add_watch(
-                WatchPath::from_parts(root.to_path_buf(), reported.clone()),
+                WatchPath::from_parts(root.to_path_buf(), reported.clone(), None),
                 recursive_watch(),
                 true,
                 false,
@@ -3455,7 +3685,7 @@ mod tests {
             let (mut event_loop, rx) = test_event_loop_with_events();
             event_loop
                 .add_watch(
-                    WatchPath::new(&root).unwrap(),
+                    WatchPath::new(&root, None).unwrap(),
                     recursive_watch(),
                     true,
                     false,
@@ -3507,7 +3737,7 @@ mod tests {
         let (mut event_loop, rx) = test_event_loop_with_events();
         event_loop
             .add_watch(
-                WatchPath::new(tmpdir.path()).unwrap(),
+                WatchPath::new(tmpdir.path(), None).unwrap(),
                 non_recursive_watch(),
                 true,
                 false,
@@ -3708,7 +3938,7 @@ mod tests {
         .unwrap();
         event_loop
             .add_watch(
-                WatchPath::new(tmpdir.path()).unwrap(),
+                WatchPath::new(tmpdir.path(), None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -3767,7 +3997,7 @@ mod tests {
 
         event_loop
             .add_watch(
-                WatchPath::new(&link).unwrap(),
+                WatchPath::new(&link, None).unwrap(),
                 non_recursive_watch().with_dereference_symlinks(false),
                 true,
                 false,
@@ -3789,7 +4019,7 @@ mod tests {
         let mut event_loop = EventLoop::new(inotify, Box::new(|_| {}), &Config::default()).unwrap();
 
         let result = event_loop.add_watch(
-            WatchPath::new(&link).unwrap(),
+            WatchPath::new(&link, None).unwrap(),
             non_recursive_watch(),
             true,
             false,
@@ -3817,7 +4047,7 @@ mod tests {
 
         event_loop
             .add_watch(
-                WatchPath::new(&link).unwrap(),
+                WatchPath::new(&link, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -3845,7 +4075,7 @@ mod tests {
 
         event_loop
             .add_watch(
-                WatchPath::new(&link).unwrap(),
+                WatchPath::new(&link, None).unwrap(),
                 non_recursive_watch().with_dereference_symlinks(false),
                 true,
                 false,
@@ -3853,7 +4083,7 @@ mod tests {
             .expect("watch link");
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -3882,7 +4112,7 @@ mod tests {
 
         event_loop
             .add_watch(
-                WatchPath::new(&link).unwrap(),
+                WatchPath::new(&link, None).unwrap(),
                 non_recursive_watch().with_dereference_symlinks(false),
                 true,
                 false,
@@ -3890,7 +4120,7 @@ mod tests {
             .expect("watch link itself");
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,
@@ -3928,7 +4158,7 @@ mod tests {
         let mut event_loop = EventLoop::new(inotify, Box::new(tx), &Config::default()).unwrap();
         event_loop
             .add_watch(
-                WatchPath::new(&excluded).unwrap(),
+                WatchPath::new(&excluded, None).unwrap(),
                 non_recursive_watch().with_dereference_symlinks(false),
                 true,
                 false,
@@ -3936,7 +4166,7 @@ mod tests {
             .expect("watch excluded link itself");
 
         let result = event_loop.add_watch(
-            WatchPath::new(&root).unwrap(),
+            WatchPath::new(&root, None).unwrap(),
             recursive_watch(),
             true,
             false,
@@ -3973,7 +4203,7 @@ mod tests {
         .unwrap();
         event_loop
             .add_watch(
-                WatchPath::new(&root).unwrap(),
+                WatchPath::new(&root, None).unwrap(),
                 recursive_watch(),
                 true,
                 false,

@@ -33,19 +33,25 @@ pub(crate) mod recursive {
         pub(crate) reported_path: PathBuf,
         pub(crate) is_user_watch: bool,
         pub(crate) user_is_recursive: bool,
+        pub(crate) user_data: Option<u64>,
     }
 
     impl WatchPath {
-        pub(crate) fn from_parts(absolute: PathBuf, requested: PathBuf) -> Self {
+        pub(crate) fn from_parts(
+            absolute: PathBuf,
+            requested: PathBuf,
+            user_data: Option<u64>,
+        ) -> Self {
             Self {
                 absolute,
                 requested,
+                user_data,
             }
         }
 
         pub(crate) fn child(&self, path: PathBuf) -> Self {
             let requested = reported_path(&self.absolute, &self.requested, &path);
-            Self::from_parts(path, requested)
+            Self::from_parts(path, requested, self.user_data)
         }
     }
 
@@ -80,6 +86,7 @@ pub(crate) mod recursive {
                 self.roots.push(WatchPath::from_parts(
                     entry.absolute.clone(),
                     nested.reported_path.clone(),
+                    nested.user_data,
                 ));
             }
             entry
@@ -104,6 +111,10 @@ pub(crate) mod recursive {
                 }
                 _ => path.requested.clone(),
             };
+            let user_data = match existing_watch {
+                Some(existing) if !is_user_watch && existing.is_user_watch => existing.user_data,
+                _ => path.user_data,
+            };
 
             Self {
                 is_recursive: is_recursive || existing_is_recursive,
@@ -114,6 +125,7 @@ pub(crate) mod recursive {
                 } else {
                     existing_user_is_recursive
                 },
+                user_data,
             }
         }
     }
@@ -158,28 +170,43 @@ pub(crate) mod recursive {
         preserved_roots.iter().any(|(root, _)| path == root)
     }
 
-    /// Finds the nearest recursive user watch that covers `path`.
+    /// Finds the nearest recursive user watch strictly above `path`.
     ///
-    /// Backends use this when replacing an explicit watch that also inherits recursive coverage from an
-    /// ancestor. Returning the ancestor's reported path lets them rebuild the inherited subtree with the
-    /// same path representation users expect from that ancestor watch.
-    pub(crate) fn recursive_user_watch_ancestor<'a, I>(
+    /// Used for dynamic additions and for rebuilding inherited coverage when replacing a watch.
+    /// Look up ancestors by path so the cost depends on depth, not the number of watches.
+    pub(crate) fn recursive_user_watch_ancestor<'a>(
         path: &Path,
-        watches: I,
-    ) -> Option<(PathBuf, PathBuf)>
-    where
-        I: IntoIterator<Item = (&'a PathBuf, &'a WatchMetadata)>,
-    {
-        watches
-            .into_iter()
-            .filter(|(candidate, watch)| {
-                *candidate != path
-                    && path.starts_with(candidate)
-                    && watch.is_user_watch
-                    && watch.user_is_recursive
+        mut watch_for: impl FnMut(&Path) -> Option<&'a WatchMetadata>,
+    ) -> Option<WatchPath> {
+        path.ancestors().skip(1).find_map(|ancestor| {
+            let watch = watch_for(ancestor)?;
+            (watch.is_user_watch && watch.user_is_recursive).then(|| {
+                WatchPath::from_parts(
+                    ancestor.to_path_buf(),
+                    watch.reported_path.clone(),
+                    watch.user_data,
+                )
             })
-            .max_by_key(|(candidate, _)| candidate.as_os_str().len())
-            .map(|(path, watch)| (path.clone(), watch.reported_path.clone()))
+        })
+    }
+
+    /// Updates a user watch and its inherited descendants without changing OS watches.
+    pub(crate) fn update_watch_user_data<'a>(
+        root: &Path,
+        is_recursive: bool,
+        user_data: Option<u64>,
+        preserved_roots: &[(PathBuf, bool)],
+        watches: impl Iterator<Item = (&'a PathBuf, &'a mut WatchMetadata)>,
+    ) {
+        for (path, watch) in watches {
+            if path == root
+                || (is_recursive
+                    && path.starts_with(root)
+                    && preserved_watch_mode(path, preserved_roots).is_none())
+            {
+                watch.user_data = user_data;
+            }
+        }
     }
 
     #[cfg(test)]
@@ -192,12 +219,101 @@ pub(crate) mod recursive {
                 reported_path: PathBuf::from(reported_path),
                 is_user_watch: true,
                 user_is_recursive: is_recursive,
+                user_data: None,
             }
         }
 
         #[test]
+        fn user_data_ancestor_lookup_skips_inherited_and_non_recursive_watches() {
+            use std::collections::HashMap;
+            let mut root = user_watch("root", true);
+            root.user_data = Some(1);
+            let mut flat = user_watch("flat", false);
+            flat.is_recursive = true;
+            flat.user_data = Some(2);
+            let mut inherited = root.clone();
+            inherited.is_user_watch = false;
+            inherited.user_is_recursive = false;
+            let mut watches = HashMap::from([
+                (PathBuf::from("/root"), root),
+                (PathBuf::from("/root/flat"), flat),
+                (PathBuf::from("/root/flat/deep"), inherited),
+            ]);
+            for path in ["/root/new", "/root/flat/new", "/root/flat/deep/new"] {
+                let owner =
+                    recursive_user_watch_ancestor(Path::new(path), |p| watches.get(p)).unwrap();
+                assert_eq!(owner.absolute, Path::new("/root"));
+                assert_eq!(owner.user_data, Some(1));
+            }
+            // A recursive user watch with no value still owns its descendants.
+            watches.insert("/root/flat/deep".into(), user_watch("deep", true));
+            let owner =
+                recursive_user_watch_ancestor(Path::new("/root/flat/deep/new"), |p| watches.get(p))
+                    .unwrap();
+            assert_eq!(owner.absolute, Path::new("/root/flat/deep"));
+            assert_eq!(owner.user_data, None);
+            // Replacement looks above the watch being replaced, excluding the watch itself.
+            assert_eq!(
+                recursive_user_watch_ancestor(Path::new("/root/flat/deep"), |p| watches.get(p))
+                    .unwrap()
+                    .user_data,
+                Some(1)
+            );
+        }
+
+        #[test]
+        fn user_data_updates_only_owned_descendants() {
+            use std::collections::HashMap;
+            let root = PathBuf::from("/root");
+            let mut inherited = user_watch("inherited", true);
+            inherited.is_user_watch = false;
+            inherited.user_is_recursive = false;
+            let mut watches = HashMap::from([
+                (root.clone(), user_watch("root", true)),
+                (root.join("flat"), user_watch("flat", false)),
+                (root.join("flat/inherited"), inherited.clone()),
+                (root.join("nested"), user_watch("nested", true)),
+                (root.join("nested/inherited"), inherited),
+            ]);
+            let protected = preserved_watch_roots(&root, false, watches.iter());
+            update_watch_user_data(&root, true, Some(42), &protected, watches.iter_mut());
+            assert_eq!(watches[&root].user_data, Some(42));
+            assert_eq!(watches[&root.join("flat/inherited")].user_data, Some(42));
+            for path in ["flat", "nested", "nested/inherited"] {
+                assert_eq!(watches[&root.join(path)].user_data, None);
+            }
+            update_watch_user_data(&root.join("flat"), false, Some(7), &[], watches.iter_mut());
+            assert_eq!(watches[&root.join("flat")].user_data, Some(7));
+            assert_eq!(watches[&root.join("flat/inherited")].user_data, Some(42));
+            update_watch_user_data(&root, true, None, &protected, watches.iter_mut());
+            assert_eq!(watches[&root.join("flat")].user_data, Some(7));
+            assert_eq!(watches[&root.join("flat/inherited")].user_data, None);
+        }
+
+        #[test]
+        fn walk_roots_preserve_nested_user_data_including_none() {
+            let root = WatchPath::from_parts("/root".into(), "root".into(), Some(1));
+            let mut roots = WalkRoots::new(root);
+            let mut nested = user_watch("nested", true);
+            nested.user_data = Some(2);
+            roots.entry("/root".into(), None);
+            roots.entry("/root/nested".into(), Some(&nested));
+            assert_eq!(
+                roots.entry("/root/nested/child".into(), None).user_data,
+                Some(2)
+            );
+            roots.entry("/root/empty".into(), Some(&user_watch("empty", true)));
+            assert_eq!(
+                roots.entry("/root/empty/child".into(), None).user_data,
+                None
+            );
+            assert_eq!(roots.entry("/root/sibling".into(), None).user_data, Some(1));
+        }
+
+        #[test]
         fn walk_roots_name_entries_after_the_closest_recursive_user_watch() {
-            let mut roots = WalkRoots::new(WatchPath::from_parts("/repo".into(), "/repo".into()));
+            let mut roots =
+                WalkRoots::new(WatchPath::from_parts("/repo".into(), "/repo".into(), None));
             let mut requested = |path: &str, existing: Option<&WatchMetadata>| {
                 roots.entry(path.into(), existing).requested
             };
@@ -230,6 +346,7 @@ pub(crate) mod recursive {
             let mut roots = WalkRoots::new(WatchPath::from_parts(
                 "/repo/logs".into(),
                 "/repo/logs".into(),
+                None,
             ));
             let logs = user_watch("logs", true);
 

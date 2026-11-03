@@ -176,6 +176,7 @@ mod data {
         // config part, won't change.
         root: PathBuf,
         requested_root: PathBuf,
+        user_data: Option<u64>,
         is_recursive: bool,
         follow_symlinks: bool,
 
@@ -220,6 +221,7 @@ mod data {
             Ok(Self {
                 root: root.absolute,
                 requested_root: root.requested,
+                user_data: root.user_data,
                 is_recursive,
                 follow_symlinks,
                 all_path_data,
@@ -253,11 +255,14 @@ mod data {
                 };
 
                 if let Some(event_kind) = event_kind {
-                    let event = Event::new(event_kind).add_path(reported_path(
+                    let mut event = Event::new(event_kind).add_path(reported_path(
                         &self.root,
                         &self.requested_root,
                         &path,
                     ));
+                    if let Some(user_data) = self.user_data {
+                        event = event.set_user_data(user_data);
+                    }
                     data_builder.emitter.emit_ok(event);
                 }
             }
@@ -275,11 +280,14 @@ mod data {
                 let old_path_data = self.all_path_data.remove(&path);
 
                 if let Some(event_kind) = PathData::compare_to_kind(old_path_data.as_ref(), None) {
-                    let event = Event::new(event_kind).add_path(reported_path(
+                    let mut event = Event::new(event_kind).add_path(reported_path(
                         &self.root,
                         &self.requested_root,
                         &path,
                     ));
+                    if let Some(user_data) = self.user_data {
+                        event = event.set_user_data(user_data);
+                    }
                     data_builder.emitter.emit_ok(event);
                 }
             }
@@ -684,8 +692,8 @@ impl PollWatcher {
     ///
     /// Return `Err(_)` if the path cannot be watched, e.g. because it does not
     /// exist or its metadata cannot be read.
-    fn watch_inner(&mut self, path: &Path, recursive_mode: RecursiveMode) -> crate::Result<()> {
-        let watch_path = WatchPath::new(path)?;
+    fn watch_inner(&mut self, path: &Path, config: crate::WatchPathConfig) -> crate::Result<()> {
+        let watch_path = WatchPath::new(path, config.user_data())?;
 
         // HINT: Make sure always lock in the same order to avoid deadlock.
         let mut watches = self.watches.lock().unwrap_or_else(|e| e.into_inner());
@@ -695,7 +703,7 @@ impl PollWatcher {
 
         let watch_data = data_builder.build_watch_data(
             watch_path.clone(),
-            recursive_mode.is_recursive(),
+            config.recursive_mode().is_recursive(),
             self.follow_sylinks,
         )?;
 
@@ -726,7 +734,11 @@ impl Watcher for PollWatcher {
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> crate::Result<()> {
-        self.watch_inner(path, recursive_mode)
+        self.watch_with(path, crate::WatchPathConfig::new(recursive_mode))
+    }
+
+    fn watch_with(&mut self, path: &Path, config: crate::WatchPathConfig) -> crate::Result<()> {
+        self.watch_inner(path, config)
     }
 
     fn unwatch(&mut self, path: &Path) -> crate::Result<()> {
