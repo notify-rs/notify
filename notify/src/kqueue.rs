@@ -248,7 +248,7 @@ impl EventLoop {
                                 refresh_dirs.push(WatchPath::from_parts(
                                     path.clone(),
                                     event_path.clone(),
-                                    None,
+                                    watch.and_then(|watch| watch.user_data),
                                 ));
                             }
                             let error_path = event_path.clone();
@@ -350,6 +350,8 @@ impl EventLoop {
                             pending_events.push(Ok(e));
                         }
                         Err(err) => {
+                            let err =
+                                err.set_user_data_opt(watch.and_then(|watch| watch.user_data));
                             if let Err(err) = errors.handle(err, Some(&path), false) {
                                 if !abort_additions {
                                     errors.errors.push(err);
@@ -431,7 +433,9 @@ impl EventLoop {
             Ok(entries) => entries,
             Err(err) => {
                 errors.handle(
-                    map_kqueue_io_error(err).add_path(dir.requested.clone()),
+                    map_kqueue_io_error(err)
+                        .add_path(dir.requested.clone())
+                        .set_user_data_opt(dir.user_data),
                     Some(&dir.absolute),
                     false,
                 )?;
@@ -458,7 +462,9 @@ impl EventLoop {
                 Err(err) => {
                     // The parent is known, but not which entry failed. Do not deduplicate these.
                     errors.handle(
-                        map_kqueue_io_error(err).add_path(dir.requested.clone()),
+                        map_kqueue_io_error(err)
+                            .add_path(dir.requested.clone())
+                            .set_user_data_opt(dir.user_data),
                         None,
                         false,
                     )?;
@@ -499,12 +505,16 @@ impl EventLoop {
         is_user_watch: bool,
         errors: &mut WatchErrors,
     ) -> Result<bool> {
+        let user_data =
+            Watch::user_data_for(&path, is_user_watch, self.watches.get(&path.absolute));
         let path_is_dir = match metadata(&path.absolute) {
             Ok(metadata) => metadata.is_dir(),
             Err(err) => {
                 return errors
                     .handle(
-                        map_kqueue_io_error(err).add_path(path.requested),
+                        map_kqueue_io_error(err)
+                            .add_path(path.requested)
+                            .set_user_data_opt(user_data),
                         Some(&path.absolute),
                         is_user_watch,
                     )
@@ -611,10 +621,19 @@ impl EventLoop {
             Err(err) => {
                 let depth = err.depth();
                 let absolute = err.path().map(Path::to_path_buf);
-                let requested = absolute
+                let path = absolute
                     .as_ref()
-                    .map(|path| roots.entry(path.clone(), self.watches.get(path)).requested);
-                let error = map_walkdir_error(err).set_paths(requested.into_iter().collect());
+                    .map(|path| roots.entry(path.clone(), self.watches.get(path)));
+                let user_data = path.as_ref().and_then(|path| {
+                    Watch::user_data_for(
+                        path,
+                        is_user_watch && depth == 0,
+                        self.watches.get(&path.absolute),
+                    )
+                });
+                let error = map_walkdir_error(err)
+                    .set_paths(path.into_iter().map(|path| path.requested).collect())
+                    .set_user_data_opt(user_data);
                 (depth, absolute, Err(error), false)
             }
         };
@@ -635,10 +654,16 @@ impl EventLoop {
         is_recursive: bool,
         is_user_watch: bool,
     ) -> Result<()> {
+        let existing_watch = self.watches.get(&path.absolute);
+        let user_data = Watch::user_data_for(&path, is_user_watch, existing_watch);
         // add_filename opens the path for reading, which can block on a FIFO. Check the
         // target type, including through symlinks, before either watch-addition path opens it.
         let file_type = metadata(&path.absolute)
-            .map_err(|err| map_kqueue_io_error(err).add_path(path.requested.clone()))?
+            .map_err(|err| {
+                map_kqueue_io_error(err)
+                    .add_path(path.requested.clone())
+                    .set_user_data_opt(user_data)
+            })?
             .file_type();
         if !file_type.is_file() && !file_type.is_dir() {
             if is_user_watch {
@@ -646,7 +671,8 @@ impl EventLoop {
                     io::ErrorKind::Unsupported,
                     "kqueue only supports watching regular files and directories",
                 ))
-                .add_path(path.requested));
+                .add_path(path.requested)
+                .set_user_data_opt(user_data));
             }
             log::debug!(
                 "skipping kqueue watch for special file: {}",
@@ -668,8 +694,11 @@ impl EventLoop {
 
         self.kqueue
             .add_filename(&path.absolute, event_filter, filter_flags)
-            .map_err(|e| map_kqueue_io_error(e).add_path(path.requested.clone()))?;
-        let existing_watch = self.watches.get(&path.absolute);
+            .map_err(|e| {
+                map_kqueue_io_error(e)
+                    .add_path(path.requested.clone())
+                    .set_user_data_opt(user_data)
+            })?;
         let watch = Watch::new(&path, is_recursive, is_user_watch, existing_watch);
         self.watches.insert(path.absolute, watch);
 
@@ -809,7 +838,9 @@ impl Watcher for KqueueWatcher {
     }
 
     fn watch_with(&mut self, path: &Path, config: crate::WatchPathConfig) -> Result<()> {
+        let user_data = config.user_data();
         self.watch_inner(path, config)
+            .map_err(|err| err.set_user_data_opt(user_data))
     }
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {
@@ -864,6 +895,48 @@ mod tests {
         )
         .unwrap();
         (event_loop, rx)
+    }
+
+    #[test]
+    fn rescan_errors_keep_the_directory_user_data() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("directory-replaced-by-file");
+        std::fs::write(&path, "file").unwrap();
+        let (event_loop, _) = recording_event_loop();
+        for value in [None, Some(0), Some(u64::MAX)] {
+            let dir = WatchPath::from_parts(path.clone(), PathBuf::from("reported-dir"), value);
+            let mut errors = WatchErrors::default();
+            assert!(
+                event_loop
+                    .untracked_entries(&dir, &mut errors)
+                    .unwrap()
+                    .is_empty()
+            );
+            assert_eq!(errors.errors.len(), 1);
+            assert_eq!(errors.errors[0].user_data(), value);
+            assert_eq!(errors.errors[0].paths, [PathBuf::from("reported-dir")]);
+        }
+    }
+
+    #[test]
+    fn walk_errors_preserve_nested_watch_user_data() {
+        for value in [None, Some(7)] {
+            let tmp = tempfile::tempdir().unwrap();
+            let nested = tmp.path().join("nested");
+            std::fs::create_dir(&nested).unwrap();
+            let (mut event_loop, rx) = recording_event_loop();
+            event_loop
+                .add_watch(WatchPath::new(&nested, value).unwrap(), true, true)
+                .unwrap();
+            std::os::unix::fs::symlink(&nested, nested.join("loop")).unwrap();
+            event_loop
+                .add_watch(WatchPath::new(tmp.path(), Some(1)).unwrap(), true, true)
+                .unwrap();
+            let errors: Vec<_> = rx.try_iter().filter_map(Result::err).collect();
+            assert_eq!(errors.len(), 1, "{errors:?}");
+            assert_eq!(errors[0].user_data(), value);
+            assert_eq!(errors[0].paths, [nested.join("loop")]);
+        }
     }
 
     #[test]

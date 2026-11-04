@@ -1014,7 +1014,9 @@ impl Watcher for FsEventWatcher {
     }
 
     fn watch_with(&mut self, path: &Path, config: crate::WatchPathConfig) -> Result<()> {
+        let user_data = config.user_data();
         self.watch_inner(path, config)
+            .map_err(|err| err.set_user_data_opt(user_data))
     }
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {
@@ -2172,7 +2174,7 @@ mod tests {
                 watch_result,
                 Err(Error {
                     kind: ErrorKind::PathNotFound,
-                    paths: _
+                    ..
                 })
             ),
             "actual: {watch_result:#?}"
@@ -2184,7 +2186,7 @@ mod tests {
                 unwatch_result,
                 Err(Error {
                     kind: ErrorKind::WatchNotFound,
-                    paths: _
+                    ..
                 })
             ),
             "actual: {unwatch_result:#?}"

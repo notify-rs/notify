@@ -322,9 +322,10 @@ impl WatchPathConfig {
         self.dereference_symlinks
     }
 
-    /// Attaches an application-defined value to events from this watch.
+    /// Attaches an application-defined value to events and errors from this watch.
     ///
-    /// All built-in backends expose it through [`Event::user_data`](crate::Event::user_data).
+    /// All built-in backends expose it through [`Event::user_data`](crate::Event::user_data)
+    /// and [`Error::user_data`](crate::Error::user_data).
     /// Recursive descendants inherit the value; explicitly registered watches keep their own.
     /// Rewatching replaces it, and [`Watcher::watch`](crate::Watcher::watch) resets it to `None`.
     ///

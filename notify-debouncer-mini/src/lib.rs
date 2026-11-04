@@ -622,7 +622,9 @@ mod tests {
             if has_pending_event {
                 handler.handle_event(Ok(Event::new(EventKind::Any).add_path("pending".into())));
             }
-            handler.handle_event(Err(Error::path_not_found().add_path("missing".into())));
+            handler.handle_event(Err(Error::path_not_found()
+                .add_path("missing".into())
+                .set_user_data(42)));
 
             let error = rx
                 .recv_timeout(Duration::from_secs(5))
@@ -630,6 +632,7 @@ mod tests {
                 .unwrap_err();
             assert!(matches!(error.kind, notify::ErrorKind::PathNotFound));
             assert_eq!(error.paths, vec![PathBuf::from("missing")]);
+            assert_eq!(error.user_data(), Some(42));
         }
     }
 

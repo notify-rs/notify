@@ -703,6 +703,13 @@ impl EventLoop {
         report_created: bool,
     ) -> Result<()> {
         let is_recursive = config.recursive_mode().is_recursive();
+        let user_data = WatchMetadata::user_data_for(
+            &path,
+            watch_self,
+            self.watches
+                .get(&path.absolute)
+                .map(|watch| &watch.metadata),
+        );
         // a recursive watch has to resolve the path before it can walk it
         let dereference = config.dereference_symlinks() || is_recursive;
         // add_single_watch validates new paths after registration; no preliminary stat is needed.
@@ -715,7 +722,7 @@ impl EventLoop {
             );
         }
         let path_is_dir = watch_metadata(&path.absolute, dereference)
-            .map_err(Error::io_watch)?
+            .map_err(|err| Error::io_watch(err).set_user_data_opt(user_data))?
             .is_dir();
         let requested_is_recursive = is_recursive && path_is_dir;
         if watch_self {
@@ -841,7 +848,7 @@ impl EventLoop {
         report_created: bool,
     ) -> Result<()>
     where
-        I: IntoIterator<Item = Result<WatchPath>>,
+        I: IntoIterator<Item = crate::StdResult<WatchPath, (PathBuf, Error)>>,
     {
         let mut last_failed = None;
         let mut roots = WalkRoots::new(root);
@@ -852,16 +859,24 @@ impl EventLoop {
         // synthesized events may duplicate native ones.
         for (index, path) in paths.into_iter().enumerate() {
             let mut created_path = None;
-            let path = path.map(|path| {
-                let existing = self
-                    .watches
-                    .get(&path.absolute)
-                    .map(|watch| &watch.metadata);
-                let report_entry = report_created && index > 0 && existing.is_none();
-                let path = roots.entry(path.absolute, existing);
-                created_path = report_entry.then(|| (path.requested.clone(), path.user_data));
-                path
-            });
+            let path = match path {
+                Ok(path) => {
+                    let existing = self
+                        .watches
+                        .get(&path.absolute)
+                        .map(|watch| &watch.metadata);
+                    let report_entry = report_created && index > 0 && existing.is_none();
+                    let path = roots.entry(path.absolute, existing);
+                    created_path = report_entry.then(|| (path.requested.clone(), path.user_data));
+                    Ok(path)
+                }
+                Err((absolute, err)) => {
+                    let existing = self.watches.get(&absolute).map(|watch| &watch.metadata);
+                    let path = roots.entry(absolute, existing);
+                    let user_data = WatchMetadata::user_data_for(&path, watch_self, existing);
+                    Err(err.set_user_data_opt(user_data))
+                }
+            };
             // entries below the root were reached by following links, so they observe what they
             // resolved to
             let entry_dereference = if watch_self { dereference } else { true };
@@ -919,6 +934,11 @@ impl EventLoop {
         }
 
         let existing_watch = self.watches.get(&path.absolute);
+        let user_data = WatchMetadata::user_data_for(
+            &path,
+            watch_self,
+            existing_watch.map(|watch| &watch.metadata),
+        );
         // an explicit watch decides for its own path, a walk must not overrule it #255
         let dereference = if watch_self {
             requested_dereference
@@ -967,7 +987,8 @@ impl EventLoop {
                     } else {
                         Error::io(e)
                     }
-                    .add_path(path.requested))
+                    .add_path(path.requested)
+                    .set_user_data_opt(user_data))
                 }
                 Ok(w) => {
                     debug_assert!(!watchmask.intersects(RESOLUTION_FLAGS));
@@ -980,7 +1001,9 @@ impl EventLoop {
                                 // Avoid leaking an inotify watch if we can't stat after adding it.
                                 // This can happen due to racy deletions.
                                 let _ = inotify.watches().remove(w.clone());
-                                return Err(Error::io_watch(e).add_path(path.requested));
+                                return Err(Error::io_watch(e)
+                                    .add_path(path.requested)
+                                    .set_user_data_opt(user_data));
                             }
                         }
                     };
@@ -1237,12 +1260,12 @@ fn walk_dirs(
     follow_links: bool,
     barriers: &HashSet<PathBuf>,
     above: Vec<PathBuf>,
-) -> impl Iterator<Item = Result<WatchPath>> {
+) -> impl Iterator<Item = crate::StdResult<WatchPath, (PathBuf, Error)>> {
     enum Step {
         Visit(WatchPath),
         Read(WatchPath),
         Leave,
-        Error(Error),
+        Error(PathBuf, Error),
     }
 
     let mut pending = vec![Step::Visit(root.child(from))];
@@ -1263,7 +1286,10 @@ fn walk_dirs(
                     let mut metadata = match symlink_metadata(&path.absolute) {
                         Ok(metadata) => metadata,
                         Err(err) => {
-                            return Some(Err(Error::io_watch(err).add_path(path.requested)));
+                            return Some(Err((
+                                path.absolute,
+                                Error::io_watch(err).add_path(path.requested),
+                            )));
                         }
                     };
                     let is_symlink = metadata.file_type().is_symlink();
@@ -1271,7 +1297,10 @@ fn walk_dirs(
                         metadata = match std::fs::metadata(&path.absolute) {
                             Ok(metadata) => metadata,
                             Err(err) => {
-                                return Some(Err(Error::io_watch(err).add_path(path.requested)));
+                                return Some(Err((
+                                    path.absolute,
+                                    Error::io_watch(err).add_path(path.requested),
+                                )));
                             }
                         };
                     }
@@ -1292,9 +1321,10 @@ fn walk_dirs(
                                 })
                                 .contains(&identity))
                     {
-                        return Some(Err(
-                            Error::generic("symbolic link loop").add_path(path.requested)
-                        ));
+                        return Some(Err((
+                            path.absolute,
+                            Error::generic("symbolic link loop").add_path(path.requested),
+                        )));
                     }
                     ancestors.push(identity);
                     pending.push(Step::Leave);
@@ -1306,7 +1336,10 @@ fn walk_dirs(
                     let entries = match read_dir(&path.absolute) {
                         Ok(entries) => entries,
                         Err(err) => {
-                            return Some(Err(Error::io_watch(err).add_path(path.requested)));
+                            return Some(Err((
+                                path.absolute,
+                                Error::io_watch(err).add_path(path.requested),
+                            )));
                         }
                     };
                     let start = pending.len();
@@ -1316,6 +1349,7 @@ fn walk_dirs(
                             Ok(entry) => entry,
                             Err(err) => {
                                 pending.push(Step::Error(
+                                    path.absolute.clone(),
                                     Error::io_watch(err).add_path(path.requested.clone()),
                                 ));
                                 continue;
@@ -1330,9 +1364,13 @@ fn walk_dirs(
                                 pending.push(Step::Visit(root.child(absolute)));
                             }
                             Ok(_) => {}
-                            Err(err) => pending.push(Step::Error(
-                                Error::io_watch(err).add_path(root.child(absolute).requested),
-                            )),
+                            Err(err) => {
+                                let path = root.child(absolute);
+                                pending.push(Step::Error(
+                                    path.absolute,
+                                    Error::io_watch(err).add_path(path.requested),
+                                ));
+                            }
                         }
                     }
                     pending[start..].reverse();
@@ -1340,7 +1378,7 @@ fn walk_dirs(
                 Step::Leave => {
                     ancestors.pop();
                 }
-                Step::Error(err) => return Some(Err(err)),
+                Step::Error(absolute, err) => return Some(Err((absolute, err))),
             }
         }
     })
@@ -1391,11 +1429,13 @@ impl Watcher for INotifyWatcher {
     }
 
     fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> Result<()> {
-        self.watch_inner(path, WatchPathConfig::new(recursive_mode))
+        self.watch_with(path, WatchPathConfig::new(recursive_mode))
     }
 
     fn watch_with(&mut self, path: &Path, config: WatchPathConfig) -> Result<()> {
+        let user_data = config.user_data();
         self.watch_inner(path, config)
+            .map_err(|err| err.set_user_data_opt(user_data))
     }
 
     fn unwatch(&mut self, path: &Path) -> Result<()> {
@@ -1432,6 +1472,7 @@ impl Watcher for INotifyWatcher {
                 // The batch was enqueued; the applied prefix is unknown without its reply.
                 remaining: Vec::new(),
             })?
+            .map_err(UpdatePathsError::with_origin_user_data)
     }
 
     fn configure(&mut self, config: Config) -> Result<bool> {
@@ -1513,6 +1554,94 @@ mod tests {
         let inotify = super::inotify_sys::Inotify::init().unwrap();
         let event_loop = EventLoop::new(inotify, Box::new(tx), &Config::default()).unwrap();
         (event_loop, rx)
+    }
+
+    #[test]
+    fn walk_errors_use_the_same_owners_as_watches() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        for (name, mode, value) in [
+            ("nested", RecursiveMode::Recursive, Some(7)),
+            ("unset", RecursiveMode::Recursive, None),
+            ("flat", RecursiveMode::NonRecursive, Some(3)),
+        ] {
+            let path = root.join(name);
+            std::fs::create_dir(&path).unwrap();
+            event_loop
+                .add_watch(
+                    WatchPath::new(&path, value).unwrap(),
+                    WatchPathConfig::new(mode),
+                    true,
+                    false,
+                )
+                .unwrap();
+        }
+        let failures = [
+            ("nested", Some(7)),
+            ("nested/failed", Some(7)),
+            ("unset", None),
+            ("unset/failed", None),
+            ("flat", Some(3)),
+            ("flat/failed", Some(1)),
+            ("failed", Some(1)),
+        ];
+        let paths = std::iter::once(Ok(WatchPath::new(root, Some(1)).unwrap())).chain(
+            failures.iter().enumerate().map(|(index, (name, _))| {
+                Err((
+                    root.join(name),
+                    Error::io(std::io::ErrorKind::PermissionDenied.into())
+                        .add_path(PathBuf::from(format!("reported/{index}"))),
+                ))
+            }),
+        );
+        event_loop
+            .add_watches_for_paths(
+                WatchPath::new(root, Some(1)).unwrap(),
+                paths,
+                true,
+                true,
+                true,
+                false,
+            )
+            .unwrap();
+        let errors: Vec<_> = rx.try_iter().map(Result::unwrap_err).collect();
+        assert_eq!(errors.len(), failures.len());
+        for (index, (error, (_, value))) in errors.iter().zip(failures).enumerate() {
+            assert_eq!(error.user_data(), value);
+            assert_eq!(error.paths, [PathBuf::from(format!("reported/{index}"))]);
+        }
+    }
+
+    #[test]
+    fn dynamic_walk_errors_use_the_recursive_owner() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let flat = root.join("flat");
+        let staging = tmp.path().join("staging");
+        std::fs::create_dir_all(&flat).unwrap();
+        std::fs::create_dir(&staging).unwrap();
+        std::os::unix::fs::symlink(&root, staging.join("loop")).unwrap();
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        for (path, mode, value) in [
+            (&root, RecursiveMode::Recursive, 1),
+            (&flat, RecursiveMode::NonRecursive, 2),
+        ] {
+            event_loop
+                .add_watch(
+                    WatchPath::new(path, Some(value)).unwrap(),
+                    WatchPathConfig::new(mode),
+                    true,
+                    false,
+                )
+                .unwrap();
+        }
+        std::fs::rename(staging, flat.join("new")).unwrap();
+        event_loop.handle_inotify();
+        let errors: Vec<_> = rx.try_iter().filter_map(Result::err).collect();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].user_data(), Some(1));
+        assert_eq!(errors[0].paths, [flat.join("new/loop")]);
     }
 
     #[test]
@@ -1738,8 +1867,8 @@ mod tests {
         assert!(matches!(
             result,
             Err(Error {
-                paths: _,
-                kind: ErrorKind::PathNotFound
+                kind: ErrorKind::PathNotFound,
+                ..
             })
         ))
     }
@@ -1985,7 +2114,7 @@ mod tests {
         for entry in entries {
             match entry {
                 Ok(path) => watched.push(path.requested),
-                Err(err) => failures.extend(err.paths),
+                Err((_, err)) => failures.extend(err.paths),
             }
         }
         watched.sort();
@@ -2091,7 +2220,7 @@ mod tests {
         for entry in entries {
             match entry {
                 Ok(path) => watched.push(path.requested),
-                Err(err) => failures.extend(err.paths),
+                Err((_, err)) => failures.extend(err.paths),
             }
         }
         watched.sort();
@@ -2668,7 +2797,7 @@ mod tests {
                 &result,
                 Ok(Error {
                     kind: ErrorKind::MaxFilesWatch,
-                    paths: _,
+                    ..
                 })
             ),
             "expected {:?}, found: {:#?}",
@@ -4028,8 +4157,8 @@ mod tests {
         assert!(matches!(
             result,
             Err(Error {
-                paths: _,
-                kind: ErrorKind::PathNotFound
+                kind: ErrorKind::PathNotFound,
+                ..
             })
         ))
     }

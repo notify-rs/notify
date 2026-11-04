@@ -94,6 +94,17 @@ pub(crate) mod recursive {
     }
 
     impl WatchMetadata {
+        pub(crate) fn user_data_for(
+            path: &WatchPath,
+            is_user_watch: bool,
+            existing_watch: Option<&Self>,
+        ) -> Option<u64> {
+            match existing_watch {
+                Some(existing) if !is_user_watch && existing.is_user_watch => existing.user_data,
+                _ => path.user_data,
+            }
+        }
+
         pub(crate) fn new(
             path: &WatchPath,
             is_recursive: bool,
@@ -111,10 +122,7 @@ pub(crate) mod recursive {
                 }
                 _ => path.requested.clone(),
             };
-            let user_data = match existing_watch {
-                Some(existing) if !is_user_watch && existing.is_user_watch => existing.user_data,
-                _ => path.user_data,
-            };
+            let user_data = Self::user_data_for(path, is_user_watch, existing_watch);
 
             Self {
                 is_recursive: is_recursive || existing_is_recursive,
