@@ -2,6 +2,7 @@
 
 ## unreleased
 
+- CHANGE: raise MSRV to 1.91
 - FEATURE: add `Error::user_data()` and `Error::set_user_data()` to identify watch operations and watches reporting errors; failed batch watch operations retain the value in `UpdatePathsError.source` [#388]
 - CHANGE: `Error` now has a private field. Construct errors with its constructors and include `..` when destructuring them. Its Debug output now includes `user_data` **breaking**
 - FEATURE: add per-watch `WatchPathConfig::with_user_data(u64)` and expose it through `Event::user_data()` on all backends; inotify and kqueue update value-only changes without reinstalling watches [#1012]

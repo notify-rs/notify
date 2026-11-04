@@ -1,7 +1,9 @@
-use crate::FileIdCache;
+use crate::{FileIdCache, remove_subtree};
 use file_id::{FileId, get_file_id};
-use rustc_hash::FxHashMap as HashMap;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 /// A cache to hold the file system IDs of all watched files.
 ///
@@ -9,7 +11,7 @@ use std::path::{Path, PathBuf};
 /// rename events in case the notification back-end doesn't emit rename cookies.
 #[derive(Debug, Clone, Default)]
 pub struct FileIdMap {
-    paths: HashMap<PathBuf, FileId>,
+    paths: BTreeMap<PathBuf, FileId>,
 }
 
 impl FileIdMap {
@@ -32,7 +34,7 @@ impl FileIdCache for FileIdMap {
     }
 
     fn remove_path(&mut self, path: &Path) {
-        self.paths.retain(|p, _| !p.starts_with(path));
+        remove_subtree(&mut self.paths, path);
     }
 }
 

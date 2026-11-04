@@ -157,27 +157,25 @@ fn add_watch_by_event(
     watches: &HashMap<PathBuf, Watch>,
     add_watches: &mut Vec<(WatchPath, bool)>,
 ) {
-    if event.mask.contains(EventMask::ISDIR) {
-        if let Some(parent_path) = path.parent() {
-            if let Some(watch) = watches.get(parent_path) {
-                if watch.metadata.is_recursive {
-                    let user_data = recursive_user_watch_ancestor(path, |ancestor| {
-                        watches.get(ancestor).map(|watch| &watch.metadata)
-                    })
-                    .and_then(|root| root.user_data);
-                    // Path spelling follows the immediate parent; user data follows the
-                    // recursive owner, which can be above a non-recursive user watch.
-                    add_watches.push((
-                        WatchPath::from_parts(
-                            path.to_owned(),
-                            reported_path(parent_path, &watch.metadata.reported_path, path),
-                            user_data,
-                        ),
-                        event.mask.contains(EventMask::CREATE),
-                    ));
-                }
-            }
-        }
+    if event.mask.contains(EventMask::ISDIR)
+        && let Some(parent_path) = path.parent()
+        && let Some(watch) = watches.get(parent_path)
+        && watch.metadata.is_recursive
+    {
+        let user_data = recursive_user_watch_ancestor(path, |ancestor| {
+            watches.get(ancestor).map(|watch| &watch.metadata)
+        })
+        .and_then(|root| root.user_data);
+        // Path spelling follows the immediate parent; user data follows the
+        // recursive owner, which can be above a non-recursive user watch.
+        add_watches.push((
+            WatchPath::from_parts(
+                path.to_owned(),
+                reported_path(parent_path, &watch.metadata.reported_path, path),
+                user_data,
+            ),
+            event.mask.contains(EventMask::CREATE),
+        ));
     }
 }
 
@@ -1972,10 +1970,10 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
             poke();
-            if let Ok(event) = rx.recv_timeout(Duration::from_millis(200)) {
-                if accept(&event) {
-                    return Some(event);
-                }
+            if let Ok(event) = rx.recv_timeout(Duration::from_millis(200))
+                && accept(&event)
+            {
+                return Some(event);
             }
         }
         None
@@ -2153,7 +2151,7 @@ mod tests {
             .filter_map(Result::err)
             .flat_map(|err| err.paths)
             .collect();
-        assert_eq!(failures, [back.clone()]);
+        assert_eq!(failures, std::slice::from_ref(&back));
         assert!(!event_loop.watches.contains_key(&back));
     }
 

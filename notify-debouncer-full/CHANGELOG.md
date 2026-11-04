@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- CHANGE: raise MSRV to 1.91
+- PERF: avoid scanning unrelated event queues and cached file IDs when removing a path
 - CHANGE: remove the deprecated no-op methods `Debouncer::watcher` and `Debouncer::cache` **breaking**
 - FIX: for an event on a direct child of a non-recursive watch, cache only that entry and not the entries below it, which the watch does not report
 - CHANGE: `FileIdCache::add_single_path` is a required method, and `FileIdCache::add_path` is a provided method that walks the path and calls `add_single_path` for each entry; a custom cache only has to cache single paths **breaking**
