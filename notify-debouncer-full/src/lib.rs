@@ -77,7 +77,8 @@ mod file_id_map;
 
 use std::{
     cmp::Reverse,
-    collections::{BinaryHeap, VecDeque},
+    collections::{BTreeMap, BinaryHeap, VecDeque, btree_map::Entry},
+    ops::Bound,
     path::{Path, PathBuf},
     sync::{
         Arc, Condvar, Mutex,
@@ -216,7 +217,7 @@ impl Queue {
 
 #[derive(Debug)]
 pub(crate) struct DebounceDataInner<T> {
-    queues: HashMap<PathBuf, Queue>,
+    queues: BTreeMap<PathBuf, Queue>,
     /// Registered watch roots, kept **sorted by path** so that `add_root`
     /// can dedupe via binary search in O(log N) and doesn't suffer from injection
     roots: VecDeque<WatchRoot>,
@@ -233,7 +234,7 @@ pub(crate) struct DebounceDataInner<T> {
 impl<T: FileIdCache> DebounceDataInner<T> {
     pub(crate) fn new(cache: T, timeout: Duration) -> Self {
         Self {
-            queues: HashMap::default(),
+            queues: BTreeMap::new(),
             roots: VecDeque::new(),
             cache,
             rename_events: Vec::new(),
@@ -277,33 +278,31 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         }
 
         // Visit each queue in place and remove only the ones that become empty.
-        self.queues
-            .extract_if(|_, queue| {
-                let mut kind_index: HashMap<EventKind, usize> = HashMap::default();
-                let mut queue_expired = Vec::new();
+        self.queues.retain(|_, queue| {
+            let mut kind_index: HashMap<EventKind, usize> = HashMap::default();
+            let mut queue_expired = Vec::new();
 
-                while let Some(event) = queue.events.pop_front() {
-                    // remove previous event of the same kind
-                    if now.saturating_duration_since(event.time) >= self.timeout {
-                        if let Some(idx) = kind_index.insert(event.kind, queue_expired.len()) {
-                            queue_expired[idx] = None;
-                        }
-
-                        queue_expired.push(Some(event));
-                    } else {
-                        if let Some(&idx) = kind_index.get(&event.kind) {
-                            queue_expired[idx] = None;
-                        }
-                        queue.events.push_front(event);
-                        break;
+            while let Some(event) = queue.events.pop_front() {
+                // remove previous event of the same kind
+                if now.saturating_duration_since(event.time) >= self.timeout {
+                    if let Some(idx) = kind_index.insert(event.kind, queue_expired.len()) {
+                        queue_expired[idx] = None;
                     }
+
+                    queue_expired.push(Some(event));
+                } else {
+                    if let Some(&idx) = kind_index.get(&event.kind) {
+                        queue_expired[idx] = None;
+                    }
+                    queue.events.push_front(event);
+                    break;
                 }
+            }
 
-                events_expired.extend(queue_expired.into_iter().flatten());
+            events_expired.extend(queue_expired.into_iter().flatten());
 
-                queue.events.is_empty()
-            })
-            .for_each(drop);
+            !queue.events.is_empty()
+        });
 
         sort_events(events_expired)
     }
@@ -407,10 +406,9 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             if let Ok(index) = self
                 .roots
                 .binary_search_by(|root| root.path.as_path().cmp(ancestor))
+                && self.roots[index].recursive_mode == RecursiveMode::Recursive
             {
-                if self.roots[index].recursive_mode == RecursiveMode::Recursive {
-                    return RecursiveMode::Recursive;
-                }
+                return RecursiveMode::Recursive;
             }
         }
 
@@ -599,47 +597,43 @@ impl<T: FileIdCache> DebounceDataInner<T> {
     fn push_remove_event(&mut self, event: Event, time: Instant) {
         let path = &event.paths[0];
 
-        // remove child queues
-        self.queues.retain(|p, _| !p.starts_with(path) || p == path);
-
-        // remove cached file ids
+        // Replace this path's queue and discard any pending events below it.
+        remove_subtree(&mut self.queues, path);
         self.cache.remove_path(path);
-
-        match self.queues.get_mut(path) {
-            Some(queue) => {
-                queue.events = [DebouncedEvent::new(event, time)].into();
-            }
-            None => {
-                self.push_event(event, time);
-            }
-        }
+        self.queues.insert(
+            path.to_path_buf(),
+            Queue {
+                events: [DebouncedEvent::new(event, time)].into(),
+            },
+        );
     }
 
     fn push_event(&mut self, event: Event, time: Instant) {
         let path = &event.paths[0];
 
-        if let Some(queue) = self.queues.get_mut(path) {
-            // Skip duplicate create events and modifications right after creation.
-            // This code relies on backends never emitting a `Modify` event with kind other than `Name` for a rename event.
-            if match event.kind {
-                EventKind::Modify(
-                    ModifyKind::Any
-                    | ModifyKind::Data(_)
-                    | ModifyKind::Metadata(_)
-                    | ModifyKind::Other,
-                )
-                | EventKind::Create(_) => !queue.was_created(),
-                _ => true,
-            } {
-                queue.events.push_back(DebouncedEvent::new(event, time));
+        match self.queues.entry(path.to_path_buf()) {
+            Entry::Occupied(mut entry) => {
+                let queue = entry.get_mut();
+                // Skip duplicate create events and modifications right after creation.
+                // This code relies on backends never emitting a `Modify` event with kind other than `Name` for a rename event.
+                if match event.kind {
+                    EventKind::Modify(
+                        ModifyKind::Any
+                        | ModifyKind::Data(_)
+                        | ModifyKind::Metadata(_)
+                        | ModifyKind::Other,
+                    )
+                    | EventKind::Create(_) => !queue.was_created(),
+                    _ => true,
+                } {
+                    queue.events.push_back(DebouncedEvent::new(event, time));
+                }
             }
-        } else {
-            self.queues.insert(
-                path.to_path_buf(),
-                Queue {
+            Entry::Vacant(entry) => {
+                entry.insert(Queue {
                     events: [DebouncedEvent::new(event, time)].into(),
-                },
-            );
+                });
+            }
         }
     }
 }
@@ -955,6 +949,24 @@ fn root_at<'a>(roots: &'a VecDeque<WatchRoot>, path: &Path) -> Option<&'a WatchR
     Some(&roots[index])
 }
 
+/// Removes a path and its descendants without scanning unrelated keys.
+fn remove_subtree<V>(map: &mut BTreeMap<PathBuf, V>, path: &Path) {
+    // Path orders by component, so a path and its descendants form a contiguous range.
+    let count = map
+        .range::<Path, _>((Bound::Included(path), Bound::Unbounded))
+        .take_while(|(key, _)| key.starts_with(path))
+        .count();
+    if count == 0 {
+        return;
+    }
+
+    // A false predicate would keep scanning unrelated keys. Stop after the counted subtree
+    // instead, removing entries in place without cloning their keys or looking them up again.
+    map.extract_if(path.to_path_buf().., |_, _| true)
+        .take(count)
+        .for_each(drop);
+}
+
 fn sort_events(events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
     let mut sorted = Vec::with_capacity(events.len());
 
@@ -998,10 +1010,8 @@ fn sort_events(events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
             push_next = true;
         }
 
-        if push_next {
-            if let Some(event) = events.front() {
-                min_time_heap.push(Reverse((event.time, index)));
-            }
+        if push_next && let Some(event) = events.front() {
+            min_time_heap.push(Reverse((event.time, index)));
         }
     }
 
@@ -1024,6 +1034,77 @@ mod tests {
     use tempfile::tempdir;
     use testing::TestCase;
     use time::MockTime;
+
+    #[rstest]
+    #[case::root_and_descendants(
+        "a/b",
+        &["a/b/second", "a/bc", "a", "a/b/first/deep", "a/b", "a/c"],
+        &["a", "a/bc", "a/c"],
+    )]
+    #[case::descendants_without_root(
+        "a/b",
+        &["a/b/second", "a/bc", "a", "a/b/first/deep", "a/c"],
+        &["a", "a/bc", "a/c"],
+    )]
+    #[case::missing_subtree("a/missing", &["a", "a/b", "a/bc"], &["a", "a/b", "a/bc"])]
+    #[case::missing_before_other_keys("a/b", &["a/bc", "a/c"], &["a/bc", "a/c"])]
+    #[case::subtree_at_end("a/b", &["a", "a/b/child", "a/b"], &["a"])]
+    #[case::empty_map("a/b", &[], &[])]
+    fn remove_subtree_keeps_unrelated_paths(
+        #[case] root: &str,
+        #[case] paths: &[&str],
+        #[case] remaining: &[&str],
+    ) {
+        let mut map = paths.iter().map(|path| (PathBuf::from(path), ())).collect();
+        remove_subtree(&mut map, Path::new(root));
+        let expected = remaining
+            .iter()
+            .map(|path| (PathBuf::from(path), ()))
+            .collect();
+        assert_eq!(map, expected);
+    }
+
+    #[test]
+    fn removing_a_large_subtree_keeps_the_following_subtree() {
+        let mut map = BTreeMap::new();
+        for index in 0..64 {
+            map.insert(PathBuf::from(format!("a/b/{index}")), index);
+            map.insert(PathBuf::from(format!("a/bc/{index}")), index);
+        }
+
+        remove_subtree(&mut map, Path::new("a/b"));
+
+        assert_eq!(map.len(), 64);
+        for index in 0..64 {
+            assert_eq!(map[&PathBuf::from(format!("a/bc/{index}"))], index);
+        }
+    }
+
+    #[test]
+    fn removing_a_parent_without_a_queue_discards_child_events() {
+        let mut state = DebounceDataInner::new(NoCache, Duration::ZERO);
+        for path in ["a/b/child", "a/b/deep/leaf", "a/bc"] {
+            state.add_event(
+                Event::new(EventKind::Modify(ModifyKind::Any)).add_path(PathBuf::from(path)),
+            );
+        }
+        let removal = Event::new(EventKind::Remove(RemoveKind::Any))
+            .add_path(PathBuf::from("a/b"))
+            .set_user_data(7);
+        state.add_event(removal.clone());
+
+        let events: Vec<_> = state
+            .debounced_events()
+            .into_iter()
+            .map(|event| event.event)
+            .collect();
+        assert_eq!(events.len(), 2);
+        assert!(events.contains(&removal));
+        assert!(events.contains(
+            &Event::new(EventKind::Modify(ModifyKind::Any)).add_path(PathBuf::from("a/bc")),
+        ));
+        assert!(state.queues.is_empty());
+    }
 
     #[derive(Debug)]
     struct FailingWatcher {
@@ -1506,7 +1587,7 @@ mod tests {
     #[test]
     fn recursive_mode_uses_recursive_root_for_overlapping_watches() {
         let state = DebounceDataInner {
-            queues: HashMap::default(),
+            queues: BTreeMap::new(),
             roots: VecDeque::from([
                 WatchRoot {
                     path: PathBuf::from("root"),

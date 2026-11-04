@@ -612,10 +612,11 @@ mod expect {
 
             self.received.push(event.clone());
 
-            if let Some(multiple_event) = &self.multiple_event {
-                if multiple_event.kind == event.kind && multiple_event.paths == event.paths {
-                    return;
-                }
+            if let Some(multiple_event) = &self.multiple_event
+                && multiple_event.kind == event.kind
+                && multiple_event.paths == event.paths
+            {
+                return;
             }
 
             if expected.is_none()

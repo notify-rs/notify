@@ -4,9 +4,9 @@ This guide documents changes between v8 and v9 for upgrading existing code.
 
 ## Breaking changes
 
-### 1) MSRV is now Rust 1.88
+### 1) MSRV is now Rust 1.91
 
-`notify` v9 requires Rust 1.88 or newer.
+`notify` v9 requires Rust 1.91 or newer.
 
 We also declared a new MSRV policy. For details, please read README.
 

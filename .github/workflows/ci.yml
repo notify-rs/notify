@@ -89,7 +89,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        rust: [stable, nightly, 1.88]
+        rust: [stable, nightly, 1.91]
         include:
           # MacOS with fsevent
           - os: macos-latest
@@ -99,7 +99,7 @@ jobs:
             rust: nightly
             features: "--no-default-features --features macos_fsevent"
           - os: macos-latest
-            rust: 1.88
+            rust: 1.91
             features: "--no-default-features --features macos_fsevent"
           # MacOS with kqueue
           - os: macos-latest
@@ -109,7 +109,7 @@ jobs:
             rust: nightly
             features: "--no-default-features --features macos_kqueue"
           - os: macos-latest
-            rust: 1.88
+            rust: 1.91
             features: "--no-default-features --features macos_kqueue"
 
     steps:
@@ -165,7 +165,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: [stable, nightly, 1.88]
+        rust: [stable, nightly, 1.91]
         backend: [kqueue, inotify]
         include:
           - backend: kqueue
@@ -240,7 +240,7 @@ jobs:
       fail-fast: false
       matrix:
         target: [wasm32-unknown-unknown, wasm32-wasip1, wasm32-wasip2]
-        rust: [stable, 1.88]
+        rust: [stable, 1.91]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:

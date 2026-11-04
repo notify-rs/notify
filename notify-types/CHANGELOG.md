@@ -2,6 +2,7 @@
 
 ## unreleased
 
+- CHANGE: raise MSRV to 1.91
 - FEATURE: add `user_data` to `EventAttributes` and `Event`, including serde and Debug support. The value participates in event equality and hashing so deduplication retains notifications with distinct watch IDs [#1012]
 
 [#1012]: https://github.com/notify-rs/notify/issues/1012
