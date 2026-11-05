@@ -708,12 +708,12 @@ impl EventLoop {
     fn remove_watch(&mut self, path: PathBuf, remove_recursive: bool) -> Result<()> {
         log::trace!("removing kqueue watch: {}", path.display());
 
-        let preserved_roots = preserved_watch_roots(&path, remove_recursive, self.watches.iter());
-
         match self.watches.remove(&path) {
             None => return Err(Error::watch_not_found()),
             Some(watch) => {
                 if watch.is_recursive || remove_recursive {
+                    let preserved_roots =
+                        preserved_watch_roots(&path, remove_recursive, self.watches.iter());
                     self.kqueue
                         .remove_filename(&path, EventFilter::EVFILT_VNODE)
                         .map_err(|e| Error::io(e).add_path(path.clone()))?;
