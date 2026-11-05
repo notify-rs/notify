@@ -749,8 +749,6 @@ impl EventLoop {
                         .remove_filename(&path, EventFilter::EVFILT_VNODE)
                         .map_err(|e| Error::io(e).add_path(path.clone()))?;
                 }
-
-                self.kqueue.watch()?;
             }
         }
         Ok(())
