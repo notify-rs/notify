@@ -1037,14 +1037,6 @@ impl EventLoop {
     }
 
     fn remove_watch(&mut self, path: PathBuf, remove_recursive: bool) -> Result<()> {
-        let preserved_roots = preserved_watch_roots(
-            &path,
-            remove_recursive,
-            self.watches
-                .iter()
-                .map(|(path, watch)| (path, &watch.metadata)),
-        );
-
         let watch = self
             .remove_watch_entries([path.clone()])
             .pop()
@@ -1053,6 +1045,13 @@ impl EventLoop {
 
         let mut removed_descriptors = vec![watch.watch_descriptor];
         if watch.metadata.is_recursive || remove_recursive {
+            let preserved_roots = preserved_watch_roots(
+                &path,
+                remove_recursive,
+                self.watches
+                    .iter()
+                    .map(|(path, watch)| (path, &watch.metadata)),
+            );
             let mut remove_list = Vec::new();
             let mut reset_list = Vec::new();
             for candidate in self.watches.keys() {
@@ -1114,18 +1113,17 @@ impl EventLoop {
         path: PathBuf,
         remove_recursive: bool,
     ) -> Result<()> {
-        let preserved_roots = preserved_watch_roots(
-            &path,
-            remove_recursive,
-            self.watches
-                .iter()
-                .map(|(path, watch)| (path, &watch.metadata)),
-        );
-
         match self.remove_watch_entries([path.clone()]).pop() {
             None => return Err(Error::watch_not_found().add_path(path)),
             Some(watch) => {
                 if watch.metadata.is_recursive || remove_recursive {
+                    let preserved_roots = preserved_watch_roots(
+                        &path,
+                        remove_recursive,
+                        self.watches
+                            .iter()
+                            .map(|(path, watch)| (path, &watch.metadata)),
+                    );
                     let mut remove_list = Vec::new();
                     let mut reset_list = Vec::new();
                     for candidate in self.watches.keys() {
