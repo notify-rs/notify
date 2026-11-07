@@ -2,25 +2,18 @@
 
 ## unreleased
 
-- CHANGE: raise MSRV to 1.91
-- FEATURE: add `Error::user_data()` and `Error::set_user_data()` to identify watch operations and watches reporting errors; failed batch watch operations retain the value in `UpdatePathsError.source` [#388]
-- CHANGE: `Error` now has a private field. Construct errors with its constructors and include `..` when destructuring them. Its Debug output now includes `user_data` **breaking**
-- FEATURE: add per-watch `WatchPathConfig::with_user_data(u64)` and expose it through `Event::user_data()` on all backends; inotify and kqueue update value-only changes without reinstalling watches [#1012]
-- DOCS: describe kqueue event-detail limitations and FSEvents event translation
-- FIX: [poll] recover a poisoned watch mutex in `watched_paths`, consistently with watch, unwatch, and polling
-- FEATURE: [Windows] add opt-in `Config::with_windows_extended_information` to classify created and removed entries from `ReadDirectoryChangesExW` attributes, using 64 KiB buffers; unsupported APIs and filesystems return errors without automatic fallback [#261]
-- FIX: [Windows] deliver previously log-only fatal asynchronous read errors to the event handler in both notification modes; `ERROR_ACCESS_DENIED` retains its existing deletion check and rearm behavior
-- FIX: [Windows] bound notification decoding by the received byte count in both modes; malformed records emit an `InvalidData` error and a rescan event
-- PERF: [Windows] share a parent-directory watch across individual file watches, reuse read buffers, and filter masked notifications before constructing event paths or querying metadata
-- CHANGE: [Windows] both notification formats now reuse one 64 KiB buffer per OS directory watch, up from 16 KiB in standard mode (4×). Individual file watches with the same parent share this buffer.
-- CHANGE: mark `ErrorKind` and `UpdatePathsError` as `#[non_exhaustive]`; match error kinds with a wildcard arm, construct batch errors with the new `UpdatePathsError::new`, and include `..` when destructuring them **breaking**
-- FIX: [kqueue] skip special files and links to them during recursive watch registration and event-triggered additions, avoiding blocking opens of FIFOs; reject explicitly watched special files with an `Unsupported` I/O error
-- FIX: [kqueue] report child errors and continue recursive watches; preserve errors for the requested root and report failures during event-triggered additions [#703]
-- FIX: [kqueue] report process and system file descriptor limits as `ErrorKind::MaxFilesWatch` and stop further additions in that request or event batch [#455] [#596]
-- CHANGE: [kqueue] skip missing-path errors when a watched directory disappears during write-event processing
-- DOCS: explain partial recursive kqueue coverage and file descriptor limits, and recommend FSEvents for large trees on macOS
-- PERF: [Windows] wait for the wakeup semaphore without a timeout, so an idle watcher no longer wakes 10 times a second; `Watcher::configure` now wakes the server instead of waiting for the timeout, and the semaphore stays open until both the watcher and the server are done with it
-- FIX: [inotify] report a symbolic link in a new directory that points to a directory above it as a loop, instead of watching the tree a second time below the link
+- CHANGE: raise MSRV from 1.88 to 1.91
+- CHANGE: `Error` gains a private field; `ErrorKind` and `UpdatePathsError` are now `#[non_exhaustive]`. Use error constructors (including `UpdatePathsError::new`), `..` in struct patterns, and wildcard enum matches **breaking**
+- FEATURE: add `WatchPathConfig::with_user_data(u64)` to identify watches through `Event::user_data()` and `Error::user_data()` on all backends, including failed batch operations via `UpdatePathsError.source` [#1012] [#388]
+- FEATURE: [Windows] add opt-in `Config::with_windows_extended_information` for file/folder classification in create/remove events; unsupported APIs and filesystems return errors [#261]
+- PERF: [Windows] share parent-directory watches across individual file watches, reuse buffers, and skip work for filtered events. Idle polling is removed, and configuration changes wake the watcher immediately. Buffers are now 64 KiB per OS watch, up from 16 KiB.
+- FIX: [Windows] deliver fatal asynchronous read errors to the event handler; malformed notifications produce an `InvalidData` error and a rescan event
+- PERF: [inotify, kqueue] speed up unwatch, especially with many watched paths or nested user watches
+- FIX: [kqueue] report recoverable child errors while continuing recursive watches, stop additions at file descriptor limits with `ErrorKind::MaxFilesWatch`, and ignore missing directories during event-triggered scans [#703] [#455] [#596]
+- FIX: [kqueue] avoid hangs on FIFOs by skipping special files during recursive walks and rejecting explicit watches on them with `Unsupported` errors
+- FIX: [inotify] detect ancestor symlink loops in newly added directories to avoid watching the same tree repeatedly
+- FIX: [poll] recover a poisoned watch mutex in `watched_paths`
+- DOCS: clarify kqueue and FSEvents event details, recursive-watch coverage, and kqueue file descriptor limits
 
 [#703]: https://github.com/notify-rs/notify/issues/703
 [#388]: https://github.com/notify-rs/notify/issues/388
