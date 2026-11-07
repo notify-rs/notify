@@ -25,6 +25,7 @@ impl WalkFailure {
 // Inotify and kqueue manage recursive watches one directory at a time.
 pub(crate) mod recursive {
     use crate::paths::{WatchPath, reported_path};
+    use std::collections::HashMap;
     use std::path::{Path, PathBuf};
 
     #[derive(Clone, Debug)]
@@ -140,14 +141,16 @@ pub(crate) mod recursive {
 
     pub(crate) fn preserved_watch_mode(
         path: &Path,
-        preserved_roots: &[(PathBuf, bool)],
+        preserved_roots: &HashMap<&Path, bool>,
     ) -> Option<bool> {
-        preserved_roots
-            .iter()
-            .find(|(root, user_is_recursive)| {
-                path == root || (*user_is_recursive && path.starts_with(root))
-            })
-            .map(|(_, user_is_recursive)| *user_is_recursive)
+        if preserved_roots.is_empty() {
+            return None;
+        }
+        // Non-recursive roots own only themselves; keep looking above them for coverage.
+        path.ancestors().find_map(|ancestor| {
+            let is_recursive = *preserved_roots.get(ancestor)?;
+            (ancestor == path || is_recursive).then_some(is_recursive)
+        })
     }
 
     pub(crate) fn preserved_watch_roots<'a, I>(
@@ -164,18 +167,38 @@ pub(crate) mod recursive {
             watches
                 .into_iter()
                 .filter(|(candidate, watch)| {
-                    *candidate != path && candidate.starts_with(path) && watch.is_user_watch
+                    watch.is_user_watch && *candidate != path && candidate.starts_with(path)
                 })
                 .map(|(path, watch)| (path.clone(), watch.user_is_recursive))
                 .collect()
         }
     }
 
-    pub(crate) fn is_preserved_watch_root(
+    /// Selects descendant watches to remove or reset after the root watch was removed.
+    /// Only scan unrelated watches once; nested user watches are found in the selected subtree.
+    pub(crate) fn watch_removal_paths<'a>(
         path: &Path,
-        preserved_roots: &[(PathBuf, bool)],
-    ) -> bool {
-        preserved_roots.iter().any(|(root, _)| path == root)
+        remove_recursive: bool,
+        watches: impl Iterator<Item = (&'a PathBuf, &'a WatchMetadata)>,
+    ) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        let descendants: Vec<_> = watches
+            .filter(|(candidate, _)| candidate.starts_with(path))
+            .collect();
+        let preserved_roots = descendants
+            .iter()
+            .filter(|(_, watch)| !remove_recursive && watch.is_user_watch)
+            .map(|(path, watch)| (path.as_path(), watch.user_is_recursive))
+            .collect::<HashMap<_, _>>();
+        let mut remove = Vec::new();
+        let mut reset = Vec::new();
+        for (candidate, _) in descendants {
+            if preserved_roots.contains_key(candidate.as_path()) {
+                reset.push(candidate.clone());
+            } else if preserved_watch_mode(candidate, &preserved_roots).is_none() {
+                remove.push(candidate.clone());
+            }
+        }
+        (remove, reset)
     }
 
     /// Finds the nearest recursive user watch strictly above `path`.
@@ -206,11 +229,16 @@ pub(crate) mod recursive {
         preserved_roots: &[(PathBuf, bool)],
         watches: impl Iterator<Item = (&'a PathBuf, &'a mut WatchMetadata)>,
     ) {
+        // The owned snapshot allows the caller to mutate the watch map during this pass.
+        let preserved_roots = preserved_roots
+            .iter()
+            .map(|(path, recursive)| (path.as_path(), *recursive))
+            .collect();
         for (path, watch) in watches {
             if path == root
                 || (is_recursive
                     && path.starts_with(root)
-                    && preserved_watch_mode(path, preserved_roots).is_none())
+                    && preserved_watch_mode(path, &preserved_roots).is_none())
             {
                 watch.user_data = user_data;
             }
@@ -229,6 +257,99 @@ pub(crate) mod recursive {
                 user_is_recursive: is_recursive,
                 user_data: None,
             }
+        }
+
+        #[test]
+        fn preserved_modes_skip_non_recursive_ancestors() {
+            let roots = HashMap::from([
+                (Path::new("/root/recursive"), true),
+                (Path::new("/root/recursive/flat"), false),
+                (Path::new("/root/flat"), false),
+            ]);
+            for (path, expected) in [
+                ("/root/recursive", Some(true)),
+                ("/root/recursive/flat", Some(false)),
+                ("/root/recursive/flat/child", Some(true)),
+                ("/root/flat", Some(false)),
+                ("/root/flat/child", None),
+                ("/root/recursive-other", None),
+                ("/root", None),
+            ] {
+                assert_eq!(preserved_watch_mode(Path::new(path), &roots), expected);
+            }
+            assert_eq!(
+                preserved_watch_mode(Path::new("/root/recursive"), &HashMap::new()),
+                None
+            );
+        }
+
+        #[test]
+        fn removal_preserves_nested_user_watches_and_their_recursive_children() {
+            use std::collections::HashMap;
+            let mut inherited = user_watch("inherited", true);
+            inherited.is_user_watch = false;
+            inherited.user_is_recursive = false;
+            let mut flat = user_watch("flat", false);
+            flat.is_recursive = true;
+            // The caller has already removed /root itself.
+            let watches = HashMap::from([
+                (PathBuf::from("/root/inherited"), inherited.clone()),
+                (PathBuf::from("/root/flat"), flat.clone()),
+                (PathBuf::from("/root/flat/inherited"), inherited.clone()),
+                (
+                    PathBuf::from("/root/flat/nested"),
+                    user_watch("nested", true),
+                ),
+                (PathBuf::from("/root/flat/nested/child"), inherited.clone()),
+                (
+                    PathBuf::from("/root/recursive"),
+                    user_watch("recursive", true),
+                ),
+                (PathBuf::from("/root/recursive/child"), inherited.clone()),
+                (PathBuf::from("/root/recursive/flat"), flat),
+                (
+                    PathBuf::from("/root/recursive/flat/child"),
+                    inherited.clone(),
+                ),
+                (PathBuf::from("/root-other/child"), inherited),
+            ]);
+            let (mut remove, mut reset) =
+                watch_removal_paths(Path::new("/root"), false, watches.iter());
+            remove.sort();
+            reset.sort();
+            assert_eq!(
+                remove,
+                ["/root/flat/inherited", "/root/inherited"].map(PathBuf::from)
+            );
+            assert_eq!(
+                reset,
+                [
+                    "/root/flat",
+                    "/root/flat/nested",
+                    "/root/recursive",
+                    "/root/recursive/flat",
+                ]
+                .map(PathBuf::from)
+            );
+
+            let (mut remove, reset) = watch_removal_paths(Path::new("/root"), true, watches.iter());
+            remove.sort();
+            assert!(reset.is_empty());
+            assert_eq!(
+                remove,
+                [
+                    "/root/flat",
+                    "/root/flat/inherited",
+                    "/root/flat/nested",
+                    "/root/flat/nested/child",
+                    "/root/inherited",
+                    "/root/recursive",
+                    "/root/recursive/child",
+                    "/root/recursive/flat",
+                    "/root/recursive/flat/child",
+                ]
+                .map(PathBuf::from)
+            );
         }
 
         #[test]
@@ -281,13 +402,21 @@ pub(crate) mod recursive {
                 (root.join("flat"), user_watch("flat", false)),
                 (root.join("flat/inherited"), inherited.clone()),
                 (root.join("nested"), user_watch("nested", true)),
-                (root.join("nested/inherited"), inherited),
+                (root.join("nested/inherited"), inherited.clone()),
+                (root.join("nested/flat"), user_watch("nested/flat", false)),
+                (root.join("nested/flat/inherited"), inherited),
             ]);
             let protected = preserved_watch_roots(&root, false, watches.iter());
             update_watch_user_data(&root, true, Some(42), &protected, watches.iter_mut());
             assert_eq!(watches[&root].user_data, Some(42));
             assert_eq!(watches[&root.join("flat/inherited")].user_data, Some(42));
-            for path in ["flat", "nested", "nested/inherited"] {
+            for path in [
+                "flat",
+                "nested",
+                "nested/inherited",
+                "nested/flat",
+                "nested/flat/inherited",
+            ] {
                 assert_eq!(watches[&root.join(path)].user_data, None);
             }
             update_watch_user_data(&root.join("flat"), false, Some(7), &[], watches.iter_mut());

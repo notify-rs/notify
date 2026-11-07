@@ -13,15 +13,15 @@ use crate::paths::{WatchPath, absolute_path, reported_path};
 use crate::walk::{
     WalkFailure,
     recursive::{
-        WalkRoots, WatchMetadata, is_preserved_watch_root, preserved_watch_mode,
-        preserved_watch_roots, recursive_user_watch_ancestor, update_watch_user_data,
+        WalkRoots, WatchMetadata, preserved_watch_roots, recursive_user_watch_ancestor,
+        update_watch_user_data, watch_removal_paths,
     },
 };
 use crate::{BoundSender, Receiver, Sender, bounded, unbounded};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use notify_types::event::EventKindMask;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, hash_map::Entry};
 use std::ffi::OsStr;
 use std::fs::{Metadata, metadata, read_dir, symlink_metadata};
 use std::os::unix::fs::MetadataExt;
@@ -1044,32 +1044,13 @@ impl EventLoop {
 
         let mut removed_descriptors = vec![watch.watch_descriptor];
         if watch.metadata.is_recursive || remove_recursive {
-            let preserved_roots = preserved_watch_roots(
+            let (remove_list, reset_list) = watch_removal_paths(
                 &path,
                 remove_recursive,
                 self.watches
                     .iter()
                     .map(|(path, watch)| (path, &watch.metadata)),
             );
-            let mut remove_list = Vec::new();
-            let mut reset_list = Vec::new();
-            for candidate in self.watches.keys() {
-                if candidate.starts_with(&path) {
-                    if let Some(user_is_recursive) =
-                        preserved_watch_mode(candidate, &preserved_roots)
-                    {
-                        if !user_is_recursive
-                            || is_preserved_watch_root(candidate, &preserved_roots)
-                        {
-                            reset_list.push(candidate.clone());
-                        }
-                        continue;
-                    }
-
-                    remove_list.push(candidate.clone());
-                }
-            }
-
             removed_descriptors.extend(
                 self.remove_watch_entries(remove_list)
                     .into_iter()
@@ -1116,31 +1097,13 @@ impl EventLoop {
             None => return Err(Error::watch_not_found().add_path(path)),
             Some(watch) => {
                 if watch.metadata.is_recursive || remove_recursive {
-                    let preserved_roots = preserved_watch_roots(
+                    let (remove_list, reset_list) = watch_removal_paths(
                         &path,
                         remove_recursive,
                         self.watches
                             .iter()
                             .map(|(path, watch)| (path, &watch.metadata)),
                     );
-                    let mut remove_list = Vec::new();
-                    let mut reset_list = Vec::new();
-                    for candidate in self.watches.keys() {
-                        if candidate.starts_with(&path) {
-                            if let Some(user_is_recursive) =
-                                preserved_watch_mode(candidate, &preserved_roots)
-                            {
-                                if !user_is_recursive
-                                    || is_preserved_watch_root(candidate, &preserved_roots)
-                                {
-                                    reset_list.push(candidate.clone());
-                                }
-                                continue;
-                            }
-                            remove_list.push(candidate.clone());
-                        }
-                    }
-
                     let removed_descriptors: Vec<_> = self
                         .remove_watch_entries(remove_list)
                         .into_iter()
@@ -1211,7 +1174,19 @@ impl EventLoop {
         // would scan the paths of the descriptor once for each removed path.
         let mut by_descriptor: HashMap<WatchDescriptor, HashSet<PathBuf>> = HashMap::new();
         for (descriptor, path) in forgotten {
-            by_descriptor.entry(descriptor).or_default().insert(path);
+            if let Entry::Occupied(entry) = self.paths.entry(descriptor) {
+                if entry.get().len() == 1 {
+                    // The forgotten path is the descriptor's only owner. Avoid allocating
+                    // and hashing a set of paths when there are no aliases to filter.
+                    debug_assert_eq!(entry.get()[0], path);
+                    entry.remove();
+                } else {
+                    by_descriptor
+                        .entry(entry.key().clone())
+                        .or_default()
+                        .insert(path);
+                }
+            }
         }
         for (descriptor, forgotten) in by_descriptor {
             if let Some(paths) = self.paths.get_mut(&descriptor) {
@@ -1560,6 +1535,54 @@ mod tests {
         let inotify = super::inotify_sys::Inotify::init().unwrap();
         let event_loop = EventLoop::new(inotify, Box::new(tx), &Config::default()).unwrap();
         (event_loop, rx)
+    }
+
+    #[test]
+    fn unwatch_mixed_descriptors_keeps_outside_aliases_live() {
+        let tmp = tempfile::tempdir().unwrap();
+        let watched = tmp.path().join("watched");
+        let shared = tmp.path().join("shared");
+        let child = shared.join("child");
+        std::fs::create_dir_all(watched.join("unique/leaf")).unwrap();
+        std::fs::create_dir_all(&child).unwrap();
+        for name in ["alias-a", "alias-b"] {
+            std::os::unix::fs::symlink(&shared, watched.join(name)).unwrap();
+        }
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        event_loop.follow_links = true;
+        for root in [&shared, &watched] {
+            event_loop
+                .add_watch(
+                    WatchPath::new(root, None).unwrap(),
+                    recursive_watch(),
+                    true,
+                    false,
+                )
+                .unwrap();
+        }
+        let shared_descriptor = event_loop.watches[&shared].watch_descriptor.clone();
+        let child_descriptor = event_loop.watches[&child].watch_descriptor.clone();
+        assert_eq!(event_loop.paths[&shared_descriptor].len(), 3);
+        assert_eq!(event_loop.paths[&child_descriptor].len(), 3);
+
+        event_loop.remove_watch(watched, false).unwrap();
+        assert_eq!(event_loop.watches.len(), 2);
+        assert_eq!(event_loop.paths.len(), 2);
+        assert_eq!(event_loop.paths[&shared_descriptor], vec![shared.clone()]);
+        assert_eq!(event_loop.paths[&child_descriptor], vec![child.clone()]);
+
+        let created = child.join("still-watched");
+        std::fs::write(&created, b"event").unwrap();
+        event_loop.handle_inotify();
+        assert!(
+            rx.try_iter()
+                .map(Result::unwrap)
+                .any(|event| { event.kind.is_create() && event.paths.contains(&created) })
+        );
+
+        event_loop.remove_watch(shared, false).unwrap();
+        assert!(event_loop.watches.is_empty());
+        assert!(event_loop.paths.is_empty());
     }
 
     #[test]
