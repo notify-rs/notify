@@ -3,6 +3,8 @@
 ## unreleased
 
 - CHANGE: raise MSRV to 1.91
+- PERF: only wake the debouncer thread when work arrives while it is idle
+- PERF: speed up file ID lookups and registration with a hash map and an index of child paths for subtree removal
 - PERF: avoid scanning unrelated event queues and cached file IDs when removing a path
 - CHANGE: remove the deprecated no-op methods `Debouncer::watcher` and `Debouncer::cache` **breaking**
 - FIX: for an event on a direct child of a non-recursive watch, cache only that entry and not the entries below it, which the watch does not report
