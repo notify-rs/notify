@@ -105,6 +105,8 @@ struct EventLoop {
     event_handler: Box<dyn EventHandler>,
     /// Absolute path -> inotify descriptor and watch metadata.
     watches: HashMap<PathBuf, Watch>,
+    /// Explicit non-dereferenced non-directory watches that recursive walks must skip.
+    walk_barriers: HashSet<PathBuf>,
     /// inotify descriptor -> the paths in `watches` that use it, in the order they were added.
     /// Symlinks and hard links let several paths name one inode, and inotify returns the same
     /// descriptor for all of them.
@@ -120,6 +122,12 @@ struct Watch {
     is_dir: bool,
     dereference: bool,
     metadata: WatchMetadata,
+}
+
+impl Watch {
+    fn is_walk_barrier(&self) -> bool {
+        self.metadata.is_user_watch && !self.dereference && !self.is_dir
+    }
 }
 
 /// Watcher implementation based on inotify
@@ -258,6 +266,7 @@ impl EventLoop {
             inotify: Some(inotify),
             event_handler,
             watches: HashMap::new(),
+            walk_barriers: HashSet::new(),
             paths: HashMap::new(),
             rename_event: None,
             follow_links: config.follow_symlinks(),
@@ -773,7 +782,7 @@ impl EventLoop {
                     // Removing a directory watch removes its recursively inherited children too.
                     // Re-add them as non-user watches so the ancestor recursive watch still covers
                     // this subtree after the user watch is replaced.
-                    let barriers = self.recursive_walk_barriers();
+                    let barriers = self.walk_barriers.clone();
                     let entries = walk_dirs(
                         replaced_path.clone(),
                         root.clone(),
@@ -800,7 +809,7 @@ impl EventLoop {
             return self.add_single_watch(path, false, dereference, true);
         }
 
-        let barriers = self.recursive_walk_barriers();
+        let barriers = self.walk_barriers.clone();
         // The walk of a new directory starts below the recursive watch that covers it. A link
         // back to a directory above it is a loop, as it is in a walk of the whole watch.
         let above = if watch_self {
@@ -824,16 +833,6 @@ impl EventLoop {
             watch_self,
             report_created,
         )
-    }
-
-    fn recursive_walk_barriers(&self) -> HashSet<PathBuf> {
-        self.watches
-            .iter()
-            .filter(|(_, watch)| {
-                watch.metadata.is_user_watch && !watch.dereference && !watch.is_dir
-            })
-            .map(|(path, _)| path.clone())
-            .collect()
     }
 
     fn add_watches_for_paths<I>(
@@ -1166,9 +1165,16 @@ impl EventLoop {
 
     /// Inserts the watch of `path`, making it the last path of its descriptor even on re-add.
     fn insert_watch(&mut self, path: PathBuf, watch: Watch) {
+        let is_barrier = watch.is_walk_barrier();
         let descriptor = watch.watch_descriptor.clone();
         if let Some(previous) = self.watches.insert(path.clone(), watch) {
+            if !is_barrier {
+                self.walk_barriers.remove(&path);
+            }
             self.forget_paths([(previous.watch_descriptor, path.clone())]);
+        }
+        if is_barrier {
+            self.walk_barriers.insert(path.clone());
         }
         // Most descriptors have one path, and `Vec::push` reserves room for four.
         self.paths
@@ -1186,6 +1192,9 @@ impl EventLoop {
         let mut forgotten = Vec::new();
         for path in paths {
             if let Some(watch) = self.watches.remove(&path) {
+                if watch.is_walk_barrier() {
+                    self.walk_barriers.remove(&path);
+                }
                 forgotten.push((watch.watch_descriptor.clone(), path));
                 removed.push(watch);
             }
@@ -1238,6 +1247,7 @@ impl EventLoop {
                     .map_err(|e| Error::io(e).add_path(paths[0].clone()))?;
             }
             self.watches.clear();
+            self.walk_barriers.clear();
             self.paths.clear();
         }
         Ok(())
@@ -4182,6 +4192,88 @@ mod tests {
         let watch = event_loop.watches.get(&link).expect("link watch");
         assert!(watch.dereference);
         assert!(!watch.watch_mask.intersects(super::RESOLUTION_FLAGS));
+    }
+
+    #[test]
+    fn replacing_a_link_watch_updates_recursive_walk_exclusions() {
+        for dereference in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            std::fs::create_dir(outside.path().join("nested")).unwrap();
+            let link = root.path().join("link");
+            std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+            let mut event_loop = test_event_loop();
+
+            // Replace the entry directly, without removing it first, as a walk can do.
+            event_loop
+                .add_single_watch(
+                    WatchPath::new(&link, None).unwrap(),
+                    false,
+                    !dereference,
+                    true,
+                )
+                .unwrap();
+            event_loop
+                .add_single_watch(
+                    WatchPath::new(&link, None).unwrap(),
+                    false,
+                    dereference,
+                    true,
+                )
+                .unwrap();
+            event_loop
+                .add_watch(
+                    WatchPath::new(root.path(), None).unwrap(),
+                    recursive_watch(),
+                    true,
+                    false,
+                )
+                .unwrap();
+
+            assert_eq!(
+                event_loop.watches.contains_key(&link.join("nested")),
+                dereference,
+                "the walk must use the replacement watch's dereference setting"
+            );
+        }
+    }
+
+    #[test]
+    fn removing_a_link_watch_allows_a_later_recursive_walk() {
+        for clear_all in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            std::fs::create_dir(outside.path().join("nested")).unwrap();
+            let link = root.path().join("link");
+            std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+            let mut event_loop = test_event_loop();
+            event_loop
+                .add_watch(
+                    WatchPath::new(&link, None).unwrap(),
+                    non_recursive_watch().with_dereference_symlinks(false),
+                    true,
+                    false,
+                )
+                .unwrap();
+            if clear_all {
+                event_loop.remove_all_watches().unwrap();
+            } else {
+                event_loop.remove_watch(link.clone(), false).unwrap();
+            }
+            event_loop
+                .add_watch(
+                    WatchPath::new(root.path(), None).unwrap(),
+                    recursive_watch(),
+                    true,
+                    false,
+                )
+                .unwrap();
+
+            assert!(
+                event_loop.watches.contains_key(&link.join("nested")),
+                "the removed watch must no longer exclude the link (clear_all={clear_all})"
+            );
+        }
     }
 
     #[test]
