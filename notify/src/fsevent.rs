@@ -704,6 +704,15 @@ impl FsEventWatcher {
                 self.flags,
             )
         };
+        if stream.is_null() {
+            // SAFETY: Apple documents `release` as called only when the stream is
+            // deallocated. No stream was created, so we still own the context.
+            unsafe {
+                release_context(context.cast());
+            }
+            log::error!("FSEventStreamCreate returned NULL");
+            return Err(Error::generic("unable to create FSEvent stream"));
+        }
 
         // Wrapper to help send CFRunLoop types across threads.
         struct CFRunLoopSendWrapper(cf::CFRetained<cf::CFRunLoop>);
