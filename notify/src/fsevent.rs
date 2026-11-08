@@ -585,11 +585,7 @@ impl FsEventWatcher {
             return Err(Error::path_not_found().add_path(path.into()));
         }
         let canonical_path = path.to_path_buf().canonicalize()?;
-        let mut err: *mut cf::CFError = ptr::null_mut();
-        let Some(cf_path) = (unsafe { path_to_cfstring_ref(&canonical_path, &mut err) }) else {
-            if let Some(err) = NonNull::new(err) {
-                let _ = unsafe { cf::CFRetained::from_raw(err) };
-            }
+        let Some(cf_path) = path_to_cfstring_ref(&canonical_path) else {
             // Most likely the directory was deleted, or permissions changed,
             // while the above code was running.
             return Err(Error::path_not_found().add_path(path.into()));
@@ -1077,17 +1073,16 @@ impl Drop for FsEventWatcher {
 /// then append any missing path components.
 ///
 /// Adapted from <https://docs.rs/fsevent-sys/4.1.0/src/fsevent_sys/core_foundation.rs.html#149-230>.
-unsafe fn path_to_cfstring_ref(
-    source: &Path,
-    err: &mut *mut cf::CFError,
-) -> Option<cf::CFRetained<cf::CFString>> {
+fn path_to_cfstring_ref(source: &Path) -> Option<cf::CFRetained<cf::CFString>> {
     let url = cf::CFURL::from_file_path(source)?;
 
     let mut placeholder = url.absolute_url()?;
 
     let imaginary = cf::CFMutableArray::empty();
 
-    while !unsafe { placeholder.resource_is_reachable(err) } {
+    // These CFURL APIs accept null error outputs. We only need success/failure,
+    // so avoid taking ownership of CFErrors during retries or URL conversion.
+    while !unsafe { placeholder.resource_is_reachable(ptr::null_mut()) } {
         if let Some(child) = placeholder.last_path_component() {
             imaginary.insert(0, &*child);
         }
@@ -1095,9 +1090,11 @@ unsafe fn path_to_cfstring_ref(
         placeholder = cf::CFURL::new_copy_deleting_last_path_component(None, Some(&placeholder))?;
     }
 
-    let url = unsafe { cf::CFURL::new_file_reference_url(None, Some(&placeholder), err) }?;
+    let url =
+        unsafe { cf::CFURL::new_file_reference_url(None, Some(&placeholder), ptr::null_mut()) }?;
 
-    let mut placeholder = unsafe { cf::CFURL::new_file_path_url(None, Some(&url), err) }?;
+    let mut placeholder =
+        unsafe { cf::CFURL::new_file_path_url(None, Some(&url), ptr::null_mut()) }?;
 
     for component in imaginary {
         placeholder = cf::CFURL::new_copy_appending_path_component(
