@@ -13,6 +13,7 @@
 - FIX: [kqueue] avoid hangs on FIFOs by skipping special files during recursive walks and rejecting explicit watches on them with `Unsupported` errors
 - FIX: [inotify] detect ancestor symlink loops in newly added directories to avoid watching the same tree repeatedly
 - FIX: [poll] recover a poisoned watch mutex in `watched_paths`
+- FIX: [macOS] release the FSEvents stream and its context when spawning the runloop thread fails
 - DOCS: clarify kqueue and FSEvents event details, recursive-watch coverage, and kqueue file descriptor limits
 
 [#703]: https://github.com/notify-rs/notify/issues/703

@@ -663,10 +663,8 @@ impl FsEventWatcher {
                 }
             };
 
-        // We need to associate the stream context with our callback in order to propagate events
-        // to the rest of the system. This will be owned by the stream, and will be freed when the
-        // stream is closed. This means we will leak the context if we panic before reaching
-        // `FSEventStreamRelease`.
+        // The stream owns the callback context. Creation and spawn failures clean it up;
+        // panics before cleanup can still leak it.
         let recursive_info = Arc::new(Mutex::new(
             self.watches
                 .iter()
@@ -725,16 +723,16 @@ impl FsEventWatcher {
         // Wrapper to help send FSEventStreamRef types across threads.
         struct FSEventStreamSendWrapper(fs::FSEventStreamRef);
 
-        // SAFETY: The stream is moved before it is scheduled or started. Only the receiving
-        // thread accesses it thereafter: it schedules, starts, stops, invalidates and releases
-        // the stream on its own runloop. The stream owns its boxed StreamContextInfo until
+        // SAFETY: The stream is moved before it is scheduled or started. If spawning succeeds,
+        // only the receiving thread accesses it: it schedules, starts, stops, invalidates and
+        // releases the stream on its own runloop. The stream owns its boxed StreamContextInfo until
         // release_context runs; shared handler and watch data are protected by Arc<Mutex<_>>.
         // See Apple's create-then-schedule lifecycle:
         // https://developer.apple.com/library/archive/documentation/Darwin/Conceptual/FSEvents_ProgGuide/UsingtheFSEventsFramework/UsingtheFSEventsFramework.html
         unsafe impl Send for FSEventStreamSendWrapper {}
 
         // move into thread
-        let stream = FSEventStreamSendWrapper(stream);
+        let stream_to_send = FSEventStreamSendWrapper(stream);
 
         // channel to pass runloop around
         let (rl_tx, rl_rx) = unbounded();
@@ -749,8 +747,8 @@ impl FsEventWatcher {
             .spawn(move || {
                 // Keep the shared path count reserved until this stream is released.
                 let _path_reservation = path_reservation;
-                let _ = &stream;
-                let stream = stream.0;
+                let _ = &stream_to_send;
+                let stream = stream_to_send.0;
 
                 unsafe {
                     // Safety:
@@ -803,6 +801,11 @@ impl FsEventWatcher {
                     fs::FSEventStreamRelease(stream);
                     since_when
                 }
+            })
+            .inspect_err(|_| {
+                // SAFETY: Spawning failed, so no thread has used the stream. Releasing it
+                // also frees its context. It was never scheduled, so do not invalidate it.
+                unsafe { fs::FSEventStreamRelease(stream) };
             })?;
         // block until runloop has been sent
         let runloop_wrapper = match rl_rx.recv() {
