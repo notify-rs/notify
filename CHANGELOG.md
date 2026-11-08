@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## notify 8.2.2 (2026-11-08)
+
+- CHANGE: raise MSRV from 1.85 to 1.88 **breaking**
 - FIX: [windows] prevent watch shutdown from rearming reads on closed handles, which could deadlock when handles are reused [#958] [#1051] [#1052]
 
 [#958]: https://github.com/notify-rs/notify/pull/958

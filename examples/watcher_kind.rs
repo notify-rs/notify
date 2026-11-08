@@ -23,6 +23,6 @@ fn main() {
 
     // just print all events, this blocks forever
     for e in rx {
-        println!("{:?}", e);
+        println!("{e:?}");
     }
 }
