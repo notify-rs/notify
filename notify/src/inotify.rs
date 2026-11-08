@@ -641,43 +641,53 @@ impl EventLoop {
 
                                         evs.push(event);
                                     }
-                                } else if event.mask.contains(EventMask::MOVED_TO)
-                                    && let Some(event_path) = event_path
-                                {
-                                    evs.push(
-                                        Event::new(EventKind::Modify(ModifyKind::Name(
-                                            RenameMode::To,
-                                        )))
-                                        .set_tracker(event.cookie as usize)
-                                        .add_path(event_path.clone()),
+                                } else if event.mask.contains(EventMask::MOVED_TO) {
+                                    // A rename replaces the entry at its destination. When that
+                                    // entry is a symlink to a directory, its path would otherwise
+                                    // keep the watch of the old target.
+                                    queue_watch_removal(
+                                        path,
+                                        None,
+                                        &self.watches,
+                                        &mut remove_watches,
+                                        WatchRemoval::WithOsCall,
                                     );
-
-                                    let source = rename_sources
-                                        .iter()
-                                        .position(|(watch, _)| watch == user_watch)
-                                        .or_else(|| {
-                                            rename_sources.iter().position(|(watch, _)| {
-                                                !destination_watches.contains(&watch)
-                                            })
-                                        });
-                                    if let Some(source) = source {
-                                        let (_, rename_event) = rename_sources.remove(source);
+                                    if let Some(event_path) = event_path {
                                         evs.push(
                                             Event::new(EventKind::Modify(ModifyKind::Name(
-                                                RenameMode::Both,
+                                                RenameMode::To,
                                             )))
                                             .set_tracker(event.cookie as usize)
-                                            .add_some_path(rename_event.paths.first().cloned())
                                             .add_path(event_path.clone()),
                                         );
+
+                                        let source = rename_sources
+                                            .iter()
+                                            .position(|(watch, _)| watch == user_watch)
+                                            .or_else(|| {
+                                                rename_sources.iter().position(|(watch, _)| {
+                                                    !destination_watches.contains(&watch)
+                                                })
+                                            });
+                                        if let Some(source) = source {
+                                            let (_, rename_event) = rename_sources.remove(source);
+                                            evs.push(
+                                                Event::new(EventKind::Modify(ModifyKind::Name(
+                                                    RenameMode::Both,
+                                                )))
+                                                .set_tracker(event.cookie as usize)
+                                                .add_some_path(rename_event.paths.first().cloned())
+                                                .add_path(event_path.clone()),
+                                            );
+                                        }
+                                        add_watch_by_event(
+                                            path,
+                                            &event,
+                                            false,
+                                            &self.watches,
+                                            &mut add_watches,
+                                        );
                                     }
-                                    add_watch_by_event(
-                                        path,
-                                        &event,
-                                        false,
-                                        &self.watches,
-                                        &mut add_watches,
-                                    );
                                 }
                                 if event.mask.contains(EventMask::MOVE_SELF)
                                     && let Some(event_path) = event_path
@@ -3099,6 +3109,28 @@ mod tests {
             .flat_map(|err| err.paths)
             .collect();
         assert_eq!(failures.len(), 1, "{failures:?}");
+    }
+
+    #[test]
+    fn a_link_that_a_rename_replaces_loses_its_watch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let target = tmp.path().join("target");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::os::unix::fs::symlink(&target, root.join("link")).unwrap();
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        watch(&mut event_loop, &root, recursive_watch());
+        assert!(event_loop.watches.contains_key(&root.join("link")));
+
+        std::fs::write(root.join("file"), b"").unwrap();
+        std::fs::rename(root.join("file"), root.join("link")).unwrap();
+        drain_events(&mut event_loop, &rx);
+        std::fs::write(target.join("file"), b"").unwrap();
+        let events = drain_events(&mut event_loop, &rx);
+
+        assert!(!event_loop.watches.contains_key(&root.join("link")));
+        assert!(events.is_empty(), "{events:?}");
     }
 
     #[test]
