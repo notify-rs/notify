@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- FIX: [windows] prevent watch shutdown from rearming reads on closed handles, which could deadlock when handles are reused [#958] [#1051] [#1052]
+
+[#958]: https://github.com/notify-rs/notify/pull/958
+[#1051]: https://github.com/notify-rs/notify/issues/1051
+[#1052]: https://github.com/notify-rs/notify/pull/1052
+
 ## notify 8.2.1 (2026-10-25)
 - CHANGE: raise MSRV from 1.77 to 1.85 [#719] [#723] **breaking**
 - CHANGE: replace `fsevent-sys` with `objc2-core-foundation` and `objc2-core-services` on macOS, preserving the `fsevent-sys` feature for compatibility [#726]
