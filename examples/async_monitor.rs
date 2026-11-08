@@ -10,11 +10,11 @@ fn main() {
     let path = std::env::args()
         .nth(1)
         .expect("Argument 1 needs to be a path");
-    println!("watching {}", path);
+    println!("watching {path}");
 
     futures::executor::block_on(async {
         if let Err(e) = async_watch(path).await {
-            println!("error: {:?}", e)
+            println!("error: {e:?}")
         }
     });
 }
@@ -45,8 +45,8 @@ async fn async_watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
 
     while let Some(res) = rx.next().await {
         match res {
-            Ok(event) => println!("changed: {:?}", event),
-            Err(e) => println!("watch error: {:?}", e),
+            Ok(event) => println!("changed: {event:?}"),
+            Err(e) => println!("watch error: {e:?}"),
         }
     }
 

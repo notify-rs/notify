@@ -295,7 +295,7 @@ impl<W: Watcher> TestWatcher<W> {
         let path = path.as_ref();
         self.watcher
             .watch(path, recursive_mode)
-            .unwrap_or_else(|e| panic!("Unable to watch {:?}: {e:#?}", path))
+            .unwrap_or_else(|e| panic!("Unable to watch {path:?}: {e:#?}"))
     }
 }
 
@@ -531,7 +531,7 @@ mod expect {
             if expected.is_none()
                 && self.unexpected_event_behaviour == UnexpectedEventBehaviour::Panic
             {
-                panic!("Unexpected event. State: {:#?}", self)
+                panic!("Unexpected event. State: {self:#?}")
             }
         }
 
