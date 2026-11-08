@@ -215,7 +215,7 @@ struct EventTarget {
     /// `path` in the form of the user watch that covers it, or `None` when the event is not
     /// reported under `path`.
     event_path: Option<PathBuf>,
-    /// The closest user watch that covers the watched path.
+    /// The closest user watch that covers the watched path, needed only for rename pairing.
     user_watch: Option<PathBuf>,
     /// Whether the walk of a new directory at `path` reports the subdirectories that it finds.
     reports_subdirectories: bool,
@@ -230,40 +230,50 @@ struct EventTarget {
 /// directory keeps its descriptor, and its new path is added last. A bind mount below a user
 /// watch can mount the directory of the user watch a second time. The event is then reported
 /// under the path of the user watch, because only that path requests `IN_DELETE_SELF`.
+/// Descendants found while walking a newly created directory are reported by one path per
+/// recursive user watch, including recursive coverage inherited by non-recursive watches.
 fn event_targets(
     paths: &HashMap<WatchDescriptor, Vec<PathBuf>>,
     watches: &HashMap<PathBuf, Watch>,
     event: &inotify_sys::Event<&OsStr>,
 ) -> Vec<EventTarget> {
     let watched_paths = paths.get(&event.wd).map_or(&[][..], Vec::as_slice);
-    let user_watches: Vec<_> = watched_paths
-        .iter()
-        .map(|watched_path| {
-            // A non-recursive user watch only covers its own path.
-            watched_path
-                .ancestors()
-                .find(|ancestor| {
+    let is_rename = event
+        .mask
+        .intersects(EventMask::MOVED_FROM | EventMask::MOVED_TO);
+    // Most descriptors have one path. Only renames need its owner when there are no aliases
+    // to deduplicate, so ordinary events avoid ancestor lookups and grouping allocations.
+    let user_watches: Vec<_> = if watched_paths.len() > 1 || is_rename {
+        watched_paths
+            .iter()
+            .map(|watched_path| {
+                // A non-recursive user watch only covers its own path.
+                watched_path.ancestors().find(|ancestor| {
                     watches.get(*ancestor).is_some_and(|watch| {
                         watch.metadata.is_user_watch
                             && (ancestor == watched_path || watch.metadata.user_is_recursive)
                     })
                 })
-                .map(Path::to_path_buf)
-        })
-        .collect();
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut reporters = HashMap::new();
-    for (index, user_watch) in user_watches.iter().enumerate() {
-        let reporter = reporters.entry(user_watch).or_insert(index);
-        if user_watch.as_deref() != Some(watched_paths[*reporter].as_path()) {
-            *reporter = index;
+    if watched_paths.len() > 1 {
+        for (index, &user_watch) in user_watches.iter().enumerate() {
+            let reporter = reporters.entry(user_watch).or_insert(index);
+            if user_watch != Some(watched_paths[*reporter].as_path()) {
+                *reporter = index;
+            }
         }
     }
-    watched_paths
+    let mut targets: Vec<_> = watched_paths
         .iter()
-        .zip(&user_watches)
         .enumerate()
-        .map(|(index, (watched_path, user_watch))| {
+        .map(|(index, watched_path)| {
             let watch = &watches[watched_path];
+            let user_watch = user_watches.get(index).copied().flatten();
             // The configured event kinds set most of the mask of each path. Only a recursive path
             // requests `IN_MOVED_TO` when the event kinds lack `CREATE`, and only the path of a
             // user watch requests `IN_DELETE_SELF`. The kernel can send an event that only another
@@ -271,7 +281,7 @@ fn event_targets(
             // `IN_MOVED_TO` or `IN_DELETE_SELF`. The masks also differ in `IN_CREATE` and
             // `IN_MOVE_SELF` when the event kinds lack `CREATE` or `MODIFY_NAME`. The event kinds
             // then filter out the `Create` and `Modify(Name)` events.
-            let reported = reporters[user_watch] == index
+            let reported = (watched_paths.len() == 1 || reporters[&user_watch] == index)
                 && EventMask::from_bits_truncate(watch.watch_mask.bits())
                     .contains(event.mask & (EventMask::MOVED_TO | EventMask::DELETE_SELF));
             let path = match event.name {
@@ -280,31 +290,46 @@ fn event_targets(
             };
             let event_path =
                 reported.then(|| reported_path(watched_path, &watch.metadata.reported_path, &path));
-            // A non-recursive user watch doesn't cover the subdirectories of a new directory, but
-            // its path can also be below a recursive user watch. If another path of the descriptor
-            // has the recursive user watch as its closest user watch, only that path reports the
-            // subdirectories. Otherwise the subdirectories are reported twice.
-            let reports_subdirectories =
-                reported && event.mask.contains(EventMask::CREATE | EventMask::ISDIR) && {
-                    let recursive_watch = watched_path
-                        .ancestors()
-                        .find(|ancestor| {
-                            watches.get(*ancestor).is_some_and(|watch| {
-                                watch.metadata.is_user_watch && watch.metadata.user_is_recursive
-                            })
-                        })
-                        .map(Path::to_path_buf);
-                    *user_watch == recursive_watch || !reporters.contains_key(&recursive_watch)
-                };
             EventTarget {
                 path,
                 event_path,
-                user_watch: user_watch.clone(),
-                reports_subdirectories,
+                user_watch: if is_rename {
+                    user_watch.map(Path::to_path_buf)
+                } else {
+                    None
+                },
+                reports_subdirectories: false,
                 user_data: watch.metadata.user_data,
             }
         })
-        .collect()
+        .collect();
+    if event.mask.contains(EventMask::CREATE | EventMask::ISDIR) {
+        if let [target] = targets.as_mut_slice() {
+            target.reports_subdirectories = true;
+        } else {
+            // Several non-recursive watches can inherit coverage from the same recursive root.
+            // Choose one reporter per recursive root for the descendants found by the walks,
+            // preferring the path that already reports native events for that root.
+            let mut subdirectory_reporters = HashMap::new();
+            for (index, (watched_path, target)) in watched_paths.iter().zip(&targets).enumerate() {
+                if target.event_path.is_none() {
+                    continue;
+                }
+                if let Some(root) = watched_path.ancestors().find(|ancestor| {
+                    watches.get(*ancestor).is_some_and(|watch| {
+                        watch.metadata.is_user_watch && watch.metadata.user_is_recursive
+                    })
+                }) {
+                    subdirectory_reporters
+                        .insert(root, reporters.get(&Some(root)).copied().unwrap_or(index));
+                }
+            }
+            for index in subdirectory_reporters.into_values() {
+                targets[index].reports_subdirectories = true;
+            }
+        }
+    }
+    targets
 }
 
 /// Queue `path` for removal, if it is watched and `descriptor` still matches its watch.
@@ -518,7 +543,7 @@ impl EventLoop {
     fn handle_inotify(&mut self) {
         let mut add_watches = Vec::new();
         let mut remove_watches = BTreeMap::new();
-        let mut moved_descriptors = HashSet::new();
+        let mut moved_paths = HashSet::new();
 
         if let Some(ref mut inotify) = self.inotify {
             let mut buffer = [0; 1024];
@@ -574,15 +599,16 @@ impl EventLoop {
                             } else {
                                 Vec::new()
                             };
-                            let destination_watches: Vec<_> = targets
+                            // Without rename sources there are no pairs to form, so skip
+                            // collecting destination watches.
+                            let destination_watches: HashSet<_> = targets
                                 .iter()
-                                .filter(|target| target.event_path.is_some())
+                                .filter(|target| {
+                                    !rename_sources.is_empty() && target.event_path.is_some()
+                                })
                                 .map(|target| &target.user_watch)
                                 .collect();
 
-                            // `owners` contains the index of the first event that each target pushes,
-                            // so the delivery below can set the user data of the target's watch.
-                            let mut owners = Vec::new();
                             for target in &targets {
                                 let EventTarget {
                                     path,
@@ -591,7 +617,6 @@ impl EventLoop {
                                     reports_subdirectories,
                                     user_data,
                                 } = target;
-                                owners.push((evs.len(), *user_data));
                                 if event.mask.contains(EventMask::MOVED_FROM) {
                                     queue_watch_removal(
                                         path,
@@ -600,8 +625,8 @@ impl EventLoop {
                                         &mut remove_watches,
                                         WatchRemoval::WithOsCall,
                                     );
-                                    if let Some(watch) = self.watches.get(path) {
-                                        moved_descriptors.insert(watch.watch_descriptor.clone());
+                                    if self.watches.contains_key(path) {
+                                        moved_paths.insert(path.clone());
                                     }
 
                                     if let Some(event_path) = event_path {
@@ -748,60 +773,57 @@ impl EventLoop {
                                         WatchRemoval::DescriptorAlreadyRemoved,
                                     );
                                 }
-                                let Some(event_path) = event_path else {
-                                    continue;
-                                };
-                                if event.mask.contains(EventMask::MODIFY) {
-                                    evs.push(
-                                        Event::new(EventKind::Modify(ModifyKind::Data(
-                                            DataChange::Any,
-                                        )))
-                                        .add_path(event_path.clone()),
-                                    );
-                                }
-                                if event.mask.contains(EventMask::CLOSE_WRITE) {
-                                    evs.push(
-                                        Event::new(EventKind::Access(AccessKind::Close(
-                                            AccessMode::Write,
-                                        )))
-                                        .add_path(event_path.clone()),
-                                    );
-                                }
-                                if event.mask.contains(EventMask::CLOSE_NOWRITE) {
-                                    evs.push(
-                                        Event::new(EventKind::Access(AccessKind::Close(
-                                            AccessMode::Read,
-                                        )))
-                                        .add_path(event_path.clone()),
-                                    );
-                                }
-                                if event.mask.contains(EventMask::ATTRIB) {
-                                    evs.push(
-                                        Event::new(EventKind::Modify(ModifyKind::Metadata(
-                                            MetadataKind::Any,
-                                        )))
-                                        .add_path(event_path.clone()),
-                                    );
-                                }
-                                if event.mask.contains(EventMask::OPEN) {
-                                    evs.push(
-                                        Event::new(EventKind::Access(AccessKind::Open(
-                                            AccessMode::Any,
-                                        )))
-                                        .add_path(event_path.clone()),
-                                    );
-                                }
-                            }
-
-                            // Filter events based on EventKindMask before delivery
-                            for (index, mut ev) in evs.into_iter().enumerate() {
-                                if self.event_kind_mask.matches(&ev.kind) {
-                                    if let Some(&(_, Some(user_data))) =
-                                        owners.iter().rfind(|(first, _)| *first <= index)
-                                    {
-                                        ev = ev.set_user_data(user_data);
+                                if let Some(event_path) = event_path {
+                                    if event.mask.contains(EventMask::MODIFY) {
+                                        evs.push(
+                                            Event::new(EventKind::Modify(ModifyKind::Data(
+                                                DataChange::Any,
+                                            )))
+                                            .add_path(event_path.clone()),
+                                        );
                                     }
-                                    self.event_handler.handle_event(Ok(ev));
+                                    if event.mask.contains(EventMask::CLOSE_WRITE) {
+                                        evs.push(
+                                            Event::new(EventKind::Access(AccessKind::Close(
+                                                AccessMode::Write,
+                                            )))
+                                            .add_path(event_path.clone()),
+                                        );
+                                    }
+                                    if event.mask.contains(EventMask::CLOSE_NOWRITE) {
+                                        evs.push(
+                                            Event::new(EventKind::Access(AccessKind::Close(
+                                                AccessMode::Read,
+                                            )))
+                                            .add_path(event_path.clone()),
+                                        );
+                                    }
+                                    if event.mask.contains(EventMask::ATTRIB) {
+                                        evs.push(
+                                            Event::new(EventKind::Modify(ModifyKind::Metadata(
+                                                MetadataKind::Any,
+                                            )))
+                                            .add_path(event_path.clone()),
+                                        );
+                                    }
+                                    if event.mask.contains(EventMask::OPEN) {
+                                        evs.push(
+                                            Event::new(EventKind::Access(AccessKind::Open(
+                                                AccessMode::Any,
+                                            )))
+                                            .add_path(event_path.clone()),
+                                        );
+                                    }
+                                }
+                                // Always drain this target's events, even without a reported path,
+                                // so they use its user data. Reuse the buffer for the next target.
+                                for mut ev in evs.drain(..) {
+                                    if self.event_kind_mask.matches(&ev.kind) {
+                                        if let Some(user_data) = *user_data {
+                                            ev = ev.set_user_data(user_data);
+                                        }
+                                        self.event_handler.handle_event(Ok(ev));
+                                    }
                                 }
                             }
                         }
@@ -822,17 +844,28 @@ impl EventLoop {
             }
         }
 
-        // A symlink to a moved directory no longer leads to it. The descriptor of the directory
-        // still lists the path through the symlink, so the events of the directory would be
-        // reported under that path. Remove the paths that a walk added and that no longer resolve.
-        for descriptor in moved_descriptors {
-            for path in self.paths.get(&descriptor).into_iter().flatten() {
-                let watch = &self.watches[path];
-                if !watch.metadata.is_user_watch && watch_metadata(path, watch.dereference).is_err()
-                {
-                    remove_watches
-                        .entry(path.clone())
-                        .or_insert(WatchRemoval::WithOsCall);
+        // Moving a directory can leave dangling aliases of any of its descendants. Check all
+        // shared descriptors with a path in a moved subtree. Unshared paths in those subtrees
+        // are already covered by the recursive removals below.
+        // Aliases can lie outside the moved subtree, so each batch with moves scans the descriptor
+        // map and checks shared paths' ancestors. Batches without moves skip this work entirely.
+        if !moved_paths.is_empty() {
+            for paths in self.paths.values().filter(|paths| paths.len() > 1) {
+                if !paths.iter().any(|path| {
+                    path.ancestors()
+                        .any(|ancestor| moved_paths.contains(ancestor))
+                }) {
+                    continue;
+                }
+                for path in paths {
+                    let watch = &self.watches[path];
+                    if !watch.metadata.is_user_watch
+                        && watch_metadata(path, watch.dereference).is_err()
+                    {
+                        remove_watches
+                            .entry(path.clone())
+                            .or_insert(WatchRemoval::WithOsCall);
+                    }
                 }
             }
         }
@@ -2948,6 +2981,35 @@ mod tests {
     }
 
     #[test]
+    fn a_renamed_ancestor_removes_dangling_aliases_of_descendants() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let other = tmp.path().join("other");
+        std::fs::create_dir_all(root.join("a/child/nested")).unwrap();
+        std::fs::create_dir(&other).unwrap();
+        std::os::unix::fs::symlink(root.join("a/child"), other.join("link")).unwrap();
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        watch(&mut event_loop, &other, recursive_watch());
+        watch(&mut event_loop, &root, recursive_watch());
+
+        // The link targets a descendant, whose descriptor gets no MOVED_FROM of its own.
+        std::fs::rename(root.join("a"), root.join("b")).unwrap();
+        drain_events(&mut event_loop, &rx);
+        for path in [other.join("link"), other.join("link/nested")] {
+            assert!(!event_loop.watches.contains_key(&path), "{path:?}");
+        }
+
+        let file = root.join("b/child/nested/file");
+        std::fs::write(&file, b"content").unwrap();
+        let created: Vec<_> = drain_events(&mut event_loop, &rx)
+            .into_iter()
+            .filter(|event| event.kind.is_create())
+            .flat_map(|event| event.paths)
+            .collect();
+        assert_eq!(created, [file]);
+    }
+
+    #[test]
     fn a_nested_new_directory_below_a_non_recursive_watch_is_reported_once() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("root");
@@ -2967,6 +3029,50 @@ mod tests {
             .filter(|path| path.ends_with("nested"))
             .collect();
         assert_eq!(nested, [root.join("link").join("new").join("nested")]);
+    }
+
+    #[test]
+    fn non_recursive_aliases_report_new_descendants_once_per_recursive_watch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let real = root.join("real");
+        let link = root.join("link");
+        std::fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        watch(&mut event_loop, &root, recursive_watch().with_user_data(1));
+        watch(
+            &mut event_loop,
+            &real,
+            non_recursive_watch().with_user_data(2),
+        );
+        watch(
+            &mut event_loop,
+            &link,
+            non_recursive_watch().with_user_data(3),
+        );
+
+        // Both paths inherit recursive coverage from root, which alone covers nested.
+        std::fs::create_dir_all(real.join("new/nested")).unwrap();
+        let nested: Vec<_> = drain_events(&mut event_loop, &rx)
+            .into_iter()
+            .filter(|event| event.kind == EventKind::Create(CreateKind::Folder))
+            .filter(|event| event.paths.iter().any(|path| path.ends_with("nested")))
+            .collect();
+        assert_eq!(nested.len(), 1, "{nested:?}");
+        assert_eq!(nested[0].user_data(), Some(1));
+
+        // Both inherited paths still need watches even though only one reports the creation.
+        for parent in [&real, &link] {
+            assert!(event_loop.watches.contains_key(&parent.join("new/nested")));
+        }
+        std::fs::write(real.join("new/nested/file"), b"content").unwrap();
+        let created: Vec<_> = drain_events(&mut event_loop, &rx)
+            .into_iter()
+            .filter(|event| event.kind.is_create())
+            .collect();
+        assert_eq!(created.len(), 1, "{created:?}");
+        assert_eq!(created[0].user_data(), Some(1));
     }
 
     #[test]
