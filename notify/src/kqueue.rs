@@ -12,8 +12,8 @@ use crate::paths::{WatchPath, absolute_path, reported_path};
 use crate::walk::{
     WalkFailure,
     recursive::{
-        WalkRoots, WatchMetadata as Watch, is_preserved_watch_root, preserved_watch_mode,
-        preserved_watch_roots, recursive_user_watch_ancestor, update_watch_user_data,
+        WalkRoots, WatchMetadata as Watch, preserved_watch_roots, recursive_user_watch_ancestor,
+        update_watch_user_data, watch_removal_paths,
     },
 };
 use crate::{Receiver, Sender, unbounded};
@@ -712,24 +712,11 @@ impl EventLoop {
             None => return Err(Error::watch_not_found()),
             Some(watch) => {
                 if watch.is_recursive || remove_recursive {
-                    let preserved_roots =
-                        preserved_watch_roots(&path, remove_recursive, self.watches.iter());
+                    let (remove_list, reset_list) =
+                        watch_removal_paths(&path, remove_recursive, self.watches.iter());
                     self.kqueue
                         .remove_filename(&path, EventFilter::EVFILT_VNODE)
                         .map_err(|e| Error::io(e).add_path(path.clone()))?;
-
-                    let mut remove_list = Vec::new();
-                    let mut reset_list = Vec::new();
-                    for p in self.watches.keys().filter(|p| p.starts_with(&path)) {
-                        if let Some(user_is_recursive) = preserved_watch_mode(p, &preserved_roots) {
-                            if !user_is_recursive || is_preserved_watch_root(p, &preserved_roots) {
-                                reset_list.push(p.clone());
-                            }
-                            continue;
-                        }
-
-                        remove_list.push(p.clone());
-                    }
 
                     for p in &remove_list {
                         self.kqueue

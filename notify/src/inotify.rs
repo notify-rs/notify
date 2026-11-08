@@ -13,15 +13,15 @@ use crate::paths::{WatchPath, absolute_path, reported_path};
 use crate::walk::{
     WalkFailure,
     recursive::{
-        WalkRoots, WatchMetadata, is_preserved_watch_root, preserved_watch_mode,
-        preserved_watch_roots, recursive_user_watch_ancestor, update_watch_user_data,
+        WalkRoots, WatchMetadata, preserved_watch_roots, recursive_user_watch_ancestor,
+        update_watch_user_data, watch_removal_paths,
     },
 };
 use crate::{BoundSender, Receiver, Sender, bounded, unbounded};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use notify_types::event::EventKindMask;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, hash_map::Entry};
 use std::ffi::OsStr;
 use std::fs::{Metadata, metadata, read_dir, symlink_metadata};
 use std::os::unix::fs::MetadataExt;
@@ -105,6 +105,8 @@ struct EventLoop {
     event_handler: Box<dyn EventHandler>,
     /// Absolute path -> inotify descriptor and watch metadata.
     watches: HashMap<PathBuf, Watch>,
+    /// Explicit non-dereferenced non-directory watches that recursive walks must skip.
+    walk_barriers: HashSet<PathBuf>,
     /// inotify descriptor -> the paths in `watches` that use it, in the order they were added.
     /// Symlinks and hard links let several paths name one inode, and inotify returns the same
     /// descriptor for all of them.
@@ -121,6 +123,12 @@ struct Watch {
     is_dir: bool,
     dereference: bool,
     metadata: WatchMetadata,
+}
+
+impl Watch {
+    fn is_walk_barrier(&self) -> bool {
+        self.metadata.is_user_watch && !self.dereference && !self.is_dir
+    }
 }
 
 /// Watcher implementation based on inotify
@@ -359,6 +367,7 @@ impl EventLoop {
             inotify: Some(inotify),
             event_handler,
             watches: HashMap::new(),
+            walk_barriers: HashSet::new(),
             paths: HashMap::new(),
             rename_events: Vec::new(),
             follow_links: config.follow_symlinks(),
@@ -607,43 +616,43 @@ impl EventLoop {
 
                                         evs.push(event);
                                     }
-                                } else if event.mask.contains(EventMask::MOVED_TO) {
-                                    if let Some(event_path) = event_path {
+                                } else if event.mask.contains(EventMask::MOVED_TO)
+                                    && let Some(event_path) = event_path
+                                {
+                                    evs.push(
+                                        Event::new(EventKind::Modify(ModifyKind::Name(
+                                            RenameMode::To,
+                                        )))
+                                        .set_tracker(event.cookie as usize)
+                                        .add_path(event_path.clone()),
+                                    );
+
+                                    let source = rename_sources
+                                        .iter()
+                                        .position(|(watch, _)| watch == user_watch)
+                                        .or_else(|| {
+                                            rename_sources.iter().position(|(watch, _)| {
+                                                !destination_watches.contains(&watch)
+                                            })
+                                        });
+                                    if let Some(source) = source {
+                                        let (_, rename_event) = rename_sources.remove(source);
                                         evs.push(
                                             Event::new(EventKind::Modify(ModifyKind::Name(
-                                                RenameMode::To,
+                                                RenameMode::Both,
                                             )))
                                             .set_tracker(event.cookie as usize)
+                                            .add_some_path(rename_event.paths.first().cloned())
                                             .add_path(event_path.clone()),
                                         );
-
-                                        let source = rename_sources
-                                            .iter()
-                                            .position(|(watch, _)| watch == user_watch)
-                                            .or_else(|| {
-                                                rename_sources.iter().position(|(watch, _)| {
-                                                    !destination_watches.contains(&watch)
-                                                })
-                                            });
-                                        if let Some(source) = source {
-                                            let (_, rename_event) = rename_sources.remove(source);
-                                            evs.push(
-                                                Event::new(EventKind::Modify(ModifyKind::Name(
-                                                    RenameMode::Both,
-                                                )))
-                                                .set_tracker(event.cookie as usize)
-                                                .add_some_path(rename_event.paths.first().cloned())
-                                                .add_path(event_path.clone()),
-                                            );
-                                        }
-                                        add_watch_by_event(
-                                            path,
-                                            &event,
-                                            false,
-                                            &self.watches,
-                                            &mut add_watches,
-                                        );
                                     }
+                                    add_watch_by_event(
+                                        path,
+                                        &event,
+                                        false,
+                                        &self.watches,
+                                        &mut add_watches,
+                                    );
                                 }
                                 if event.mask.contains(EventMask::MOVE_SELF)
                                     && let Some(event_path) = event_path
@@ -658,26 +667,26 @@ impl EventLoop {
                                     // - emit To and Both events
                                     // - change prefix for further events
                                 }
-                                if event.mask.contains(EventMask::CREATE) {
-                                    if let Some(event_path) = event_path {
-                                        evs.push(
-                                            Event::new(EventKind::Create(
-                                                if event.mask.contains(EventMask::ISDIR) {
-                                                    CreateKind::Folder
-                                                } else {
-                                                    CreateKind::File
-                                                },
-                                            ))
-                                            .add_path(event_path.clone()),
-                                        );
-                                        add_watch_by_event(
-                                            path,
-                                            &event,
-                                            *reports_subdirectories,
-                                            &self.watches,
-                                            &mut add_watches,
-                                        );
-                                    }
+                                if event.mask.contains(EventMask::CREATE)
+                                    && let Some(event_path) = event_path
+                                {
+                                    evs.push(
+                                        Event::new(EventKind::Create(
+                                            if event.mask.contains(EventMask::ISDIR) {
+                                                CreateKind::Folder
+                                            } else {
+                                                CreateKind::File
+                                            },
+                                        ))
+                                        .add_path(event_path.clone()),
+                                    );
+                                    add_watch_by_event(
+                                        path,
+                                        &event,
+                                        *reports_subdirectories,
+                                        &self.watches,
+                                        &mut add_watches,
+                                    );
                                 }
                                 if event.mask.contains(EventMask::DELETE) {
                                     if let Some(event_path) = event_path {
@@ -942,7 +951,7 @@ impl EventLoop {
                     // Removing a directory watch removes its recursively inherited children too.
                     // Re-add them as non-user watches so the ancestor recursive watch still covers
                     // this subtree after the user watch is replaced.
-                    let barriers = self.recursive_walk_barriers();
+                    let barriers = self.walk_barriers.clone();
                     let entries = walk_dirs(
                         replaced_path.clone(),
                         root.clone(),
@@ -969,7 +978,7 @@ impl EventLoop {
             return self.add_single_watch(path, false, dereference, true);
         }
 
-        let barriers = self.recursive_walk_barriers();
+        let barriers = self.walk_barriers.clone();
         // The walk of a new directory starts below the recursive watch that covers it. A link
         // back to a directory above it is a loop, as it is in a walk of the whole watch.
         let above = if watch_self {
@@ -993,16 +1002,6 @@ impl EventLoop {
             watch_self,
             report_created,
         )
-    }
-
-    fn recursive_walk_barriers(&self) -> HashSet<PathBuf> {
-        self.watches
-            .iter()
-            .filter(|(_, watch)| {
-                watch.metadata.is_user_watch && !watch.dereference && !watch.is_dir
-            })
-            .map(|(path, _)| path.clone())
-            .collect()
     }
 
     fn add_watches_for_paths<I>(
@@ -1214,32 +1213,13 @@ impl EventLoop {
 
         let mut removed_descriptors = vec![watch.watch_descriptor];
         if watch.metadata.is_recursive || remove_recursive {
-            let preserved_roots = preserved_watch_roots(
+            let (remove_list, reset_list) = watch_removal_paths(
                 &path,
                 remove_recursive,
                 self.watches
                     .iter()
                     .map(|(path, watch)| (path, &watch.metadata)),
             );
-            let mut remove_list = Vec::new();
-            let mut reset_list = Vec::new();
-            for candidate in self.watches.keys() {
-                if candidate.starts_with(&path) {
-                    if let Some(user_is_recursive) =
-                        preserved_watch_mode(candidate, &preserved_roots)
-                    {
-                        if !user_is_recursive
-                            || is_preserved_watch_root(candidate, &preserved_roots)
-                        {
-                            reset_list.push(candidate.clone());
-                        }
-                        continue;
-                    }
-
-                    remove_list.push(candidate.clone());
-                }
-            }
-
             removed_descriptors.extend(
                 self.remove_watch_entries(remove_list)
                     .into_iter()
@@ -1286,31 +1266,13 @@ impl EventLoop {
             None => return Err(Error::watch_not_found().add_path(path)),
             Some(watch) => {
                 if watch.metadata.is_recursive || remove_recursive {
-                    let preserved_roots = preserved_watch_roots(
+                    let (remove_list, reset_list) = watch_removal_paths(
                         &path,
                         remove_recursive,
                         self.watches
                             .iter()
                             .map(|(path, watch)| (path, &watch.metadata)),
                     );
-                    let mut remove_list = Vec::new();
-                    let mut reset_list = Vec::new();
-                    for candidate in self.watches.keys() {
-                        if candidate.starts_with(&path) {
-                            if let Some(user_is_recursive) =
-                                preserved_watch_mode(candidate, &preserved_roots)
-                            {
-                                if !user_is_recursive
-                                    || is_preserved_watch_root(candidate, &preserved_roots)
-                                {
-                                    reset_list.push(candidate.clone());
-                                }
-                                continue;
-                            }
-                            remove_list.push(candidate.clone());
-                        }
-                    }
-
                     let removed_descriptors: Vec<_> = self
                         .remove_watch_entries(remove_list)
                         .into_iter()
@@ -1335,9 +1297,16 @@ impl EventLoop {
 
     /// Inserts the watch of `path`, making it the last path of its descriptor even on re-add.
     fn insert_watch(&mut self, path: PathBuf, watch: Watch) {
+        let is_barrier = watch.is_walk_barrier();
         let descriptor = watch.watch_descriptor.clone();
         if let Some(previous) = self.watches.insert(path.clone(), watch) {
+            if !is_barrier {
+                self.walk_barriers.remove(&path);
+            }
             self.forget_paths([(previous.watch_descriptor, path.clone())]);
+        }
+        if is_barrier {
+            self.walk_barriers.insert(path.clone());
         }
         // Most descriptors have one path, and `Vec::push` reserves room for four.
         self.paths
@@ -1355,6 +1324,9 @@ impl EventLoop {
         let mut forgotten = Vec::new();
         for path in paths {
             if let Some(watch) = self.watches.remove(&path) {
+                if watch.is_walk_barrier() {
+                    self.walk_barriers.remove(&path);
+                }
                 forgotten.push((watch.watch_descriptor.clone(), path));
                 removed.push(watch);
             }
@@ -1371,7 +1343,19 @@ impl EventLoop {
         // would scan the paths of the descriptor once for each removed path.
         let mut by_descriptor: HashMap<WatchDescriptor, HashSet<PathBuf>> = HashMap::new();
         for (descriptor, path) in forgotten {
-            by_descriptor.entry(descriptor).or_default().insert(path);
+            if let Entry::Occupied(entry) = self.paths.entry(descriptor) {
+                if entry.get().len() == 1 {
+                    // The forgotten path is the descriptor's only owner. Avoid allocating
+                    // and hashing a set of paths when there are no aliases to filter.
+                    debug_assert_eq!(entry.get()[0], path);
+                    entry.remove();
+                } else {
+                    by_descriptor
+                        .entry(entry.key().clone())
+                        .or_default()
+                        .insert(path);
+                }
+            }
         }
         for (descriptor, forgotten) in by_descriptor {
             if let Some(paths) = self.paths.get_mut(&descriptor) {
@@ -1407,6 +1391,7 @@ impl EventLoop {
                     .map_err(|e| Error::io(e).add_path(paths[0].clone()))?;
             }
             self.watches.clear();
+            self.walk_barriers.clear();
             self.paths.clear();
         }
         Ok(())
@@ -1719,6 +1704,54 @@ mod tests {
         let inotify = super::inotify_sys::Inotify::init().unwrap();
         let event_loop = EventLoop::new(inotify, Box::new(tx), &Config::default()).unwrap();
         (event_loop, rx)
+    }
+
+    #[test]
+    fn unwatch_mixed_descriptors_keeps_outside_aliases_live() {
+        let tmp = tempfile::tempdir().unwrap();
+        let watched = tmp.path().join("watched");
+        let shared = tmp.path().join("shared");
+        let child = shared.join("child");
+        std::fs::create_dir_all(watched.join("unique/leaf")).unwrap();
+        std::fs::create_dir_all(&child).unwrap();
+        for name in ["alias-a", "alias-b"] {
+            std::os::unix::fs::symlink(&shared, watched.join(name)).unwrap();
+        }
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        event_loop.follow_links = true;
+        for root in [&shared, &watched] {
+            event_loop
+                .add_watch(
+                    WatchPath::new(root, None).unwrap(),
+                    recursive_watch(),
+                    true,
+                    false,
+                )
+                .unwrap();
+        }
+        let shared_descriptor = event_loop.watches[&shared].watch_descriptor.clone();
+        let child_descriptor = event_loop.watches[&child].watch_descriptor.clone();
+        assert_eq!(event_loop.paths[&shared_descriptor].len(), 3);
+        assert_eq!(event_loop.paths[&child_descriptor].len(), 3);
+
+        event_loop.remove_watch(watched, false).unwrap();
+        assert_eq!(event_loop.watches.len(), 2);
+        assert_eq!(event_loop.paths.len(), 2);
+        assert_eq!(event_loop.paths[&shared_descriptor], vec![shared.clone()]);
+        assert_eq!(event_loop.paths[&child_descriptor], vec![child.clone()]);
+
+        let created = child.join("still-watched");
+        std::fs::write(&created, b"event").unwrap();
+        event_loop.handle_inotify();
+        assert!(
+            rx.try_iter()
+                .map(Result::unwrap)
+                .any(|event| { event.kind.is_create() && event.paths.contains(&created) })
+        );
+
+        event_loop.remove_watch(shared, false).unwrap();
+        assert!(event_loop.watches.is_empty());
+        assert!(event_loop.paths.is_empty());
     }
 
     #[test]
@@ -4732,6 +4765,88 @@ mod tests {
         let watch = event_loop.watches.get(&link).expect("link watch");
         assert!(watch.dereference);
         assert!(!watch.watch_mask.intersects(super::RESOLUTION_FLAGS));
+    }
+
+    #[test]
+    fn replacing_a_link_watch_updates_recursive_walk_exclusions() {
+        for dereference in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            std::fs::create_dir(outside.path().join("nested")).unwrap();
+            let link = root.path().join("link");
+            std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+            let mut event_loop = test_event_loop();
+
+            // Replace the entry directly, without removing it first, as a walk can do.
+            event_loop
+                .add_single_watch(
+                    WatchPath::new(&link, None).unwrap(),
+                    false,
+                    !dereference,
+                    true,
+                )
+                .unwrap();
+            event_loop
+                .add_single_watch(
+                    WatchPath::new(&link, None).unwrap(),
+                    false,
+                    dereference,
+                    true,
+                )
+                .unwrap();
+            event_loop
+                .add_watch(
+                    WatchPath::new(root.path(), None).unwrap(),
+                    recursive_watch(),
+                    true,
+                    false,
+                )
+                .unwrap();
+
+            assert_eq!(
+                event_loop.watches.contains_key(&link.join("nested")),
+                dereference,
+                "the walk must use the replacement watch's dereference setting"
+            );
+        }
+    }
+
+    #[test]
+    fn removing_a_link_watch_allows_a_later_recursive_walk() {
+        for clear_all in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            std::fs::create_dir(outside.path().join("nested")).unwrap();
+            let link = root.path().join("link");
+            std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+            let mut event_loop = test_event_loop();
+            event_loop
+                .add_watch(
+                    WatchPath::new(&link, None).unwrap(),
+                    non_recursive_watch().with_dereference_symlinks(false),
+                    true,
+                    false,
+                )
+                .unwrap();
+            if clear_all {
+                event_loop.remove_all_watches().unwrap();
+            } else {
+                event_loop.remove_watch(link.clone(), false).unwrap();
+            }
+            event_loop
+                .add_watch(
+                    WatchPath::new(root.path(), None).unwrap(),
+                    recursive_watch(),
+                    true,
+                    false,
+                )
+                .unwrap();
+
+            assert!(
+                event_loop.watches.contains_key(&link.join("nested")),
+                "the removed watch must no longer exclude the link (clear_all={clear_all})"
+            );
+        }
     }
 
     #[test]

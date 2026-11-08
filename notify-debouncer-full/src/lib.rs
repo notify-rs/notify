@@ -245,6 +245,13 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         }
     }
 
+    fn is_idle(&self) -> bool {
+        self.queues.is_empty()
+            && self.pending_rename_destinations.is_empty()
+            && self.errors.is_empty()
+            && self.rescan_event.is_none()
+    }
+
     /// Retrieve a vec of debounced events, removing them if not continuous
     pub fn debounced_events(&mut self) -> Vec<DebouncedEvent> {
         let now = now();
@@ -867,12 +874,17 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
     let watcher = T::new(
         move |e: Result<Event, Error>| {
             let mut lock = data_c.inner.lock().unwrap();
+            let was_idle = lock.is_idle();
             match e {
                 Ok(e) => lock.add_event(e),
                 // can't have multiple TX, so we need to pipe that through our debouncer
                 Err(e) => lock.add_error(e),
             }
-            data_c.changed.notify_all();
+            // The worker only waits while idle. Once work is pending, it already
+            // wakes on its debounce tick, so more events need no notification.
+            if was_idle && !lock.is_idle() {
+                data_c.changed.notify_one();
+            }
         },
         config,
     )?;
@@ -884,12 +896,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
         .spawn(move || {
             loop {
                 let mut lock = data_c.inner.lock().unwrap();
-                while lock.queues.is_empty()
-                    && lock.pending_rename_destinations.is_empty()
-                    && lock.errors.is_empty()
-                    && lock.rescan_event.is_none()
-                    && !stop_c.load(Ordering::Acquire)
-                {
+                while lock.is_idle() && !stop_c.load(Ordering::Acquire) {
                     lock = data_c.changed.wait(lock).unwrap();
                 }
                 if stop_c.load(Ordering::Acquire) {
@@ -1638,6 +1645,80 @@ mod tests {
             .unwrap_err();
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].user_data(), Some(42));
+        debouncer.stop();
+    }
+
+    #[test]
+    fn idle_worker_delivers_events_errors_and_rescans() {
+        struct InjectWatcher(Box<dyn notify::EventHandler>);
+
+        impl Watcher for InjectWatcher {
+            fn new<F: notify::EventHandler>(handler: F, _: notify::Config) -> notify::Result<Self> {
+                Ok(Self(Box::new(handler)))
+            }
+
+            fn watch(&mut self, _: &Path, _: RecursiveMode) -> notify::Result<()> {
+                Ok(())
+            }
+
+            fn unwatch(&mut self, _: &Path) -> notify::Result<()> {
+                Ok(())
+            }
+
+            fn kind() -> WatcherKind {
+                WatcherKind::NullWatcher
+            }
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut debouncer = new_debouncer_opt::<_, InjectWatcher, NoCache>(
+            Duration::from_millis(10),
+            Some(Duration::from_millis(2)),
+            tx,
+            NoCache,
+            notify::Config::default(),
+        )
+        .unwrap();
+
+        for round in 0..3 {
+            // Let the worker return to its idle wait after each delivery.
+            std::thread::sleep(Duration::from_millis(20));
+            // Ignored events do not leave work for the worker to process.
+            debouncer
+                .watcher
+                .0
+                .handle_event(Ok(Event::new(EventKind::Other)));
+            match round {
+                0 => {
+                    let event = Event::new(EventKind::Modify(ModifyKind::Any))
+                        .add_path(PathBuf::from("file"));
+                    debouncer.watcher.0.handle_event(Ok(event.clone()));
+                    let events = rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
+                    assert_eq!(events.len(), 1);
+                    assert_eq!(events[0].event, event);
+                }
+                1 => {
+                    debouncer
+                        .watcher
+                        .0
+                        .handle_event(Err(Error::path_not_found().set_user_data(7)));
+                    let errors = rx
+                        .recv_timeout(Duration::from_secs(5))
+                        .unwrap()
+                        .unwrap_err();
+                    assert_eq!(errors.len(), 1);
+                    assert_eq!(errors[0].user_data(), Some(7));
+                }
+                _ => {
+                    debouncer.watcher.0.handle_event(Ok(
+                        Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan)
+                    ));
+                    let events = rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
+                    assert_eq!(events.len(), 1);
+                    assert!(events[0].need_rescan());
+                }
+            }
+        }
         debouncer.stop();
     }
 

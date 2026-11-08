@@ -585,11 +585,7 @@ impl FsEventWatcher {
             return Err(Error::path_not_found().add_path(path.into()));
         }
         let canonical_path = path.to_path_buf().canonicalize()?;
-        let mut err: *mut cf::CFError = ptr::null_mut();
-        let Some(cf_path) = (unsafe { path_to_cfstring_ref(&canonical_path, &mut err) }) else {
-            if let Some(err) = NonNull::new(err) {
-                let _ = unsafe { cf::CFRetained::from_raw(err) };
-            }
+        let Some(cf_path) = path_to_cfstring_ref(&canonical_path) else {
             // Most likely the directory was deleted, or permissions changed,
             // while the above code was running.
             return Err(Error::path_not_found().add_path(path.into()));
@@ -663,10 +659,8 @@ impl FsEventWatcher {
                 }
             };
 
-        // We need to associate the stream context with our callback in order to propagate events
-        // to the rest of the system. This will be owned by the stream, and will be freed when the
-        // stream is closed. This means we will leak the context if we panic before reaching
-        // `FSEventStreamRelease`.
+        // The stream owns the callback context. Creation and spawn failures clean it up;
+        // panics before cleanup can still leak it.
         let recursive_info = Arc::new(Mutex::new(
             self.watches
                 .iter()
@@ -704,6 +698,15 @@ impl FsEventWatcher {
                 self.flags,
             )
         };
+        if stream.is_null() {
+            // SAFETY: Apple documents `release` as called only when the stream is
+            // deallocated. No stream was created, so we still own the context.
+            unsafe {
+                release_context(context.cast());
+            }
+            log::error!("FSEventStreamCreate returned NULL");
+            return Err(Error::generic("unable to create FSEvent stream"));
+        }
 
         // Wrapper to help send CFRunLoop types across threads.
         struct CFRunLoopSendWrapper(cf::CFRetained<cf::CFRunLoop>);
@@ -716,16 +719,16 @@ impl FsEventWatcher {
         // Wrapper to help send FSEventStreamRef types across threads.
         struct FSEventStreamSendWrapper(fs::FSEventStreamRef);
 
-        // SAFETY: The stream is moved before it is scheduled or started. Only the receiving
-        // thread accesses it thereafter: it schedules, starts, stops, invalidates and releases
-        // the stream on its own runloop. The stream owns its boxed StreamContextInfo until
+        // SAFETY: The stream is moved before it is scheduled or started. If spawning succeeds,
+        // only the receiving thread accesses it: it schedules, starts, stops, invalidates and
+        // releases the stream on its own runloop. The stream owns its boxed StreamContextInfo until
         // release_context runs; shared handler and watch data are protected by Arc<Mutex<_>>.
         // See Apple's create-then-schedule lifecycle:
         // https://developer.apple.com/library/archive/documentation/Darwin/Conceptual/FSEvents_ProgGuide/UsingtheFSEventsFramework/UsingtheFSEventsFramework.html
         unsafe impl Send for FSEventStreamSendWrapper {}
 
         // move into thread
-        let stream = FSEventStreamSendWrapper(stream);
+        let stream_to_send = FSEventStreamSendWrapper(stream);
 
         // channel to pass runloop around
         let (rl_tx, rl_rx) = unbounded();
@@ -740,8 +743,8 @@ impl FsEventWatcher {
             .spawn(move || {
                 // Keep the shared path count reserved until this stream is released.
                 let _path_reservation = path_reservation;
-                let _ = &stream;
-                let stream = stream.0;
+                let _ = &stream_to_send;
+                let stream = stream_to_send.0;
 
                 unsafe {
                     // Safety:
@@ -794,6 +797,11 @@ impl FsEventWatcher {
                     fs::FSEventStreamRelease(stream);
                     since_when
                 }
+            })
+            .inspect_err(|_| {
+                // SAFETY: Spawning failed, so no thread has used the stream. Releasing it
+                // also frees its context. It was never scheduled, so do not invalidate it.
+                unsafe { fs::FSEventStreamRelease(stream) };
             })?;
         // block until runloop has been sent
         let runloop_wrapper = match rl_rx.recv() {
@@ -1068,17 +1076,16 @@ impl Drop for FsEventWatcher {
 /// then append any missing path components.
 ///
 /// Adapted from <https://docs.rs/fsevent-sys/4.1.0/src/fsevent_sys/core_foundation.rs.html#149-230>.
-unsafe fn path_to_cfstring_ref(
-    source: &Path,
-    err: &mut *mut cf::CFError,
-) -> Option<cf::CFRetained<cf::CFString>> {
+fn path_to_cfstring_ref(source: &Path) -> Option<cf::CFRetained<cf::CFString>> {
     let url = cf::CFURL::from_file_path(source)?;
 
     let mut placeholder = url.absolute_url()?;
 
     let imaginary = cf::CFMutableArray::empty();
 
-    while !unsafe { placeholder.resource_is_reachable(err) } {
+    // These CFURL APIs accept null error outputs. We only need success/failure,
+    // so avoid taking ownership of CFErrors during retries or URL conversion.
+    while !unsafe { placeholder.resource_is_reachable(ptr::null_mut()) } {
         if let Some(child) = placeholder.last_path_component() {
             imaginary.insert(0, &*child);
         }
@@ -1086,9 +1093,11 @@ unsafe fn path_to_cfstring_ref(
         placeholder = cf::CFURL::new_copy_deleting_last_path_component(None, Some(&placeholder))?;
     }
 
-    let url = unsafe { cf::CFURL::new_file_reference_url(None, Some(&placeholder), err) }?;
+    let url =
+        unsafe { cf::CFURL::new_file_reference_url(None, Some(&placeholder), ptr::null_mut()) }?;
 
-    let mut placeholder = unsafe { cf::CFURL::new_file_path_url(None, Some(&url), err) }?;
+    let mut placeholder =
+        unsafe { cf::CFURL::new_file_path_url(None, Some(&url), ptr::null_mut()) }?;
 
     for component in imaginary {
         placeholder = cf::CFURL::new_copy_appending_path_component(
