@@ -12,6 +12,7 @@
 - FIX: [kqueue] report recoverable child errors while continuing recursive watches, stop additions at file descriptor limits with `ErrorKind::MaxFilesWatch`, and ignore missing directories during event-triggered scans [#703] [#455] [#596]
 - FIX: [kqueue] avoid hangs on FIFOs by skipping special files during recursive walks and rejecting explicit watches on them with `Unsupported` errors
 - FIX: [inotify] detect ancestor symlink loops in newly added directories to avoid watching the same tree repeatedly
+- FIX: [inotify] report a change in a directory or file that two watches share through a symlink or a hard link under the path of each watch, and watch the new subdirectories of a shared directory for every recursive watch. A rename in a shared directory is reported once for each of those watches, with the same tracker
 - FIX: [macOS] avoid leaking `CFError` objects when resolving watch paths
 - FIX: [poll] recover a poisoned watch mutex in `watched_paths`
 - FIX: [macOS] release the FSEvents stream and its context when spawning the runloop thread fails
