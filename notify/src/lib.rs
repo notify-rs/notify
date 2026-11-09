@@ -6,7 +6,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify = "9.0.0-rc.7"
+//! notify = "9.0.0-rc.8"
 //! ```
 //!
 //! If you want debounced events (or don't need them in-order), see [notify-debouncer-mini](https://docs.rs/notify-debouncer-mini/latest/notify_debouncer_mini/)
@@ -31,7 +31,7 @@
 //! Events are serializable via [serde](https://serde.rs) if the `serde` feature is enabled:
 //!
 //! ```toml
-//! notify = { version = "9.0.0-rc.7", features = ["serde"] }
+//! notify = { version = "9.0.0-rc.8", features = ["serde"] }
 //! ```
 //!
 //! # Known Problems

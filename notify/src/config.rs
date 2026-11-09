@@ -219,7 +219,7 @@ impl Config {
     ///
     /// Off by default and ignored by other backends. Cannot be changed via
     /// [`Watcher::configure`](crate::Watcher::configure); create a new watcher to switch modes.
-    /// Uses a 64 KiB read buffer instead of 16 KiB.
+    /// Both notification modes use a 64 KiB read buffer per OS watch.
     #[must_use]
     pub fn with_windows_extended_information(mut self, extended_information: bool) -> Self {
         self.windows_extended_information = extended_information;

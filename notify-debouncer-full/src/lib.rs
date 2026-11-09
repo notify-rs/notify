@@ -14,7 +14,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify-debouncer-full = "0.8.0-rc.2"
+//! notify-debouncer-full = "0.8.0-rc.3"
 //! ```
 //!
 //! In case you want to select specific features of notify,
@@ -22,8 +22,8 @@
 //! Otherwise you can just use the re-export of notify from debouncer-full.
 //!
 //! ```toml
-//! notify-debouncer-full = "0.8.0-rc.2"
-//! notify = { version = "..", features = [".."] }
+//! notify-debouncer-full = "0.8.0-rc.3"
+//! notify = { version = "9.0.0-rc.8", features = ["serde"] }
 //! ```
 //!
 //! # Examples
@@ -655,8 +655,8 @@ pub struct Debouncer<T: Watcher, C: FileIdCache> {
 }
 
 impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
-    /// Stop the debouncer, waits for the event thread to finish.
-    /// May block for the duration of one `tick_rate`.
+    /// Stop the debouncer, waking the event thread and waiting for it to finish.
+    /// This also waits for any in-progress event handler to return.
     pub fn stop(mut self) {
         self.set_stop();
         if let Some(t) = self.debouncer_thread.take() {
