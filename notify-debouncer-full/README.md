@@ -12,13 +12,21 @@ A debouncer for [notify] that is optimized for ease of use.
 * Doesn't emit duplicate create events
 * Doesn't emit `Modify` events after a `Create` event
 
+Version 0.8 uses notify v9 and changes the `FileIdCache` trait.
+See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#7-full-debouncer-changes)
+for changes from 0.7 and earlier 0.8 release candidates.
+
 ## Features
 
-- `crossbeam-channel` passed down to notify, off by default
-
-- `flume` passed down to notify, off by default
-
-- `serialization-compat-6` passed down to notify, off by default
+- `macos_fsevent` (default) enables notify's FSEvents backend on macOS
+- `macos_kqueue` enables notify's kqueue backend on macOS
+- `freebsd_inotify` enables notify's inotify backend when cross-compiling for FreeBSD 14.5+;
+  native builds on 14.5+ select it automatically
+- `serde` enables serialization of event types
+- `web-time` uses `web_time::Instant` for debounced events
+- `crossbeam-channel`, `flume`, `futures`, and `tokio` enable the corresponding
+  channel senders as event handlers
+- `serialization-compat-6` restores notify 6 serialization behavior
 
 ## Minimum Supported Rust Version (MSRV) Policy
 

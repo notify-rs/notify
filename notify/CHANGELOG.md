@@ -2,28 +2,49 @@
 
 ## unreleased
 
-- CHANGE: raise MSRV from 1.88 to 1.91
-- CHANGE: `Error` gains a private field; `ErrorKind` and `UpdatePathsError` are now `#[non_exhaustive]`. Use error constructors (including `UpdatePathsError::new`), `..` in struct patterns, and wildcard enum matches **breaking**
-- FEATURE: add `WatchPathConfig::with_user_data(u64)` to identify watches through `Event::user_data()` and `Error::user_data()` on all backends, including failed batch operations via `UpdatePathsError.source` [#1012] [#388]
-- FEATURE: [Windows] add opt-in `Config::with_windows_extended_information` for file/folder classification in create/remove events; unsupported APIs and filesystems return errors [#261]
-- PERF: [Windows] share parent-directory watches across individual file watches, reuse buffers, and skip work for filtered events. Idle polling is removed, and configuration changes wake the watcher immediately. Buffers are now 64 KiB per OS watch, up from 16 KiB.
-- FIX: [Windows] deliver fatal asynchronous read errors to the event handler; malformed notifications produce an `InvalidData` error and a rescan event
-- PERF: [inotify, kqueue] speed up unwatch, especially with many watched paths or nested user watches
-- FIX: [kqueue] report recoverable child errors while continuing recursive watches, stop additions at file descriptor limits with `ErrorKind::MaxFilesWatch`, and ignore missing directories during event-triggered scans [#703] [#455] [#596]
-- FIX: [kqueue] avoid hangs on FIFOs by skipping special files during recursive walks and rejecting explicit watches on them with `Unsupported` errors
-- FIX: [inotify] detect ancestor symlink loops in newly added directories to avoid watching the same tree repeatedly
-- FIX: [inotify] report a change in a directory or file that two watches share through a symlink or a hard link under the path of each watch, and watch the new subdirectories of a shared directory for every recursive watch. A rename in a shared directory is reported once for each of those watches, with the same tracker
-- FIX: [macOS] avoid leaking `CFError` objects when resolving watch paths
-- FIX: [poll] recover a poisoned watch mutex in `watched_paths`
-- FIX: [macOS] release the FSEvents stream and its context when spawning the runloop thread fails
-- DOCS: clarify kqueue and FSEvents event details, recursive-watch coverage, and kqueue file descriptor limits
+## notify 9.0.0-rc.8 (2026-11-09)
 
-[#703]: https://github.com/notify-rs/notify/issues/703
+- CHANGE: raise MSRV from 1.88 to 1.91
+- CHANGE: `Error` gains a private field; `ErrorKind` and `UpdatePathsError` are now `#[non_exhaustive]`. Use error constructors (including `UpdatePathsError::new`), `..` in struct patterns, and wildcard enum matches [#1060] [#1071] **breaking**
+- DEPS: upgrade `notify-types` to 2.3.0 for per-watch user data support
+- FEATURE: add `WatchPathConfig::with_user_data(u64)` to identify watches through `Event::user_data()` and `Error::user_data()` on all backends, including failed batch operations via `UpdatePathsError.source` [#1012] [#388]
+- FEATURE: [Windows] add opt-in `Config::with_windows_extended_information` for file/folder classification in create/remove events; unsupported APIs and filesystems return errors [#261] [#1061]
+- PERF: [Windows] share parent-directory watches across individual file watches, reuse buffers, and skip work for filtered events. Idle polling is removed, and configuration changes wake the watcher immediately. Buffers are now 64 KiB per OS watch, up from 16 KiB [#1056] [#1077]
+- PERF: [inotify, kqueue] speed up unwatch, especially with many watched paths or nested user watches [#1074] [#1075] [#1079]
+- PERF: [inotify] update recursive walk barriers incrementally instead of rebuilding them from all watches [#1076]
+- FIX: [Windows] deliver fatal asynchronous read errors to the event handler; malformed notifications produce an `InvalidData` error and a rescan event [#1077]
+- FIX: [kqueue] report recoverable child errors while continuing recursive watches, stop additions at file descriptor limits with `ErrorKind::MaxFilesWatch`, and ignore missing directories during event-triggered scans [#703] [#455] [#596]
+- FIX: [kqueue] avoid hangs on FIFOs by skipping special files during recursive walks and rejecting explicit watches on them with `Unsupported` errors [#1058]
+- FIX: [inotify] detect ancestor symlink loops in newly added directories to avoid watching the same tree repeatedly [#1065]
+- FIX: [inotify] report a change in a directory or file that two watches share through a symlink or a hard link under the path of each watch, and watch the new subdirectories of a shared directory for every recursive watch. A rename in a shared directory is reported once for each of those watches, with the same tracker [#1072]
+- FIX: [macOS] return an error and release the callback context if FSEvents stream creation fails [#1080]
+- FIX: [macOS] release the FSEvents stream and its context when spawning the runloop thread fails [#1081]
+- FIX: [macOS] avoid leaking `CFError` objects when resolving watch paths [#1082]
+- FIX: [poll] recover a poisoned watch mutex in `watched_paths` [#1062]
+- DOCS: clarify kqueue and FSEvents event details, recursive-watch coverage, and kqueue file descriptor limits [#1062]
+
+[#261]: https://github.com/notify-rs/notify/issues/261
 [#388]: https://github.com/notify-rs/notify/issues/388
-[#1012]: https://github.com/notify-rs/notify/issues/1012
 [#455]: https://github.com/notify-rs/notify/issues/455
 [#596]: https://github.com/notify-rs/notify/issues/596
-[#261]: https://github.com/notify-rs/notify/issues/261
+[#703]: https://github.com/notify-rs/notify/issues/703
+[#1012]: https://github.com/notify-rs/notify/issues/1012
+[#1056]: https://github.com/notify-rs/notify/pull/1056
+[#1058]: https://github.com/notify-rs/notify/pull/1058
+[#1060]: https://github.com/notify-rs/notify/pull/1060
+[#1061]: https://github.com/notify-rs/notify/pull/1061
+[#1062]: https://github.com/notify-rs/notify/pull/1062
+[#1065]: https://github.com/notify-rs/notify/pull/1065
+[#1071]: https://github.com/notify-rs/notify/pull/1071
+[#1072]: https://github.com/notify-rs/notify/pull/1072
+[#1074]: https://github.com/notify-rs/notify/pull/1074
+[#1075]: https://github.com/notify-rs/notify/pull/1075
+[#1076]: https://github.com/notify-rs/notify/pull/1076
+[#1077]: https://github.com/notify-rs/notify/pull/1077
+[#1079]: https://github.com/notify-rs/notify/pull/1079
+[#1080]: https://github.com/notify-rs/notify/pull/1080
+[#1081]: https://github.com/notify-rs/notify/pull/1081
+[#1082]: https://github.com/notify-rs/notify/pull/1082
 
 ## notify 9.0.0-rc.7 (2026-10-28)
 
@@ -98,6 +119,7 @@
 [#930]: https://github.com/notify-rs/notify/pull/930
 [#935]: https://github.com/notify-rs/notify/issues/935
 [#958]: https://github.com/notify-rs/notify/pull/958
+[#964]: https://github.com/notify-rs/notify/pull/964
 
 ## notify 9.0.0-rc.4 (2026-05-02)
 

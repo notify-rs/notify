@@ -2,21 +2,39 @@
 
 ## unreleased
 
-- CHANGE: raise MSRV to 1.91
-- PERF: only wake the debouncer thread when work arrives while it is idle
-- PERF: speed up file ID lookups and registration with a hash map and an index of child paths for subtree removal
-- PERF: avoid scanning unrelated event queues and cached file IDs when removing a path
-- CHANGE: remove the deprecated no-op methods `Debouncer::watcher` and `Debouncer::cache` **breaking**
-- FIX: for an event on a direct child of a non-recursive watch, cache only that entry and not the entries below it, which the watch does not report
-- CHANGE: `FileIdCache::add_single_path` is a required method, and `FileIdCache::add_path` is a provided method that walks the path and calls `add_single_path` for each entry; a custom cache only has to cache single paths **breaking**
-- FIX: pair the source and the destination of a rename below the same root when the watcher reports the rename once for each watch, for example for two watches that reach one directory through a symlink
-- FIX: pair the source and the destination of a rename by file ID only when one of them has no tracker, so a later move-in is no longer reported as a rename of a file that an earlier rename moved
-- FIX: unwatching a path no longer deregisters roots nested under it, and re-fingerprints the nested roots whose cached IDs the removal dropped
+## debouncer-full 0.8.0-rc.3 (2026-11-09)
+
+- CHANGE: upgrade `notify` to 9.0.0-rc.8 and `notify-types` to 2.3.0
+- CHANGE: raise MSRV from 1.88 to 1.91
+- CHANGE: update to edition 2024 [#990]
+- CHANGE: remove the deprecated no-op methods `Debouncer::watcher` and `Debouncer::cache` [#1059] **breaking**
+- CHANGE: `FileIdCache::add_single_path` is a required method, and `FileIdCache::add_path` is a provided method that walks the path and calls `add_single_path` for each entry; a custom cache only has to cache single paths [#1034] **breaking**
+- CHANGE: `FileIdCache::rescan` takes `&[WatchRoot]` instead of `&[(PathBuf, RecursiveMode)]`; `WatchRoot` is `#[non_exhaustive]`, provides `WatchRoot::new`, and requires `..` when destructuring [#1027] [#1060] **breaking**
+- FEATURE: add the `freebsd_inotify` feature to enable notify's native inotify backend when cross-compiling for FreeBSD 14.5+ [#972] [#989]
+- PERF: park the debouncer thread to avoid idle polling, and only wake it when work arrives while it is idle [#933] [#1078]
+- PERF: speed up file ID lookups and registration with a hash map and an index of child paths for subtree removal [#1078]
+- PERF: avoid scanning unrelated event queues and cached file IDs when removing a path [#1073]
+- FIX: for an event on a direct child of a non-recursive watch, cache only that entry and not the entries below it, which the watch does not report [#1037]
+- FIX: pair the source and the destination of a rename below the same root when the watcher reports the rename once for each watch, for example for two watches that reach one directory through a symlink [#1054]
+- FIX: pair the source and the destination of a rename by file ID only when one of them has no tracker, so a later move-in is no longer reported as a rename of a file that an earlier rename moved [#1070]
+- FIX: unwatching a path no longer deregisters roots nested under it, and re-fingerprints the nested roots whose cached IDs the removal dropped [#1028]
 - FIX: if the watcher fails to construct, `new_debouncer_opt` no longer leaks the debouncer thread or the event handler [#1040]
-- PERF: park the debouncer thread to avoid idle polling [#933]
-- CHANGE: `FileIdCache::rescan` takes `&[WatchRoot]` instead of `&[(PathBuf, RecursiveMode)]`; `WatchRoot` is `#[non_exhaustive]`, provides `WatchRoot::new`, and requires `..` when destructuring **breaking**
 
 [#933]: https://github.com/notify-rs/notify/pull/933
+[#972]: https://github.com/notify-rs/notify/pull/972
+[#989]: https://github.com/notify-rs/notify/pull/989
+[#990]: https://github.com/notify-rs/notify/pull/990
+[#1027]: https://github.com/notify-rs/notify/pull/1027
+[#1028]: https://github.com/notify-rs/notify/pull/1028
+[#1034]: https://github.com/notify-rs/notify/pull/1034
+[#1037]: https://github.com/notify-rs/notify/pull/1037
+[#1040]: https://github.com/notify-rs/notify/issues/1040
+[#1054]: https://github.com/notify-rs/notify/pull/1054
+[#1059]: https://github.com/notify-rs/notify/pull/1059
+[#1060]: https://github.com/notify-rs/notify/pull/1060
+[#1070]: https://github.com/notify-rs/notify/pull/1070
+[#1073]: https://github.com/notify-rs/notify/pull/1073
+[#1078]: https://github.com/notify-rs/notify/pull/1078
 
 ## debouncer-full 0.8.0-rc.2 (2026-05-02)
 
@@ -26,7 +44,6 @@
 
 [#900]: https://github.com/notify-rs/notify/issues/900
 [#913]: https://github.com/notify-rs/notify/pull/913
-[#1040]: https://github.com/notify-rs/notify/issues/1040
 
 ## debouncer-full 0.8.0-rc.1 (2026-04-16)
 

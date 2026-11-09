@@ -2,10 +2,15 @@
 
 ## unreleased
 
-- CHANGE: raise MSRV to 1.91
-- FEATURE: add `user_data` to `EventAttributes` and `Event`, including serde and Debug support. The value participates in event equality and hashing so deduplication retains notifications with distinct watch IDs [#1012]
+## notify-types 2.3.0 (2026-11-09)
+
+- CHANGE: raise MSRV from 1.88 to 1.91
+- FEATURE: add `user_data` to `EventAttributes` and `Event`, including serde and Debug support. The value participates in event equality and hashing so deduplication retains notifications with distinct watch IDs [#1012] [#1069]
+- DOCS: clarify how to pair rename events when several watches share a tracker [#1072]
 
 [#1012]: https://github.com/notify-rs/notify/issues/1012
+[#1069]: https://github.com/notify-rs/notify/pull/1069
+[#1072]: https://github.com/notify-rs/notify/pull/1072
 
 ## notify-types 2.2.0 (2026-10-28)
 
