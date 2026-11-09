@@ -22,27 +22,27 @@ jobs:
       actions: read
       contents: read
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@v6.1.0
         with:
           persist-credentials: false
 
-      - uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
+      - uses: zizmorcore/zizmor-action@v0.8.1
         with:
           advanced-security: false
           annotations: true
-          version: v1.24.1
+          version: v1.32.0
 
   # Code quality checks
   quality:
     name: Quality Checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@v6.1.0
         with:
           persist-credentials: false
 
       - name: Cache dependencies
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -57,7 +57,7 @@ jobs:
         run: cargo test -p notify --test serialise-events --features serde,serialization-compat-6 --locked
 
       - name: Install typos-cli
-        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        uses: taiki-e/install-action@v2.90.2
         with:
           tool: typos-cli
 
@@ -65,7 +65,7 @@ jobs:
         run: typos
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        uses: taiki-e/install-action@v2.90.2
         with:
           tool: cargo-deny
 
@@ -73,7 +73,7 @@ jobs:
         run: cargo deny check
 
       - name: Install cargo-machete
-        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        uses: taiki-e/install-action@v2.90.2
         with:
           tool: cargo-machete
 
@@ -113,7 +113,7 @@ jobs:
             features: "--no-default-features --features macos_kqueue"
 
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@v6.1.0
         with:
           persist-credentials: false
 
@@ -134,7 +134,7 @@ jobs:
           rustup update ${{ matrix.rust }}
 
       - name: Cache dependencies
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Build
         run: cargo build --verbose ${{ matrix.features }}
@@ -173,12 +173,12 @@ jobs:
           - backend: inotify
             release: "15.1"
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@v6.1.0
         with:
           persist-credentials: false
 
       - name: Test in FreeBSD VM
-        uses: vmactions/freebsd-vm@b84ab5559b5a1bb4b8ee2737d2506a16e1737636 # v1.4.8
+        uses: vmactions/freebsd-vm@v1.4.8
         with:
           release: ${{ matrix.release }}
           envs: "CARGO_TERM_COLOR RUST_BACKTRACE"
@@ -204,7 +204,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: quality
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@v6.1.0
         with:
           persist-credentials: false
 
@@ -218,10 +218,10 @@ jobs:
           rustup target add armv7-linux-androideabi aarch64-linux-android
 
       - name: Cache dependencies
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Install cargo-ndk
-        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        uses: taiki-e/install-action@v2.90.2
         with:
           tool: cargo-ndk
 
@@ -242,7 +242,7 @@ jobs:
         target: [wasm32-unknown-unknown, wasm32-wasip1, wasm32-wasip2]
         rust: [stable, 1.91]
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@v6.1.0
         with:
           persist-credentials: false
 
@@ -252,7 +252,7 @@ jobs:
           rustup target add --toolchain ${{ matrix.rust }} ${{ matrix.target }}
 
       - name: Cache dependencies
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        uses: Swatinem/rust-cache@v2.9.3
         with:
           key: wasm-${{ matrix.rust }}-${{ matrix.target }}
 
@@ -271,7 +271,7 @@ jobs:
 
       - name: Install Wasmtime
         if: matrix.target != 'wasm32-unknown-unknown'
-        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        uses: taiki-e/install-action@v2.90.2
         with:
           tool: wasmtime@49.0.3
 
