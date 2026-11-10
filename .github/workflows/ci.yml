@@ -22,7 +22,7 @@ jobs:
       actions: read
       contents: read
     steps:
-      - uses: actions/checkout@v6.1.0
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
@@ -37,7 +37,7 @@ jobs:
     name: Quality Checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6.1.0
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
@@ -113,7 +113,7 @@ jobs:
             features: "--no-default-features --features macos_kqueue"
 
     steps:
-      - uses: actions/checkout@v6.1.0
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
@@ -173,7 +173,7 @@ jobs:
           - backend: inotify
             release: "15.1"
     steps:
-      - uses: actions/checkout@v6.1.0
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
@@ -204,7 +204,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: quality
     steps:
-      - uses: actions/checkout@v6.1.0
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
@@ -242,7 +242,7 @@ jobs:
         target: [wasm32-unknown-unknown, wasm32-wasip1, wasm32-wasip2]
         rust: [stable, 1.91]
     steps:
-      - uses: actions/checkout@v6.1.0
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
