@@ -28,7 +28,7 @@ fn main() {
             watch_create_remove(&path)
         }
         _ => {
-            log::info!("Mode: ALL (default, receives all events)");
+            log::info!("Mode: ALL (receives all events)");
             log::info!("  Use 'core' or 'create-remove' as 2nd arg for other modes");
             watch_all(&path)
         }
@@ -39,13 +39,12 @@ fn main() {
     }
 }
 
-/// Watch with ALL events (default behavior, backward compatible)
+/// Watch with ALL events, including the noisy ACCESS_CLOSE_NOWRITE
 fn watch_all<P: AsRef<Path>>(path: P) -> notify::Result<()> {
     let (tx, rx) = std::sync::mpsc::channel();
 
-    // Default config receives all events including access events (OPEN, CLOSE)
-    let config = Config::default();
-    // Equivalent to: Config::default().with_event_kinds(EventKindMask::ALL)
+    // The default config excludes close events for files opened without write access.
+    let config = Config::default().with_event_kinds(EventKindMask::ALL);
 
     let mut watcher = RecommendedWatcher::new(tx, config)?;
     watcher.watch(path.as_ref(), RecursiveMode::Recursive)?;
