@@ -13,7 +13,7 @@ use crate::paths::{WatchPath, absolute_path, reported_path};
 use crate::walk::{
     WalkFailure,
     recursive::{
-        WalkRoots, WatchMetadata, preserved_watch_roots, recursive_user_watch_ancestor,
+        WalkRoots, WatchMetadata, preserved_watch_roots, recursive_user_watch_ancestor, subtree,
         update_watch_user_data, watch_removal_paths,
     },
 };
@@ -21,7 +21,7 @@ use crate::{BoundSender, Receiver, Sender, bounded, unbounded};
 use inotify as inotify_sys;
 use inotify_sys::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use notify_types::event::EventKindMask;
-use std::collections::{BTreeMap, HashMap, HashSet, hash_map::Entry};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, hash_map::Entry};
 use std::ffi::OsStr;
 use std::fs::{Metadata, metadata, read_dir, symlink_metadata};
 use std::os::unix::fs::MetadataExt;
@@ -105,6 +105,9 @@ struct EventLoop {
     event_handler: Box<dyn EventHandler>,
     /// Absolute path -> inotify descriptor and watch metadata.
     watches: HashMap<PathBuf, Watch>,
+    /// The paths in `watches`, ordered so that removing a directory finds the watches below it
+    /// without scanning every watch.
+    watch_paths: BTreeSet<PathBuf>,
     /// Explicit non-dereferenced non-directory watches that recursive walks must skip.
     walk_barriers: HashSet<PathBuf>,
     /// inotify descriptor -> the paths in `watches` that use it, in the order they were added.
@@ -392,6 +395,7 @@ impl EventLoop {
             inotify: Some(inotify),
             event_handler,
             watches: HashMap::new(),
+            watch_paths: BTreeSet::new(),
             walk_barriers: HashSet::new(),
             paths: HashMap::new(),
             rename_events: Vec::new(),
@@ -1259,11 +1263,8 @@ impl EventLoop {
         let mut removed_descriptors = vec![watch.watch_descriptor];
         if watch.metadata.is_recursive || remove_recursive {
             let (remove_list, reset_list) = watch_removal_paths(
-                &path,
                 remove_recursive,
-                self.watches
-                    .iter()
-                    .map(|(path, watch)| (path, &watch.metadata)),
+                subtree(&self.watch_paths, &path).map(|path| (path, &self.watches[path].metadata)),
             );
             removed_descriptors.extend(
                 self.remove_watch_entries(remove_list)
@@ -1312,11 +1313,9 @@ impl EventLoop {
             Some(watch) => {
                 if watch.metadata.is_recursive || remove_recursive {
                     let (remove_list, reset_list) = watch_removal_paths(
-                        &path,
                         remove_recursive,
-                        self.watches
-                            .iter()
-                            .map(|(path, watch)| (path, &watch.metadata)),
+                        subtree(&self.watch_paths, &path)
+                            .map(|path| (path, &self.watches[path].metadata)),
                     );
                     let removed_descriptors: Vec<_> = self
                         .remove_watch_entries(remove_list)
@@ -1357,7 +1356,9 @@ impl EventLoop {
         match previous {
             Some(previous) if previous.watch_descriptor == descriptor => return,
             Some(previous) => self.forget_paths([(previous.watch_descriptor, path.clone())]),
-            None => {}
+            None => {
+                self.watch_paths.insert(path.clone());
+            }
         }
         // Most descriptors have one path, and `Vec::push` reserves room for four.
         self.paths
@@ -1375,6 +1376,7 @@ impl EventLoop {
         let mut forgotten = Vec::new();
         for path in paths {
             if let Some(watch) = self.watches.remove(&path) {
+                self.watch_paths.remove(&path);
                 if watch.is_walk_barrier() {
                     self.walk_barriers.remove(&path);
                 }
@@ -1383,6 +1385,7 @@ impl EventLoop {
             }
         }
         self.forget_paths(forgotten);
+        debug_assert_eq!(self.watch_paths.len(), self.watches.len());
         removed
     }
 
@@ -1442,6 +1445,7 @@ impl EventLoop {
                     .map_err(|e| Error::io(e).add_path(paths[0].clone()))?;
             }
             self.watches.clear();
+            self.watch_paths.clear();
             self.walk_barriers.clear();
             self.paths.clear();
         }

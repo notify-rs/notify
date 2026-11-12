@@ -25,7 +25,8 @@ impl WalkFailure {
 // Inotify and kqueue manage recursive watches one directory at a time.
 pub(crate) mod recursive {
     use crate::paths::{WatchPath, reported_path};
-    use std::collections::HashMap;
+    use std::collections::{BTreeSet, HashMap};
+    use std::ops::Bound;
     use std::path::{Path, PathBuf};
 
     #[derive(Clone, Debug)]
@@ -174,16 +175,25 @@ pub(crate) mod recursive {
         }
     }
 
-    /// Selects descendant watches to remove or reset after the root watch was removed.
-    /// Only scan unrelated watches once; nested user watches are found in the selected subtree.
+    /// Yields the watched paths at or below `root`.
+    ///
+    /// Paths compare by component, so a directory sorts directly before its subtree and the cost
+    /// depends on the size of the subtree, not the number of watches.
+    pub(crate) fn subtree<'a>(
+        watch_paths: &'a BTreeSet<PathBuf>,
+        root: &'a Path,
+    ) -> impl Iterator<Item = &'a PathBuf> {
+        watch_paths
+            .range::<Path, _>((Bound::Included(root), Bound::Unbounded))
+            .take_while(move |path| path.starts_with(root))
+    }
+
+    /// Selects the watches to remove or reset among the `descendants` of a removed root watch.
     pub(crate) fn watch_removal_paths<'a>(
-        path: &Path,
         remove_recursive: bool,
-        watches: impl Iterator<Item = (&'a PathBuf, &'a WatchMetadata)>,
+        descendants: impl Iterator<Item = (&'a PathBuf, &'a WatchMetadata)>,
     ) -> (Vec<PathBuf>, Vec<PathBuf>) {
-        let descendants: Vec<_> = watches
-            .filter(|(candidate, _)| candidate.starts_with(path))
-            .collect();
+        let descendants: Vec<_> = descendants.collect();
         let preserved_roots = descendants
             .iter()
             .filter(|(_, watch)| !remove_recursive && watch.is_user_watch)
@@ -311,12 +321,18 @@ pub(crate) mod recursive {
                     PathBuf::from("/root/recursive/flat/child"),
                     inherited.clone(),
                 ),
-                (PathBuf::from("/root-other/child"), inherited),
+                // Byte order would sort these siblings between /root and its subtree.
+                (PathBuf::from("/root-other/child"), inherited.clone()),
+                (PathBuf::from("/root.d"), inherited),
             ]);
-            let (mut remove, mut reset) =
-                watch_removal_paths(Path::new("/root"), false, watches.iter());
-            remove.sort();
-            reset.sort();
+            let watch_paths: BTreeSet<_> = watches.keys().cloned().collect();
+            let removal_paths = |remove_recursive| {
+                watch_removal_paths(
+                    remove_recursive,
+                    subtree(&watch_paths, Path::new("/root")).map(|path| (path, &watches[path])),
+                )
+            };
+            let (remove, reset) = removal_paths(false);
             assert_eq!(
                 remove,
                 ["/root/flat/inherited", "/root/inherited"].map(PathBuf::from)
@@ -332,8 +348,7 @@ pub(crate) mod recursive {
                 .map(PathBuf::from)
             );
 
-            let (mut remove, reset) = watch_removal_paths(Path::new("/root"), true, watches.iter());
-            remove.sort();
+            let (remove, reset) = removal_paths(true);
             assert!(reset.is_empty());
             assert_eq!(
                 remove,

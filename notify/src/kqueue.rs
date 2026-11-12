@@ -13,12 +13,12 @@ use crate::walk::{
     WalkFailure,
     recursive::{
         WalkRoots, WatchMetadata as Watch, preserved_watch_roots, recursive_user_watch_ancestor,
-        update_watch_user_data, watch_removal_paths,
+        subtree, update_watch_user_data, watch_removal_paths,
     },
 };
 use crate::{Receiver, Sender, unbounded};
 use kqueue::{EventData, EventFilter, FilterFlag, Ident};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::metadata;
 use std::io;
 use std::os::unix::io::AsRawFd;
@@ -44,6 +44,9 @@ struct EventLoop {
     kqueue: kqueue::Watcher,
     event_handler: Box<dyn EventHandler>,
     watches: HashMap<PathBuf, Watch>,
+    /// The paths in `watches`, ordered so that removing a directory finds the watches below it
+    /// without scanning every watch.
+    watch_paths: BTreeSet<PathBuf>,
     follow_symlinks: bool,
     event_kinds: EventKindMask,
 }
@@ -114,6 +117,7 @@ impl EventLoop {
             kqueue,
             event_handler,
             watches: HashMap::new(),
+            watch_paths: BTreeSet::new(),
             follow_symlinks,
             event_kinds,
         };
@@ -715,6 +719,7 @@ impl EventLoop {
                 })?;
         }
         let watch = Watch::new(&path, is_recursive, is_user_watch, existing_watch);
+        self.watch_paths.insert(path.absolute.clone());
         self.watches.insert(path.absolute, watch);
 
         Ok(())
@@ -726,9 +731,12 @@ impl EventLoop {
         match self.watches.remove(&path) {
             None => return Err(Error::watch_not_found()),
             Some(watch) => {
+                self.watch_paths.remove(&path);
                 if watch.is_recursive || remove_recursive {
-                    let (remove_list, reset_list) =
-                        watch_removal_paths(&path, remove_recursive, self.watches.iter());
+                    let (remove_list, reset_list) = watch_removal_paths(
+                        remove_recursive,
+                        subtree(&self.watch_paths, &path).map(|path| (path, &self.watches[path])),
+                    );
                     self.kqueue
                         .remove_filename(&path, EventFilter::EVFILT_VNODE)
                         .map_err(|e| Error::io(e).add_path(path.clone()))?;
@@ -740,6 +748,7 @@ impl EventLoop {
                     }
                     for p in remove_list {
                         self.watches.remove(&p);
+                        self.watch_paths.remove(&p);
                     }
                     for p in reset_list {
                         if let Some(watch) = self.watches.get_mut(&p) {
