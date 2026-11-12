@@ -335,8 +335,6 @@ impl Default for ChannelConfig {
     fn default() -> Self {
         Self {
             timeout: Receiver::DEFAULT_TIMEOUT,
-            // Use Config::default() which uses EventKindMask::ALL,
-            // ensuring tests cover all event types including Access events
             watcher_config: Config::default(),
         }
     }

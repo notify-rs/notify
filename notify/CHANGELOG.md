@@ -2,6 +2,10 @@
 
 ## unreleased
 
+- CHANGE: exclude `ACCESS_CLOSE_NOWRITE` from `Config::default()`, restoring v8's default event kinds. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-kind-filtering-was-added)
+- FIX: [inotify] avoid extra rename events without a tracker for subdirectories of recursive watches
+- FIX: [inotify] report renames with `MODIFY_NAME` alone; stop watching directories moved outside recursive roots even when rename events are filtered
+- FIX: [inotify] prevent large recursive registrations from overflowing the default inotify queue with directory access events
 - PERF: [inotify, kqueue] stop scanning every watch when a watched path is removed, renamed, or unwatched; the cost now depends on the size of its subtree
 - FIX: [inotify, kqueue] retry incomplete recursive watches on repeated `watch()` calls; inotify follows replaced paths, and kqueue processes pending rename/delete events before rewatching
 

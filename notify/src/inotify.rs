@@ -42,21 +42,28 @@ const RESOLUTION_FLAGS: WatchMask = WatchMask::DONT_FOLLOW
 
 /// Convert an EventKindMask to the corresponding inotify WatchMask.
 ///
-/// When `is_recursive` is true, CREATE and MOVED_TO are always included
-/// to enable tracking of newly created subdirectories.
+/// Recursive watches always include CREATE and both move events to track new
+/// subdirectories and remove watches on directories moved out of the tree.
+///
+/// MOVE_SELF is not included: only the path of a user watch requests it, like DELETE_SELF.
+/// The parent of any other watched directory already reports its rename.
 fn event_kind_mask_to_watch_mask(mask: EventKindMask, is_recursive: bool) -> WatchMask {
     let mut watch_mask = WatchMask::empty();
 
     if is_recursive {
-        watch_mask |= WatchMask::CREATE | WatchMask::MOVED_TO;
+        watch_mask |= WatchMask::CREATE | WatchMask::MOVED_FROM | WatchMask::MOVED_TO;
     }
 
     if mask.intersects(EventKindMask::CREATE) {
-        watch_mask |= WatchMask::CREATE | WatchMask::MOVED_TO;
+        watch_mask |= WatchMask::CREATE;
     }
 
     if mask.intersects(EventKindMask::REMOVE) {
-        watch_mask |= WatchMask::DELETE | WatchMask::MOVED_FROM;
+        watch_mask |= WatchMask::DELETE;
+    }
+
+    if mask.intersects(EventKindMask::MODIFY_NAME) {
+        watch_mask |= WatchMask::MOVED_FROM | WatchMask::MOVED_TO;
     }
 
     if mask.intersects(EventKindMask::MODIFY_DATA) {
@@ -68,10 +75,6 @@ fn event_kind_mask_to_watch_mask(mask: EventKindMask, is_recursive: bool) -> Wat
 
     if mask.intersects(EventKindMask::MODIFY_META) {
         watch_mask |= WatchMask::ATTRIB;
-    }
-
-    if mask.intersects(EventKindMask::MODIFY_NAME) {
-        watch_mask |= WatchMask::MOVE_SELF;
     }
 
     if mask.intersects(EventKindMask::ACCESS_OPEN) {
@@ -116,6 +119,8 @@ struct EventLoop {
     paths: HashMap<WatchDescriptor, Vec<PathBuf>>,
     /// The sources of the last rename, with the user watch that reports each of them.
     rename_events: Vec<(Option<PathBuf>, Event)>,
+    /// Native events drained during registration, delivered after the watch reply.
+    pending_events: Vec<inotify_sys::EventOwned>,
     follow_links: bool,
     event_kind_mask: EventKindMask,
 }
@@ -159,6 +164,17 @@ fn watch_metadata(path: &Path, dereference: bool) -> std::io::Result<Metadata> {
         metadata(path)
     } else {
         symlink_metadata(path)
+    }
+}
+
+fn read_available_events<'a>(
+    inotify: &mut Inotify,
+    buffer: &'a mut [u8],
+) -> std::io::Result<Option<inotify_sys::Events<'a>>> {
+    match inotify.read_events(buffer) {
+        Ok(events) => Ok(Some(events)),
+        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+        Err(err) => Err(err),
     }
 }
 
@@ -277,16 +293,13 @@ fn event_targets(
         .map(|(index, watched_path)| {
             let watch = &watches[watched_path];
             let user_watch = user_watches.get(index).copied().flatten();
-            // The configured event kinds set most of the mask of each path. Only a recursive path
-            // requests `IN_MOVED_TO` when the event kinds lack `CREATE`, and only the path of a
-            // user watch requests `IN_DELETE_SELF`. The kernel can send an event that only another
-            // path of the descriptor requested, so each path checks its own mask before it reports
-            // `IN_MOVED_TO` or `IN_DELETE_SELF`. The masks also differ in `IN_CREATE` and
-            // `IN_MOVE_SELF` when the event kinds lack `CREATE` or `MODIFY_NAME`. The event kinds
-            // then filter out the `Create` and `Modify(Name)` events.
+            // Only user watch roots request DELETE_SELF and MOVE_SELF. A shared descriptor
+            // can receive events requested by another path, so check this path's own mask.
+            // Recursive paths also request CREATE and move events for bookkeeping; the
+            // configured event kinds filter those before delivery.
             let reported = (watched_paths.len() == 1 || reporters[&user_watch] == index)
                 && EventMask::from_bits_truncate(watch.watch_mask.bits())
-                    .contains(event.mask & (EventMask::MOVED_TO | EventMask::DELETE_SELF));
+                    .contains(event.mask & (EventMask::DELETE_SELF | EventMask::MOVE_SELF));
             let path = match event.name {
                 Some(name) => watched_path.join(name),
                 None => watched_path.clone(),
@@ -399,6 +412,7 @@ impl EventLoop {
             walk_barriers: HashSet::new(),
             paths: HashMap::new(),
             rename_events: Vec::new(),
+            pending_events: Vec::new(),
             follow_links: config.follow_symlinks(),
             event_kind_mask: config.event_kinds(),
         };
@@ -415,6 +429,11 @@ impl EventLoop {
     fn event_loop_thread(mut self) {
         let mut events = mio::Events::with_capacity(16);
         loop {
+            // A registration may have emptied the kernel queue. Process its buffered events
+            // before polling, even if there is no longer a readable notification.
+            while !self.pending_events.is_empty() {
+                self.handle_inotify();
+            }
             // Wait for something to happen.
             match self.poll.poll(&mut events, None) {
                 Err(ref e) if matches!(e.kind(), std::io::ErrorKind::Interrupted) => {
@@ -548,15 +567,24 @@ impl EventLoop {
         let mut add_watches = Vec::new();
         let mut remove_watches = BTreeMap::new();
         let mut moved_paths = HashSet::new();
+        let mut pending_events = std::mem::take(&mut self.pending_events);
 
         if let Some(ref mut inotify) = self.inotify {
             let mut buffer = [0; 1024];
             // Read all buffers available.
             loop {
-                match inotify.read_events(&mut buffer) {
+                match read_available_events(inotify, &mut buffer) {
                     Ok(events) => {
+                        let buffered_events = std::mem::take(&mut pending_events);
+                        let buffered_events =
+                            buffered_events.iter().map(|event| inotify_sys::Event {
+                                wd: event.wd.clone(),
+                                mask: event.mask,
+                                cookie: event.cookie,
+                                name: event.name.as_deref(),
+                            });
                         let mut num_events = 0;
-                        for event in events {
+                        for event in buffered_events.chain(events.into_iter().flatten()) {
                             log::trace!("inotify event: {event:?}");
 
                             num_events += 1;
@@ -837,12 +865,10 @@ impl EventLoop {
                             break;
                         }
                     }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // No events read. Break out.
-                        break;
-                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                     Err(e) => {
                         self.event_handler.handle_event(Err(Error::io(e)));
+                        break;
                     }
                 }
             }
@@ -851,14 +877,14 @@ impl EventLoop {
         // Moving a directory can leave dangling aliases of any of its descendants. Check all
         // shared descriptors with a path in a moved subtree. Unshared paths in those subtrees
         // are already covered by the recursive removals below.
-        // Aliases can lie outside the moved subtree, so each batch with moves scans the descriptor
-        // map and checks shared paths' ancestors. Batches without moves skip this work entirely.
-        if !moved_paths.is_empty() {
-            for paths in self.paths.values().filter(|paths| paths.len() > 1) {
-                if !paths.iter().any(|path| {
-                    path.ancestors()
-                        .any(|ancestor| moved_paths.contains(ancestor))
-                }) {
+        // Find descriptors through the affected subtrees, then check their aliases even when
+        // those aliases lie outside the moved subtrees. Check each shared descriptor once.
+        let mut checked_descriptors = HashSet::new();
+        for moved in &moved_paths {
+            for path in subtree(&self.watch_paths, moved) {
+                let descriptor = &self.watches[path].watch_descriptor;
+                let paths = &self.paths[descriptor];
+                if paths.len() == 1 || !checked_descriptors.insert(descriptor) {
                     continue;
                 }
                 for path in paths {
@@ -906,6 +932,27 @@ impl EventLoop {
                 }
             }
         }
+    }
+
+    /// Keep recursive registration from overflowing the kernel queue with its own access
+    /// events. Buffer native events without calling a possibly bounded user handler or
+    /// changing the watches while their directory walk is in progress.
+    fn buffer_inotify_events(&mut self) -> Result<()> {
+        if let Some(inotify) = self.inotify.as_mut() {
+            let mut buffer = [0; 4096];
+            loop {
+                match read_available_events(inotify, &mut buffer) {
+                    Ok(Some(events)) => {
+                        self.pending_events
+                            .extend(events.map(|event| event.to_owned()));
+                    }
+                    Ok(None) => break,
+                    Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(err) => return Err(Error::io(err)),
+                }
+            }
+        }
+        Ok(())
     }
 
     fn add_watch(
@@ -1128,6 +1175,9 @@ impl EventLoop {
                 }
             }
             watch_self = false;
+            if (index + 1) % 1024 == 0 {
+                self.buffer_inotify_events()?;
+            }
         }
 
         Ok(())
@@ -2832,7 +2882,8 @@ mod tests {
         assert_eq!(folders.len(), 2, "{folders:?}");
         assert_eq!(folders[1], folders[0].join("nested"));
 
-        // `IN_MOVE_SELF` reports the move of the directory itself, without a tracker.
+        // A directory below the watch root does not request `IN_MOVE_SELF`. Its parent reports
+        // the rename, so no `From` event without a tracker follows.
         std::fs::rename(root.join("real"), root.join("moved")).unwrap();
         let moved: Vec<_> = drain_events(&mut event_loop, &rx)
             .into_iter()
@@ -2843,7 +2894,7 @@ mod tests {
                 ) && event.tracker().is_none()
             })
             .collect();
-        assert_eq!(moved.len(), 1, "{moved:?}");
+        assert!(moved.is_empty(), "{moved:?}");
 
         // `link` still points to `real`, which no longer exists.
         std::fs::write(root.join("moved").join("file"), b"content").unwrap();
@@ -2856,11 +2907,10 @@ mod tests {
     }
 
     #[test]
-    fn a_path_without_moved_to_does_not_report_a_rename_into_a_shared_directory() {
+    fn name_only_mask_reports_renames_for_each_watch_of_a_shared_directory() {
         let (_tmp, outer, shared) = outer_with_a_link_to_shared();
         std::fs::write(shared.join("from"), b"content").unwrap();
-        // Without `EventKindMask::CREATE`, only the recursive walk of `outer` requests
-        // `IN_MOVED_TO` for `shared`.
+        // MODIFY_NAME requests both move events for recursive and non-recursive paths.
         let (tx, rx) = mpsc::channel();
         let inotify = super::inotify_sys::Inotify::init().unwrap();
         let config = Config::default().with_event_kinds(EventKindMask::MODIFY_NAME);
@@ -2874,7 +2924,7 @@ mod tests {
             .filter(|event| event.kind == EventKind::Modify(ModifyKind::Name(RenameMode::To)))
             .flat_map(|event| event.paths)
             .collect();
-        assert_eq!(renamed, [outer.join("link").join("to")]);
+        assert_eq!(renamed, [shared.join("to"), outer.join("link").join("to")]);
     }
 
     #[test]
@@ -2892,6 +2942,23 @@ mod tests {
             .flat_map(|event| event.paths)
             .collect();
         assert_eq!(removed, [shared]);
+    }
+
+    #[test]
+    fn a_path_without_move_self_does_not_report_the_move_of_a_shared_directory() {
+        let (tmp, outer, shared) = outer_with_a_link_to_shared();
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        // Only the user watch on `shared` requests `IN_MOVE_SELF`.
+        watch(&mut event_loop, &outer, recursive_watch());
+        watch(&mut event_loop, &shared, non_recursive_watch());
+
+        std::fs::rename(&shared, tmp.path().join("moved")).unwrap();
+        let moved: Vec<_> = drain_events(&mut event_loop, &rx)
+            .into_iter()
+            .filter(|event| event.kind == EventKind::Modify(ModifyKind::Name(RenameMode::From)))
+            .flat_map(|event| event.paths)
+            .collect();
+        assert_eq!(moved, [shared]);
     }
 
     #[test]
@@ -4067,9 +4134,12 @@ mod tests {
         rx.wait_ordered([expected(&link).remove_file()]);
     }
 
-    fn check_batch_with_bounded_event_handler(batch_size: usize) {
+    fn check_registration_with_bounded_event_handler(batch_size: Option<usize>) {
         let tmpdir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(tmpdir.path().join("child")).unwrap();
+        let directories = if batch_size.is_some() { 1 } else { 9000 };
+        for i in 0..directories {
+            std::fs::create_dir(tmpdir.path().join(i.to_string())).unwrap();
+        }
         let path = tmpdir.path().to_path_buf();
         let (events_tx, events_rx) = mpsc::sync_channel(1);
         let (finished_tx, finished_rx) = mpsc::channel();
@@ -4081,10 +4151,18 @@ mod tests {
                 Config::default(),
             )
             .unwrap();
-            let operations = (0..batch_size)
-                .map(|_| crate::PathOp::watch_recursive(&path))
-                .collect();
-            finished_tx.send(watcher.update_paths(operations)).unwrap();
+            let result = if let Some(batch_size) = batch_size {
+                let operations = (0..batch_size)
+                    .map(|_| crate::PathOp::watch_recursive(&path))
+                    .collect();
+                watcher
+                    .update_paths(operations)
+                    .map_err(|error| error.source)
+            } else {
+                watcher.watch(&path, RecursiveMode::Recursive)
+            };
+            // Keep the watcher alive until the caller has received an event.
+            finished_tx.send((result, watcher)).unwrap();
         });
 
         // The recursive scan produces access events without any concurrent file changes.
@@ -4096,7 +4174,8 @@ mod tests {
         worker.join().unwrap();
 
         result
-            .expect("batch must finish before events are consumed")
+            .expect("registration must finish before events are consumed")
+            .0
             .expect("watch paths");
         event
             .expect("deliver buffered event to the original handler")
@@ -4105,12 +4184,39 @@ mod tests {
 
     #[test]
     fn batch_reply_precedes_bounded_event_delivery() {
-        check_batch_with_bounded_event_handler(1);
+        check_registration_with_bounded_event_handler(Some(1));
     }
 
     #[test]
     fn large_batch_reply_precedes_bounded_event_delivery() {
-        check_batch_with_bounded_event_handler(1025);
+        check_registration_with_bounded_event_handler(Some(1025));
+    }
+
+    #[test]
+    fn large_recursive_watch_reply_precedes_bounded_event_delivery() {
+        check_registration_with_bounded_event_handler(None);
+    }
+
+    #[test]
+    fn buffered_events_are_delivered_without_further_activity() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (mut event_loop, rx) = test_event_loop_with_events();
+        watch(&mut event_loop, tmp.path(), non_recursive_watch());
+        std::fs::write(tmp.path().join("file"), b"content").unwrap();
+        // As a large registration does, empty the kernel queue: nothing is left to poll.
+        event_loop.buffer_inotify_events().unwrap();
+        assert!(!event_loop.pending_events.is_empty());
+
+        let channel = event_loop.event_loop_tx.clone();
+        let waker = event_loop.event_loop_waker.clone();
+        event_loop.run();
+        let event = rx.recv_timeout(Duration::from_secs(2));
+        channel.send(super::EventLoopMsg::Shutdown).unwrap();
+        waker.wake().unwrap();
+        assert_eq!(
+            event.expect("buffered event").unwrap().kind,
+            EventKind::Create(CreateKind::File)
+        );
     }
 
     #[test]
@@ -4253,6 +4359,38 @@ mod tests {
             expected([path, new_path]).rename_both(),
         ])
         .ensure_trackers_len(1);
+    }
+
+    /// The parent reports the rename of a subdirectory. The subdirectory does not request
+    /// IN_MOVE_SELF, so no rename_from without a tracker follows.
+    #[test]
+    fn rename_dir_is_reported_only_by_its_parent() {
+        let tmpdir = testdir();
+        let (mut watcher, mut rx) = channel_with_config::<INotifyWatcher>(
+            ChannelConfig::default()
+                .with_timeout(std::time::Duration::from_secs(1))
+                .with_watcher_config(Config::default().with_event_kinds(EventKindMask::CORE)),
+        );
+
+        let path = tmpdir.path().join("entry");
+        let new_path = tmpdir.path().join("new_path");
+        std::fs::create_dir(&path).expect("create_dir");
+
+        watcher.watch_recursively(&tmpdir);
+
+        std::fs::rename(&path, &new_path).expect("rename");
+
+        rx.wait_ordered_exact([
+            expected(&path).rename_from(),
+            expected(&new_path).rename_to(),
+            expected([path, new_path]).rename_both(),
+        ])
+        .ensure_trackers_len(1)
+        .ensure_no_tail();
+        assert!(matches!(
+            rx.try_recv(),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
     }
 
     #[test]
@@ -4727,6 +4865,137 @@ mod tests {
     // EventKindMask filtering tests
     // ============================================================
 
+    #[test]
+    fn event_kind_mask_name_only_reports_child_renames() {
+        for recursive_mode in [RecursiveMode::NonRecursive, RecursiveMode::Recursive] {
+            for is_dir in [false, true] {
+                let tmp = tempfile::tempdir().unwrap();
+                let from = tmp.path().join("from");
+                let to = tmp.path().join("to");
+                if is_dir {
+                    std::fs::create_dir(&from).unwrap();
+                } else {
+                    std::fs::write(&from, b"content").unwrap();
+                }
+                let (tx, rx) = mpsc::channel();
+                let config = Config::default().with_event_kinds(EventKindMask::MODIFY_NAME);
+                let mut event_loop = EventLoop::new(
+                    super::inotify_sys::Inotify::init().unwrap(),
+                    Box::new(tx),
+                    &config,
+                )
+                .unwrap();
+                watch(
+                    &mut event_loop,
+                    tmp.path(),
+                    WatchPathConfig::new(recursive_mode),
+                );
+
+                std::fs::rename(&from, &to).unwrap();
+                event_loop.handle_inotify();
+                let events: Vec<_> = rx.try_iter().map(Result::unwrap).collect();
+                assert_eq!(
+                    events.len(),
+                    3,
+                    "{recursive_mode:?}, is_dir={is_dir}: {events:?}"
+                );
+                let tracker = events[0].tracker().expect("rename cookie");
+                assert_eq!(
+                    events,
+                    [
+                        Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
+                            .add_path(from.clone())
+                            .set_tracker(tracker),
+                        Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::To)))
+                            .add_path(to.clone())
+                            .set_tracker(tracker),
+                        Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+                            .add_path(from)
+                            .add_path(to)
+                            .set_tracker(tracker),
+                    ]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn recursive_watch_removes_moved_out_subdirs_without_remove_mask() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let child = root.join("child");
+        let moved = tmp.path().join("moved");
+        std::fs::create_dir_all(child.join("nested")).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let config = Config::default().with_event_kinds(EventKindMask::MODIFY_DATA);
+        let mut event_loop = EventLoop::new(
+            super::inotify_sys::Inotify::init().unwrap(),
+            Box::new(tx),
+            &config,
+        )
+        .unwrap();
+        watch(&mut event_loop, &root, recursive_watch());
+
+        std::fs::rename(&child, &moved).unwrap();
+        event_loop.handle_inotify();
+        assert_eq!(
+            event_loop.watches.len(),
+            1,
+            "only the root should remain watched"
+        );
+        assert!(
+            rx.try_iter().next().is_none(),
+            "rename events must be filtered"
+        );
+
+        std::fs::write(moved.join("nested/file"), b"outside").unwrap();
+        event_loop.handle_inotify();
+        assert!(
+            rx.try_iter().next().is_none(),
+            "moved-out files must not be reported"
+        );
+
+        let file = root.join("file");
+        std::fs::write(&file, b"inside").unwrap();
+        event_loop.handle_inotify();
+        assert_eq!(
+            rx.try_iter().map(Result::unwrap).collect::<Vec<_>>(),
+            [Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any))).add_path(file)]
+        );
+    }
+
+    #[test]
+    fn recursive_watch_does_not_overflow_on_its_own_access_events() {
+        let tmp = tempfile::tempdir().unwrap();
+        // A default Linux queue holds 16,384 events. Each child directory produces an
+        // OPEN for itself and for its parent; ALL also produces both CLOSE_NOWRITEs.
+        let directories = 9000;
+        for i in 0..directories {
+            std::fs::create_dir(tmp.path().join(i.to_string())).unwrap();
+        }
+        for mask in [Config::default().event_kinds(), EventKindMask::ALL] {
+            let (tx, rx) = mpsc::channel();
+            let mut event_loop = EventLoop::new(
+                super::inotify_sys::Inotify::init().unwrap(),
+                Box::new(tx),
+                &Config::default().with_event_kinds(mask),
+            )
+            .unwrap();
+            watch(&mut event_loop, tmp.path(), recursive_watch());
+            event_loop.handle_inotify();
+            let events: Vec<_> = rx.try_iter().map(Result::unwrap).collect();
+            let rescans = events.iter().filter(|event| event.need_rescan()).count();
+            assert_eq!(rescans, 0, "the watch's own scan must not overflow");
+            let opens = 2 * directories + 1;
+            let expected = if mask == EventKindMask::ALL {
+                2 * opens
+            } else {
+                opens
+            };
+            assert_eq!(events.len(), expected);
+        }
+    }
+
     /// Test that CORE config does not produce Access events.
     #[test]
     fn event_kind_mask_core_config_no_access_events() {
@@ -4745,6 +5014,37 @@ mod tests {
         // With CORE config, we should only get create event, no access events
         rx.wait_ordered_exact([expected(&path).create_file()])
             .ensure_no_tail();
+    }
+
+    /// Reading a file produces only Open by default; closing a writable file still reports Close(Write).
+    #[test]
+    fn event_kind_mask_default_config_preserves_v8_access_events() {
+        let tmpdir = testdir();
+        let path = tmpdir.path().join("entry");
+        std::fs::write(&path, b"123").expect("write");
+        let (mut watcher, mut rx) = channel_with_config::<INotifyWatcher>(
+            ChannelConfig::default().with_timeout(std::time::Duration::from_secs(1)),
+        );
+        watcher.watch_nonrecursively(&tmpdir);
+
+        std::fs::read(&path).expect("read");
+
+        rx.wait_ordered_exact([expected(&path).access_open_any()])
+            .ensure_no_tail();
+        assert!(matches!(
+            rx.try_recv(),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .expect("open for writing");
+        rx.wait_ordered_exact([
+            expected(&path).access_open_any(),
+            expected(&path).access_close_write(),
+        ])
+        .ensure_no_tail();
     }
 
     /// Test that EventKindMask::ALL config produces Access events.
@@ -4801,7 +5101,8 @@ mod tests {
         assert!(watch_mask.intersects(WatchMask::MOVED_FROM));
         assert!(watch_mask.intersects(WatchMask::MODIFY));
         assert!(watch_mask.intersects(WatchMask::ATTRIB));
-        assert!(watch_mask.intersects(WatchMask::MOVE_SELF));
+        // Only the path of a user watch requests MOVE_SELF
+        assert!(!watch_mask.intersects(WatchMask::MOVE_SELF));
 
         // CORE does NOT include ACCESS (OPEN, CLOSE_WRITE, CLOSE_NOWRITE)
         // Note: CLOSE_WRITE generates Access events, not Modify events
@@ -4867,25 +5168,28 @@ mod tests {
     }
 
     #[test]
-    fn event_kind_mask_to_watch_mask_recursive_includes_create() {
+    fn event_kind_mask_to_watch_mask_recursive_tracks_directory_changes() {
         use super::event_kind_mask_to_watch_mask;
 
-        // Recursive mode includes CREATE|MOVED_TO even without CREATE in mask
+        // Recursive bookkeeping requires CREATE and both move events regardless of the mask.
         let watch_mask = event_kind_mask_to_watch_mask(EventKindMask::MODIFY_DATA, true);
         assert!(watch_mask.intersects(WatchMask::CREATE));
         assert!(watch_mask.intersects(WatchMask::MOVED_TO));
+        assert!(watch_mask.intersects(WatchMask::MOVED_FROM));
         assert!(watch_mask.intersects(WatchMask::MODIFY));
 
-        // Empty mask with recursive still includes CREATE|MOVED_TO
+        // An empty mask still maintains the recursive watches.
         let watch_mask = event_kind_mask_to_watch_mask(EventKindMask::empty(), true);
         assert!(watch_mask.intersects(WatchMask::CREATE));
         assert!(watch_mask.intersects(WatchMask::MOVED_TO));
+        assert!(watch_mask.intersects(WatchMask::MOVED_FROM));
         assert!(!watch_mask.intersects(WatchMask::MODIFY));
 
         // Non-recursive mode does not include CREATE when not requested
         let watch_mask = event_kind_mask_to_watch_mask(EventKindMask::MODIFY_DATA, false);
         assert!(!watch_mask.intersects(WatchMask::CREATE));
         assert!(!watch_mask.intersects(WatchMask::MOVED_TO));
+        assert!(!watch_mask.intersects(WatchMask::MOVED_FROM));
         assert!(watch_mask.intersects(WatchMask::MODIFY));
     }
 

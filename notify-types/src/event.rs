@@ -298,7 +298,8 @@ bitflags! {
     /// // Monitor everything including access events
     /// let all = EventKindMask::ALL;
     ///
-    /// // Default: includes all events (matches Config::default())
+    /// // The mask defaults to all events, including ACCESS_CLOSE_NOWRITE.
+    /// // notify's Config::default() excludes ACCESS_CLOSE_NOWRITE.
     /// let default = EventKindMask::default();
     /// assert_eq!(default, EventKindMask::ALL);
     /// ```
@@ -342,7 +343,8 @@ bitflags! {
         const CORE = Self::CREATE.bits() | Self::REMOVE.bits() | Self::ALL_MODIFY.bits();
 
         /// All events including access events.
-        /// This is the default.
+        /// This is the default for `EventKindMask`; notify's `Config` excludes
+        /// `ACCESS_CLOSE_NOWRITE` by default.
         const ALL = Self::CORE.bits() | Self::ALL_ACCESS.bits();
     }
 }

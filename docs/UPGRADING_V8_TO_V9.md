@@ -314,7 +314,16 @@ use notify::{Config, EventKindMask};
 let config = Config::default().with_event_kinds(EventKindMask::CORE);
 ```
 
-No migration is required unless you want filtering.
+The default `Config` mask is `CORE | ACCESS_OPEN | ACCESS_CLOSE`, which reports the same event
+kinds as v8, so no migration is required unless you want filtering.
+`EventKindMask::default()` remains `ALL`; passing it explicitly also enables `ACCESS_CLOSE_NOWRITE`.
+
+`EventKindMask::ALL` adds `ACCESS_CLOSE_NOWRITE`, which v8 never reported: inotify then emits
+`Access(Close(Read))` when a file or directory opened without write access is closed.
+Recursive registration itself generates directory access events: `Open` with the default mask,
+and both `Open` and `Close(Read)` with `ALL`. Large walks periodically drain the inotify queue
+and buffer these events until registration completes. Use `CORE` to avoid this event volume,
+or `CORE | ACCESS_CLOSE` to keep close-after-write notifications.
 
 ### Per-watch settings and user data
 

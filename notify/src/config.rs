@@ -160,8 +160,12 @@ impl Config {
     /// performance. On other backends (kqueue, Windows, FSEvents, PollWatcher),
     /// filtering is applied in userspace.
     ///
-    /// The default is [`EventKindMask::ALL`], which includes all events.
-    /// Use [`EventKindMask::CORE`] to exclude access events.
+    /// The default is `CORE | ACCESS_OPEN | ACCESS_CLOSE`, the events that notify v8 reported.
+    /// [`EventKindMask::ALL`] (also `EventKindMask::default()`) adds `ACCESS_CLOSE_NOWRITE`,
+    /// which reports closing a file or directory that was opened without write access.
+    /// Recursive registration itself generates access events as it reads directories.
+    /// Use [`EventKindMask::CORE`] to exclude access events, or `CORE | ACCESS_CLOSE`
+    /// to keep close-after-write notifications without these directory access events.
     ///
     /// This can't be changed during runtime.
     ///
@@ -265,7 +269,9 @@ impl Default for Config {
             poll_interval: Some(Duration::from_secs(30)),
             compare_contents: false,
             follow_symlinks: true,
-            event_kinds: EventKindMask::ALL,
+            event_kinds: EventKindMask::CORE
+                | EventKindMask::ACCESS_OPEN
+                | EventKindMask::ACCESS_CLOSE,
             windows_path_separator_style: WindowsPathSeparatorStyle::Auto,
             windows_extended_information: false,
             fsevent_latency: Duration::ZERO,
@@ -418,9 +424,12 @@ mod tests {
     use notify_types::event::EventKindMask;
 
     #[test]
-    fn config_default_event_kinds_is_all() {
+    fn config_default_event_kinds_excludes_close_nowrite() {
         let config = Config::default();
-        assert_eq!(config.event_kinds(), EventKindMask::ALL);
+        assert_eq!(
+            config.event_kinds(),
+            EventKindMask::ALL - EventKindMask::ACCESS_CLOSE_NOWRITE
+        );
     }
 
     #[test]
@@ -440,13 +449,6 @@ mod tests {
     fn config_with_empty_mask() {
         let config = Config::default().with_event_kinds(EventKindMask::empty());
         assert!(config.event_kinds().is_empty());
-    }
-
-    #[test]
-    fn event_kind_mask_default_matches_config_default() {
-        // Verify cross-crate consistency: both defaults should be ALL
-        assert_eq!(EventKindMask::default(), Config::default().event_kinds());
-        assert_eq!(EventKindMask::default(), EventKindMask::ALL);
     }
 
     #[test]
