@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- FIX: [inotify, kqueue] retry incomplete recursive watches on repeated `watch()` calls; inotify follows replaced paths, and kqueue processes pending rename/delete events before rewatching
+
 ## notify 9.0.0-rc.8 (2026-11-09)
 
 - CHANGE: raise MSRV from 1.88 to 1.91

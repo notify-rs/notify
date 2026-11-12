@@ -171,6 +171,10 @@ impl EventLoop {
         while let Ok(msg) = self.event_loop_rx.try_recv() {
             match msg {
                 EventLoopMsg::AddWatch(path, recursive_mode, tx) => {
+                    // The watch of a renamed or removed file ends when its event is handled.
+                    // Handle the pending events first: a watch that is about to end would
+                    // otherwise make the request skip the file that its path names now.
+                    self.handle_kqueue();
                     let _ = tx.send(self.add_watch(path, recursive_mode.is_recursive(), true));
                 }
                 EventLoopMsg::RemoveWatch(path, tx) => {
@@ -522,6 +526,9 @@ impl EventLoop {
             }
         };
         let requested_is_recursive = is_recursive && path_is_dir;
+        // Registration passes every watch to the kernel again, so only a new descriptor asks for
+        // it. A path that is already watched keeps its descriptor and adds no entry.
+        let mut watch_count = self.watches.len();
         if is_user_watch {
             if let Some(watch) = self
                 .watches
@@ -531,6 +538,8 @@ impl EventLoop {
                 if watch.user_is_recursive == requested_is_recursive
                     && watch.reported_path == path.requested
                 {
+                    // The same request again keeps the watches, and the walk below adds the
+                    // entries that an earlier walk could not watch.
                     if watch.user_data != path.user_data {
                         let preserved_roots =
                             preserved_watch_roots(&path.absolute, false, self.watches.iter());
@@ -542,29 +551,30 @@ impl EventLoop {
                             self.watches.iter_mut(),
                         );
                     }
-                    return Ok(false);
-                }
+                } else {
+                    // Rewatching an explicit user watch replaces its requested mode and reported
+                    // path instead of merging with the previous metadata. If the current entry
+                    // also carries recursive coverage from an ancestor, remember that ancestor
+                    // before removal so we can rebuild that inherited coverage below.
+                    let inherited_recursive_root =
+                        if !requested_is_recursive && path_is_dir && watch.is_recursive {
+                            recursive_user_watch_ancestor(&path.absolute, |ancestor| {
+                                self.watches.get(ancestor)
+                            })
+                        } else {
+                            None
+                        };
+                    let replaced_path = path.absolute.clone();
+                    self.remove_watch(replaced_path.clone(), false)?;
+                    // The watches that are added again below have new descriptors.
+                    watch_count = self.watches.len();
 
-                // Rewatching an explicit user watch replaces its requested mode and reported path
-                // instead of merging with the previous metadata. If the current entry also carries
-                // recursive coverage from an ancestor, remember that ancestor before removal so we
-                // can rebuild that inherited coverage below.
-                let inherited_recursive_root =
-                    if !requested_is_recursive && path_is_dir && watch.is_recursive {
-                        recursive_user_watch_ancestor(&path.absolute, |ancestor| {
-                            self.watches.get(ancestor)
-                        })
-                    } else {
-                        None
-                    };
-                let replaced_path = path.absolute.clone();
-                self.remove_watch(replaced_path.clone(), false)?;
-
-                if let Some(ancestor) = inherited_recursive_root {
-                    // Removing a directory watch removes its recursively inherited children too.
-                    // Re-add them as non-user watches so the ancestor recursive watch still covers
-                    // this subtree after the user watch is replaced.
-                    self.add_recursive_watch(ancestor.child(replaced_path), false, errors)?;
+                    if let Some(ancestor) = inherited_recursive_root {
+                        // Removing a directory watch removes its recursively inherited children
+                        // too. Re-add them as non-user watches so the ancestor recursive watch
+                        // still covers this subtree after the user watch is replaced.
+                        self.add_recursive_watch(ancestor.child(replaced_path), false, errors)?;
+                    }
                 }
             }
         }
@@ -580,7 +590,7 @@ impl EventLoop {
             self.add_recursive_watch(path, is_user_watch, errors)?;
         }
 
-        Ok(true)
+        Ok(self.watches.len() > watch_count)
     }
 
     fn add_recursive_watch(
@@ -690,15 +700,20 @@ impl EventLoop {
             | FilterFlag::NOTE_RENAME
             | FilterFlag::NOTE_REVOKE;
 
-        log::trace!("adding kqueue watch: {}", path.absolute.display());
+        // A watched path keeps its descriptor. `add_filename` would open the path again and close
+        // the old descriptor, which drops its pending events, and the new descriptor reports
+        // nothing until the caller registers it.
+        if existing_watch.is_none() {
+            log::trace!("adding kqueue watch: {}", path.absolute.display());
 
-        self.kqueue
-            .add_filename(&path.absolute, event_filter, filter_flags)
-            .map_err(|e| {
-                map_kqueue_io_error(e)
-                    .add_path(path.requested.clone())
-                    .set_user_data_opt(user_data)
-            })?;
+            self.kqueue
+                .add_filename(&path.absolute, event_filter, filter_flags)
+                .map_err(|e| {
+                    map_kqueue_io_error(e)
+                        .add_path(path.requested.clone())
+                        .set_user_data_opt(user_data)
+                })?;
+        }
         let watch = Watch::new(&path, is_recursive, is_user_watch, existing_watch);
         self.watches.insert(path.absolute, watch);
 
@@ -925,7 +940,7 @@ mod tests {
     }
 
     #[test]
-    fn user_data_only_changes_do_not_require_os_registration() {
+    fn rewatching_updates_user_data_and_adds_untracked_entries() {
         let dir = testdir();
         let root = dir.path();
         for path in ["flat/deep", "nested/deep"] {
@@ -950,9 +965,10 @@ mod tests {
             )
             .unwrap();
         let watch_count = event_loop.watches.len();
+        // No event was handled for this entry, so only the walk of a rewatch finds it.
         std::fs::create_dir(root.join("pending")).unwrap();
         let mut errors = WatchErrors::default();
-        for value in [Some(42), None] {
+        for (value, adds_entry) in [(Some(42), true), (None, false)] {
             let needs_registration = event_loop
                 .add_watch_entries(
                     WatchPath::new(root, value).unwrap(),
@@ -961,8 +977,10 @@ mod tests {
                     &mut errors,
                 )
                 .unwrap();
-            assert!(!needs_registration);
-            assert_eq!(event_loop.watches.len(), watch_count);
+            // Only a new entry has a descriptor to register.
+            assert_eq!(needs_registration, adds_entry);
+            assert_eq!(event_loop.watches.len(), watch_count + 1);
+            assert_eq!(event_loop.watches[&root.join("pending")].user_data, value);
             assert_eq!(event_loop.watches[root].user_data, value);
             assert_eq!(event_loop.watches[&root.join("flat")].user_data, Some(2));
             assert_eq!(event_loop.watches[&root.join("flat/deep")].user_data, value);
@@ -981,6 +999,7 @@ mod tests {
                 )
                 .unwrap()
         );
+        assert_eq!(event_loop.watches[&root.join("flat")].user_data, Some(7));
         assert_eq!(event_loop.watches[&root.join("flat/deep")].user_data, None);
     }
 
@@ -1774,6 +1793,35 @@ mod tests {
         assert!(!event_loop.watches.contains_key(&child));
 
         Ok(())
+    }
+
+    /// The rename event of a replaced directory can still be pending when its path is watched
+    /// again.
+    #[test]
+    fn rewatching_a_replaced_directory_drops_the_watches_of_the_old_tree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let logs = tmp.path().join("logs");
+        std::fs::create_dir_all(logs.join("old")).unwrap();
+        let (mut event_loop, _events) = recording_event_loop();
+        let watch = |event_loop: &mut EventLoop| {
+            let (tx, rx) = crate::unbounded();
+            let message = EventLoopMsg::AddWatch(
+                WatchPath::new(&logs, None).unwrap(),
+                RecursiveMode::Recursive,
+                tx,
+            );
+            assert!(event_loop.event_loop_tx.send(message).is_ok());
+            event_loop.handle_messages();
+            rx.recv().unwrap().unwrap();
+        };
+        watch(&mut event_loop);
+        std::fs::rename(&logs, tmp.path().join("logs.1")).unwrap();
+        std::fs::create_dir_all(logs.join("new")).unwrap();
+        watch(&mut event_loop);
+
+        let mut watched: Vec<_> = event_loop.watches.keys().cloned().collect();
+        watched.sort();
+        assert_eq!(watched, [logs.clone(), logs.join("new")]);
     }
 
     #[test]
