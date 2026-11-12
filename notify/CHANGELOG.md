@@ -2,6 +2,7 @@
 
 ## unreleased
 
+- PERF: [inotify, kqueue] stop scanning every watch when a watched path is removed, renamed, or unwatched; the cost now depends on the size of its subtree
 - FIX: [inotify, kqueue] retry incomplete recursive watches on repeated `watch()` calls; inotify follows replaced paths, and kqueue processes pending rename/delete events before rewatching
 
 ## notify 9.0.0-rc.8 (2026-11-09)
