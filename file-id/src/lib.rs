@@ -7,6 +7,10 @@
 //!
 //! Keep in mind though, that IDs may be re-used at some point.
 //!
+//! [`get_file_id`] follows symlinks (and reparse points on Windows), so a symlink reports the ID of its target.
+//! Use [`get_file_id_no_follow`] to get the ID of the link itself, or [`get_file_id_from_file`]
+//! to get the ID from an open file.
+//!
 //! ## Example
 //!
 //! ```
@@ -35,6 +39,16 @@
 //!
 //! // Get file ID without following symlinks
 //! let file_id = file_id::get_file_id_no_follow(file.path()).unwrap();
+//! println!("{file_id:?}");
+//! ```
+//!
+//! ## Example (From an Open File)
+//!
+//! ```
+//! let file = tempfile::tempfile().unwrap();
+//!
+//! // Read the ID from the open file
+//! let file_id = file_id::get_file_id_from_file(&file).unwrap();
 //! println!("{file_id:?}");
 //! ```
 #[cfg(any(unix, windows))]
@@ -127,6 +141,9 @@ impl AsRef<FileId> for FileId {
 }
 
 /// Get the `FileId` for the file or directory at `path`
+///
+/// Follows symlinks and returns the target's ID.
+/// See [`get_file_id_no_follow`] for the ID of the link itself.
 #[cfg(target_family = "unix")]
 pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     use std::os::unix::fs::MetadataExt;
@@ -147,19 +164,49 @@ pub fn get_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
 }
 
 /// Get the `FileId` for the file or directory at `path`
+///
+/// Follows symlinks and other reparse points and returns the target's ID.
+/// See [`get_file_id_no_follow`] for the ID of the link itself.
+///
+/// Tries the high resolution variant first and falls back to the low resolution variant.
 #[cfg(target_family = "windows")]
 pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
-    let file = open_file(path)?;
-
-    get_file_info_ex(&file).or_else(|_| get_file_info(&file))
+    get_file_id_from_file(&open_file(path)?)
 }
 
 /// Get the `FileId` for the file or directory at `path` without following symlinks/reparse points
+///
+/// Tries the high resolution variant first and falls back to the low resolution variant.
 #[cfg(target_family = "windows")]
 pub fn get_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
-    let file = open_file_no_follow(path)?;
+    get_file_id_from_file(&open_file_no_follow(path)?)
+}
 
-    get_file_info_ex(&file).or_else(|_| get_file_info(&file))
+/// Get the `FileId` for an already opened `file`
+///
+/// Returns the ID of the file referenced by the handle.
+/// Whether links were followed depends on how the caller opened the file.
+/// The ID remains available if the file is renamed after opening.
+#[cfg(target_family = "unix")]
+pub fn get_file_id_from_file(file: &fs::File) -> io::Result<FileId> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = file.metadata()?;
+
+    Ok(FileId::new_inode(metadata.dev(), metadata.ino()))
+}
+
+/// Get the `FileId` for an already opened `file`
+///
+/// Returns the ID of the file referenced by the handle.
+/// Whether reparse points were followed depends on how the caller opened the file
+/// (e.g. with `FILE_FLAG_OPEN_REPARSE_POINT`).
+/// The ID remains available if the file is renamed after opening.
+///
+/// Tries the high resolution variant first and falls back to the low resolution variant.
+#[cfg(target_family = "windows")]
+pub fn get_file_id_from_file(file: &fs::File) -> io::Result<FileId> {
+    get_file_info_ex(file).or_else(|_| get_file_info(file))
 }
 
 /// Get the `FileId` with the low resolution variant for the file or directory at `path`
