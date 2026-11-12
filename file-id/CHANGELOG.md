@@ -5,7 +5,7 @@
 - CHANGE: raise MSRV to 1.91
 - CHANGE: add `#[must_use]` annotations to `FileId` constructors
 - FEATURE: add `get_file_id_no_follow` (plus `get_low_res_file_id_no_follow` and `get_high_res_file_id_no_follow` on Windows) to get the ID of a symlink or reparse point itself instead of its target [#716]
-- FEATURE: add `get_file_id_from_file` to get the ID from an already opened file
+- FEATURE: add `get_file_id_from_file` (plus `get_low_res_file_id_from_file` and `get_high_res_file_id_from_file` on Windows) to get the ID from an already opened file
 
 [#716]: https://github.com/notify-rs/notify/pull/716
 

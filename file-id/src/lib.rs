@@ -222,6 +222,8 @@ pub fn get_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
 /// On Windows, whether reparse points were followed depends on whether the caller
 /// opened the file with `FILE_FLAG_OPEN_REPARSE_POINT`. Tries the high resolution
 /// variant first and falls back to the low resolution variant if that query fails.
+/// Use [`get_low_res_file_id_from_file`] or [`get_high_res_file_id_from_file`]
+/// to request a specific resolution on Windows.
 #[cfg(any(unix, windows, doc))]
 pub fn get_file_id_from_file(file: &fs::File) -> io::Result<FileId> {
     #[cfg(unix)]
@@ -272,6 +274,25 @@ pub fn get_low_res_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileI
     }
 }
 
+/// Returns the [`FileId::LowRes`] of an open file.
+///
+/// Available on Windows only.
+///
+/// Returns the ID of the file referenced by the handle.
+/// Whether symlinks or other reparse points were followed depends on whether the
+/// caller opened the file with `FILE_FLAG_OPEN_REPARSE_POINT`.
+/// The ID remains available if the file is renamed after opening.
+///
+/// See [`get_file_id_from_file`] to try high resolution first with a low resolution fallback.
+#[cfg(any(windows, doc))]
+#[cfg_attr(docsrs, doc(cfg(windows)))]
+pub fn get_low_res_file_id_from_file(file: &fs::File) -> io::Result<FileId> {
+    #[cfg(windows)]
+    {
+        get_file_info(file)
+    }
+}
+
 /// Returns the [`FileId::HighRes`] of the file or directory at `path`.
 ///
 /// Available on Windows only.
@@ -307,6 +328,26 @@ pub fn get_high_res_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<File
         let file = open_file_no_follow(path)?;
 
         get_file_info_ex(&file)
+    }
+}
+
+/// Returns the [`FileId::HighRes`] of an open file.
+///
+/// Available on Windows only.
+///
+/// Returns the ID of the file referenced by the handle.
+/// Whether symlinks or other reparse points were followed depends on whether the
+/// caller opened the file with `FILE_FLAG_OPEN_REPARSE_POINT`.
+/// The ID remains available if the file is renamed after opening.
+///
+/// Returns an error if the high resolution query fails; does not fall back to low resolution.
+/// See [`get_file_id_from_file`] for automatic fallback.
+#[cfg(any(windows, doc))]
+#[cfg_attr(docsrs, doc(cfg(windows)))]
+pub fn get_high_res_file_id_from_file(file: &fs::File) -> io::Result<FileId> {
+    #[cfg(windows)]
+    {
+        get_file_info_ex(file)
     }
 }
 
