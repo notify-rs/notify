@@ -3,6 +3,8 @@
 ## unreleased
 
 - CHANGE: exclude `ACCESS_CLOSE_NOWRITE` from `Config::default()`, restoring v8's default event kinds. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-kind-filtering-was-added)
+- CHANGE: [poll] report file content changes as `Modify(Data(Any))` instead of `Modify(Metadata(WriteTime))`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-details-and-rescan-notifications)
+- FIX: [poll] detect file changes when size changes or modification time moves backwards
 - FIX: [inotify] avoid extra rename events without a tracker for subdirectories of recursive watches
 - FIX: [inotify] report renames with `MODIFY_NAME` alone; stop watching directories moved outside recursive roots even when rename events are filtered
 - FIX: [inotify] prevent large recursive registrations from overflowing the default inotify queue with directory access events

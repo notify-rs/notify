@@ -113,16 +113,16 @@ impl Config {
         self
     }
 
-    /// For the [`PollWatcher`](crate::PollWatcher) backend.
+    /// Compare file contents for [`PollWatcher`](crate::PollWatcher).
     ///
-    /// Optional feature that will evaluate the contents of changed files to determine if
-    /// they have indeed changed using a fast hashing algorithm.  This is especially important
-    /// for pseudo filesystems like those on Linux under /sys and /proc which are not obligated
-    /// to respect any other filesystem norms such as modification timestamps, file sizes, etc.
-    /// By enabling this feature, performance will be significantly impacted as all files will
-    /// need to be read and hashed at each `poll_interval`.
+    /// When enabled, each scan reads and hashes every regular file, increasing I/O and CPU usage.
+    /// Content changes produce `Modify(Data(Any))`; modification time changes with identical
+    /// contents produce `Modify(Metadata(WriteTime))`.
     ///
-    /// This can't be changed during runtime. Off by default.
+    /// Without it, changes to a regular file's size or modification time produce `Modify(Data(Any))`,
+    /// including `touch`. Changes preserving both go undetected, as can happen on `/proc` and `/sys`.
+    ///
+    /// Disabled by default; cannot be changed at runtime.
     #[must_use]
     pub fn with_compare_contents(mut self, compare_contents: bool) -> Self {
         self.compare_contents = compare_contents;

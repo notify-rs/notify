@@ -1,6 +1,5 @@
-// The mtime-vs-content event-kind distinction this test asserts is validated against Linux
-// filesystem semantics. On macOS (APFS) a same-content rewrite with a fresh mtime is reported as
-// `Modify(Data)` rather than `Modify(Metadata(WriteTime))`, so the test is Linux-only.
+// The mtime-vs-content event-kind distinction this test asserts has only been verified on Linux,
+// so the test is Linux-only.
 #![cfg(target_os = "linux")]
 use nix::sys::stat::futimens;
 use std::fs::{File, OpenOptions};
@@ -28,7 +27,7 @@ fn test_poll_watcher_distinguish_modify_kind() {
     harness.write_file(&testfile, "data1");
     harness.expect_recv(
         &testfile,
-        EventKind::Modify(ModifyKind::Metadata(MetadataKind::WriteTime)),
+        EventKind::Modify(ModifyKind::Data(DataChange::Any)),
     );
     harness.advance_clock();
 
@@ -57,8 +56,8 @@ impl TestHarness {
         let tempdir = tempfile::tempdir().unwrap();
 
         // Manual polling: `write_file_keep_time` restores the write time in a second syscall
-        // after the write, and a background scan landing in between would see the new content
-        // with a new write time and report `Metadata(WriteTime)` instead of `Data`.
+        // after the write, and a background scan landing in between would report the write
+        // and the restored write time as two events.
         let config = Config::default()
             .with_compare_contents(true)
             .with_manual_polling();

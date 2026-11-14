@@ -293,6 +293,11 @@ A non-recursive kqueue directory watch reports changes on the directory itself, 
 identifying the affected child. It no longer attributes those notifications to arbitrary
 existing children. Watch individual files or use a recursive watch when you need their changes.
 
+For `PollWatcher`, match `Modify(Data(_))` for file writes previously reported as
+`Modify(Metadata(WriteTime))`. Timestamp changes still produce `Modify(Metadata(WriteTime))`
+for directories and symlinks, or when `Config::with_compare_contents(true)` confirms unchanged
+file contents.
+
 FSEvents now reports renames, moves, or deletions of stream roots or their ancestors as
 `Remove` or `Modify(Name(RenameMode::From))` events with `info = "root changed"`.
 Overlapping recursive watches on the same volume can share a stream root, so covered

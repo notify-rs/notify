@@ -393,6 +393,9 @@ mod data {
         /// File updated time in nanoseconds since the Unix epoch.
         mtime: i128,
 
+        /// Size in bytes, only available for regular files.
+        size: Option<u64>,
+
         /// Content's hash value, only available if user request compare file
         /// contents and read successful.
         hash: Option<u64>,
@@ -405,19 +408,18 @@ mod data {
         /// Create a new `PathData`.
         fn new(data_builder: &DataBuilder, meta_path: &MetaPath) -> PathData {
             let metadata = meta_path.metadata();
-            let compare_contents = data_builder.compare_contents && metadata.is_file();
+            let is_file = metadata.is_file();
             let mut mtime = metadata.modified().map_or(0, system_time_to_nanos);
-            if metadata.is_dir() || compare_contents {
+            if metadata.is_dir() {
                 // Child changes update directory mtimes. Preserve the existing second precision for
                 // directories to avoid emitting a redundant directory event for every file event.
-                // Files with content comparison also retain second precision so changes keep their
-                // existing event classification.
                 mtime = mtime / NANOS_PER_SECOND * NANOS_PER_SECOND;
             }
 
             PathData {
                 mtime,
-                hash: if compare_contents {
+                size: is_file.then_some(metadata.len()),
+                hash: if is_file && data_builder.compare_contents {
                     content_hash(meta_path.path()).ok()
                 } else {
                     None
@@ -430,14 +432,22 @@ mod data {
         fn compare_to_kind(old: Option<&PathData>, new: Option<&PathData>) -> Option<EventKind> {
             match (old, new) {
                 (Some(old), Some(new)) => {
-                    if new.mtime > old.mtime {
+                    // Known only when both scans hashed the file: a read that failed or
+                    // recovered says nothing about the contents.
+                    let same_contents = old.hash.zip(new.hash).map(|(old, new)| old == new);
+
+                    if same_contents == Some(false) || new.size != old.size {
+                        Some(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
+                    } else if new.mtime == old.mtime {
+                        None
+                    } else if new.size.is_some() && same_contents.is_none() {
+                        // The write time of a regular file cannot tell a write from a `touch`,
+                        // so it is taken for a write unless the hashes rule that out.
+                        Some(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
+                    } else {
                         Some(EventKind::Modify(ModifyKind::Metadata(
                             MetadataKind::WriteTime,
                         )))
-                    } else if new.hash != old.hash {
-                        Some(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
-                    } else {
-                        None
                     }
                 }
                 (None, Some(_new)) => Some(EventKind::Create(CreateKind::Any)),
@@ -545,14 +555,36 @@ mod data {
             }
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::PathData;
+        use std::time::Instant;
+
+        #[test]
+        fn unavailable_hash_is_not_a_content_change() {
+            let path_data = |hash| PathData {
+                mtime: 0,
+                size: Some(1),
+                hash,
+                last_check: Instant::now(),
+            };
+
+            for (old, new) in [(Some(1), None), (None, Some(1))] {
+                assert_eq!(
+                    PathData::compare_to_kind(Some(&path_data(old)), Some(&path_data(new))),
+                    None,
+                    "old hash {old:?}, new hash {new:?}"
+                );
+            }
+        }
+    }
 }
 
-/// Polling based `Watcher` implementation.
+/// A [`Watcher`] that detects changes by periodically scanning paths.
 ///
-/// By default scans through all files and checks for changed entries based on their change date.
-/// Can also be changed to perform file content change checks.
-///
-/// See [Config] for more details.
+/// Compares modification times and file sizes by default. Enable
+/// [`Config::with_compare_contents`] to also compare file contents.
 #[derive(Debug)]
 pub struct PollWatcher {
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
@@ -776,24 +808,59 @@ impl Drop for PollWatcher {
 #[cfg(test)]
 mod tests {
     use super::PollWatcher;
-    use crate::{Config, RecursiveMode, Watcher, test::*};
+    use crate::{
+        Config, RecursiveMode, Watcher,
+        event::{DataChange, EventKind, MetadataKind, ModifyKind},
+        test::*,
+    };
+    use notify_types::event::EventKindMask;
+    use std::{
+        fs,
+        path::Path,
+        sync::mpsc,
+        time::{Duration, UNIX_EPOCH},
+    };
 
     fn watcher() -> (TestWatcher<PollWatcher>, Receiver) {
         poll_watcher_channel()
     }
 
-    /// Dates a path's write time an hour ahead. `PathData::mtime` has whole-second resolution
-    /// and is compared before the content hash, so a change to an entry is reported as
-    /// `Metadata(WriteTime)` unless its recorded write time is one that nothing happening
-    /// afterwards can exceed.
-    fn set_write_time_ahead(path: &std::path::Path) {
-        let ahead = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
-        std::fs::File::options()
+    /// Write time of the file watched by [`kinds_after_rewrite`], in milliseconds since the Unix
+    /// epoch. It is a whole second, so that smaller offsets stay within that second.
+    const WRITE_TIME_MS: i64 = 1_700_000_000_000;
+
+    /// Writes `contents` to `path`, then sets its write time `offset_ms` away from
+    /// [`WRITE_TIME_MS`].
+    fn write_at(path: &Path, contents: &str, offset_ms: i64) {
+        fs::write(path, contents).expect("write contents");
+        fs::File::options()
             .write(true)
             .open(path)
             .expect("open to set write time")
-            .set_modified(ahead)
+            .set_modified(UNIX_EPOCH + Duration::from_millis((WRITE_TIME_MS + offset_ms) as u64))
             .expect("set write time");
+    }
+
+    /// Watches a file holding `"initial"`, rewrites it with [`write_at`] and returns the event
+    /// kinds reported by the next scan.
+    fn kinds_after_rewrite(config: Config, contents: &str, offset_ms: i64) -> Vec<EventKind> {
+        let tmpdir = testdir();
+        let path = tmpdir.path().join("entry");
+        write_at(&path, "initial", 0);
+
+        let (tx, rx) = mpsc::channel();
+        let mut watcher =
+            PollWatcher::new(tx, config.with_manual_polling()).expect("create watcher");
+        watcher
+            .watch(&path, RecursiveMode::NonRecursive)
+            .expect("watch file");
+
+        write_at(&path, contents, offset_ms);
+        watcher.poll_blocking().expect("poll for changes");
+
+        rx.try_iter()
+            .map(|event| event.expect("watch event must not be an error").kind)
+            .collect()
     }
 
     #[test]
@@ -841,64 +908,59 @@ mod tests {
     }
 
     #[test]
-    fn detects_subsecond_mtime_change_without_content_hashing() {
-        use std::{
-            fs,
-            sync::mpsc,
-            time::{Duration, SystemTime},
-        };
+    fn classifies_file_changes() {
+        let data = EventKind::Modify(ModifyKind::Data(DataChange::Any));
+        let write_time = EventKind::Modify(ModifyKind::Metadata(MetadataKind::WriteTime));
 
-        use crate::event::{EventKind, MetadataKind, ModifyKind};
+        // (contents, write time offset, kind without content comparison, kind with it)
+        let cases = [
+            // An ordinary write.
+            ("updated", 10_000, Some(data), Some(data)),
+            // A size change under the same write time.
+            ("longer contents", 0, Some(data), Some(data)),
+            // An overwrite of the same size with an older write time.
+            ("updated", -10_000, Some(data), Some(data)),
+            // Neither size nor write time changes: only the hash shows the write.
+            ("updated", 0, None, Some(data)),
+            // Only the write time changes: a write, unless the hash rules that out.
+            ("initial", 10_000, Some(data), Some(write_time)),
+            ("initial", -10_000, Some(data), Some(write_time)),
+            ("initial", 100, Some(data), Some(write_time)),
+            // Nothing changes.
+            ("initial", 0, None, None),
+        ];
 
-        let tmpdir = testdir();
-        let path = tmpdir.path().join("entry");
-        fs::write(&path, "initial").expect("write initial contents");
+        for (contents, offset_ms, without_hash, with_hash) in cases {
+            for (compare_contents, expected) in [(false, without_hash), (true, with_hash)] {
+                let config = Config::default().with_compare_contents(compare_contents);
+                assert_eq!(
+                    kinds_after_rewrite(config, contents, offset_ms),
+                    Vec::from_iter(expected),
+                    "contents={contents:?}, offset_ms={offset_ms}, \
+                     compare_contents={compare_contents}"
+                );
+            }
+        }
+    }
 
-        let current_second = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("current time must be after the Unix epoch")
-            .as_secs();
-        let initial_mtime = SystemTime::UNIX_EPOCH
-            + Duration::from_secs(current_second)
-            + Duration::from_millis(100);
-        fs::File::options()
-            .write(true)
-            .open(&path)
-            .expect("open file to set initial mtime")
-            .set_modified(initial_mtime)
-            .expect("set initial mtime");
-
-        let (tx, rx) = mpsc::channel();
-        let mut watcher =
-            PollWatcher::new(tx, Config::default().with_manual_polling()).expect("create watcher");
-        watcher
-            .watch(tmpdir.path(), RecursiveMode::Recursive)
-            .expect("watch directory");
-
-        fs::write(&path, "updated").expect("write updated contents");
-        fs::File::options()
-            .write(true)
-            .open(&path)
-            .expect("open file to set updated mtime")
-            .set_modified(initial_mtime + Duration::from_millis(100))
-            .expect("set updated mtime");
-        watcher.poll().expect("poll for changes");
-
-        let event = rx
-            .recv_timeout(Duration::from_secs(5))
-            .expect("receive subsecond mtime change")
-            .expect("watch event must not be an error");
-        assert_eq!(event.paths, vec![path]);
-        assert_eq!(
-            event.kind,
-            EventKind::Modify(ModifyKind::Metadata(MetadataKind::WriteTime))
-        );
+    #[test]
+    fn modify_data_mask_passes_file_writes() {
+        for compare_contents in [false, true] {
+            let config = Config::default()
+                .with_event_kinds(EventKindMask::MODIFY_DATA)
+                .with_compare_contents(compare_contents);
+            assert_eq!(
+                kinds_after_rewrite(config, "updated", 10_000),
+                [EventKind::Modify(ModifyKind::Data(DataChange::Any))],
+                "compare_contents={compare_contents}"
+            );
+        }
     }
 
     #[cfg(unix)]
     #[test]
-    fn detects_subsecond_symlink_mtime_changes() {
-        use std::{os::unix::fs::symlink, sync::mpsc};
+    fn reports_symlink_and_directory_mtime_changes_as_write_time() {
+        use std::os::unix::fs::symlink;
 
         use nix::{
             fcntl::AT_FDCWD,
@@ -908,24 +970,25 @@ mod tests {
             },
         };
 
-        use crate::event::{Event, EventKind, MetadataKind, ModifyKind};
+        use crate::event::Event;
 
         for compare_contents in [false, true] {
             let tmpdir = testdir();
-            let path = tmpdir.path().join("link");
-            symlink("missing", &path).expect("create dangling symlink");
+            let link = tmpdir.path().join("link");
+            symlink("missing", &link).expect("create dangling symlink");
 
-            let set_mtime = |nanos| {
+            let set_mtime = |path: &Path, secs, nanos| {
                 utimensat(
                     AT_FDCWD,
-                    &path,
+                    path,
                     &TimeSpec::UTIME_OMIT,
-                    &TimeSpec::new(1_700_000_000, nanos),
+                    &TimeSpec::new(secs, nanos),
                     UtimensatFlags::NoFollowSymlink,
                 )
-                .expect("set symlink mtime");
+                .expect("set mtime");
             };
-            set_mtime(100_000_000);
+            set_mtime(&link, 1_700_000_000, 100_000_000);
+            set_mtime(tmpdir.path(), 1_700_000_000, 0);
 
             let (tx, rx) = mpsc::channel();
             let config = Config::default()
@@ -937,8 +1000,16 @@ mod tests {
                 .watch(tmpdir.path(), RecursiveMode::Recursive)
                 .expect("watch directory");
 
-            for nanos in [200_000_000, 300_000_000] {
-                set_mtime(nanos);
+            // Symlink write times are compared to the nanosecond, directory ones to the second.
+            // Each of them moves forwards first and then backwards.
+            let steps = [
+                (link.as_path(), 1_700_000_000, 300_000_000),
+                (link.as_path(), 1_700_000_000, 200_000_000),
+                (tmpdir.path(), 1_700_000_002, 0),
+                (tmpdir.path(), 1_700_000_001, 0),
+            ];
+            for (path, secs, nanos) in steps {
+                set_mtime(path, secs, nanos);
                 watcher.poll_blocking().expect("poll for changes");
 
                 let events = rx
@@ -951,14 +1022,14 @@ mod tests {
                         Event::new(EventKind::Modify(ModifyKind::Metadata(
                             MetadataKind::WriteTime,
                         )))
-                        .add_path(path.clone())
+                        .add_path(path.to_path_buf())
                     ],
-                    "compare_contents={compare_contents}, nanos={nanos}"
+                    "compare_contents={compare_contents}, secs={secs}, nanos={nanos}"
                 );
             }
 
             watcher.poll_blocking().expect("poll without changes");
-            assert!(rx.try_recv().is_err(), "unchanged symlink emitted an event");
+            assert!(rx.try_recv().is_err(), "unchanged paths emitted an event");
         }
     }
 
@@ -1116,7 +1187,6 @@ mod tests {
         rx.sleep_until_exists(&path);
         rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
 
-        set_write_time_ahead(&path);
         watcher.watch_recursively(&tmpdir);
 
         std::fs::write(&path, b"123").expect("Unable to write");
@@ -1195,8 +1265,6 @@ mod tests {
         rx.sleep_until_parent_contains(&overwritten_file);
         rx.sleep_until_exists(&overwritten_file);
         rx.sleep_until_walkdir_returns_set(tmpdir.path(), [overwritten_file.clone()]);
-
-        set_write_time_ahead(&overwritten_file);
 
         watcher.watch_nonrecursively(&tmpdir);
 

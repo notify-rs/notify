@@ -51,9 +51,8 @@
 //! Polling compares the state observed at each scan; changes that occur and are reverted between
 //! scans may be missed.
 //!
-//! If modification timestamps do not reliably reflect content changes, enable
-//! [`Config::with_compare_contents`] with `true`.
-//! This reads and hashes each file on every scan, increasing I/O and CPU usage.
+//! Enable [`Config::with_compare_contents`] to detect changes that preserve modification times
+//! and file sizes. This reads and hashes every regular file on each scan.
 //!
 //! ### Docker with Linux on macOS M1
 //!
