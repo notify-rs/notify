@@ -10,6 +10,7 @@
 - FIX: [inotify, kqueue] retry incomplete recursive watches on repeated `watch()` calls; inotify follows replaced paths, and kqueue processes pending rename/delete events before rewatching
 - FIX: [inotify, kqueue] make `unwatch` remove only explicit watches and preserve ancestor recursive coverage. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage)
 - FIX: [kqueue] honor `follow_symlinks` for new symlinks and detect new entries under recursively watched symlink roots
+- FIX: [macOS] preserve existing FSEvents watches when a path update exceeds the root limit. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage)
 
 ## notify 9.0.0-rc.8 (2026-11-09)
 
@@ -165,10 +166,13 @@
 - FIX: [linux] fix a TOCTOU issue when adding a watcher [#792]
 - FIX: [linux] surface inotify `UNMOUNT` events to users and clean up affected watches [#627]
 - FIX: [macOS] remove `FSEventsPurgeEventsForDeviceUpToEventId` call [#795]
+- CHANGE: [macOS] report FSEvents root or ancestor renames, moves, and deletions with `info = "root changed"` [#769] [#785]
 
 [#627]: https://github.com/notify-rs/notify/issues/627
 [#705]: https://github.com/notify-rs/notify/pull/705
 [#767]: https://github.com/notify-rs/notify/pull/767
+[#769]: https://github.com/notify-rs/notify/pull/769
+[#785]: https://github.com/notify-rs/notify/pull/785
 [#790]: https://github.com/notify-rs/notify/pull/790
 [#792]: https://github.com/notify-rs/notify/pull/792
 [#795]: https://github.com/notify-rs/notify/pull/795

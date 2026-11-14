@@ -274,8 +274,12 @@ this feature to notify. Code that needs kqueue behavior specifically can constru
   event handler while continuing to watch other entries. Handle callback errors as well as
   the return value of `watch`; `Ok(())` does not guarantee every descendant is covered.
   Watches installed before a later failure are not necessarily rolled back.
-- `ErrorKind::MaxFilesWatch` also covers kqueue file descriptor limits. It is no longer
-  specific to inotify; on kqueue, each watched file or directory uses a descriptor.
+- `ErrorKind::MaxFilesWatch` also covers kqueue descriptor limits and notify's FSEvents
+  root limit. kqueue uses a descriptor per watched file or directory. For FSEvents, the
+  limit is `floor(soft RLIMIT_NOFILE / 12)` stream roots across watchers in the process
+  (21 for a soft limit of 256). Operations rejected by this limit preserve existing watches.
+  See [FSEvents path limits](https://docs.rs/notify/latest/notify/#macos-fsevents-limit-on-watched-paths)
+  for counting rules and workarounds.
 - Recursive kqueue watches skip special files such as FIFOs, sockets, and devices.
   Explicit watches on them return an `Unsupported` I/O error.
 
@@ -289,8 +293,10 @@ A non-recursive kqueue directory watch reports changes on the directory itself, 
 identifying the affected child. It no longer attributes those notifications to arbitrary
 existing children. Watch individual files or use a recursive watch when you need their changes.
 
-FSEvents can share a stream root among overlapping recursive watches on the same volume.
-Do not depend on receiving a separate root-change notification for every covered watch.
+FSEvents now reports renames, moves, or deletions of stream roots or their ancestors as
+`Remove` or `Modify(Name(RenameMode::From))` events with `info = "root changed"`.
+Overlapping recursive watches on the same volume can share a stream root, so covered
+watches may not receive separate root-change notifications.
 
 Handle `Event::need_rescan()` before filtering by path or event kind. Windows buffer
 overflow and malformed notifications, FSEvents recovery, and inotify overflow can produce

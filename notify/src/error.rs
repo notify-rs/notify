@@ -32,7 +32,8 @@ pub enum ErrorKind {
     /// An invalid value was passed as runtime configuration.
     InvalidConfig(Config),
 
-    /// The OS watch limit was reached, including inotify watch limits and kqueue file descriptor limits.
+    /// A watch limit was reached: an inotify watch limit, a kqueue descriptor limit, or
+    /// notify's [FSEvents root limit](crate#macos-fsevents-limit-on-watched-paths).
     MaxFilesWatch,
 }
 

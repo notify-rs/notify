@@ -148,6 +148,10 @@ jobs:
       - name: Test kqueue file descriptor limit
         if: runner.os == 'macOS' && matrix.rust == 'stable' && contains(matrix.features, 'macos_kqueue')
         run: cargo test -p notify --lib --no-default-features --features macos_kqueue kqueue::tests::fd_limit_stops_watches -- --ignored --exact --test-threads=1
+
+      - name: Test FSEvents path limit
+        if: runner.os == 'macOS' && matrix.rust == 'stable' && contains(matrix.features, 'macos_fsevent')
+        run: cargo test -p notify --lib --no-default-features --features macos_fsevent fsevent::tests::root_limit -- --ignored --test-threads=1
         
       - name: Run tests with futures
         if: matrix.rust == 'stable'

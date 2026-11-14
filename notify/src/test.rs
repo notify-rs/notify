@@ -387,6 +387,42 @@ impl<W: Watcher> TestWatcher<W> {
     }
 }
 
+/// Lowers the soft file descriptor limit of the process until dropped.
+///
+/// The limit is process-wide, so a test that uses this has to run alone.
+#[cfg(unix)]
+pub struct RestoreLimit(libc::rlimit);
+
+#[cfg(unix)]
+impl RestoreLimit {
+    pub fn lower(soft_limit: libc::rlim_t) -> Self {
+        let mut original = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: original points to writable storage for the returned limit.
+        assert_eq!(
+            unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut original) },
+            0
+        );
+        let lowered = libc::rlimit {
+            rlim_cur: original.rlim_cur.min(soft_limit),
+            ..original
+        };
+        // SAFETY: only the soft limit of this process is lowered.
+        assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &lowered) }, 0);
+        Self(original)
+    }
+}
+
+#[cfg(unix)]
+impl Drop for RestoreLimit {
+    fn drop(&mut self) {
+        // SAFETY: the saved limit was obtained from getrlimit for this process.
+        assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &self.0) }, 0);
+    }
+}
+
 /// Calls the provided closure
 /// * If it returned true, returns true
 /// * If it returned false, waits for a short period and tries again
