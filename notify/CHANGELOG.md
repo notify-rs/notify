@@ -14,6 +14,7 @@
 - FIX: [kqueue] honor `follow_symlinks` for new symlinks and detect new entries under recursively watched symlink roots
 - FIX: [macOS] preserve existing FSEvents watches when a path update exceeds the root limit. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage)
 - FIX: [macOS] filter events predating watch registration when rebuilding the FSEvents stream
+- FIX: [Windows] return `ErrorKind::PathNotFound` instead of `ErrorKind::Generic` when watching a path that does not exist; other failures to stat the path are now reported as `ErrorKind::Io`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage)
 
 ## notify 9.0.0-rc.8 (2026-11-09)
 
