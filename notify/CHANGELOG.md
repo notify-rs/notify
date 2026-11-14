@@ -8,6 +8,8 @@
 - FIX: [inotify] prevent large recursive registrations from overflowing the default inotify queue with directory access events
 - PERF: [inotify, kqueue] stop scanning every watch when a watched path is removed, renamed, or unwatched; the cost now depends on the size of its subtree
 - FIX: [inotify, kqueue] retry incomplete recursive watches on repeated `watch()` calls; inotify follows replaced paths, and kqueue processes pending rename/delete events before rewatching
+- FIX: [inotify, kqueue] make `unwatch` remove only explicit watches and preserve ancestor recursive coverage. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage)
+- FIX: [kqueue] honor `follow_symlinks` for new symlinks and detect new entries under recursively watched symlink roots
 
 ## notify 9.0.0-rc.8 (2026-11-09)
 

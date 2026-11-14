@@ -96,6 +96,15 @@ pub(crate) mod recursive {
     }
 
     impl WatchMetadata {
+        /// Hands the watch of `path` to `root`, the recursive user watch that covers it.
+        pub(crate) fn inherit(&mut self, root: &WatchPath, path: PathBuf) {
+            let path = root.child(path);
+            self.reported_path = path.requested;
+            self.user_data = path.user_data;
+            self.is_user_watch = false;
+            self.user_is_recursive = false;
+        }
+
         pub(crate) fn user_data_for(
             path: &WatchPath,
             is_user_watch: bool,
