@@ -67,6 +67,26 @@
 //! belong to you. In this case, reverting to the pollwatcher can fix the issue,
 //! with a slight performance cost.
 //!
+//! ### macOS, FSEvents: limit on watched paths
+//!
+//! To avoid an FSEvents bug that closes unrelated file descriptors, notify limits the
+//! combined stream roots of its FSEvents watchers to `floor(soft RLIMIT_NOFILE / 12)`
+//! per process (21 for a soft limit of 256). This is a precaution based on observed
+//! behavior, not a limit documented by Apple.
+//!
+//! Nested watches on the same volume share a recursive ancestor's stream root.
+//! Files beneath that root do not count separately.
+//!
+//! An operation that exceeds the current limit fails with [`ErrorKind::MaxFilesWatch`],
+//! leaving existing watches running. Removing a recursive watch or changing it to
+//! [`RecursiveMode::NonRecursive`] can expose nested watches as separate roots;
+//! unwatch those first if necessary. Lowering the soft limit can also prevent removals
+//! until the replacement stream fits.
+//! [`Watcher::update_paths`] checks each operation and preserves successful earlier operations.
+//!
+//! To watch more paths, raise `RLIMIT_NOFILE`, watch a common ancestor recursively, or
+//! use another backend. kqueue also has descriptor limits; [`PollWatcher`] avoids this limit.
+//!
 //! ### macOS/APFS: `std::fs::copy` can trigger events on the source path
 //!
 //! On APFS, `std::fs::copy` may use copy-on-write cloning (`fclonefileat`/`clonefile`).

@@ -1500,34 +1500,6 @@ mod tests {
     #[test]
     #[ignore = "changes the process FD limit; run alone with --ignored --exact --test-threads=1"]
     fn fd_limit_stops_watches() {
-        struct RestoreLimit(libc::rlimit);
-        impl RestoreLimit {
-            fn lower(soft_limit: libc::rlim_t) -> Self {
-                let mut original = libc::rlimit {
-                    rlim_cur: 0,
-                    rlim_max: 0,
-                };
-                // SAFETY: original points to writable storage for the returned limit.
-                assert_eq!(
-                    unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut original) },
-                    0
-                );
-                let lowered = libc::rlimit {
-                    rlim_cur: original.rlim_cur.min(soft_limit),
-                    ..original
-                };
-                // SAFETY: only the soft limit of this process is lowered.
-                assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &lowered) }, 0);
-                Self(original)
-            }
-        }
-        impl Drop for RestoreLimit {
-            fn drop(&mut self) {
-                // SAFETY: the saved limit was obtained from getrlimit for this process.
-                assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &self.0) }, 0);
-            }
-        }
-
         for triggered_by_event in [false, true] {
             let dir = testdir();
             let root = dir.path();
