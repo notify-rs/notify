@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- CHANGE: `new_debouncer` uses `EventKindMask::CORE`, excluding access events. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#request-access-events-explicitly)
+
 ## debouncer-full 0.8.0-rc.3 (2026-11-09)
 
 - CHANGE: upgrade `notify` to 9.0.0-rc.8 and `notify-types` to 2.3.0

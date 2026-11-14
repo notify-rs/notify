@@ -101,7 +101,7 @@ pub use notify_types::debouncer_full::DebouncedEvent;
 
 use file_id::FileId;
 use notify::{
-    Error, ErrorKind, Event, EventKind, PathOp, RecommendedWatcher, RecursiveMode,
+    Error, ErrorKind, Event, EventKind, EventKindMask, PathOp, RecommendedWatcher, RecursiveMode,
     UpdatePathsError, Watcher, WatcherKind,
     event::{ModifyKind, RemoveKind, RenameMode},
 };
@@ -935,6 +935,9 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
 /// Timeout is the amount of time after which a debounced event is emitted.
 ///
 /// If `tick_rate` is `None`, notify will select a tick rate that is 1/4 of the provided timeout.
+///
+/// Uses [`EventKindMask::CORE`], excluding access events such as `Access(Close(Write))`.
+/// To customize the event mask, use [`new_debouncer_opt`].
 pub fn new_debouncer<F: DebounceEventHandler>(
     timeout: Duration,
     tick_rate: Option<Duration>,
@@ -945,7 +948,7 @@ pub fn new_debouncer<F: DebounceEventHandler>(
         tick_rate,
         event_handler,
         RecommendedCache::new(),
-        notify::Config::default(),
+        notify::Config::default().with_event_kinds(EventKindMask::CORE),
     )
 }
 
@@ -2036,6 +2039,26 @@ mod tests {
         }
 
         panic!("did not receive expected event");
+    }
+
+    /// A handler that reads the changed files must not re-trigger itself.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn reading_a_file_is_not_reported() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("file.txt");
+        fs::write(&file_path, b"Lorem ipsum").unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut debouncer = new_debouncer(Duration::from_millis(50), None, tx).unwrap();
+        debouncer
+            .watch(dir.path(), RecursiveMode::Recursive)
+            .unwrap();
+
+        fs::read(&file_path).unwrap();
+
+        let received = rx.recv_timeout(Duration::from_millis(500));
+        assert!(received.is_err(), "unexpected notification: {received:?}");
     }
 
     #[test]

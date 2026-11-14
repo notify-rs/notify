@@ -165,6 +165,10 @@ are still delivered immediately.
 The existing `DebouncedEvent` and `DebouncedEventKind` types are unchanged. `DebouncedEventBatch`
 is an additive API in `notify-types` 2.2; the breaking change is in `notify-debouncer-mini`.
 
+`Config::default()` now excludes access events using `EventKindMask::CORE`.
+`Config::with_notify_config` replaces this mask too; to preserve it, pass
+`notify::Config::default().with_event_kinds(EventKindMask::CORE)`.
+
 ### 6) Error construction and matching changed
 
 `notify::Error` now contains a private field for per-watch user data.
@@ -245,6 +249,18 @@ A file created and removed within the debounce window now produces a `Remove` ev
 previously the full debouncer could discard both events. A pending `Create` is replaced
 by the removal. Applications maintaining a file index must tolerate a removal for a path
 that is not in the index, rather than assuming every removal follows a delivered creation.
+
+#### Request access events explicitly
+
+`new_debouncer` now excludes access events, including `Access(Close(Write))`, by using
+`EventKindMask::CORE`. `new_debouncer_opt` still uses the supplied config unchanged.
+To retain close-after-write notifications, pass it this config:
+
+```rust
+use notify_debouncer_full::notify::{Config, EventKindMask};
+
+let config = Config::default().with_event_kinds(EventKindMask::CORE | EventKindMask::ACCESS_CLOSE);
+```
 
 ### 8) Cargo features and FreeBSD backend selection
 
@@ -330,13 +346,15 @@ use notify::{Config, EventKindMask};
 let config = Config::default().with_event_kinds(EventKindMask::CORE);
 ```
 
-The default `Config` mask is `CORE | ACCESS_OPEN | ACCESS_CLOSE`, which reports the same event
-kinds as v8, so no migration is required unless you want filtering.
-`EventKindMask::default()` remains `ALL`; passing it explicitly also enables `ACCESS_CLOSE_NOWRITE`.
+`notify::Config::default()` keeps the v8 mask, `CORE | ACCESS_OPEN | ACCESS_CLOSE`.
+Both debouncers now default to `CORE` to prevent handlers that read changed files from
+triggering more notifications on inotify. For configuration, see the
+[mini](#5-mini-debouncer-notifications) and [full](#request-access-events-explicitly) sections.
 
-`EventKindMask::ALL` adds `ACCESS_CLOSE_NOWRITE`, which v8 never reported: inotify then emits
-`Access(Close(Read))` when a file or directory opened without write access is closed.
-Recursive registration itself generates directory access events: `Open` with the default mask,
+`EventKindMask::ALL` (also `EventKindMask::default()`) adds `ACCESS_CLOSE_NOWRITE`, which
+v8 never reported. On inotify, this emits `Access(Close(Read))` when a file or directory
+opened without write access is closed.
+Recursive registration itself generates directory access events: `Open` with notify's default mask,
 and both `Open` and `Close(Read)` with `ALL`. Large walks periodically drain the inotify queue
 and buffer these events until registration completes. Use `CORE` to avoid this event volume,
 or `CORE | ACCESS_CLOSE` to keep close-after-write notifications.
