@@ -54,34 +54,34 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 bitflags::bitflags! {
-  #[repr(C)]
-  #[derive(Debug)]
-  struct StreamFlags: u32 {
-    const NONE = fs::kFSEventStreamEventFlagNone;
-    const MUST_SCAN_SUBDIRS = fs::kFSEventStreamEventFlagMustScanSubDirs;
-    const USER_DROPPED = fs::kFSEventStreamEventFlagUserDropped;
-    const KERNEL_DROPPED = fs::kFSEventStreamEventFlagKernelDropped;
-    const IDS_WRAPPED = fs::kFSEventStreamEventFlagEventIdsWrapped;
-    const HISTORY_DONE = fs::kFSEventStreamEventFlagHistoryDone;
-    const ROOT_CHANGED = fs::kFSEventStreamEventFlagRootChanged;
-    const MOUNT = fs::kFSEventStreamEventFlagMount;
-    const UNMOUNT = fs::kFSEventStreamEventFlagUnmount;
-    const ITEM_CREATED = fs::kFSEventStreamEventFlagItemCreated;
-    const ITEM_REMOVED = fs::kFSEventStreamEventFlagItemRemoved;
-    const INODE_META_MOD = fs::kFSEventStreamEventFlagItemInodeMetaMod;
-    const ITEM_RENAMED = fs::kFSEventStreamEventFlagItemRenamed;
-    const ITEM_MODIFIED = fs::kFSEventStreamEventFlagItemModified;
-    const FINDER_INFO_MOD = fs::kFSEventStreamEventFlagItemFinderInfoMod;
-    const ITEM_CHANGE_OWNER = fs::kFSEventStreamEventFlagItemChangeOwner;
-    const ITEM_XATTR_MOD = fs::kFSEventStreamEventFlagItemXattrMod;
-    const IS_FILE = fs::kFSEventStreamEventFlagItemIsFile;
-    const IS_DIR = fs::kFSEventStreamEventFlagItemIsDir;
-    const IS_SYMLINK = fs::kFSEventStreamEventFlagItemIsSymlink;
-    const OWN_EVENT = fs::kFSEventStreamEventFlagOwnEvent;
-    const IS_HARDLINK = fs::kFSEventStreamEventFlagItemIsHardlink;
-    const IS_LAST_HARDLINK = fs::kFSEventStreamEventFlagItemIsLastHardlink;
-    const ITEM_CLONED = fs::kFSEventStreamEventFlagItemCloned;
-  }
+    #[repr(C)]
+    #[derive(Debug)]
+    struct StreamFlags: u32 {
+        const NONE = fs::kFSEventStreamEventFlagNone;
+        const MUST_SCAN_SUBDIRS = fs::kFSEventStreamEventFlagMustScanSubDirs;
+        const USER_DROPPED = fs::kFSEventStreamEventFlagUserDropped;
+        const KERNEL_DROPPED = fs::kFSEventStreamEventFlagKernelDropped;
+        const IDS_WRAPPED = fs::kFSEventStreamEventFlagEventIdsWrapped;
+        const HISTORY_DONE = fs::kFSEventStreamEventFlagHistoryDone;
+        const ROOT_CHANGED = fs::kFSEventStreamEventFlagRootChanged;
+        const MOUNT = fs::kFSEventStreamEventFlagMount;
+        const UNMOUNT = fs::kFSEventStreamEventFlagUnmount;
+        const ITEM_CREATED = fs::kFSEventStreamEventFlagItemCreated;
+        const ITEM_REMOVED = fs::kFSEventStreamEventFlagItemRemoved;
+        const INODE_META_MOD = fs::kFSEventStreamEventFlagItemInodeMetaMod;
+        const ITEM_RENAMED = fs::kFSEventStreamEventFlagItemRenamed;
+        const ITEM_MODIFIED = fs::kFSEventStreamEventFlagItemModified;
+        const FINDER_INFO_MOD = fs::kFSEventStreamEventFlagItemFinderInfoMod;
+        const ITEM_CHANGE_OWNER = fs::kFSEventStreamEventFlagItemChangeOwner;
+        const ITEM_XATTR_MOD = fs::kFSEventStreamEventFlagItemXattrMod;
+        const IS_FILE = fs::kFSEventStreamEventFlagItemIsFile;
+        const IS_DIR = fs::kFSEventStreamEventFlagItemIsDir;
+        const IS_SYMLINK = fs::kFSEventStreamEventFlagItemIsSymlink;
+        const OWN_EVENT = fs::kFSEventStreamEventFlagOwnEvent;
+        const IS_HARDLINK = fs::kFSEventStreamEventFlagItemIsHardlink;
+        const IS_LAST_HARDLINK = fs::kFSEventStreamEventFlagItemIsLastHardlink;
+        const ITEM_CLONED = fs::kFSEventStreamEventFlagItemCloned;
+    }
 }
 
 const RUNLOOP_STOP_RECHECK_SECONDS: cf::CFTimeInterval = 0.5;
@@ -142,6 +142,7 @@ impl FseventsPathReservation {
     /// the current process-wide count without changing the reservation.
     fn reserve(&mut self, path_count: usize, budget: usize) -> std::result::Result<(), usize> {
         let held = self.path_count;
+        #[allow(deprecated, reason = "try_update requires Rust 1.95; our MSRV is 1.91")]
         self.active_paths.fetch_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
@@ -1021,17 +1022,20 @@ unsafe fn callback_impl(
     _event_ids: NonNull<fs::FSEventStreamEventId>,     // const FSEventStreamEventId eventIds[]
 ) {
     let event_paths = event_paths.as_ptr() as *const *const libc::c_char;
-    let info = info as *const StreamContextInfo;
-    let event_handler_mutex = &(*info).event_handler;
-    let event_kinds = (*info).event_kinds;
+    // SAFETY: The stream owns this boxed context and releases it only after callbacks finish.
+    let info = unsafe { &*(info as *const StreamContextInfo) };
+    let event_handler_mutex = &info.event_handler;
+    let event_kinds = info.event_kinds;
     let mut event_handler_guard = None;
 
     for p in 0..num_events {
         // Paths are not guaranteed to be valid UTF-8 (e.g. NFS); keep them as raw bytes.
-        let path = CStr::from_ptr(*event_paths.add(p));
+        // SAFETY: FSEvents provides `num_events` valid, NUL-terminated paths for this callback.
+        let path = unsafe { CStr::from_ptr(*event_paths.add(p)) };
         let path = Path::new(OsStr::from_bytes(path.to_bytes()));
 
-        let raw_flag = *event_flags.as_ptr().add(p) as u32;
+        // SAFETY: FSEvents provides `num_events` flags, and `p` is within that range.
+        let raw_flag = unsafe { *event_flags.as_ptr().add(p) } as u32;
         let flag = StreamFlags::from_bits_truncate(raw_flag);
         let unknown_bits = raw_flag & !StreamFlags::all().bits();
         if unknown_bits != 0 {
@@ -1039,7 +1043,7 @@ unsafe fn callback_impl(
             log::trace!("unknown FSEventStreamEventFlags bits: 0x{unknown_bits:08x}");
         }
 
-        let recursive_info = (*info)
+        let recursive_info = info
             .recursive_info
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -1936,13 +1940,15 @@ mod tests {
         }
 
         unsafe extern "C-unwind" fn hammer_source(info: *mut std::ffi::c_void) {
-            let Some(hammer) = (info as *const SourceHammer).as_ref() else {
+            // SAFETY: The boxed SourceHammer stays alive until the runloop has stopped.
+            let Some(hammer) = (unsafe { (info as *const SourceHammer).as_ref() }) else {
                 return;
             };
             hammer.fires.fetch_add(1, Ordering::Relaxed);
 
             // Signal the source again so the runloop has more work to do.
-            let Some(source) = (hammer.source as *const cf::CFRunLoopSource).as_ref() else {
+            // SAFETY: The source is retained for the entire time the runloop can call us.
+            let Some(source) = (unsafe { hammer.source.as_ref() }) else {
                 return;
             };
             source.signal();
