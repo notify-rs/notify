@@ -265,6 +265,8 @@ this feature to notify. Code that needs kqueue behavior specifically can constru
 
 - `PollWatcher::watch` now returns `ErrorKind::PathNotFound` for a missing path. Create the
   path before registering it, or watch an existing parent to detect its creation.
+- On Windows, watching a missing path now returns `ErrorKind::PathNotFound` instead of
+  `ErrorKind::Generic`, matching the other backends.
 - On Windows, unwatching an unregistered path now returns `ErrorKind::WatchNotFound`.
   If your cleanup intentionally repeats `unwatch`, handle this error explicitly.
 - On inotify and kqueue, `unwatch` preserves ancestor recursive coverage and returns

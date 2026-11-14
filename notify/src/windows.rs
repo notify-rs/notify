@@ -431,26 +431,24 @@ impl ReadDirectoryChangesServer {
         is_recursive: bool,
         separator_style: SeparatorStyle,
     ) -> Result<PathBuf> {
-        let metadata = path.absolute.metadata();
-        // path must exist and be either a file or directory
-        if metadata
-            .as_ref()
-            .map(|m| !m.is_dir() && !m.is_file())
-            .unwrap_or(true)
-        {
+        // `Error::io_watch` reports a missing path as `ErrorKind::PathNotFound`, matching the
+        // other backends.
+        let metadata = match path.absolute.metadata() {
+            Ok(metadata) => metadata,
+            Err(err) => return Err(Error::io_watch(err).add_path(path.requested)),
+        };
+        if !metadata.is_dir() && !metadata.is_file() {
             return Err(
                 Error::generic("Input watch path is neither a file nor a directory.")
                     .add_path(path.requested),
             );
         }
 
-        let (watching_file, dir_target) = {
-            if metadata.map(|m| m.is_dir()).unwrap_or(false) {
-                (false, path.absolute.clone())
-            } else {
-                // emulate file watching by watching the parent directory
-                (true, path.absolute.parent().unwrap().to_path_buf())
-            }
+        let (watching_file, dir_target) = if metadata.is_dir() {
+            (false, path.absolute.clone())
+        } else {
+            // emulate file watching by watching the parent directory
+            (true, path.absolute.parent().unwrap().to_path_buf())
         };
         let watched_path = path.absolute.clone();
         let reported_path = path.requested.clone();
@@ -1287,6 +1285,21 @@ pub mod tests {
     fn watcher_is_send_and_sync() {
         fn check<T: Send + Sync>() {}
         check::<ReadDirectoryChangesWatcher>();
+    }
+
+    #[test]
+    fn watch_nonexistent_path_returns_path_not_found() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("does_not_exist");
+
+        let mut watcher = crate::recommended_watcher(|_| {}).expect("watcher");
+        let err = watcher
+            .watch(&path, RecursiveMode::Recursive)
+            .expect_err("watching a nonexistent path must return an error");
+
+        assert!(matches!(err.kind, ErrorKind::PathNotFound), "{err:?}");
+        assert_eq!(err.paths, vec![path]);
+        assert!(watcher.watched_paths().expect("watched paths").is_empty());
     }
 
     #[test]
