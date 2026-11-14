@@ -82,7 +82,7 @@ use std::{
 pub use notify;
 pub use notify_types::debouncer_mini::{DebouncedEvent, DebouncedEventBatch, DebouncedEventKind};
 
-use notify::{Error, Event, RecommendedWatcher, Watcher};
+use notify::{Error, Event, EventKindMask, RecommendedWatcher, Watcher};
 
 /// The set of requirements for watcher debounce event handling functions.
 ///
@@ -119,10 +119,13 @@ pub trait DebounceEventHandler: Send + 'static {
 }
 
 /// Config for debouncer-mini
+///
+/// The default backend config uses [`EventKindMask::CORE`], which excludes access events.
+///
 /// ```rust
 /// # use std::time::Duration;
 /// use notify_debouncer_mini::Config;
-/// let backend_config = notify::Config::default();
+/// let backend_config = notify::Config::default().with_event_kinds(notify::EventKindMask::CORE);
 ///
 /// let config = Config::default().with_timeout(Duration::from_secs(1)).with_batch_mode(true)
 ///     .with_notify_config(backend_config);
@@ -139,7 +142,7 @@ impl Default for Config {
         Self {
             timeout: Duration::from_millis(500),
             batch_mode: true,
-            notify_config: notify::Config::default(),
+            notify_config: notify::Config::default().with_event_kinds(EventKindMask::CORE),
         }
     }
 }
@@ -162,7 +165,10 @@ impl Config {
         self.batch_mode = batch_mode;
         self
     }
-    /// Set [`notify::Config`] for the backend
+    /// Replace the backend [`notify::Config`], including its event mask.
+    ///
+    /// Set [`EventKindMask::CORE`] explicitly to keep access events excluded;
+    /// `notify::Config::default()` enables them.
     #[must_use]
     pub fn with_notify_config(mut self, notify_config: notify::Config) -> Self {
         self.notify_config = notify_config;
@@ -677,6 +683,27 @@ mod tests {
         }
 
         panic!("did not receive expected event");
+    }
+
+    /// A handler that reads the changed files must not re-trigger itself.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn reading_a_file_is_not_reported() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("file.txt");
+        fs::write(&file_path, b"Lorem ipsum").unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut debouncer = new_debouncer(Duration::from_millis(50), tx).unwrap();
+        debouncer
+            .watcher()
+            .watch(dir.path(), RecursiveMode::Recursive)
+            .unwrap();
+
+        fs::read(&file_path).unwrap();
+
+        let received = rx.recv_timeout(Duration::from_millis(500));
+        assert!(received.is_err(), "unexpected notification: {received:?}");
     }
 
     #[cfg(feature = "futures")]
