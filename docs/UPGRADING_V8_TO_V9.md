@@ -267,6 +267,9 @@ this feature to notify. Code that needs kqueue behavior specifically can constru
   path before registering it, or watch an existing parent to detect its creation.
 - On Windows, unwatching an unregistered path now returns `ErrorKind::WatchNotFound`.
   If your cleanup intentionally repeats `unwatch`, handle this error explicitly.
+- On inotify and kqueue, `unwatch` preserves ancestor recursive coverage and returns
+  `ErrorKind::WatchNotFound` for paths not explicitly registered.
+  To ignore a subtree, filter its events in the event handler.
 - Recursive inotify and kqueue watches can report recoverable child failures through the
   event handler while continuing to watch other entries. Handle callback errors as well as
   the return value of `watch`; `Ok(())` does not guarantee every descendant is covered.

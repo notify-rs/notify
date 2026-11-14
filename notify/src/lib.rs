@@ -521,10 +521,15 @@ pub trait Watcher {
 
     /// Stop watching a path.
     ///
+    /// Only a path that was passed to [`Watcher::watch`] can be unwatched. A recursive watch
+    /// above `path` keeps reporting it, so unwatching cannot exclude a subtree from a recursive
+    /// watch.
+    ///
     /// # Errors
     ///
     /// Returns an error in the case that `path` has not been watched or if removing the watch
-    /// fails.
+    /// fails. A path that only a recursive watch above it covers has not been watched, and
+    /// unwatching it returns [`ErrorKind::WatchNotFound`].
     fn unwatch(&mut self, path: &Path) -> Result<()>;
 
     /// Add/remove paths to watch in batch.
