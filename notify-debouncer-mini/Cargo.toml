@@ -34,9 +34,9 @@ notify-types.workspace = true
 crossbeam-channel = { workspace = true, optional = true }
 flume = { workspace = true, optional = true }
 log.workspace = true
-tempfile.workspace = true
 futures = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
+tempfile.workspace = true
 tokio = { workspace = true, default-features = true, features = ["time", "rt", "macros"]}
