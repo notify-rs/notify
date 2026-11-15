@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! Watcher implementation for Windows' directory management APIs
 //!
 //! For more information see [ReadDirectoryChangesW] and [ReadDirectoryChangesExW].
@@ -10,7 +9,9 @@
 
 use crate::paths::{WatchPath, absolute_path};
 use crate::{BoundSender, Config, Receiver, Sender, bounded, unbounded};
-use crate::{Error, EventHandler, RecursiveMode, Result, Watcher, WindowsPathSeparatorStyle};
+use crate::{
+    Error, EventHandler, RecursiveMode, Result, WatchedPath, Watcher, WindowsPathSeparatorStyle,
+};
 use crate::{WatcherKind, event::*};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -281,15 +282,9 @@ enum Action {
     // Public `Watcher::unwatch` path. This variant must ack only after `remove_watch` finishes so
     // the caller does not observe events after `unwatch()` returns.
     UnwatchAck(PathBuf),
-    GetWatchedPaths(Sender<Vec<(PathBuf, RecursiveMode)>>),
+    GetWatchedPaths(Sender<Vec<WatchedPath>>),
     Stop,
     Configure(Config, BoundSender<Result<bool>>),
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum MetaEvent {
-    SingleWatchComplete,
-    WatcherAwakened,
 }
 
 struct WatchState {
@@ -320,7 +315,6 @@ struct ReadDirectoryChangesServer {
     rx: Receiver<Action>,
     event_handler: Arc<Mutex<dyn EventHandler>>,
     event_kinds: EventKindMask,
-    meta_tx: Sender<MetaEvent>,
     cmd_tx: Sender<Result<PathBuf>>,
     watches: HashMap<PathBuf, WatchState>,
     directories: HashMap<u64, Rc<ReadData>>,
@@ -334,7 +328,6 @@ impl ReadDirectoryChangesServer {
     fn start(
         event_handler: Arc<Mutex<dyn EventHandler>>,
         event_kinds: EventKindMask,
-        meta_tx: Sender<MetaEvent>,
         cmd_tx: Sender<Result<PathBuf>>,
         wakeup_sem: Arc<WakeupSem>,
         read_directory_changes_ex: Option<ReadDirectoryChangesExFn>,
@@ -350,7 +343,6 @@ impl ReadDirectoryChangesServer {
                         rx: action_rx,
                         event_handler,
                         event_kinds,
-                        meta_tx,
                         cmd_tx,
                         watches: HashMap::new(),
                         directories: HashMap::new(),
@@ -392,14 +384,19 @@ impl ReadDirectoryChangesServer {
                         let _ = tx.send(
                             self.watches
                                 .values()
-                                .map(|state| (state.reported_path.clone(), state.recursive_mode))
+                                .map(|state| {
+                                    WatchedPath::new(
+                                        state.reported_path.clone(),
+                                        state.recursive_mode,
+                                    )
+                                })
                                 .collect(),
                         );
                     }
                     Action::Stop => {
                         stopped = true;
                         for data in self.directories.values() {
-                            stop_watch(data, &self.meta_tx);
+                            stop_watch(data);
                         }
                         break;
                     }
@@ -417,10 +414,7 @@ impl ReadDirectoryChangesServer {
                 // Wait with alertable flag so that the completion routine fires. No timeout:
                 // every action is followed by `wakeup_server()`, and completion routines and
                 // internal `Unwatch` actions run during this wait, so an idle watcher sleeps.
-                let waitres = WaitForSingleObjectEx(self.wakeup_sem.0, INFINITE, 1);
-                if waitres == WAIT_OBJECT_0 {
-                    let _ = self.meta_tx.send(MetaEvent::WatcherAwakened);
-                }
+                WaitForSingleObjectEx(self.wakeup_sem.0, INFINITE, 1);
             }
         }
     }
@@ -615,7 +609,7 @@ impl ReadDirectoryChangesServer {
         if self.file_directories.get(&data.dir) == Some(&id) {
             self.file_directories.remove(&data.dir);
         }
-        stop_watch(&data, &self.meta_tx);
+        stop_watch(&data);
     }
 
     fn configure_raw_mode(&mut self, _config: Config, tx: BoundSender<Result<bool>>) {
@@ -624,7 +618,7 @@ impl ReadDirectoryChangesServer {
     }
 }
 
-fn stop_watch(ws: &ReadData, meta_tx: &Sender<MetaEvent>) {
+fn stop_watch(ws: &ReadData) {
     // A successful completion may already be queued when cancellation starts. Mark the watch
     // first so that callback does not rearm ReadDirectoryChangesW with the handle closed below.
     ws.stopping.set(true);
@@ -645,7 +639,6 @@ fn stop_watch(ws: &ReadData, meta_tx: &Sender<MetaEvent>) {
             CloseHandle(ws.complete_sem);
         }
     }
-    let _ = meta_tx.send(MetaEvent::SingleWatchComplete);
 }
 
 fn start_read(mut request: Box<ReadDirectoryRequest>) -> io::Result<()> {
@@ -1014,25 +1007,10 @@ pub struct ReadDirectoryChangesWatcher {
 }
 
 impl ReadDirectoryChangesWatcher {
-    pub fn create(
-        event_handler: Arc<Mutex<dyn EventHandler>>,
-        event_kinds: EventKindMask,
-        meta_tx: Sender<MetaEvent>,
-    ) -> Result<ReadDirectoryChangesWatcher> {
-        Self::create_inner(
-            event_handler,
-            event_kinds,
-            WindowsPathSeparatorStyle::Auto,
-            meta_tx,
-            None,
-        )
-    }
-
-    fn create_inner(
+    fn create(
         event_handler: Arc<Mutex<dyn EventHandler>>,
         event_kinds: EventKindMask,
         windows_path_separator_style: WindowsPathSeparatorStyle,
-        meta_tx: Sender<MetaEvent>,
         read_directory_changes_ex: Option<ReadDirectoryChangesExFn>,
     ) -> Result<ReadDirectoryChangesWatcher> {
         let (cmd_tx, cmd_rx) = unbounded();
@@ -1046,7 +1024,6 @@ impl ReadDirectoryChangesWatcher {
         let action_tx = ReadDirectoryChangesServer::start(
             event_handler,
             event_kinds,
-            meta_tx,
             cmd_tx,
             wakeup_sem.clone(),
             read_directory_changes_ex,
@@ -1106,7 +1083,7 @@ impl ReadDirectoryChangesWatcher {
         self.send_action_require_ack(Action::UnwatchAck(pb.clone()), &pb)
     }
 
-    fn watched_paths_inner(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
+    fn watched_paths_inner(&self) -> Result<Vec<WatchedPath>> {
         let (tx, rx) = unbounded();
         self.tx
             .send(Action::GetWatchedPaths(tx))
@@ -1122,15 +1099,11 @@ impl Watcher for ReadDirectoryChangesWatcher {
             config.windows_extended_information(),
             lookup_read_directory_changes_ex,
         )?;
-        // `create` accepts a channel for watch-completion and server-wakeup notifications.
-        // The Watcher trait exposes only filesystem events, so discard these notifications.
-        let (meta_tx, _) = unbounded();
         let event_handler = Arc::new(Mutex::new(event_handler));
-        Self::create_inner(
+        Self::create(
             event_handler,
             config.event_kinds(),
             config.windows_path_separator_style(),
-            meta_tx,
             read_directory_changes_ex,
         )
     }
@@ -1156,7 +1129,7 @@ impl Watcher for ReadDirectoryChangesWatcher {
         rx.recv()?
     }
 
-    fn watched_paths(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
+    fn watched_paths(&self) -> Result<Vec<WatchedPath>> {
         self.watched_paths_inner()
     }
 
@@ -1188,7 +1161,7 @@ mod extended_information_tests;
 mod shared_watch_tests;
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use std::env;
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
@@ -1545,8 +1518,7 @@ pub mod tests {
         let data = Rc::get_mut(&mut request.data).unwrap();
         data.handle = dir_handle;
         data.complete_sem = complete_sem;
-        let (meta_tx, _meta_rx) = crate::unbounded();
-        super::stop_watch(data, &meta_tx);
+        super::stop_watch(data);
 
         assert_eq!(
             SEEN.load(Ordering::SeqCst),

@@ -7,7 +7,6 @@ use tempfile::tempdir;
 fn server(extended: bool) -> (ReadDirectoryChangesServer, mpsc::Receiver<Result<Event>>) {
     let (event_tx, event_rx) = mpsc::channel();
     let (tx, rx) = unbounded();
-    let (meta_tx, _) = unbounded();
     let (cmd_tx, _) = unbounded();
     let semaphore = unsafe { CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
     assert!(!semaphore.is_null());
@@ -17,7 +16,6 @@ fn server(extended: bool) -> (ReadDirectoryChangesServer, mpsc::Receiver<Result<
             rx,
             event_handler: Arc::new(Mutex::new(event_tx)),
             event_kinds: EventKindMask::ALL,
-            meta_tx,
             cmd_tx,
             watches: HashMap::new(),
             directories: HashMap::new(),

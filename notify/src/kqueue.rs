@@ -6,7 +6,8 @@
 
 use super::event::*;
 use super::{
-    Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result, Watcher,
+    Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result, WatchedPath,
+    Watcher,
 };
 use crate::paths::{WatchPath, absolute_path, reported_path};
 use crate::walk::{
@@ -62,7 +63,7 @@ pub struct KqueueWatcher {
 enum EventLoopMsg {
     AddWatch(WatchPath, RecursiveMode, Sender<Result<()>>),
     RemoveWatch(PathBuf, Sender<Result<()>>),
-    GetWatchedPaths(Sender<Vec<(PathBuf, RecursiveMode)>>),
+    GetWatchedPaths(Sender<Vec<WatchedPath>>),
     Shutdown,
 }
 
@@ -191,7 +192,7 @@ impl EventLoop {
                             .iter()
                             .filter(|(_path, watch)| watch.is_user_watch)
                             .map(|(_path, watch)| {
-                                (
+                                WatchedPath::new(
                                     watch.reported_path.clone(),
                                     if watch.user_is_recursive {
                                         RecursiveMode::Recursive
@@ -903,7 +904,7 @@ impl KqueueWatcher {
         rx.recv().map_err(|e| Error::generic(&e.to_string()))?
     }
 
-    fn watched_paths_inner(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
+    fn watched_paths_inner(&self) -> Result<Vec<WatchedPath>> {
         let (tx, rx) = unbounded();
         self.channel.send(EventLoopMsg::GetWatchedPaths(tx))?;
         self.waker.wake()?;
@@ -935,7 +936,7 @@ impl Watcher for KqueueWatcher {
         self.unwatch_inner(path)
     }
 
-    fn watched_paths(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
+    fn watched_paths(&self) -> Result<Vec<WatchedPath>> {
         self.watched_paths_inner()
     }
 
@@ -2153,7 +2154,10 @@ mod tests {
         watcher.watcher.unwatch(&subdir).expect("unwatch");
         assert_eq!(
             watcher.watcher.watched_paths().expect("watched paths"),
-            [(tmpdir.path().to_path_buf(), RecursiveMode::Recursive)]
+            [WatchedPath::new(
+                tmpdir.path().to_path_buf(),
+                RecursiveMode::Recursive
+            )]
         );
 
         std::fs::write(&file, "123").expect("write");

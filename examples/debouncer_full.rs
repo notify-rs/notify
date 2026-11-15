@@ -1,14 +1,10 @@
 use std::{fs, thread, time::Duration};
 
 use notify::{EventKindMask, RecommendedWatcher, RecursiveMode};
-use notify_debouncer_full::{RecommendedCache, new_debouncer_opt, notify};
+use notify_debouncer_full::{Config, RecommendedCache, new_debouncer_opt, notify};
 use tempfile::tempdir;
 
-/// Advanced example of the notify-debouncer-full with event filtering.
-///
-/// This demonstrates using new_debouncer_opt() to pass a custom notify::Config
-/// that filters events at the kernel level (on Linux), reducing noise and
-/// improving performance.
+/// Full debouncer with an explicit backend event mask.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
     let dir_path = dir.path().to_path_buf();
@@ -29,25 +25,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // setup debouncer with custom event filtering
     let (tx, rx) = std::sync::mpsc::channel();
 
-    // Configure notify to exclude noisy access events (OPEN/CLOSE)
-    // Use CORE mask: CREATE, REMOVE, MODIFY_DATA, MODIFY_META, MODIFY_NAME
+    // Preserve the debouncer's CORE mask when replacing its backend config.
     let notify_config = notify::Config::default().with_event_kinds(EventKindMask::CORE);
 
-    // Use new_debouncer_opt for full control over the watcher configuration
+    // The tick rate is left at its default, 1/4 of the timeout
+    let config = Config::default()
+        .with_timeout(Duration::from_secs(2))
+        .with_notify_config(notify_config);
+
     let mut debouncer = new_debouncer_opt::<_, RecommendedWatcher, RecommendedCache>(
-        Duration::from_secs(2), // debounce timeout
-        None,                   // tick rate (None = auto)
+        config,
         tx,
         RecommendedCache::new(),
-        notify_config,
     )?;
 
     debouncer.watch(dir.path(), RecursiveMode::Recursive)?;
 
-    // print all events and errors
     for result in rx {
         match result {
             Ok(events) => events.iter().for_each(|event| println!("{event:?}")),

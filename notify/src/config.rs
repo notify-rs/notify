@@ -58,7 +58,7 @@ pub enum WindowsPathSeparatorStyle {
 /// ```
 ///
 /// Some options can be changed during runtime, others have to be set when creating the watcher backend.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct Config {
     /// See [Config::with_poll_interval]
     poll_interval: Option<Duration>,
@@ -365,10 +365,41 @@ impl WatchPathConfig {
     }
 }
 
+/// A registered path and its recursive mode, returned by
+/// [`Watcher::watched_paths`](crate::Watcher::watched_paths).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct WatchedPath {
+    /// The watched path, as it was passed to the watcher.
+    pub path: PathBuf,
+    /// Whether the watch covers the path's descendants.
+    pub recursive_mode: RecursiveMode,
+}
+
+impl WatchedPath {
+    /// Creates a watched path with the given path and recursive mode.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use notify::{RecursiveMode, WatchedPath};
+    ///
+    /// let watched = WatchedPath::new("src".into(), RecursiveMode::Recursive);
+    /// ```
+    #[must_use]
+    pub fn new(path: PathBuf, recursive_mode: RecursiveMode) -> Self {
+        Self {
+            path,
+            recursive_mode,
+        }
+    }
+}
+
 /// An operation to apply to a watcher
 ///
 /// See [`Watcher::update_paths`](crate::Watcher::update_paths) for more information.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum PathOp {
     /// Path should be watched
     Watch(PathBuf, WatchPathConfig),

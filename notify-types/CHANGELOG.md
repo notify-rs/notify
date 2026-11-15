@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- CHANGE: `debouncer_mini::DebouncedEventBatch` is now `#[non_exhaustive]`. No major version bump: only `notify-debouncer-mini` 0.8 RCs use this type. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#5-mini-debouncer-notifications) for matching changes.
+
 ## notify-types 2.3.0 (2026-11-09)
 
 - CHANGE: raise MSRV from 1.88 to 1.91

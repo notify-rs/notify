@@ -13,23 +13,18 @@ fn main() {
     std::thread::spawn(|| {
         let path = Path::new("test.txt");
         let _ = std::fs::remove_file(path);
-        // log::info!("running 250ms events");
         for _ in 0..20 {
             log::trace!("writing..");
             std::fs::write(path, b"Lorem ipsum").unwrap();
             std::thread::sleep(Duration::from_millis(250));
         }
-        // log::debug!("waiting 20s");
         std::thread::sleep(Duration::from_millis(20000));
-        // log::info!("running 3s events");
         for _ in 0..20 {
-            // log::debug!("writing..");
             std::fs::write(path, b"Lorem ipsum").unwrap();
             std::thread::sleep(Duration::from_millis(3000));
         }
     });
 
-    // setup debouncer with custom event filtering
     let (tx, rx) = std::sync::mpsc::channel();
 
     // Preserve the debouncer's CORE mask when replacing its backend config.
@@ -44,7 +39,6 @@ fn main() {
         .watch(Path::new("."), RecursiveMode::Recursive)
         .unwrap();
 
-    // print all events, non returning
     for result in rx {
         match result {
             Ok(DebouncedEventBatch::Events(events)) => events
@@ -54,6 +48,7 @@ fn main() {
                 // Refresh any cached state for all watched paths here.
                 log::warn!("Events were missed; rescan all watched paths");
             }
+            Ok(_) => {}
             Err(error) => log::info!("Error {error:?}"),
         }
     }

@@ -35,8 +35,8 @@
 
 use crate::paths::{absolute_path, reported_path};
 use crate::{
-    Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result, Sender, Watcher,
-    unbounded,
+    Config, Error, ErrorKind, EventHandler, EventKindMask, RecursiveMode, Result, Sender,
+    WatchedPath, Watcher, unbounded,
 };
 use crate::{PathOp, event::*};
 use objc2_core_foundation as cf;
@@ -1198,7 +1198,7 @@ impl Watcher for FsEventWatcher {
         rx.recv()?
     }
 
-    fn watched_paths(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
+    fn watched_paths(&self) -> Result<Vec<WatchedPath>> {
         // Unlike the channel-based backends, FSEvents keeps watch state on the watcher itself.
         // The runloop callback reads a separate map of watch information, so it does not
         // mutate or read this map concurrently.
@@ -1206,7 +1206,7 @@ impl Watcher for FsEventWatcher {
             .watches
             .iter()
             .map(|(_path, WatchEntry { info, .. })| {
-                (
+                WatchedPath::new(
                     info.reported_path.clone(),
                     if info.is_recursive {
                         RecursiveMode::Recursive
@@ -1823,7 +1823,10 @@ mod tests {
         let watched = watcher.watched_paths().expect("watched paths");
         assert_eq!(
             watched,
-            vec![(dir.path().to_path_buf(), RecursiveMode::NonRecursive)]
+            vec![WatchedPath::new(
+                dir.path().to_path_buf(),
+                RecursiveMode::NonRecursive
+            )]
         );
         assert_eq!(watcher.stream_paths().iter().count(), 1);
     }
@@ -1995,7 +1998,10 @@ mod tests {
                 .watcher
                 .watched_paths()
                 .expect("watched paths")
-                .contains(&(alias.clone(), RecursiveMode::NonRecursive))
+                .contains(&WatchedPath::new(
+                    alias.clone(),
+                    RecursiveMode::NonRecursive
+                ))
         );
 
         std::fs::File::create_new(child.join("immediate")).expect("create");
@@ -3070,9 +3076,9 @@ mod tests {
         }
     }
 
-    fn watched(watcher: &FsEventWatcher) -> Vec<(PathBuf, RecursiveMode)> {
+    fn watched(watcher: &FsEventWatcher) -> Vec<WatchedPath> {
         let mut watched = watcher.watched_paths().unwrap();
-        watched.sort_by(|a, b| a.0.cmp(&b.0));
+        watched.sort_by(|a, b| a.path.cmp(&b.path));
         watched
     }
 
@@ -3257,7 +3263,7 @@ mod tests {
         assert_eq!(
             watched(&watcher)
                 .into_iter()
-                .map(|(path, _)| path)
+                .map(|watched| watched.path)
                 .collect::<Vec<_>>(),
             applied
         );

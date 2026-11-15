@@ -786,11 +786,16 @@ impl Watcher for PollWatcher {
         self.unwatch_inner(path)
     }
 
-    fn watched_paths(&self) -> crate::Result<Vec<(PathBuf, RecursiveMode)>> {
+    fn watched_paths(&self) -> crate::Result<Vec<crate::WatchedPath>> {
         let watches = self.watches.lock().unwrap_or_else(|e| e.into_inner());
         Ok(watches
             .values()
-            .map(|watch| (watch.requested_root().to_path_buf(), watch.recursive_mode()))
+            .map(|watch| {
+                crate::WatchedPath::new(
+                    watch.requested_root().to_path_buf(),
+                    watch.recursive_mode(),
+                )
+            })
             .collect())
     }
 
@@ -809,7 +814,7 @@ impl Drop for PollWatcher {
 mod tests {
     use super::PollWatcher;
     use crate::{
-        Config, RecursiveMode, Watcher,
+        Config, RecursiveMode, WatchedPath, Watcher,
         event::{DataChange, EventKind, MetadataKind, ModifyKind},
         test::*,
     };
@@ -1056,7 +1061,10 @@ mod tests {
             .expect("watch after poisoning");
         assert_eq!(
             watcher.watched_paths().expect("list after poisoning"),
-            vec![(tmpdir.path().to_path_buf(), RecursiveMode::Recursive)]
+            vec![WatchedPath::new(
+                tmpdir.path().to_path_buf(),
+                RecursiveMode::Recursive
+            )]
         );
         watcher.poll_blocking().expect("poll after poisoning");
         watcher
@@ -1087,11 +1095,11 @@ mod tests {
             .expect("watch dir b");
 
         let watched = watcher.watched_paths().expect("list watched paths");
-        assert!(watched.contains(&(
+        assert!(watched.contains(&WatchedPath::new(
             dir_a.canonicalize().expect("canonicalize dir a"),
             RecursiveMode::Recursive,
         )));
-        assert!(watched.contains(&(
+        assert!(watched.contains(&WatchedPath::new(
             dir_b.canonicalize().expect("canonicalize dir b"),
             RecursiveMode::NonRecursive,
         )));
@@ -1101,11 +1109,11 @@ mod tests {
         let watched = watcher
             .watched_paths()
             .expect("list watched paths after unwatch");
-        assert!(!watched.contains(&(
+        assert!(!watched.contains(&WatchedPath::new(
             dir_a.canonicalize().expect("canonicalize dir a"),
             RecursiveMode::Recursive,
         )));
-        assert!(watched.contains(&(
+        assert!(watched.contains(&WatchedPath::new(
             dir_b.canonicalize().expect("canonicalize dir b"),
             RecursiveMode::NonRecursive,
         )));
@@ -1126,16 +1134,19 @@ mod tests {
             .expect("watch non-recursively");
 
         let watched = watcher.watched_paths().expect("list watched paths");
-        assert!(watched.contains(&(root.clone(), RecursiveMode::NonRecursive)));
-        assert!(!watched.contains(&(root.clone(), RecursiveMode::Recursive)));
+        assert!(watched.contains(&WatchedPath::new(root.clone(), RecursiveMode::NonRecursive)));
+        assert!(!watched.contains(&WatchedPath::new(root.clone(), RecursiveMode::Recursive)));
         assert_eq!(
-            watched.iter().filter(|(path, _mode)| path == &root).count(),
+            watched
+                .iter()
+                .filter(|watched| watched.path == root)
+                .count(),
             1
         );
 
         watcher.unwatch(tmpdir.path()).expect("unwatch");
         let watched = watcher.watched_paths().expect("list watched paths");
-        assert!(!watched.iter().any(|(path, _mode)| path == &root));
+        assert!(!watched.iter().any(|watched| watched.path == root));
     }
 
     #[test]

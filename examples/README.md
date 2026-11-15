@@ -14,7 +14,7 @@ Examples for notify and the debouncers.
 ### Notify Debouncer Full (debouncer)
 
 - **monitor_debounced** basic usage example for the debouncer
-- **debouncer_full** advanced usage accessing the internal file ID cache
+- **debouncer_full** configure the debouncer and its backend event mask
 
 ### Debouncer Mini (mini debouncer)
 

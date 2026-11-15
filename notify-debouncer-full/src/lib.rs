@@ -102,7 +102,7 @@ pub use notify_types::debouncer_full::DebouncedEvent;
 use file_id::FileId;
 use notify::{
     Error, ErrorKind, Event, EventKind, EventKindMask, PathOp, RecommendedWatcher, RecursiveMode,
-    UpdatePathsError, Watcher, WatcherKind,
+    UpdatePathsError, WatchedPath, Watcher, WatcherKind,
     event::{ModifyKind, RemoveKind, RenameMode},
 };
 
@@ -177,6 +177,60 @@ impl DebounceEventHandler for std::sync::mpsc::Sender<DebounceEventResult> {
 /// A result of debounced events.
 /// Comes with either a vec of events or vec of errors.
 pub type DebounceEventResult = Result<Vec<DebouncedEvent>, Vec<Error>>;
+
+/// Configuration for the full debouncer.
+///
+/// The default backend config uses [`EventKindMask::CORE`], which excludes access events.
+///
+/// ```rust
+/// # use std::time::Duration;
+/// use notify_debouncer_full::Config;
+///
+/// let config = Config::default()
+///     .with_timeout(Duration::from_secs(1))
+///     .with_tick_rate(Duration::from_millis(100));
+/// ```
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct Config {
+    timeout: Duration,
+    tick_rate: Option<Duration>,
+    notify_config: notify::Config,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_millis(500),
+            tick_rate: None,
+            notify_config: notify::Config::default().with_event_kinds(EventKindMask::CORE),
+        }
+    }
+}
+
+impl Config {
+    /// Sets the debounce timeout (default: 500 ms).
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+    /// Sets how often to check for events to emit.
+    ///
+    /// Defaults to 1/4 of the timeout and must not exceed it.
+    #[must_use]
+    pub fn with_tick_rate(mut self, tick_rate: Duration) -> Self {
+        self.tick_rate = Some(tick_rate);
+        self
+    }
+    /// Replace the backend [`notify::Config`], including its event mask.
+    ///
+    /// `notify::Config::default()` enables access events; use [`EventKindMask::CORE`] to exclude them.
+    #[must_use]
+    pub fn with_notify_config(mut self, notify_config: notify::Config) -> Self {
+        self.notify_config = notify_config;
+        self
+    }
+}
 
 type DebounceData<T> = Arc<SharedDebounceData<T>>;
 
@@ -738,7 +792,7 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         Ok(())
     }
 
-    pub fn watched_paths(&self) -> notify::Result<Vec<(PathBuf, RecursiveMode)>> {
+    pub fn watched_paths(&self) -> notify::Result<Vec<WatchedPath>> {
         self.watcher.watched_paths()
     }
 
@@ -758,15 +812,13 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
     ///
     /// ```
     /// # use notify::{Watcher, RecursiveMode, PathOp};
-    /// # use notify_debouncer_full::{RecommendedCache, new_debouncer_opt};
+    /// # use notify_debouncer_full::{Config, RecommendedCache, new_debouncer_opt};
     /// # use std::path::{Path, PathBuf};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let mut debouncer = new_debouncer_opt::<_, notify::NullWatcher, _>(
-    /// #     std::time::Duration::from_secs(1),
-    /// #     None,
+    /// #     Config::default(),
     /// #     |e| {},
     /// #     RecommendedCache::new(),
-    /// #     Default::default()
     /// # )?;
     /// debouncer.update_paths([
     ///     PathOp::watch_recursive("path/to/file"),
@@ -783,18 +835,20 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
         &mut self,
         ops: impl IntoIterator<Item = Op>,
     ) -> std::result::Result<(), UpdatePathsError> {
+        // One entry per operation: the root update it implies, or `None` for an operation
+        // this version does not know and therefore only forwards to the watcher.
         let mut paths = Vec::new();
         let ops: Vec<_> = ops
             .into_iter()
             .map(Into::into)
             .inspect(|op| {
-                paths.push((
-                    op.as_path().to_path_buf(),
-                    match op {
-                        PathOp::Watch(_, config) => Some(config.recursive_mode()),
-                        PathOp::Unwatch(_) => None,
-                    },
-                ));
+                paths.push(match op {
+                    PathOp::Watch(path, config) => {
+                        Some((path.clone(), Some(config.recursive_mode())))
+                    }
+                    PathOp::Unwatch(path) => Some((path.clone(), None)),
+                    _ => None,
+                });
             })
             .collect();
 
@@ -806,8 +860,7 @@ impl<T: Watcher, C: FileIdCache> Debouncer<T, C> {
                 paths.len().saturating_sub(e.remaining.len() + failed)
             }
         };
-        let updated_paths = &paths[..updated_len];
-        for (path, watch_mode) in updated_paths {
+        for (path, watch_mode) in paths[..updated_len].iter().flatten() {
             match watch_mode {
                 Some(recursive_mode) => self.add_root(path, *recursive_mode),
                 None => self.remove_root(path),
@@ -837,16 +890,20 @@ impl<T: Watcher, C: FileIdCache> Drop for Debouncer<T, C> {
 
 /// Creates a new debounced watcher with custom configuration.
 ///
-/// Timeout is the amount of time after which a debounced event is emitted.
+/// # Errors
 ///
-/// If `tick_rate` is `None`, notify will select a tick rate that is 1/4 of the provided timeout.
+/// Returns an error if the tick rate of `config` exceeds its timeout, or if the watcher
+/// cannot be created.
 pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + Send + 'static>(
-    timeout: Duration,
-    tick_rate: Option<Duration>,
+    config: Config,
     mut event_handler: F,
     file_id_cache: C,
-    config: notify::Config,
 ) -> Result<Debouncer<T, C>, Error> {
+    let Config {
+        timeout,
+        tick_rate,
+        notify_config,
+    } = config;
     let data = Arc::new(SharedDebounceData {
         inner: Mutex::new(DebounceDataInner::new(file_id_cache, timeout)),
         changed: Condvar::new(),
@@ -886,7 +943,7 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
                 data_c.changed.notify_one();
             }
         },
-        config,
+        notify_config,
     )?;
 
     let data_c = data.clone();
@@ -930,11 +987,9 @@ pub fn new_debouncer_opt<F: DebounceEventHandler, T: Watcher, C: FileIdCache + S
     Ok(guard)
 }
 
-/// Short function to create a new debounced watcher with the recommended debouncer and the built-in file ID cache.
+/// Creates a debouncer with the recommended watcher and built-in file ID cache.
 ///
-/// Timeout is the amount of time after which a debounced event is emitted.
-///
-/// If `tick_rate` is `None`, notify will select a tick rate that is 1/4 of the provided timeout.
+/// `timeout` sets the debounce delay; `tick_rate` defaults to 1/4 of it.
 ///
 /// Uses [`EventKindMask::CORE`], excluding access events such as `Access(Close(Write))`.
 /// To customize the event mask, use [`new_debouncer_opt`].
@@ -943,12 +998,15 @@ pub fn new_debouncer<F: DebounceEventHandler>(
     tick_rate: Option<Duration>,
     event_handler: F,
 ) -> Result<Debouncer<RecommendedWatcher, RecommendedCache>, Error> {
-    new_debouncer_opt::<F, RecommendedWatcher, RecommendedCache>(
+    let config = Config {
         timeout,
         tick_rate,
+        ..Config::default()
+    };
+    new_debouncer_opt::<F, RecommendedWatcher, RecommendedCache>(
+        config,
         event_handler,
         RecommendedCache::new(),
-        notify::Config::default().with_event_kinds(EventKindMask::CORE),
     )
 }
 
@@ -1178,19 +1236,19 @@ mod tests {
 
     #[derive(Debug, Default)]
     struct TrackingWatcher {
-        watched: Vec<(PathBuf, RecursiveMode)>,
+        watched: Vec<WatchedPath>,
+    }
+
+    fn test_config() -> Config {
+        Config::default()
+            .with_timeout(Duration::from_millis(20))
+            .with_tick_rate(Duration::from_millis(5))
     }
 
     fn tracking_debouncer<C: FileIdCache + Send + 'static>(
         cache: C,
     ) -> Result<Debouncer<TrackingWatcher, C>, Error> {
-        new_debouncer_opt(
-            Duration::from_millis(20),
-            Some(Duration::from_millis(5)),
-            |_| {},
-            cache,
-            notify::Config::default(),
-        )
+        new_debouncer_opt(test_config(), |_| {}, cache)
     }
 
     impl Watcher for TrackingWatcher {
@@ -1202,14 +1260,14 @@ mod tests {
         }
 
         fn watch(&mut self, path: &Path, recursive_mode: RecursiveMode) -> notify::Result<()> {
-            self.watched.push((path.to_path_buf(), recursive_mode));
+            self.watched
+                .push(WatchedPath::new(path.to_path_buf(), recursive_mode));
             Ok(())
         }
 
         fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
             let original_len = self.watched.len();
-            self.watched
-                .retain(|(watched_path, _)| watched_path != path);
+            self.watched.retain(|watched| watched.path != path);
 
             if self.watched.len() == original_len {
                 Err(Error::watch_not_found())
@@ -1222,7 +1280,7 @@ mod tests {
             WatcherKind::NullWatcher
         }
 
-        fn watched_paths(&self) -> notify::Result<Vec<(PathBuf, RecursiveMode)>> {
+        fn watched_paths(&self) -> notify::Result<Vec<WatchedPath>> {
             Ok(self.watched.clone())
         }
     }
@@ -1629,14 +1687,8 @@ mod tests {
     #[test]
     fn errors_keep_user_data_when_delivered() {
         let (tx, rx) = std::sync::mpsc::channel();
-        let debouncer = new_debouncer_opt::<_, TrackingWatcher, NoCache>(
-            Duration::from_millis(20),
-            Some(Duration::from_millis(5)),
-            tx,
-            NoCache,
-            notify::Config::default(),
-        )
-        .unwrap();
+        let debouncer =
+            new_debouncer_opt::<_, TrackingWatcher, NoCache>(test_config(), tx, NoCache).unwrap();
         {
             let mut data = debouncer.data.inner.lock().unwrap();
             data.add_error(Error::path_not_found().set_user_data(42));
@@ -1675,11 +1727,11 @@ mod tests {
 
         let (tx, rx) = std::sync::mpsc::channel();
         let mut debouncer = new_debouncer_opt::<_, InjectWatcher, NoCache>(
-            Duration::from_millis(10),
-            Some(Duration::from_millis(2)),
+            test_config()
+                .with_timeout(Duration::from_millis(10))
+                .with_tick_rate(Duration::from_millis(2)),
             tx,
             NoCache,
-            notify::Config::default(),
         )
         .unwrap();
 
@@ -1729,13 +1781,8 @@ mod tests {
     fn a_pending_destination_is_delivered_without_a_normal_queue()
     -> Result<(), Box<dyn std::error::Error>> {
         let (tx, rx) = std::sync::mpsc::channel();
-        let debouncer = new_debouncer_opt::<_, TrackingWatcher, NoCache>(
-            Duration::from_millis(20),
-            Some(Duration::from_millis(5)),
-            tx,
-            NoCache,
-            notify::Config::default(),
-        )?;
+        let debouncer =
+            new_debouncer_opt::<_, TrackingWatcher, NoCache>(test_config(), tx, NoCache)?;
         let path = PathBuf::from("/alias/to");
         {
             let mut data = debouncer.data.inner.lock().unwrap();
@@ -2066,11 +2113,9 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel::<DebounceEventResult>();
 
         let result = new_debouncer_opt::<_, UnconstructibleWatcher, NoCache>(
-            Duration::from_millis(20),
-            Some(Duration::from_millis(5)),
+            test_config(),
             tx,
             NoCache::new(),
-            notify::Config::default(),
         );
         assert!(result.is_err());
 
@@ -2081,14 +2126,16 @@ mod tests {
     }
 
     #[test]
+    fn tick_rate_above_timeout_is_rejected() {
+        let config = test_config().with_tick_rate(Duration::from_millis(21));
+        let result = new_debouncer_opt::<_, TrackingWatcher, NoCache>(config, |_| {}, NoCache);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn update_paths_error_does_not_add_failed_root() -> Result<(), Box<dyn std::error::Error>> {
-        let mut debouncer = new_debouncer_opt::<_, FailingWatcher, NoCache>(
-            Duration::from_millis(20),
-            Some(Duration::from_millis(5)),
-            |_| {},
-            NoCache::new(),
-            notify::Config::default(),
-        )?;
+        let mut debouncer =
+            new_debouncer_opt::<_, FailingWatcher, NoCache>(test_config(), |_| {}, NoCache::new())?;
 
         let err = debouncer
             .update_paths([
@@ -2121,11 +2168,9 @@ mod tests {
     fn watched_paths_with_watch_update_paths_and_unwatch() -> Result<(), Box<dyn std::error::Error>>
     {
         let mut debouncer = new_debouncer_opt::<_, TrackingWatcher, NoCache>(
-            Duration::from_millis(20),
-            Some(Duration::from_millis(5)),
+            test_config(),
             |_| {},
             NoCache::new(),
-            notify::Config::default(),
         )?;
 
         let path1 = PathBuf::from("one");
@@ -2137,7 +2182,7 @@ mod tests {
         debouncer.watch(&path1, RecursiveMode::Recursive)?;
         assert_eq!(
             debouncer.watched_paths()?,
-            vec![(path1.clone(), RecursiveMode::Recursive)]
+            vec![WatchedPath::new(path1.clone(), RecursiveMode::Recursive)]
         );
 
         debouncer.update_paths([
@@ -2148,15 +2193,15 @@ mod tests {
         assert_eq!(
             debouncer.watched_paths()?,
             vec![
-                (path2.clone(), RecursiveMode::NonRecursive),
-                (path3.clone(), RecursiveMode::Recursive),
+                WatchedPath::new(path2.clone(), RecursiveMode::NonRecursive),
+                WatchedPath::new(path3.clone(), RecursiveMode::Recursive),
             ]
         );
 
         debouncer.unwatch(&path2)?;
         assert_eq!(
             debouncer.watched_paths()?,
-            vec![(path3, RecursiveMode::Recursive)]
+            vec![WatchedPath::new(path3, RecursiveMode::Recursive)]
         );
 
         Ok(())
@@ -2201,11 +2246,9 @@ mod tests {
     #[cfg(not(target_family = "wasm"))]
     fn unwatch_parent_preserves_nested_root() -> Result<(), Box<dyn std::error::Error>> {
         let mut debouncer = new_debouncer_opt::<_, TrackingWatcher, FileIdMap>(
-            Duration::from_millis(20),
-            Some(Duration::from_millis(5)),
+            test_config(),
             |_| {},
             FileIdMap::new(),
-            notify::Config::default(),
         )?;
 
         let tmpdir = tempdir()?;
@@ -2248,11 +2291,9 @@ mod tests {
     #[cfg(not(target_family = "wasm"))]
     fn unwatch_not_found_preserves_nested_roots() -> Result<(), Box<dyn std::error::Error>> {
         let mut debouncer = new_debouncer_opt::<_, TrackingWatcher, FileIdMap>(
-            Duration::from_millis(20),
-            Some(Duration::from_millis(5)),
+            test_config(),
             |_| {},
             FileIdMap::new(),
-            notify::Config::default(),
         )?;
 
         let tmpdir = tempdir()?;

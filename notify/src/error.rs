@@ -142,7 +142,7 @@ impl Error {
     /// Creates a new "invalid config" error from the given `Config`.
     #[must_use]
     pub fn invalid_config(config: &Config) -> Self {
-        Self::new(ErrorKind::InvalidConfig(*config))
+        Self::new(ErrorKind::InvalidConfig(config.clone()))
     }
 }
 

@@ -39,6 +39,7 @@ impl DebouncedEvent {
 /// Handle [`Self::Rescan`] before applying path or event-kind filters to [`Self::Events`].
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[non_exhaustive]
 pub enum DebouncedEventBatch {
     /// A batch of debounced path changes.
     Events(Vec<DebouncedEvent>),
