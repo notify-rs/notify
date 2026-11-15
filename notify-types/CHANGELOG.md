@@ -2,7 +2,13 @@
 
 ## unreleased
 
-- CHANGE: `debouncer_mini::DebouncedEventBatch` is now `#[non_exhaustive]`. No major version bump: only `notify-debouncer-mini` 0.8 RCs use this type. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#5-mini-debouncer-notifications) for matching changes.
+## notify-types 2.3.1 (2026-11-15)
+
+- CHANGE: `debouncer_mini::DebouncedEventBatch` is now `#[non_exhaustive]`. No major version bump: only `notify-debouncer-mini` 0.8 RCs use this type. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#5-mini-debouncer-notifications) for matching changes [#1106].
+- DOCS: clarify that `EventKindMask::default()` includes all events, while notify's `Config::default()` excludes `ACCESS_CLOSE_NOWRITE` [#1096]
+
+[#1096]: https://github.com/notify-rs/notify/pull/1096
+[#1106]: https://github.com/notify-rs/notify/pull/1106
 
 ## notify-types 2.3.0 (2026-11-09)
 

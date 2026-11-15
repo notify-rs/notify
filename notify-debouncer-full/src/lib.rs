@@ -14,7 +14,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify-debouncer-full = "0.8.0-rc.3"
+//! notify-debouncer-full = "0.8.0-rc.4"
 //! ```
 //!
 //! In case you want to select specific features of notify,
@@ -22,8 +22,8 @@
 //! Otherwise you can just use the re-export of notify from debouncer-full.
 //!
 //! ```toml
-//! notify-debouncer-full = "0.8.0-rc.3"
-//! notify = { version = "9.0.0-rc.8", features = ["serde"] }
+//! notify-debouncer-full = "0.8.0-rc.4"
+//! notify = { version = "9.0.0-rc.9", features = ["serde"] }
 //! ```
 //!
 //! # Examples

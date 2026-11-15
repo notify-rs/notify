@@ -2,27 +2,42 @@
 
 ## unreleased
 
-- CHANGE: `Watcher::watched_paths` returns `Vec<WatchedPath>` instead of `Vec<(PathBuf, RecursiveMode)>`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#custom-watchers-and-additional-configuration) **breaking**
-- CHANGE: `PathOp` is now `#[non_exhaustive]`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#2-watcherpaths_mut-was-removed) **breaking**
-- CHANGE: `Config` no longer implements `Copy`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#9-config-is-no-longer-copy) **breaking**
-- CHANGE: [Windows] remove the undocumented `windows::MetaEvent` and `ReadDirectoryChangesWatcher::create`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#10-undocumented-windows-items-were-removed) **breaking**
-- CHANGE: exclude `ACCESS_CLOSE_NOWRITE` from `Config::default()`, restoring v8's default event kinds. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-kind-filtering-was-added)
-- CHANGE: [poll] report file content changes as `Modify(Data(Any))` instead of `Modify(Metadata(WriteTime))`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-details-and-rescan-notifications)
-- CHANGE: [poll] classify create and remove events as `File`, `Folder`, or `Other` instead of `Any`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-details-and-rescan-notifications)
-- CHANGE: [macOS] return `ErrorKind::WatchStartFailed` instead of `ErrorKind::Generic` when an FSEvents stream cannot be created or started. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage)
-- FIX: [inotify, kqueue, poll, Windows] return worker thread creation failures as `ErrorKind::Io` instead of constructing an unusable watcher
-- FIX: [Windows] preserve OS errors from semaphore creation as `ErrorKind::Io` instead of `ErrorKind::Generic`
-- FIX: [poll] detect file changes when size changes or modification time moves backwards
-- FIX: [inotify] avoid extra rename events without a tracker for subdirectories of recursive watches
-- FIX: [inotify] report renames with `MODIFY_NAME` alone; stop watching directories moved outside recursive roots even when rename events are filtered
-- FIX: [inotify] prevent large recursive registrations from overflowing the default inotify queue with directory access events
-- PERF: [inotify, kqueue] stop scanning every watch when a watched path is removed, renamed, or unwatched; the cost now depends on the size of its subtree
-- FIX: [inotify, kqueue] retry incomplete recursive watches on repeated `watch()` calls; inotify follows replaced paths, and kqueue processes pending rename/delete events before rewatching
-- FIX: [inotify, kqueue] make `unwatch` remove only explicit watches and preserve ancestor recursive coverage. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage)
-- FIX: [kqueue] honor `follow_symlinks` for new symlinks and detect new entries under recursively watched symlink roots
-- FIX: [macOS] preserve existing FSEvents watches when a path update exceeds the root limit. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage)
-- FIX: [macOS] filter events predating watch registration when rebuilding the FSEvents stream
-- FIX: [Windows] return `ErrorKind::PathNotFound` instead of `ErrorKind::Generic` when watching a path that does not exist; other failures to stat the path are now reported as `ErrorKind::Io`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage)
+## notify 9.0.0-rc.9 (2026-11-15)
+
+- CHANGE: `Watcher::watched_paths` returns `Vec<WatchedPath>` instead of `Vec<(PathBuf, RecursiveMode)>`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#custom-watchers-and-additional-configuration) [#1106] **breaking**
+- CHANGE: `PathOp` is now `#[non_exhaustive]`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#2-watcherpaths_mut-was-removed) [#1106] **breaking**
+- CHANGE: `Config` no longer implements `Copy`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#9-config-is-no-longer-copy) [#1106] **breaking**
+- CHANGE: [Windows] remove the undocumented `windows::MetaEvent` and `ReadDirectoryChangesWatcher::create`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#10-undocumented-windows-items-were-removed) [#1106] **breaking**
+- CHANGE: exclude `ACCESS_CLOSE_NOWRITE` from `Config::default()`, restoring v8's default event kinds. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-kind-filtering-was-added) [#1096]
+- CHANGE: [poll] report file content changes as `Modify(Data(Any))` instead of `Modify(Metadata(WriteTime))`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-details-and-rescan-notifications) [#1101]
+- CHANGE: [poll] classify create and remove events as `File`, `Folder`, or `Other` instead of `Any`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-details-and-rescan-notifications) [#1107]
+- CHANGE: [macOS] return `ErrorKind::WatchStartFailed` instead of `ErrorKind::Generic` when an FSEvents stream cannot be created or started. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage) [#1108]
+- DEPS: upgrade `notify-types` to 2.3.1
+- FIX: [inotify, kqueue, poll, Windows] return worker thread creation failures as `ErrorKind::Io` instead of constructing an unusable watcher [#1108]
+- FIX: [Windows] preserve OS errors from semaphore creation as `ErrorKind::Io` instead of `ErrorKind::Generic` [#1108]
+- FIX: [poll] detect file changes when size changes or modification time moves backwards [#1101]
+- FIX: [inotify] avoid extra rename events without a tracker for subdirectories of recursive watches [#1096]
+- FIX: [inotify] report renames with `MODIFY_NAME` alone; stop watching directories moved outside recursive roots even when rename events are filtered [#1096]
+- FIX: [inotify] prevent large recursive registrations from overflowing the default inotify queue with directory access events [#1096]
+- PERF: [inotify, kqueue] stop scanning every watch when a watched path is removed, renamed, or unwatched; the cost now depends on the size of its subtree [#1094]
+- FIX: [inotify, kqueue] retry incomplete recursive watches on repeated `watch()` calls; inotify follows replaced paths, and kqueue processes pending rename/delete events before rewatching [#1093]
+- FIX: [inotify, kqueue] make `unwatch` remove only explicit watches and preserve ancestor recursive coverage. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage) [#1097]
+- FIX: [kqueue] honor `follow_symlinks` for new symlinks and detect new entries under recursively watched symlink roots [#1097]
+- FIX: [macOS] preserve existing FSEvents watches when a path update exceeds the root limit. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage) [#1098]
+- FIX: [macOS] filter events predating watch registration when rebuilding the FSEvents stream [#1100]
+- FIX: [Windows] return `ErrorKind::PathNotFound` instead of `ErrorKind::Generic` when watching a path that does not exist; other failures to stat the path are now reported as `ErrorKind::Io`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage) [#1102]
+
+[#1093]: https://github.com/notify-rs/notify/pull/1093
+[#1094]: https://github.com/notify-rs/notify/pull/1094
+[#1096]: https://github.com/notify-rs/notify/pull/1096
+[#1097]: https://github.com/notify-rs/notify/pull/1097
+[#1098]: https://github.com/notify-rs/notify/pull/1098
+[#1100]: https://github.com/notify-rs/notify/pull/1100
+[#1101]: https://github.com/notify-rs/notify/pull/1101
+[#1102]: https://github.com/notify-rs/notify/pull/1102
+[#1106]: https://github.com/notify-rs/notify/pull/1106
+[#1107]: https://github.com/notify-rs/notify/pull/1107
+[#1108]: https://github.com/notify-rs/notify/pull/1108
 
 ## notify 9.0.0-rc.8 (2026-11-09)
 

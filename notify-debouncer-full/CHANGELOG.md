@@ -2,9 +2,15 @@
 
 ## unreleased
 
-- CHANGE: `new_debouncer_opt` takes `(Config, event_handler, file_id_cache)` instead of five arguments. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#pass-a-config-to-new_debouncer_opt) **breaking**
-- CHANGE: `Debouncer::watched_paths` returns `Vec<notify::WatchedPath>` instead of `Vec<(PathBuf, RecursiveMode)>` **breaking**
-- CHANGE: `new_debouncer` and `Config::default()` use `EventKindMask::CORE`, excluding access events. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-kind-filtering-was-added)
+## debouncer-full 0.8.0-rc.4 (2026-11-15)
+
+- CHANGE: upgrade `notify` to 9.0.0-rc.9 and `notify-types` to 2.3.1
+- CHANGE: `new_debouncer_opt` takes `(Config, event_handler, file_id_cache)` instead of five arguments. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#pass-a-config-to-new_debouncer_opt) [#1106] **breaking**
+- CHANGE: `Debouncer::watched_paths` returns `Vec<notify::WatchedPath>` instead of `Vec<(PathBuf, RecursiveMode)>` [#1106] **breaking**
+- CHANGE: `new_debouncer` and `Config::default()` use `EventKindMask::CORE`, excluding access events. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-kind-filtering-was-added) [#1103]
+
+[#1103]: https://github.com/notify-rs/notify/pull/1103
+[#1106]: https://github.com/notify-rs/notify/pull/1106
 
 ## debouncer-full 0.8.0-rc.3 (2026-11-09)
 
