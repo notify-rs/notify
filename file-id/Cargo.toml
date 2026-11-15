@@ -1,7 +1,7 @@
 [package]
 name = "file-id"
 version = "0.2.3"
-description = "Utility for reading inode numbers (Linux, MacOS) and file IDs (Windows)"
+description = "Utility for reading inode numbers (Unix, WASI) and file IDs (Windows)"
 documentation = "https://docs.rs/notify"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
@@ -22,6 +22,11 @@ serde = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+
+[target.'cfg(target_os = "wasi")'.dependencies]
+# TODO: Replace rustix with std once the MSRV supports it.
+# Tracking wasi_ext: https://github.com/rust-lang/rust/issues/71213
+rustix = { version = "1.1.6", features = ["fs"] }
 
 [dev-dependencies]
 tempfile.workspace = true

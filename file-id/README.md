@@ -2,7 +2,7 @@
 
 [![» Docs](https://flat.badgen.net/badge/api/docs.rs/df3600)][docs]
 
-A utility to read file IDs.
+A utility to read file IDs on Unix, Windows, and WASI (Preview 1 and Preview 2).
 
 Modern file systems assign a unique ID to each file. On Linux and MacOS it is called an `inode number`, on Windows it is called `file index`.
 Together with the `device id`, a file can be identified uniquely on a device at a given time.

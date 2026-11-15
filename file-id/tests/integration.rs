@@ -10,6 +10,9 @@ fn symlink_file(target: &Path, link: &Path) -> io::Result<()> {
     #[cfg(target_family = "unix")]
     return std::os::unix::fs::symlink(target, link);
 
+    #[cfg(target_os = "wasi")]
+    return rustix::fs::symlink(target, link).map_err(Into::into);
+
     #[cfg(target_family = "windows")]
     return std::os::windows::fs::symlink_file(target, link).map_err(|err| {
         io::Error::new(
@@ -24,12 +27,12 @@ fn symlink_file(target: &Path, link: &Path) -> io::Result<()> {
 // Following a symlink returns the target's ID; the link has its own stable ID.
 #[test]
 fn test_symlink_id_differs_from_target_and_is_stable() -> io::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = TempDir::new_in(".")?;
     let file_path = temp_dir.path().join("test_file.txt");
     let symlink_path = temp_dir.path().join("test_symlink");
 
     fs::write(&file_path, "test content")?;
-    symlink_file(&file_path, &symlink_path)?;
+    symlink_file(Path::new("test_file.txt"), &symlink_path)?;
 
     let original_file_id = get_file_id(&file_path)?;
     let symlink_follow_id = get_file_id(&symlink_path)?;
@@ -50,7 +53,7 @@ fn test_symlink_id_differs_from_target_and_is_stable() -> io::Result<()> {
 // All three lookup methods return the same ID for a regular file.
 #[test]
 fn test_regular_file_ids_match() -> io::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = TempDir::new_in(".")?;
     let file_path = temp_dir.path().join("test_file.txt");
     fs::write(&file_path, "test content")?;
 
@@ -68,7 +71,7 @@ fn test_regular_file_ids_match() -> io::Result<()> {
 // Following links has no effect on a regular directory's ID.
 #[test]
 fn test_directory_ids_match() -> io::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = TempDir::new_in(".")?;
     let dir_path = temp_dir.path().join("test_dir");
     fs::create_dir(&dir_path)?;
 
@@ -80,7 +83,7 @@ fn test_directory_ids_match() -> io::Result<()> {
 // Path and handle lookups distinguish two files in the same directory.
 #[test]
 fn test_different_files_have_different_ids() -> io::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = TempDir::new_in(".")?;
     let a = temp_dir.path().join("a");
     let b = temp_dir.path().join("b");
     fs::write(&a, "a")?;
@@ -95,10 +98,47 @@ fn test_different_files_have_different_ids() -> io::Result<()> {
     Ok(())
 }
 
+// Hard links share an ID, which does not change when the file is written to.
+#[test]
+fn test_hard_links_share_id_after_write() -> io::Result<()> {
+    let temp_dir = TempDir::new_in(".")?;
+    let path = temp_dir.path().join("file");
+    let link = temp_dir.path().join("hard_link");
+    fs::write(&path, "before")?;
+    fs::hard_link(&path, &link)?;
+
+    let id = get_file_id(&path)?;
+    let file = fs::File::open(&link)?;
+    fs::write(&link, "after writing more content")?;
+
+    assert_eq!(id, get_file_id(&path)?);
+    assert_eq!(id, get_file_id(&link)?);
+    assert_eq!(id, get_file_id_from_file(&file)?);
+
+    Ok(())
+}
+
+// A dangling symlink has an ID even though looking up its target fails.
+#[test]
+fn test_dangling_symlink_id() -> io::Result<()> {
+    let temp_dir = TempDir::new_in(".")?;
+    let link = temp_dir.path().join("symlink");
+    symlink_file(Path::new("missing"), &link)?;
+
+    let id = get_file_id_no_follow(&link)?;
+    assert_eq!(id, get_file_id_no_follow(&link)?);
+    assert_eq!(
+        get_file_id(&link).unwrap_err().kind(),
+        io::ErrorKind::NotFound
+    );
+
+    Ok(())
+}
+
 // An open handle returns the same ID as the file's new path after a rename.
 #[test]
 fn test_get_file_id_from_file_survives_rename() -> io::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = TempDir::new_in(".")?;
     let old_path = temp_dir.path().join("old");
     let new_path = temp_dir.path().join("new");
     fs::write(&old_path, "test content")?;

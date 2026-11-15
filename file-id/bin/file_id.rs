@@ -8,7 +8,7 @@ fn main() {
     print_file_id(&path);
 }
 
-#[cfg(target_family = "unix")]
+#[cfg(any(unix, target_os = "wasi"))]
 fn print_file_id(path: &str) {
     print_result(file_id::get_file_id(path));
 }
