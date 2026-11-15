@@ -327,6 +327,13 @@ For `PollWatcher`, match `Modify(Data(_))` for file writes previously reported a
 for directories and symlinks, or when `Config::with_compare_contents(true)` confirms unchanged
 file contents.
 
+`PollWatcher` also reports `CreateKind` and `RemoveKind` as `File`, `Folder`, or `Other`
+instead of `Any`.
+Match `EventKind::Create(_)` and `EventKind::Remove(_)` to handle all creations and removals.
+Symlinks use their target's type when `Config::with_follow_symlinks(true)` is enabled;
+otherwise they use `Other`, as do other entries that are neither regular files nor directories.
+Removal events use the type recorded by the last scan that observed the path.
+
 FSEvents now reports renames, moves, or deletions of stream roots or their ancestors as
 `Remove` or `Modify(Name(RenameMode::From))` events with `info = "root changed"`.
 Overlapping recursive watches on the same volume can share a stream root, so covered
