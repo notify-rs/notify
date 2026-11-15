@@ -1,10 +1,22 @@
 # Changelog
 
-## debouncer-mini 0.8.0-rc.1 (unreleased)
+## unreleased
+
+## debouncer-mini 0.8.0-rc.2 (2026-11-15)
+
+- CHANGE: upgrade `notify` to 9.0.0-rc.9 and `notify-types` to 2.3.1
+- CHANGE: `DebouncedEventBatch` is now `#[non_exhaustive]`, requiring a wildcard arm when matching successful notifications. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#5-mini-debouncer-notifications) [#1106] **breaking**
+- CHANGE: `Config::default()` uses `EventKindMask::CORE`, excluding access events. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-kind-filtering-was-added) [#1103]
+- DEPS: move `tempfile` to dev-dependencies [#1099]
+
+[#1099]: https://github.com/notify-rs/notify/pull/1099
+[#1103]: https://github.com/notify-rs/notify/pull/1103
+[#1106]: https://github.com/notify-rs/notify/pull/1106
+
+## debouncer-mini 0.8.0-rc.1 (2026-11-09)
 
 - CHANGE: update notify to version 9.0.0-rc.8 **breaking**
-- CHANGE: `DebounceEventResult` returns the non-exhaustive `DebouncedEventBatch` (`Events` or `Rescan`) on success. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#5-mini-debouncer-notifications) **breaking**
-- CHANGE: `Config::default()` uses `EventKindMask::CORE`, excluding access events. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-kind-filtering-was-added)
+- CHANGE: `DebounceEventResult` now returns `DebouncedEventBatch::Events(Vec<DebouncedEvent>)` or `DebouncedEventBatch::Rescan` on success **breaking**
 - FIX: forward rescan notifications immediately, with or without paths, so callers can refresh state for all watched paths
 - CHANGE: raise MSRV to 1.91
 - PERF: reuse the pending-event map with `HashMap::extract_if` instead of rebuilding it on every debounce tick

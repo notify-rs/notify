@@ -633,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "notify"
-version = "9.0.0-rc.8"
+version = "9.0.0-rc.9"
 dependencies = [
  "bitflags 2.13.2",
  "crossbeam-channel",
@@ -661,7 +661,7 @@ dependencies = [
 
 [[package]]
 name = "notify-debouncer-full"
-version = "0.8.0-rc.3"
+version = "0.8.0-rc.4"
 dependencies = [
  "crossbeam-channel",
  "deser-hjson",
@@ -682,7 +682,7 @@ dependencies = [
 
 [[package]]
 name = "notify-debouncer-mini"
-version = "0.8.0-rc.1"
+version = "0.8.0-rc.2"
 dependencies = [
  "crossbeam-channel",
  "flume",
@@ -696,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "notify-types"
-version = "2.3.0"
+version = "2.3.1"
 dependencies = [
  "bitflags 2.13.2",
  "insta",
