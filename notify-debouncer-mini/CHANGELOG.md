@@ -3,8 +3,8 @@
 ## debouncer-mini 0.8.0-rc.1 (unreleased)
 
 - CHANGE: update notify to version 9.0.0-rc.8 **breaking**
-- CHANGE: `DebounceEventResult` now returns `DebouncedEventBatch::Events(Vec<DebouncedEvent>)` or `DebouncedEventBatch::Rescan` on success **breaking**
-- CHANGE: `Config::default()` uses `EventKindMask::CORE`, excluding access events. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#5-mini-debouncer-notifications)
+- CHANGE: `DebounceEventResult` returns the non-exhaustive `DebouncedEventBatch` (`Events` or `Rescan`) on success. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#5-mini-debouncer-notifications) **breaking**
+- CHANGE: `Config::default()` uses `EventKindMask::CORE`, excluding access events. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-kind-filtering-was-added)
 - FIX: forward rescan notifications immediately, with or without paths, so callers can refresh state for all watched paths
 - CHANGE: raise MSRV to 1.91
 - PERF: reuse the pending-event map with `HashMap::extract_if` instead of rebuilding it on every debounce tick

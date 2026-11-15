@@ -1,7 +1,6 @@
 # Upgrading from notify v8 to v9
 
-This guide documents changes between v8 and v9 for upgrading existing code.
-It also covers `notify-debouncer-full` 0.7 to 0.8, `notify-debouncer-mini` 0.7 to 0.8,
+This guide covers notify v8 to v9, both debouncers from 0.7 to 0.8,
 and changes made during the v9 release candidates.
 
 Both debouncer 0.8 series use notify v9. If your application also depends on `notify`
@@ -19,15 +18,11 @@ More constructors, builders, and getters now have `#[must_use]` annotations.
 Consume their return values, or explicitly discard them with `let _ = ...` when intentional,
 if your build treats unused-result warnings as errors.
 
-We also declared a new MSRV policy. For details, please read README.
+See the [MSRV policy](../README.md#minimum-supported-rust-version-msrv-policy) for future updates.
 
 ### 2) `Watcher::paths_mut` was removed
 
-`PathsMut` and `Watcher::paths_mut()` were removed in v9 and replaced by:
-
-- `Watcher::update_paths(Vec<PathOp>)`
-- `PathOp` and `WatchPathConfig`
-- `UpdatePathsError` for partial-failure reporting
+Replace `PathsMut` and `Watcher::paths_mut()` with `Watcher::update_paths(Vec<PathOp>)`:
 
 Before (v8):
 
@@ -75,6 +70,9 @@ information. Keep the `UpdatePathsError` when you need to inspect or retry the b
 
 If you implemented a custom watcher and overrode `paths_mut`, migrate that logic to `update_paths`.
 
+`PathOp` is `#[non_exhaustive]`: custom `update_paths` implementations need a wildcard arm
+and can reject unknown operations by returning them as `UpdatePathsError.origin`.
+
 ### 3) Event paths preserve the watched path representation
 
 `Event.paths` and `Watcher::watched_paths()` now use the same root representation that was passed
@@ -104,23 +102,8 @@ let config = Config::default()
 
 ### 4) Rewatching the same path replaces the existing watch
 
-Calling `Watcher::watch` again for the same backend-resolved path now replaces the existing watch
-on success. The recursive mode and reported path are updated to the new request, a second
-independent watch is not added, and one `Watcher::unwatch` call removes the path.
-
-In v8 this behavior varied by backend. Some backends effectively merged repeated watches, while
-others could keep duplicate backend entries or resources. If your code depended on repeated
-`watch` calls acting like independent watches for the same path, use separate watcher instances or
-manage parent/child watches explicitly.
-
-Before (v8 behavior varied by backend):
-
-```rust
-watcher.watch(path, notify::RecursiveMode::Recursive)?;
-watcher.watch(path, notify::RecursiveMode::NonRecursive)?;
-```
-
-After (v9):
+Calling `Watcher::watch` again for the same backend-resolved path now replaces its recursive
+mode and reported path on success. One `unwatch` call removes the watch:
 
 ```rust
 watcher.watch(path, notify::RecursiveMode::Recursive)?;
@@ -130,9 +113,12 @@ watcher.watch(path, notify::RecursiveMode::NonRecursive)?;
 watcher.unwatch(path)?;
 ```
 
+In v8, repeated watches could be merged or duplicated, depending on the backend.
+Use separate watcher instances if you need independent watches for the same path.
+
 ### 5) Mini debouncer notifications
 
-`notify-debouncer-mini` 0.8 uses notify v9. Its `DebounceEventResult` is now
+`notify_debouncer_mini::DebounceEventResult` is now
 `Result<DebouncedEventBatch, notify::Error>` instead of `Result<Vec<DebouncedEvent>, notify::Error>`.
 Replace the `Ok(events)` branch with `Ok(DebouncedEventBatch::Events(events))` and handle the
 new `Rescan` variant:
@@ -151,23 +137,22 @@ fn handle_event(result: DebounceEventResult) {
             // Refresh any cached state for all watched paths here.
             println!("Events were missed; rescan all watched paths");
         }
+        Ok(_) => {}
         Err(error) => eprintln!("Watch error: {error}"),
     }
 }
 ```
 
-Previously, the mini debouncer discarded rescan flags. It now forwards them without waiting for
-the debounce timeout, including when the backend supplies no paths. `Rescan` applies to all
-watched paths regardless of any paths on the original event, so handle it before applying path
-or event-kind filters. Pending path changes keep their usual debounce deadlines, and errors
-are still delivered immediately.
+`DebouncedEventBatch` is `#[non_exhaustive]`, so keep the `Ok(_)` arm, including when
+upgrading from an earlier 0.8 release candidate.
 
-The existing `DebouncedEvent` and `DebouncedEventKind` types are unchanged. `DebouncedEventBatch`
-is an additive API in `notify-types` 2.2; the breaking change is in `notify-debouncer-mini`.
+Previously discarded rescan flags now produce immediate `Rescan` notifications, even without
+paths. Refresh all watched paths before applying path or event-kind filters. Pending changes
+keep their debounce deadlines, and errors are still delivered immediately.
 
-`Config::default()` now excludes access events using `EventKindMask::CORE`.
-`Config::with_notify_config` replaces this mask too; to preserve it, pass
-`notify::Config::default().with_event_kinds(EventKindMask::CORE)`.
+`DebouncedEvent` and `DebouncedEventKind` are unchanged.
+
+Access events are now excluded by default; see [event-kind filtering](#event-kind-filtering-was-added).
 
 ### 6) Error construction and matching changed
 
@@ -180,11 +165,8 @@ For code already using an earlier v9 RC, `UpdatePathsError` is now `#[non_exhaus
 Construct it with `UpdatePathsError::new(source, origin, remaining)` and include `..`
 when destructuring it.
 
-`notify::ErrorKind` is now marked `#[non_exhaustive]` so future releases can add error kinds.
-If your v8 code matched every variant in `match err.kind { ... }`, add a wildcard arm (`_`).
-It is required even when all currently defined variants are handled.
-
-Keep any existing variant-specific handling and provide a fallback for other error kinds:
+`notify::ErrorKind` is now `#[non_exhaustive]`. Add a wildcard arm to exhaustive matches,
+keeping any variant-specific handling:
 
 ```rust
 use notify::{Error, ErrorKind};
@@ -199,15 +181,12 @@ fn handle_error(err: Error) {
 
 ### 7) Full debouncer changes
 
-These changes apply to `notify-debouncer-full` 0.8, including upgrades from earlier
-0.8 release candidates. `DebounceEventResult` remains
-`Result<Vec<DebouncedEvent>, Vec<notify::Error>>`; the mini debouncer's batch enum does
-not apply to the full debouncer.
+`notify_debouncer_full::DebounceEventResult` remains
+`Result<Vec<DebouncedEvent>, Vec<notify::Error>>`.
 
 #### Use the debouncer's methods directly
 
-The deprecated `Debouncer::watcher()` and `Debouncer::cache()` methods have been removed.
-They were already no-ops in 0.7, so remove remaining calls to them.
+Remove calls to the deprecated no-op methods `Debouncer::watcher()` and `Debouncer::cache()`.
 Use `debouncer.watch(...)`, `debouncer.unwatch(...)`, `debouncer.update_paths(...)`,
 and `debouncer.configure(...)` directly. Root tracking is automatic; there is no separate
 cache accessor for manually adding or removing roots.
@@ -245,22 +224,36 @@ for surviving nested roots. To stop those watches too, unwatch them explicitly.
 
 #### Handle removals without a preceding creation
 
-A file created and removed within the debounce window now produces a `Remove` event;
-previously the full debouncer could discard both events. A pending `Create` is replaced
-by the removal. Applications maintaining a file index must tolerate a removal for a path
-that is not in the index, rather than assuming every removal follows a delivered creation.
+A file created and removed within the debounce window now produces a `Remove` event
+instead of being discarded. Applications maintaining a file index must tolerate removals
+for paths that are not in the index.
+
+#### Pass a `Config` to `new_debouncer_opt`
+
+`new_debouncer_opt` now takes a `notify_debouncer_full::Config`, the event handler, and the
+file ID cache. Move the former `timeout`, `tick_rate`, and notify config arguments into
+the config builder. `new_debouncer` keeps its signature.
+
+```rust
+use notify_debouncer_full::{Config, RecommendedCache, new_debouncer_opt, notify};
+
+let config = Config::default()
+    .with_timeout(Duration::from_secs(2))
+    .with_notify_config(notify::Config::default());
+let debouncer = new_debouncer_opt::<_, RecommendedWatcher, RecommendedCache>(
+    config,
+    event_handler,
+    RecommendedCache::new(),
+)?;
+```
+
+`Some(rate)` becomes `.with_tick_rate(rate)`; omit it for the default, 1/4 of the timeout.
+`Config::default()` has a timeout of 500 ms.
 
 #### Request access events explicitly
 
-`new_debouncer` now excludes access events, including `Access(Close(Write))`, by using
-`EventKindMask::CORE`. `new_debouncer_opt` still uses the supplied config unchanged.
-To retain close-after-write notifications, pass it this config:
-
-```rust
-use notify_debouncer_full::notify::{Config, EventKindMask};
-
-let config = Config::default().with_event_kinds(EventKindMask::CORE | EventKindMask::ACCESS_CLOSE);
-```
+Use `Config::with_notify_config` to request access events;
+see [event-kind filtering](#event-kind-filtering-was-added) for masks and defaults.
 
 ### 8) Cargo features and FreeBSD backend selection
 
@@ -274,6 +267,24 @@ FreeBSD 14.5 or newer; otherwise it selects kqueue. Cross-compilation defaults t
 enable `freebsd_inotify` only when targeting FreeBSD 14.5 or newer. Both debouncers forward
 this feature to notify. Code that needs kqueue behavior specifically can construct
 `KqueueWatcher` explicitly instead of relying on `RecommendedWatcher`.
+
+### 9) `Config` is no longer `Copy`
+
+Clone `notify::Config` when reusing it:
+
+```rust
+let config = notify::Config::default();
+let first = RecommendedWatcher::new(first_handler, config.clone())?;
+let second = RecommendedWatcher::new(second_handler, config)?;
+```
+
+A type that holds a `notify::Config` can no longer derive `Copy`.
+
+### 10) Undocumented Windows items were removed
+
+`notify::windows::MetaEvent` and `ReadDirectoryChangesWatcher::create` are no longer public.
+Use `ReadDirectoryChangesWatcher::new(event_handler, config)` through the `Watcher` trait,
+or `RecommendedWatcher`.
 
 ## Behavior changes to handle
 
@@ -338,26 +349,29 @@ The full debouncer handles this pairing by watch root.
 
 ### Event-kind filtering was added
 
-`Config::with_event_kinds` and `EventKindMask` allow filtering delivered events:
+`Config::with_event_kinds` filters delivered events. The default masks are:
+
+- `notify::Config`: `CORE | ACCESS_OPEN | ACCESS_CLOSE`, matching v8.
+- Both debouncers: `CORE`, excluding access events such as `Access(Close(Write))`.
+
+To retain close-after-write notifications without open events:
 
 ```rust
 use notify::{Config, EventKindMask};
 
-let config = Config::default().with_event_kinds(EventKindMask::CORE);
+let config = Config::default().with_event_kinds(EventKindMask::CORE | EventKindMask::ACCESS_CLOSE);
 ```
 
-`notify::Config::default()` keeps the v8 mask, `CORE | ACCESS_OPEN | ACCESS_CLOSE`.
-Both debouncers now default to `CORE` to prevent handlers that read changed files from
-triggering more notifications on inotify. For configuration, see the
-[mini](#5-mini-debouncer-notifications) and [full](#request-access-events-explicitly) sections.
+For either debouncer, pass this config to `Config::with_notify_config`, which replaces
+the backend config and its event mask. Use `EventKindMask::CORE` to exclude all access events
+and prevent handlers that read files from triggering more notifications on inotify.
 
 `EventKindMask::ALL` (also `EventKindMask::default()`) adds `ACCESS_CLOSE_NOWRITE`, which
 v8 never reported. On inotify, this emits `Access(Close(Read))` when a file or directory
 opened without write access is closed.
 Recursive registration itself generates directory access events: `Open` with notify's default mask,
-and both `Open` and `Close(Read)` with `ALL`. Large walks periodically drain the inotify queue
-and buffer these events until registration completes. Use `CORE` to avoid this event volume,
-or `CORE | ACCESS_CLOSE` to keep close-after-write notifications.
+and both `Open` and `Close(Read)` with `ALL`. These are buffered until registration completes;
+`CORE` and `CORE | ACCESS_CLOSE` exclude them.
 
 ### Per-watch settings and user data
 
@@ -414,9 +428,13 @@ Events without user data omit it, and older serialized events still deserialize.
 
 ### Custom watchers and additional configuration
 
-`Watcher::watched_paths` returns registered paths and their recursive modes on built-in
-backends. Its default implementation returns an error, so custom watchers must override
-it to support listing. `watch_with` has a default implementation that applies the recursive
+`Watcher::watched_paths` returns `Vec<WatchedPath>` with public `path` and `recursive_mode`
+fields, replacing the tuples used in earlier v9 RCs. The full debouncer's `watched_paths`
+uses the same type. Construct the non-exhaustive `WatchedPath` with `WatchedPath::new`
+and include `..` when destructuring. Custom watchers must override the default error-returning
+implementation to support listing.
+
+`watch_with` has a default implementation that applies the recursive
 mode and tags returned errors; custom backends must override it to implement other per-watch
 settings and attach user data to emitted events.
 

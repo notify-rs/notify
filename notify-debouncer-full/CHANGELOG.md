@@ -2,7 +2,9 @@
 
 ## unreleased
 
-- CHANGE: `new_debouncer` uses `EventKindMask::CORE`, excluding access events. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#request-access-events-explicitly)
+- CHANGE: `new_debouncer_opt` takes `(Config, event_handler, file_id_cache)` instead of five arguments. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#pass-a-config-to-new_debouncer_opt) **breaking**
+- CHANGE: `Debouncer::watched_paths` returns `Vec<notify::WatchedPath>` instead of `Vec<(PathBuf, RecursiveMode)>` **breaking**
+- CHANGE: `new_debouncer` and `Config::default()` use `EventKindMask::CORE`, excluding access events. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-kind-filtering-was-added)
 
 ## debouncer-full 0.8.0-rc.3 (2026-11-09)
 

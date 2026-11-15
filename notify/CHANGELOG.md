@@ -2,6 +2,10 @@
 
 ## unreleased
 
+- CHANGE: `Watcher::watched_paths` returns `Vec<WatchedPath>` instead of `Vec<(PathBuf, RecursiveMode)>`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#custom-watchers-and-additional-configuration) **breaking**
+- CHANGE: `PathOp` is now `#[non_exhaustive]`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#2-watcherpaths_mut-was-removed) **breaking**
+- CHANGE: `Config` no longer implements `Copy`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#9-config-is-no-longer-copy) **breaking**
+- CHANGE: [Windows] remove the undocumented `windows::MetaEvent` and `ReadDirectoryChangesWatcher::create`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#10-undocumented-windows-items-were-removed) **breaking**
 - CHANGE: exclude `ACCESS_CLOSE_NOWRITE` from `Config::default()`, restoring v8's default event kinds. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-kind-filtering-was-added)
 - CHANGE: [poll] report file content changes as `Modify(Data(Any))` instead of `Modify(Metadata(WriteTime))`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-details-and-rescan-notifications)
 - FIX: [poll] detect file changes when size changes or modification time moves backwards

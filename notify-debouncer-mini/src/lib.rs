@@ -38,6 +38,7 @@
 //!               // Refresh any cached state for all watched paths here.
 //!               println!("Events were missed; rescan all watched paths");
 //!           }
+//!           Ok(_) => {}
 //!           Err(e) => println!("Error {:?}",e),
 //!       }
 //!   }).unwrap();
@@ -107,6 +108,7 @@ use notify::{Error, Event, EventKindMask, RecommendedWatcher, Watcher};
 ///                 // Refresh any cached state for all watched paths here.
 ///                 println!("Events were missed; rescan all watched paths");
 ///             },
+///             Ok(_) => {},
 ///             // errors are immediately reported
 ///             Err(error) => println!("Got error {:?}",error),
 ///         }
@@ -118,17 +120,17 @@ pub trait DebounceEventHandler: Send + 'static {
     fn handle_event(&mut self, event: DebounceEventResult);
 }
 
-/// Config for debouncer-mini
+/// Configuration for the mini debouncer.
 ///
 /// The default backend config uses [`EventKindMask::CORE`], which excludes access events.
 ///
 /// ```rust
 /// # use std::time::Duration;
 /// use notify_debouncer_mini::Config;
-/// let backend_config = notify::Config::default().with_event_kinds(notify::EventKindMask::CORE);
 ///
-/// let config = Config::default().with_timeout(Duration::from_secs(1)).with_batch_mode(true)
-///     .with_notify_config(backend_config);
+/// let config = Config::default()
+///     .with_timeout(Duration::from_secs(1))
+///     .with_batch_mode(false);
 /// ```
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Config {
@@ -148,15 +150,13 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Set timeout
-    ///
-    /// Timeout is the amount of time after which a debounced event is emitted or a continuous event is send, if there still are events incoming for the specific path.
+    /// Sets the timeout for debounced or continuous events (default: 500 ms).
     #[must_use]
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
     }
-    /// Set batch mode
+    /// Sets batch mode (enabled by default).
     ///
     /// When `batch_mode` is enabled, events may be delayed (at most 2x the specified timeout) and delivered with others.
     /// If disabled, all events are delivered immediately when their debounce timeout is reached.
@@ -167,8 +167,7 @@ impl Config {
     }
     /// Replace the backend [`notify::Config`], including its event mask.
     ///
-    /// Set [`EventKindMask::CORE`] explicitly to keep access events excluded;
-    /// `notify::Config::default()` enables them.
+    /// `notify::Config::default()` enables access events; use [`EventKindMask::CORE`] to exclude them.
     #[must_use]
     pub fn with_notify_config(mut self, notify_config: notify::Config) -> Self {
         self.notify_config = notify_config;
@@ -603,6 +602,7 @@ mod tests {
                         assert!(!received_rescan, "duplicate rescan notification");
                         received_rescan = true;
                     }
+                    batch => panic!("unexpected notification: {batch:?}"),
                 }
             }
 

@@ -289,10 +289,12 @@
 
 #![deny(missing_docs)]
 
-pub use config::{Config, PathOp, RecursiveMode, WatchPathConfig, WindowsPathSeparatorStyle};
+pub use config::{
+    Config, PathOp, RecursiveMode, WatchPathConfig, WatchedPath, WindowsPathSeparatorStyle,
+};
 pub use error::{Error, ErrorKind, Result, UpdatePathsError};
 pub use notify_types::event::{self, Event, EventKind, EventKindMask};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub(crate) type StdResult<T, E> = std::result::Result<T, E>;
 pub(crate) type Receiver<T> = std::sync::mpsc::Receiver<T>;
@@ -622,7 +624,7 @@ pub trait Watcher {
     /// # Errors
     ///
     /// Returns an error if the watcher implementation cannot provide this information.
-    fn watched_paths(&self) -> Result<Vec<(PathBuf, RecursiveMode)>> {
+    fn watched_paths(&self) -> Result<Vec<WatchedPath>> {
         Err(Error::generic(
             "listing watched paths is not supported by this watcher",
         ))
@@ -730,7 +732,7 @@ mod tests {
 
     use super::{
         Config, Error, ErrorKind, Event, NullWatcher, PathOp, PollWatcher, RecommendedWatcher,
-        RecursiveMode, Result, StdResult, WatchPathConfig, Watcher, WatcherKind,
+        RecursiveMode, Result, StdResult, WatchPathConfig, WatchedPath, Watcher, WatcherKind,
     };
     use crate::test::*;
 
@@ -828,12 +830,10 @@ mod tests {
             .expect("test paths should always be canonicalizable")
     }
 
-    fn canonical_watch_set(
-        paths: Vec<(PathBuf, RecursiveMode)>,
-    ) -> HashSet<(PathBuf, RecursiveMode)> {
+    fn canonical_watch_set(paths: Vec<WatchedPath>) -> HashSet<(PathBuf, RecursiveMode)> {
         paths
             .into_iter()
-            .map(|(path, recursive_mode)| (canonical_or_path(&path), recursive_mode))
+            .map(|watched| (canonical_or_path(&watched.path), watched.recursive_mode))
             .collect()
     }
 
@@ -946,10 +946,10 @@ mod tests {
         watch_with_retry(&mut watcher, &relative_dir, RecursiveMode::Recursive)?;
 
         assert!(
-            watcher
-                .watched_paths()?
-                .iter()
-                .any(|(path, mode)| path == &relative_dir && *mode == RecursiveMode::Recursive),
+            watcher.watched_paths()?.contains(&WatchedPath::new(
+                relative_dir.clone(),
+                RecursiveMode::Recursive
+            )),
             "watched_paths() did not preserve relative watch path"
         );
 
@@ -1189,9 +1189,7 @@ mod tests {
 
         let watched = watcher.watched_paths()?;
         assert!(
-            watched
-                .iter()
-                .any(|(path, mode)| path == &child && *mode == RecursiveMode::Recursive),
+            watched.contains(&WatchedPath::new(child.clone(), RecursiveMode::Recursive)),
             "watched_paths() did not preserve explicit child path: {watched:?}"
         );
 

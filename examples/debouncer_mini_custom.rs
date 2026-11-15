@@ -3,7 +3,7 @@ use std::{path::Path, time::Duration};
 use notify::{self, RecursiveMode};
 use notify_debouncer_mini::{Config, DebouncedEventBatch, new_debouncer_opt};
 
-/// Debouncer with custom backend and waiting for exit
+/// Mini debouncer using PollWatcher.
 fn main() {
     // emit some events by changing a file
     std::thread::spawn(|| {
@@ -15,22 +15,17 @@ fn main() {
         }
     });
 
-    // setup debouncer
     let (tx, rx) = std::sync::mpsc::channel();
-    // notify backend configuration
     let backend_config = notify::Config::default().with_poll_interval(Duration::from_secs(1));
-    // debouncer configuration
     let debouncer_config = Config::default()
         .with_timeout(Duration::from_millis(1000))
         .with_notify_config(backend_config);
-    // select backend via fish operator, here PollWatcher backend
     let mut debouncer = new_debouncer_opt::<_, notify::PollWatcher>(debouncer_config, tx).unwrap();
 
     debouncer
         .watcher()
         .watch(Path::new("."), RecursiveMode::Recursive)
         .unwrap();
-    // print all events, non returning
     for result in rx {
         match result {
             Ok(DebouncedEventBatch::Events(events)) => {
@@ -42,6 +37,7 @@ fn main() {
                 // Refresh any cached state for all watched paths here.
                 println!("Events were missed; rescan all watched paths");
             }
+            Ok(_) => {}
             Err(error) => println!("Error {error:?}"),
         }
     }
