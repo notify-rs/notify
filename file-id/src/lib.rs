@@ -1,8 +1,8 @@
-//! Utility for reading inode numbers (Unix) and file IDs (Windows).
+//! Utility for reading inode numbers (Unix, WASI) and file IDs (Windows).
 //!
-//! File systems assign an ID to each file. On Unix it is called an `inode number`,
+//! File systems assign an ID to each file. On Unix and WASI it is called an `inode number`,
 //! on Windows it is called a `file id` or `file index`.
-//! Together with the `device id` (Unix) or `volume serial number` (Windows),
+//! Together with the `device id` (Unix, WASI) or `volume serial number` (Windows),
 //! this identifies a file or directory on a single computer at a given time,
 //! subject to filesystem guarantees. In particular, the Windows low resolution
 //! file index is not guaranteed to be unique on ReFS.
@@ -18,7 +18,7 @@
 //! ## Example
 //!
 //! ```
-//! let file = tempfile::NamedTempFile::new().unwrap();
+//! let file = tempfile::NamedTempFile::new_in(".").unwrap();
 //!
 //! let file_id = file_id::get_file_id(file.path()).unwrap();
 //! println!("{file_id:?}");
@@ -54,14 +54,14 @@
 //! ## Example (From an open file)
 //!
 //! ```
-//! let file = tempfile::tempfile().unwrap();
+//! let file = tempfile::tempfile_in(".").unwrap();
 //!
 //! let file_id = file_id::get_file_id_from_file(&file).unwrap();
 //! println!("{file_id:?}");
 //! ```
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-#[cfg(any(unix, windows, doc))]
+#[cfg(any(unix, windows, target_os = "wasi", doc))]
 use std::{fs, io, path::Path};
 
 #[cfg(feature = "serde")]
@@ -74,7 +74,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum FileId {
-    /// Device ID and inode number, available on Unix.
+    /// Device ID and inode number, available on Unix and WASI.
     #[cfg_attr(feature = "serde", serde(rename = "inode"))]
     Inode {
         /// Device ID.
@@ -161,11 +161,13 @@ impl AsRef<FileId> for FileId {
 ///
 /// # Platform-specific behavior
 ///
-/// On Unix, returns the device ID and inode number.
+/// On Unix and WASI, returns the device ID and inode number.
+///
+/// On WASI, opens the target for reading to obtain its ID, so read access is required.
 ///
 /// On Windows, tries the high resolution variant first and falls back to the low
 /// resolution variant if that query fails.
-#[cfg(any(unix, windows, doc))]
+#[cfg(any(unix, windows, target_os = "wasi", doc))]
 pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
     #[cfg(unix)]
     {
@@ -174,6 +176,11 @@ pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
         let metadata = fs::metadata(path.as_ref())?;
 
         Ok(FileId::new_inode(metadata.dev(), metadata.ino()))
+    }
+    #[cfg(target_os = "wasi")]
+    {
+        // Query the opened target: wasi-libc's stat can return the symlink's inode.
+        get_file_id_from_file(&fs::File::open(path)?)
     }
     #[cfg(windows)]
     {
@@ -189,11 +196,11 @@ pub fn get_file_id(path: impl AsRef<Path>) -> io::Result<FileId> {
 ///
 /// # Platform-specific behavior
 ///
-/// On Unix, returns the device ID and inode number.
+/// On Unix and WASI, returns the device ID and inode number.
 ///
 /// On Windows, tries the high resolution variant first and falls back to the low
 /// resolution variant if that query fails.
-#[cfg(any(unix, windows, doc))]
+#[cfg(any(unix, windows, target_os = "wasi", doc))]
 pub fn get_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
     #[cfg(unix)]
     {
@@ -202,6 +209,12 @@ pub fn get_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
         let metadata = fs::symlink_metadata(path.as_ref())?;
 
         Ok(FileId::new_inode(metadata.dev(), metadata.ino()))
+    }
+    #[cfg(target_os = "wasi")]
+    {
+        let stat = rustix::fs::lstat(path.as_ref())?;
+
+        Ok(FileId::new_inode(stat.st_dev, stat.st_ino))
     }
     #[cfg(windows)]
     {
@@ -217,14 +230,14 @@ pub fn get_file_id_no_follow(path: impl AsRef<Path>) -> io::Result<FileId> {
 ///
 /// # Platform-specific behavior
 ///
-/// On Unix, returns the device ID and inode number.
+/// On Unix and WASI, returns the device ID and inode number.
 ///
 /// On Windows, whether reparse points were followed depends on whether the caller
 /// opened the file with `FILE_FLAG_OPEN_REPARSE_POINT`. Tries the high resolution
 /// variant first and falls back to the low resolution variant if that query fails.
 /// Use [`get_low_res_file_id_from_file`] or [`get_high_res_file_id_from_file`]
 /// to request a specific resolution on Windows.
-#[cfg(any(unix, windows, doc))]
+#[cfg(any(unix, windows, target_os = "wasi", doc))]
 pub fn get_file_id_from_file(file: &fs::File) -> io::Result<FileId> {
     #[cfg(unix)]
     {
@@ -233,6 +246,12 @@ pub fn get_file_id_from_file(file: &fs::File) -> io::Result<FileId> {
         let metadata = file.metadata()?;
 
         Ok(FileId::new_inode(metadata.dev(), metadata.ino()))
+    }
+    #[cfg(target_os = "wasi")]
+    {
+        let stat = rustix::fs::fstat(file)?;
+
+        Ok(FileId::new_inode(stat.st_dev, stat.st_ino))
     }
     #[cfg(windows)]
     {

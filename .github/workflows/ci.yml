@@ -260,7 +260,7 @@ jobs:
         with:
           key: wasm-${{ matrix.rust }}-${{ matrix.target }}
 
-      # The file-id CLI requires Unix or Windows; its types also support wasm.
+      # The file-id CLI requires Unix, Windows, or WASI.
       - name: Build libraries and examples
         run: cargo +${{ matrix.rust }} build --workspace --lib --examples --target ${{ matrix.target }} --verbose --locked
 
@@ -287,6 +287,7 @@ jobs:
           CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime --dir . --dir ${{ github.workspace }} --env INSTA_WORKSPACE_ROOT
           CARGO_TARGET_WASM32_WASIP2_RUNNER: wasmtime --dir . --dir ${{ github.workspace }} --env INSTA_WORKSPACE_ROOT
         run: |
+          cargo +${{ matrix.rust }} test -p file-id --all-features --target ${{ matrix.target }} --locked -- --test-threads=1
           cargo +${{ matrix.rust }} test -p notify-types --lib --features serde --target ${{ matrix.target }} --locked -- --test-threads=1
           cargo +${{ matrix.rust }} test -p notify-types --lib --all-features --target ${{ matrix.target }} --locked -- --test-threads=1
           cargo +${{ matrix.rust }} test -p notify --lib --target ${{ matrix.target }} --locked -- config:: error:: paths:: --test-threads=1
