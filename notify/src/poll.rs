@@ -81,7 +81,7 @@ mod data {
         cell::RefCell,
         collections::HashMap,
         fmt::{self, Debug},
-        fs::{self, File, Metadata},
+        fs::{self, File, FileType, Metadata},
         io::{self, Read},
         path::{Path, PathBuf},
         time::Instant,
@@ -390,6 +390,9 @@ mod data {
     /// See [`WatchData`] for more detail.
     #[derive(Debug, Clone)]
     struct PathData {
+        /// Last observed type, retained to classify removals after the path disappears.
+        file_type: FileType,
+
         /// File updated time in nanoseconds since the Unix epoch.
         mtime: i128,
 
@@ -408,15 +411,17 @@ mod data {
         /// Create a new `PathData`.
         fn new(data_builder: &DataBuilder, meta_path: &MetaPath) -> PathData {
             let metadata = meta_path.metadata();
-            let is_file = metadata.is_file();
+            let file_type = metadata.file_type();
+            let is_file = file_type.is_file();
             let mut mtime = metadata.modified().map_or(0, system_time_to_nanos);
-            if metadata.is_dir() {
+            if file_type.is_dir() {
                 // Child changes update directory mtimes. Preserve the existing second precision for
                 // directories to avoid emitting a redundant directory event for every file event.
                 mtime = mtime / NANOS_PER_SECOND * NANOS_PER_SECOND;
             }
 
             PathData {
+                file_type,
                 mtime,
                 size: is_file.then_some(metadata.len()),
                 hash: if is_file && data_builder.compare_contents {
@@ -450,8 +455,20 @@ mod data {
                         )))
                     }
                 }
-                (None, Some(_new)) => Some(EventKind::Create(CreateKind::Any)),
-                (Some(_old), None) => Some(EventKind::Remove(RemoveKind::Any)),
+                (None, Some(new)) => Some(EventKind::Create(if new.file_type.is_dir() {
+                    CreateKind::Folder
+                } else if new.file_type.is_file() {
+                    CreateKind::File
+                } else {
+                    CreateKind::Other
+                })),
+                (Some(old), None) => Some(EventKind::Remove(if old.file_type.is_dir() {
+                    RemoveKind::Folder
+                } else if old.file_type.is_file() {
+                    RemoveKind::File
+                } else {
+                    RemoveKind::Other
+                })),
                 (None, None) => None,
             }
         }
@@ -563,7 +580,10 @@ mod data {
 
         #[test]
         fn unavailable_hash_is_not_a_content_change() {
+            let file = tempfile::tempfile().expect("create file");
+            let file_type = file.metadata().expect("read metadata").file_type();
             let path_data = |hash| PathData {
+                file_type,
                 mtime: 0,
                 size: Some(1),
                 hash,
@@ -585,6 +605,10 @@ mod data {
 ///
 /// Compares modification times and file sizes by default. Enable
 /// [`Config::with_compare_contents`] to also compare file contents.
+///
+/// Create and remove events distinguish regular files (`File`), directories (`Folder`), and
+/// other entries (`Other`). With [`Config::with_follow_symlinks`] enabled, symlinks are classified
+/// by their targets; otherwise they are `Other`. Removal events use the last observed type.
 #[derive(Debug)]
 pub struct PollWatcher {
     watches: Arc<Mutex<HashMap<PathBuf, WatchData>>>,
@@ -815,7 +839,7 @@ mod tests {
     use super::PollWatcher;
     use crate::{
         Config, RecursiveMode, WatchedPath, Watcher,
-        event::{DataChange, EventKind, MetadataKind, ModifyKind},
+        event::{CreateKind, DataChange, Event, EventKind, MetadataKind, ModifyKind, RemoveKind},
         test::*,
     };
     use notify_types::event::EventKindMask;
@@ -1163,7 +1187,7 @@ mod tests {
         rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
 
         rx.wait_unordered_exact([
-            expected(&path).create_any(),
+            expected(&path).create_file(),
             expected(tmpdir.path()).modify_meta_mtime().optional(),
         ]);
     }
@@ -1182,9 +1206,61 @@ mod tests {
         rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&path]);
 
         rx.wait_unordered_exact([
-            expected(&path).create_any(),
+            expected(&path).create_folder(),
             expected(tmpdir.path()).modify_meta_mtime().optional(),
         ]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn classifies_symlinks_according_to_follow_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let targets = testdir();
+        fs::write(targets.path().join("file"), "contents").expect("create target file");
+        fs::create_dir(targets.path().join("directory")).expect("create target directory");
+
+        let cases = [
+            (false, "file", CreateKind::Other, RemoveKind::Other),
+            (false, "directory", CreateKind::Other, RemoveKind::Other),
+            (false, "missing", CreateKind::Other, RemoveKind::Other),
+            (true, "file", CreateKind::File, RemoveKind::File),
+            (true, "directory", CreateKind::Folder, RemoveKind::Folder),
+        ];
+        for (follow_symlinks, target, create_kind, remove_kind) in cases {
+            for compare_contents in [false, true] {
+                let tmpdir = testdir();
+                let path = tmpdir.path().join("link");
+                let (tx, rx) = mpsc::channel();
+                let config = Config::default()
+                    .with_manual_polling()
+                    .with_follow_symlinks(follow_symlinks)
+                    .with_compare_contents(compare_contents)
+                    .with_event_kinds(EventKindMask::CREATE | EventKindMask::REMOVE);
+                let mut watcher = PollWatcher::new(tx, config).expect("create watcher");
+                watcher
+                    .watch(tmpdir.path(), RecursiveMode::Recursive)
+                    .expect("watch directory");
+
+                symlink(targets.path().join(target), &path).expect("create symlink");
+                watcher.poll_blocking().expect("poll creation");
+                assert_eq!(
+                    rx.try_iter().map(Result::unwrap).collect::<Vec<_>>(),
+                    [Event::new(EventKind::Create(create_kind)).add_path(path.clone())],
+                    "target={target}, follow_symlinks={follow_symlinks}, \
+                     compare_contents={compare_contents}"
+                );
+
+                fs::remove_file(&path).expect("remove symlink");
+                watcher.poll_blocking().expect("poll removal");
+                assert_eq!(
+                    rx.try_iter().map(Result::unwrap).collect::<Vec<_>>(),
+                    [Event::new(EventKind::Remove(remove_kind)).add_path(path)],
+                    "target={target}, follow_symlinks={follow_symlinks}, \
+                     compare_contents={compare_contents}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -1229,9 +1305,66 @@ mod tests {
         rx.sleep_until_walkdir_returns_set::<&str>(tmpdir.path(), []);
 
         rx.wait_unordered_exact([
-            expected(&path).remove_any(),
+            expected(&path).remove_file(),
             expected(tmpdir.path()).modify_meta_mtime().optional(),
         ]);
+    }
+
+    #[test]
+    fn remove_dir() {
+        for compare_contents in [false, true] {
+            let tmpdir = testdir();
+            let path = tmpdir.path().join("entry");
+            fs::create_dir(&path).expect("create directory");
+
+            let (tx, rx) = mpsc::channel();
+            let config = Config::default()
+                .with_manual_polling()
+                .with_compare_contents(compare_contents)
+                .with_event_kinds(EventKindMask::REMOVE);
+            let mut watcher = PollWatcher::new(tx, config).expect("create watcher");
+            watcher
+                .watch(tmpdir.path(), RecursiveMode::NonRecursive)
+                .expect("watch directory");
+
+            fs::remove_dir(&path).expect("remove directory");
+            watcher.poll_blocking().expect("poll removal");
+            assert_eq!(
+                rx.try_iter().map(Result::unwrap).collect::<Vec<_>>(),
+                [Event::new(EventKind::Remove(RemoveKind::Folder)).add_path(path)],
+                "compare_contents={compare_contents}"
+            );
+        }
+    }
+
+    #[test]
+    fn removal_uses_last_observed_type() {
+        let tmpdir = testdir();
+        let path = tmpdir.path().join("entry");
+        fs::write(&path, "contents").expect("create file");
+
+        let (tx, rx) = mpsc::channel();
+        let config = Config::default()
+            .with_manual_polling()
+            .with_event_kinds(EventKindMask::REMOVE);
+        let mut watcher = PollWatcher::new(tx, config).expect("create watcher");
+        watcher
+            .watch(tmpdir.path(), RecursiveMode::NonRecursive)
+            .expect("watch directory");
+
+        // Replace the file between scans. Even when modification events are filtered out,
+        // the next scan must retain the new type for a later removal.
+        fs::remove_file(&path).expect("remove file");
+        fs::create_dir(&path).expect("replace with directory");
+        watcher.poll_blocking().expect("poll replacement");
+        assert!(rx.try_iter().next().is_none());
+
+        fs::remove_dir(&path).expect("remove directory");
+        watcher.poll_blocking().expect("poll removal");
+        assert_eq!(
+            rx.try_iter().map(Result::unwrap).collect::<Vec<_>>(),
+            [Event::new(EventKind::Remove(RemoveKind::Folder)).add_path(path)]
+        );
     }
 
     #[test]
@@ -1259,8 +1392,8 @@ mod tests {
         rx.sleep_until_walkdir_returns_set(tmpdir.path(), [&new_path]);
 
         rx.wait_unordered_exact([
-            expected(&path).remove_any(),
-            expected(&new_path).create_any(),
+            expected(&path).remove_file(),
+            expected(&new_path).create_file(),
             expected(tmpdir.path()).modify_meta_mtime().optional(),
         ]);
     }
@@ -1328,10 +1461,7 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .expect("should receive CREATE event")
             .expect("event should not be an error");
-        assert!(
-            event.kind.is_create(),
-            "Expected CREATE event, got: {event:?}"
-        );
+        assert_eq!(event.kind, EventKind::Create(CreateKind::File));
 
         // Modify the file - should NOT generate event (filtered by mask)
         std::fs::write(&path, "modified content").expect("write modified");

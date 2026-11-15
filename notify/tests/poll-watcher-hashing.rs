@@ -21,7 +21,7 @@ fn test_poll_watcher_distinguish_modify_kind() {
     harness.watch_tempdir();
 
     let testfile = harness.create_file("testfile");
-    harness.expect_recv(&testfile, EventKind::Create(CreateKind::Any));
+    harness.expect_recv(&testfile, EventKind::Create(CreateKind::File));
     harness.advance_clock();
 
     harness.write_file(&testfile, "data1");
