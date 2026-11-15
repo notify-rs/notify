@@ -845,7 +845,7 @@ impl FsEventWatcher {
                 release_context(context.cast());
             }
             log::error!("FSEventStreamCreate returned NULL");
-            return Err(Error::generic("unable to create FSEvent stream"));
+            return Err(Error::new(ErrorKind::WatchStartFailed));
         }
 
         // Wrapper to help send CFRunLoop types across threads.
@@ -900,8 +900,9 @@ impl FsEventWatcher {
                     if !fs::FSEventStreamStart(stream) {
                         fs::FSEventStreamInvalidate(stream);
                         fs::FSEventStreamRelease(stream);
+                        log::error!("FSEventStreamStart returned false");
                         rl_tx
-                            .send(Err(Error::generic("unable to start FSEvent stream")))
+                            .send(Err(Error::new(ErrorKind::WatchStartFailed)))
                             .expect("Unable to send error for FSEventStreamStart");
                         return since_when;
                     }
@@ -1067,7 +1068,7 @@ unsafe fn callback_impl(
         let path = Path::new(OsStr::from_bytes(path.to_bytes()));
 
         // SAFETY: FSEvents provides `num_events` flags, and `p` is within that range.
-        let raw_flag = unsafe { *event_flags.as_ptr().add(p) } as u32;
+        let raw_flag = unsafe { *event_flags.as_ptr().add(p) };
         let flag = StreamFlags::from_bits_truncate(raw_flag);
         let unknown_bits = raw_flag & !StreamFlags::all().bits();
         if unknown_bits != 0 {

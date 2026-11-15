@@ -364,14 +364,10 @@ impl<W: Watcher> TestWatcher<W> {
             match self.watcher.watch(path, recursive_mode) {
                 Ok(()) => return,
                 Err(err) => {
-                    let is_transient_fsevent_start_error = self.kind == WatcherKind::Fsevent
-                        && matches!(
-                            &err.kind,
-                            ErrorKind::Generic(message)
-                            if message == "unable to start FSEvent stream"
-                        );
-
-                    if is_transient_fsevent_start_error && attempt < FSEVENT_WATCH_RETRIES {
+                    if self.kind == WatcherKind::Fsevent
+                        && matches!(err.kind, ErrorKind::WatchStartFailed)
+                        && attempt < FSEVENT_WATCH_RETRIES
+                    {
                         let _ = self.watcher.unwatch(path);
                         let delay_factor = 1u32 << attempt;
                         thread::sleep(FSEVENT_WATCH_RETRY_BASE_DELAY * delay_factor);

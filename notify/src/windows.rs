@@ -331,9 +331,9 @@ impl ReadDirectoryChangesServer {
         cmd_tx: Sender<Result<PathBuf>>,
         wakeup_sem: Arc<WakeupSem>,
         read_directory_changes_ex: Option<ReadDirectoryChangesExFn>,
-    ) -> Sender<Action> {
+    ) -> Result<Sender<Action>> {
         let (action_tx, action_rx) = unbounded();
-        let _ = thread::Builder::new()
+        thread::Builder::new()
             .name("notify-rs windows loop".to_string())
             .spawn({
                 let tx = action_tx.clone();
@@ -353,8 +353,8 @@ impl ReadDirectoryChangesServer {
                     };
                     server.run();
                 }
-            });
-        action_tx
+            })?;
+        Ok(action_tx)
     }
 
     fn run(mut self) {
@@ -542,10 +542,12 @@ impl ReadDirectoryChangesServer {
         // Each OS directory watch gets a semaphore to signal its final completion.
         let semaphore = unsafe { CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if semaphore.is_null() || semaphore == INVALID_HANDLE_VALUE {
+            // Capture the failure before cleanup can overwrite the last OS error.
+            let err = io::Error::last_os_error();
             unsafe {
                 CloseHandle(handle);
             }
-            return Err(Error::generic("Failed to create semaphore for watch."));
+            return Err(Error::io(err));
         }
         let data = Rc::new(ReadData {
             id,
@@ -1017,7 +1019,7 @@ impl ReadDirectoryChangesWatcher {
 
         let wakeup_sem = unsafe { CreateSemaphoreW(ptr::null_mut(), 0, 1, ptr::null_mut()) };
         if wakeup_sem.is_null() || wakeup_sem == INVALID_HANDLE_VALUE {
-            return Err(Error::generic("Failed to create wakeup semaphore."));
+            return Err(Error::io(io::Error::last_os_error()));
         }
         let wakeup_sem = Arc::new(WakeupSem(wakeup_sem));
 
@@ -1027,7 +1029,7 @@ impl ReadDirectoryChangesWatcher {
             cmd_tx,
             wakeup_sem.clone(),
             read_directory_changes_ex,
-        );
+        )?;
 
         Ok(ReadDirectoryChangesWatcher {
             tx: action_tx,

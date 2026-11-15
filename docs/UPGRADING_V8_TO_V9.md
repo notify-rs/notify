@@ -309,6 +309,18 @@ or `RecommendedWatcher`.
   (21 for a soft limit of 256). Operations rejected by this limit preserve existing watches.
   See [FSEvents path limits](https://docs.rs/notify/latest/notify/#macos-fsevents-limit-on-watched-paths)
   for counting rules and workarounds.
+- On inotify, kqueue, Windows, and `PollWatcher`, watcher construction now returns
+  `ErrorKind::Io` if the worker thread cannot be created, instead of succeeding without
+  a worker thread.
+- On Windows, semaphore creation failures now return `ErrorKind::Io` instead of
+  `ErrorKind::Generic`, preserving the OS error code.
+- On FSEvents, stream creation and startup failures now return `ErrorKind::WatchStartFailed`
+  instead of `ErrorKind::Generic` when `FSEventStreamCreate` returns null or
+  `FSEventStreamStart` returns `false`.
+  Match this variant instead of comparing the error message; for `update_paths`, inspect
+  `UpdatePathsError.source.kind`.
+  This kind describes a failure to start or restart event delivery without a more specific cause;
+  it does not indicate whether retrying will succeed.
 - Recursive kqueue watches skip special files such as FIFOs, sockets, and devices.
   Explicit watches on them return an `Unsupported` I/O error.
 

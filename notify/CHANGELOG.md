@@ -9,6 +9,9 @@
 - CHANGE: exclude `ACCESS_CLOSE_NOWRITE` from `Config::default()`, restoring v8's default event kinds. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-kind-filtering-was-added)
 - CHANGE: [poll] report file content changes as `Modify(Data(Any))` instead of `Modify(Metadata(WriteTime))`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-details-and-rescan-notifications)
 - CHANGE: [poll] classify create and remove events as `File`, `Folder`, or `Other` instead of `Any`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#event-details-and-rescan-notifications)
+- CHANGE: [macOS] return `ErrorKind::WatchStartFailed` instead of `ErrorKind::Generic` when an FSEvents stream cannot be created or started. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#watch-errors-and-incomplete-recursive-coverage)
+- FIX: [inotify, kqueue, poll, Windows] return worker thread creation failures as `ErrorKind::Io` instead of constructing an unusable watcher
+- FIX: [Windows] preserve OS errors from semaphore creation as `ErrorKind::Io` instead of `ErrorKind::Generic`
 - FIX: [poll] detect file changes when size changes or modification time moves backwards
 - FIX: [inotify] avoid extra rename events without a tracker for subdirectories of recursive watches
 - FIX: [inotify] report renames with `MODIFY_NAME` alone; stop watching directories moved outside recursive roots even when rename events are filtered

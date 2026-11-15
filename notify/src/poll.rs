@@ -689,18 +689,18 @@ impl PollWatcher {
             message_channel: tx,
         };
 
-        poll_watcher.run(rx);
+        poll_watcher.run(rx)?;
 
         Ok(poll_watcher)
     }
 
-    fn run(&self, rx: Receiver<PollMessage>) {
+    fn run(&self, rx: Receiver<PollMessage>) -> crate::Result<()> {
         let watches = Arc::clone(&self.watches);
         let data_builder = Arc::clone(&self.data_builder);
         let want_to_stop = Arc::clone(&self.want_to_stop);
         let delay = self.delay;
 
-        let _ = thread::Builder::new()
+        thread::Builder::new()
             .name("notify-rs poll loop".to_string())
             .spawn(move || {
                 // do an immediate first scan, then sleep `delay` between subsequent scans.
@@ -748,7 +748,8 @@ impl PollWatcher {
                         let _ = done.send(scan_res);
                     }
                 }
-            });
+            })?;
+        Ok(())
     }
 
     /// Watch a path location.

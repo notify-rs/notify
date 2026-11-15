@@ -127,10 +127,11 @@ impl EventLoop {
     }
 
     // Run the event loop.
-    pub fn run(self) {
-        let _ = thread::Builder::new()
+    pub fn run(self) -> Result<()> {
+        thread::Builder::new()
             .name("notify-rs kqueue loop".to_string())
-            .spawn(|| self.event_loop_thread());
+            .spawn(|| self.event_loop_thread())?;
+        Ok(())
     }
 
     fn event_loop_thread(mut self) {
@@ -872,7 +873,7 @@ impl KqueueWatcher {
         let event_loop = EventLoop::new(kqueue, event_handler, follow_symlinks, event_kinds)?;
         let channel = event_loop.event_loop_tx.clone();
         let waker = event_loop.event_loop_waker.clone();
-        event_loop.run();
+        event_loop.run()?;
         Ok(KqueueWatcher { channel, waker })
     }
 

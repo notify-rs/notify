@@ -35,6 +35,13 @@ pub enum ErrorKind {
     /// A watch limit was reached: an inotify watch limit, a kqueue descriptor limit, or
     /// notify's [FSEvents root limit](crate#macos-fsevents-limit-on-watched-paths).
     MaxFilesWatch,
+
+    /// Starting or restarting filesystem event delivery failed without a more specific error.
+    ///
+    /// The FSEvents backend returns this when `FSEventStreamCreate` returns null or
+    /// `FSEventStreamStart` returns `false`.
+    /// This kind does not indicate whether retrying will succeed.
+    WatchStartFailed,
 }
 
 /// Notify error type.
@@ -155,6 +162,7 @@ impl fmt::Display for Error {
             ErrorKind::Generic(ref err) => err.clone(),
             ErrorKind::Io(ref err) => err.to_string(),
             ErrorKind::MaxFilesWatch => "OS file watch limit reached.".into(),
+            ErrorKind::WatchStartFailed => "Failed to start watching.".into(),
         };
 
         if self.paths.is_empty() {
@@ -394,6 +402,11 @@ mod tests {
         assert_eq!(
             expected,
             format!("{}", Error::io(io::Error::other(expected)))
+        );
+
+        assert_eq!(
+            "Failed to start watching.",
+            Error::new(ErrorKind::WatchStartFailed).to_string()
         );
     }
 
