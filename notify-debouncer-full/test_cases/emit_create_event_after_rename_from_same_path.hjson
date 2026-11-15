@@ -1,0 +1,40 @@
+// https://github.com/notify-rs/notify/issues/587
+//
+// Blender saves `file` by writing `file@`, removing the backup `file1`, renaming `file` to `file1`
+// and renaming `file@` to `file`. The create event for `file` is older than the rename that
+// makes room for it, but it must be emitted after that rename.
+{
+    state: {}
+    events: [
+        { kind: "create-file", paths: ["/watch/file@"], time: 0 }
+        { kind: "remove-file", paths: ["/watch/file1"], time: 40 }
+        { kind: "rename-from", paths: ["/watch/file"], tracker: 1, time: 40 }
+        { kind: "rename-to", paths: ["/watch/file1"], tracker: 1, time: 40 }
+        { kind: "rename-from", paths: ["/watch/file@"], tracker: 2, time: 41 }
+        { kind: "rename-to", paths: ["/watch/file"], tracker: 2, time: 41 }
+    ]
+    expected: {
+        queues: {
+            /watch/file: {
+                events: [
+                    { kind: "create-file", paths: ["*"], time: 0 }
+                ]
+            }
+            /watch/file1: {
+                events: [
+                    { kind: "remove-any", paths: ["*"], time: 40 }
+                    { kind: "rename-both", paths: ["/watch/file", "/watch/file1"], tracker: 1, time: 40 }
+                ]
+            }
+        }
+        events: {
+            50: []
+            89: []
+            90: [
+                { kind: "remove-any", paths: ["/watch/file1"], time: 40 }
+                { kind: "rename-both", paths: ["/watch/file", "/watch/file1"], tracker: 1, time: 40 }
+                { kind: "create-file", paths: ["/watch/file"], time: 0 }
+            ]
+        }
+    }
+}

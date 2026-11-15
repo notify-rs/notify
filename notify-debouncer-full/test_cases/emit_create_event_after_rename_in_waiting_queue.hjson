@@ -1,0 +1,58 @@
+// The events for `b` wait for the rename from `b` to `c`. They include the rename from `a` to
+// `b`, which expires later. The create event for `a` must wait for that rename, even after the
+// queue of `b` emitted its expired events.
+{
+    state: {
+        queues: {
+            /watch/a: {
+                events: [
+                    { kind: "create-file", paths: ["*"], time: 0 }
+                ]
+            }
+            /watch/b: {
+                events: [
+                    { kind: "remove-any", paths: ["*"], time: 0 }
+                    { kind: "rename-both", paths: ["/watch/a", "/watch/b"], tracker: 2, time: 10 }
+                ]
+            }
+            /watch/c: {
+                events: [
+                    { kind: "rename-both", paths: ["/watch/b", "/watch/c"], tracker: 1, time: 0 }
+                ]
+            }
+        }
+    }
+    expected: {
+        queues: {
+            /watch/a: {
+                events: [
+                    { kind: "create-file", paths: ["*"], time: 0 }
+                ]
+            }
+            /watch/b: {
+                events: [
+                    { kind: "remove-any", paths: ["*"], time: 0 }
+                    { kind: "rename-both", paths: ["/watch/a", "/watch/b"], tracker: 2, time: 10 }
+                ]
+            }
+            /watch/c: {
+                events: [
+                    { kind: "rename-both", paths: ["/watch/b", "/watch/c"], tracker: 1, time: 0 }
+                ]
+            }
+        }
+        events: {
+            49: []
+            50: [
+                { kind: "rename-both", paths: ["/watch/b", "/watch/c"], tracker: 1, time: 0 }
+                { kind: "remove-any", paths: ["/watch/b"], time: 0 }
+            ]
+            60: [
+                { kind: "rename-both", paths: ["/watch/b", "/watch/c"], tracker: 1, time: 0 }
+                { kind: "remove-any", paths: ["/watch/b"], time: 0 }
+                { kind: "rename-both", paths: ["/watch/a", "/watch/b"], tracker: 2, time: 10 }
+                { kind: "create-file", paths: ["/watch/a"], time: 0 }
+            ]
+        }
+    }
+}

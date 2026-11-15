@@ -1,0 +1,33 @@
+// A file is renamed, a new file is created at its old path, and then the renamed file is removed.
+// The removal of the old file is inserted before the creation of the new one.
+{
+    state: {}
+    events: [
+        { kind: "rename-from", paths: ["/watch/source"], tracker: 1, time: 1 }
+        { kind: "rename-to", paths: ["/watch/target"], tracker: 1, time: 2 }
+        { kind: "create-file", paths: ["/watch/source"], time: 3 }
+        { kind: "remove-file", paths: ["/watch/target"], time: 4 }
+    ]
+    expected: {
+        queues: {
+            /watch/source: {
+                events: [
+                    { kind: "remove-any", paths: ["*"], time: 1 }
+                    { kind: "create-file", paths: ["*"], time: 3 }
+                ]
+            }
+            /watch/target: {
+                events: [
+                    { kind: "remove-file", paths: ["*"], time: 4 }
+                ]
+            }
+        }
+        events: {
+            long: [
+                { kind: "remove-any", paths: ["/watch/source"], time: 1 }
+                { kind: "create-file", paths: ["/watch/source"], time: 3 }
+                { kind: "remove-file", paths: ["/watch/target"], time: 4 }
+            ]
+        }
+    }
+}

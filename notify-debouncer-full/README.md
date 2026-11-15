@@ -4,9 +4,10 @@
 
 A debouncer for [notify] that is optimized for ease of use.
 
-* Only emits a single `Rename` event if the rename `From` and `To` events can be matched
-* Merges multiple `Rename` events
-* Takes `Rename` events into account and updates paths for events that occurred before the rename event, but which haven't been emitted, yet
+* Matches `Rename` `From`/`To` events and merges rename chains
+* Updates paths of queued events when files are renamed
+* Emits renames before events that reuse their source paths
+* Emits `Remove` for the source if a renamed file is deleted or replaced before delivery
 * Optionally keeps track of the file system IDs all files and stitches rename events together (FSevents, Windows)
 * Emits only one `Remove` event when deleting a directory (inotify)
 * Doesn't emit duplicate create events
