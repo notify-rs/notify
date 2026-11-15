@@ -420,10 +420,11 @@ impl EventLoop {
     }
 
     // Run the event loop.
-    pub fn run(self) {
-        let _ = thread::Builder::new()
+    pub fn run(self) -> Result<()> {
+        thread::Builder::new()
             .name("notify-rs inotify loop".to_string())
-            .spawn(|| self.event_loop_thread());
+            .spawn(|| self.event_loop_thread())?;
+        Ok(())
     }
 
     fn event_loop_thread(mut self) {
@@ -1739,7 +1740,7 @@ impl INotifyWatcher {
         let event_loop = EventLoop::new(inotify, event_handler, config)?;
         let channel = event_loop.event_loop_tx.clone();
         let waker = event_loop.event_loop_waker.clone();
-        event_loop.run();
+        event_loop.run()?;
         Ok(INotifyWatcher { channel, waker })
     }
 
@@ -4499,7 +4500,7 @@ mod tests {
 
         let channel = event_loop.event_loop_tx.clone();
         let waker = event_loop.event_loop_waker.clone();
-        event_loop.run();
+        event_loop.run().expect("start event loop");
         let event = rx.recv_timeout(Duration::from_secs(2));
         channel.send(super::EventLoopMsg::Shutdown).unwrap();
         waker.wake().unwrap();

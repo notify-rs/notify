@@ -855,11 +855,7 @@ mod tests {
                 Ok(()) => return Ok(()),
                 Err(err)
                     if RecommendedWatcher::kind() == WatcherKind::Fsevent
-                        && matches!(
-                            &err.kind,
-                            ErrorKind::Generic(message)
-                                if message == "unable to start FSEvent stream"
-                        )
+                        && matches!(err.kind, ErrorKind::WatchStartFailed)
                         && attempt < FSEVENT_WATCH_RETRIES =>
                 {
                     let _ = watcher.unwatch(path);
@@ -1021,11 +1017,7 @@ mod tests {
                 Ok(()) => break,
                 Err(err)
                     if RecommendedWatcher::kind() == WatcherKind::Fsevent
-                        && matches!(
-                            &err.source.kind,
-                            ErrorKind::Generic(message)
-                            if message == "unable to start FSEvent stream"
-                        )
+                        && matches!(err.source.kind, ErrorKind::WatchStartFailed)
                         && attempt < FSEVENT_UPDATE_PATHS_RETRIES =>
                 {
                     let delay_factor = 1u32 << attempt;
