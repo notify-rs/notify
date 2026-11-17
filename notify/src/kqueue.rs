@@ -415,10 +415,10 @@ impl EventLoop {
 
         // watch() registers all watches, so call it once for the batch, including any watches
         // added before a walk failed.
-        if self.watches.len() > watch_count {
-            if let Err(err) = self.kqueue.watch() {
-                errors.errors.push(map_kqueue_io_error(err));
-            }
+        if self.watches.len() > watch_count
+            && let Err(err) = self.kqueue.watch()
+        {
+            errors.errors.push(map_kqueue_io_error(err));
         }
 
         // Apply recursive watch changes before reporting the events that caused them. Event
@@ -530,52 +530,51 @@ impl EventLoop {
         // Registration passes every watch to the kernel again, so only a new descriptor asks for
         // it. A path that is already watched keeps its descriptor and adds no entry.
         let mut watch_count = self.watches.len();
-        if is_user_watch {
-            if let Some(watch) = self
+        if is_user_watch
+            && let Some(watch) = self
                 .watches
                 .get(&path.absolute)
                 .filter(|watch| watch.is_user_watch)
+        {
+            if watch.user_is_recursive == requested_is_recursive
+                && watch.reported_path == path.requested
             {
-                if watch.user_is_recursive == requested_is_recursive
-                    && watch.reported_path == path.requested
-                {
-                    // The same request again keeps the watches, and the walk below adds the
-                    // entries that an earlier walk could not watch.
-                    if watch.user_data != path.user_data {
-                        let preserved_roots =
-                            preserved_watch_roots(&path.absolute, false, self.watches.iter());
-                        update_watch_user_data(
-                            &path.absolute,
-                            requested_is_recursive,
-                            path.user_data,
-                            &preserved_roots,
-                            self.watches.iter_mut(),
-                        );
-                    }
-                } else {
-                    // Rewatching an explicit user watch replaces its requested mode and reported
-                    // path instead of merging with the previous metadata. If the current entry
-                    // also carries recursive coverage from an ancestor, remember that ancestor
-                    // before removal so we can rebuild that inherited coverage below.
-                    let inherited_recursive_root =
-                        if !requested_is_recursive && path_is_dir && watch.is_recursive {
-                            recursive_user_watch_ancestor(&path.absolute, |ancestor| {
-                                self.watches.get(ancestor)
-                            })
-                        } else {
-                            None
-                        };
-                    let replaced_path = path.absolute.clone();
-                    self.remove_watch(replaced_path.clone(), false)?;
-                    // The watches that are added again below have new descriptors.
-                    watch_count = self.watches.len();
+                // The same request again keeps the watches, and the walk below adds the
+                // entries that an earlier walk could not watch.
+                if watch.user_data != path.user_data {
+                    let preserved_roots =
+                        preserved_watch_roots(&path.absolute, false, self.watches.iter());
+                    update_watch_user_data(
+                        &path.absolute,
+                        requested_is_recursive,
+                        path.user_data,
+                        &preserved_roots,
+                        self.watches.iter_mut(),
+                    );
+                }
+            } else {
+                // Rewatching an explicit user watch replaces its requested mode and reported
+                // path instead of merging with the previous metadata. If the current entry
+                // also carries recursive coverage from an ancestor, remember that ancestor
+                // before removal so we can rebuild that inherited coverage below.
+                let inherited_recursive_root =
+                    if !requested_is_recursive && path_is_dir && watch.is_recursive {
+                        recursive_user_watch_ancestor(&path.absolute, |ancestor| {
+                            self.watches.get(ancestor)
+                        })
+                    } else {
+                        None
+                    };
+                let replaced_path = path.absolute.clone();
+                self.remove_watch(replaced_path.clone(), false)?;
+                // The watches that are added again below have new descriptors.
+                watch_count = self.watches.len();
 
-                    if let Some(ancestor) = inherited_recursive_root {
-                        // Removing a directory watch removes its recursively inherited children
-                        // too. Re-add them as non-user watches so the ancestor recursive watch
-                        // still covers this subtree after the user watch is replaced.
-                        self.add_recursive_watch(ancestor.child(replaced_path), false, errors)?;
-                    }
+                if let Some(ancestor) = inherited_recursive_root {
+                    // Removing a directory watch removes its recursively inherited children
+                    // too. Re-add them as non-user watches so the ancestor recursive watch
+                    // still covers this subtree after the user watch is replaced.
+                    self.add_recursive_watch(ancestor.child(replaced_path), false, errors)?;
                 }
             }
         }
@@ -1456,7 +1455,7 @@ mod tests {
         created.unwrap();
         for errors in [initial, retried] {
             assert_eq!(errors.len(), 1);
-            assert_eq!(errors[0].paths, [locked.clone()]);
+            assert_eq!(errors[0].paths, std::slice::from_ref(&locked));
         }
 
         // A later parent write retries the now-readable file; no persistent exclusion hides it.
@@ -1704,7 +1703,7 @@ mod tests {
         event_loop.handle_kqueue();
         let errors: Vec<_> = rx.try_iter().filter_map(Result::err).collect();
         assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].paths, [cycle.clone()]);
+        assert_eq!(errors[0].paths, std::slice::from_ref(&cycle));
 
         // Even that partial walk must register its watches to detect later changes.
         std::fs::remove_file(&cycle)?;
