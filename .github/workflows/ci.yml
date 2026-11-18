@@ -57,7 +57,7 @@ jobs:
         run: cargo test -p notify --test serialise-events --features serde,serialization-compat-6 --locked
 
       - name: Install typos-cli
-        uses: taiki-e/install-action@v2.90.2
+        uses: taiki-e/install-action@v2.90.3
         with:
           tool: typos-cli
 
@@ -65,7 +65,7 @@ jobs:
         run: typos
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@v2.90.2
+        uses: taiki-e/install-action@v2.90.3
         with:
           tool: cargo-deny
 
@@ -73,7 +73,7 @@ jobs:
         run: cargo deny check
 
       - name: Install cargo-machete
-        uses: taiki-e/install-action@v2.90.2
+        uses: taiki-e/install-action@v2.90.3
         with:
           tool: cargo-machete
 
@@ -225,7 +225,7 @@ jobs:
         uses: Swatinem/rust-cache@v2.9.3
 
       - name: Install cargo-ndk
-        uses: taiki-e/install-action@v2.90.2
+        uses: taiki-e/install-action@v2.90.3
         with:
           tool: cargo-ndk
 
@@ -275,7 +275,7 @@ jobs:
 
       - name: Install Wasmtime
         if: matrix.target != 'wasm32-unknown-unknown'
-        uses: taiki-e/install-action@v2.90.2
+        uses: taiki-e/install-action@v2.90.3
         with:
           tool: wasmtime@49.0.3
 
