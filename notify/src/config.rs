@@ -288,6 +288,7 @@ pub struct WatchPathConfig {
     recursive_mode: RecursiveMode,
     dereference_symlinks: bool,
     user_data: Option<u64>,
+    exclusions: Vec<PathBuf>,
 }
 
 impl WatchPathConfig {
@@ -298,6 +299,7 @@ impl WatchPathConfig {
             recursive_mode,
             dereference_symlinks: true,
             user_data: None,
+            exclusions: Vec::new(),
         }
     }
 
@@ -362,6 +364,33 @@ impl WatchPathConfig {
     #[must_use]
     pub fn user_data(&self) -> Option<u64> {
         self.user_data
+    }
+
+    /// Folders under the watched path whose changes are not reported, for the
+    /// [FsEventWatcher](crate::FsEventWatcher) and [INotifyWatcher](crate::INotifyWatcher)
+    /// backends. A folder need not exist yet: one made later is excluded too. A folder outside
+    /// the watched path is an error on FSEvents and ignored on inotify.
+    ///
+    /// FSEvents sets them with `FSEventStreamSetExclusionPaths`. The exclusions of every watch on
+    /// a watcher apply to its one stream, so they also hide changes from another watch under them,
+    /// and FSEvents takes at most 8 in all: more is an error from `watch_with`.
+    ///
+    /// inotify takes any number, for a [`RecursiveMode::Recursive`] watch: its walk does not enter
+    /// an excluded folder, so neither it nor anything under it holds an inotify watch, then or
+    /// when made later. The folder's own entry in its parent (made, removed, renamed) is still
+    /// reported. A recursive watch nearer an excluded folder, set on its own, still covers it.
+    ///
+    /// Other backends ignore it. Empty by default.
+    #[must_use]
+    pub fn with_exclusions(mut self, folders: Vec<PathBuf>) -> Self {
+        self.exclusions = folders;
+        self
+    }
+
+    /// Returns current setting
+    #[must_use]
+    pub fn exclusions(&self) -> &[PathBuf] {
+        &self.exclusions
     }
 }
 

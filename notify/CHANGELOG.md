@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- FEATURE: add `WatchPathConfig::with_exclusions` to leave folders under a watch out: on macOS out of its FSEvents stream (`FSEventStreamSetExclusionPaths`), at most 8 per watcher; on Linux out of the inotify walk of a recursive watch, with no cap, so they hold no inotify watch
+
 ## notify 9.0.0-rc.9 (2026-11-15)
 
 - CHANGE: `Watcher::watched_paths` returns `Vec<WatchedPath>` instead of `Vec<(PathBuf, RecursiveMode)>`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#custom-watchers-and-additional-configuration) [#1106] **breaking**

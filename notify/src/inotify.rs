@@ -131,6 +131,9 @@ struct Watch {
     is_dir: bool,
     dereference: bool,
     metadata: WatchMetadata,
+    /// For a recursive user watch, the absolute folders its walks do not enter
+    /// ([`WatchPathConfig::exclusions`]). Empty on every other watch.
+    exclusions: Vec<PathBuf>,
 }
 
 impl Watch {
@@ -190,6 +193,9 @@ fn add_watch_by_event(
         && let Some(parent_path) = path.parent()
         && let Some(watch) = watches.get(parent_path)
         && watch.metadata.is_recursive
+        && !covering_exclusions(watches, parent_path)
+            .iter()
+            .any(|excluded| path.starts_with(excluded))
     {
         let user_data = recursive_user_watch_ancestor(path, |ancestor| {
             watches.get(ancestor).map(|watch| &watch.metadata)
@@ -346,6 +352,18 @@ fn event_targets(
         }
     }
     targets
+}
+
+/// The exclusions that apply at `path`: those of the nearest recursive user watch at or above it.
+/// A recursive user watch nearer `path` decides for it, even under another's exclusion.
+fn covering_exclusions<'a>(watches: &'a HashMap<PathBuf, Watch>, path: &Path) -> &'a [PathBuf] {
+    path.ancestors()
+        .find_map(|ancestor| {
+            watches
+                .get(ancestor)
+                .filter(|watch| watch.metadata.is_user_watch && watch.metadata.user_is_recursive)
+        })
+        .map_or(&[], |watch| &watch.exclusions)
 }
 
 /// Queue `path` for removal, if it is watched and `descriptor` still matches its watch.
@@ -984,6 +1002,18 @@ impl EventLoop {
             .map_err(|err| Error::io_watch(err).set_user_data_opt(user_data))?
             .is_dir();
         let requested_is_recursive = is_recursive && path_is_dir;
+        // A user watch brings its own exclusions; a walk below one inherits those covering it.
+        let exclusions: Vec<PathBuf> = if !watch_self {
+            covering_exclusions(&self.watches, &path.absolute).to_vec()
+        } else if requested_is_recursive {
+            config
+                .exclusions()
+                .iter()
+                .map(|folder| absolute_path(folder))
+                .collect::<Result<_>>()?
+        } else {
+            Vec::new()
+        };
         if watch_self {
             if let Some(watch) = self
                 .watches
@@ -993,6 +1023,7 @@ impl EventLoop {
                 if watch.metadata.user_is_recursive == requested_is_recursive
                     && watch.metadata.reported_path == path.requested
                     && watch.dereference == dereference
+                    && watch.exclusions == exclusions
                 {
                     // The same request again keeps the watches it finds in place. Adding the root
                     // again returns its descriptor, unless the path now names another inode, as
@@ -1060,10 +1091,16 @@ impl EventLoop {
         // If the watch is not recursive, or if we determine (by stat'ing the path to get its
         // metadata) that the watched path is not a directory, add a single path watch.
         if !requested_is_recursive {
-            return self.add_single_watch(path, false, dereference, true);
+            let root = path.absolute.clone();
+            self.add_single_watch(path, false, dereference, true)?;
+            if watch_self {
+                self.set_exclusions(&root, exclusions);
+            }
+            return Ok(());
         }
 
-        let barriers = self.walk_barriers.clone();
+        let mut barriers = self.walk_barriers.clone();
+        barriers.extend(exclusions.iter().cloned());
         // The walk of a new directory starts below the recursive watch that covers it. A link
         // back to a directory above it is a loop, as it is in a walk of the whole watch.
         let above = if watch_self {
@@ -1079,6 +1116,7 @@ impl EventLoop {
             above,
         );
 
+        let root = path.absolute.clone();
         self.add_watches_for_paths(
             path,
             entries,
@@ -1086,12 +1124,27 @@ impl EventLoop {
             dereference,
             watch_self,
             report_created,
-        )
+        )?;
+        if watch_self {
+            self.set_exclusions(&root, exclusions);
+        }
+        Ok(())
+    }
+
+    fn set_exclusions(&mut self, path: &Path, exclusions: Vec<PathBuf>) {
+        if let Some(watch) = self.watches.get_mut(path) {
+            watch.exclusions = exclusions;
+        }
     }
 
     /// Watches the directories at and below `path` for `root`, the recursive user watch above it.
     fn add_inherited_watches(&mut self, path: PathBuf, root: WatchPath) -> Result<()> {
-        let barriers = self.walk_barriers.clone();
+        let mut barriers = self.walk_barriers.clone();
+        barriers.extend(
+            covering_exclusions(&self.watches, &root.absolute)
+                .iter()
+                .cloned(),
+        );
         let entries = walk_dirs(
             path.clone(),
             root.clone(),
@@ -1276,6 +1329,10 @@ impl EventLoop {
                             }
                         }
                     };
+                    // a walk passing a user watch keeps that watch's own exclusions
+                    let exclusions = existing_watch
+                        .map(|watch| watch.exclusions.clone())
+                        .unwrap_or_default();
                     let metadata = WatchMetadata::new(
                         &path,
                         is_recursive,
@@ -1291,6 +1348,7 @@ impl EventLoop {
                             is_dir,
                             dereference,
                             metadata,
+                            exclusions,
                         },
                     );
                     // re-resolving a path can land on a different inode, so release the old
@@ -3888,6 +3946,198 @@ mod tests {
         assert_eq!(
             created,
             [Event::new(EventKind::Create(CreateKind::Folder)).add_path(child)]
+        );
+    }
+
+    fn watched_under(event_loop: &EventLoop, folder: &Path) -> Vec<PathBuf> {
+        let mut paths: Vec<_> = event_loop
+            .watches
+            .keys()
+            .filter(|path| path.starts_with(folder))
+            .cloned()
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    #[test]
+    fn recursive_watch_holds_no_watch_in_an_excluded_folder() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().to_path_buf();
+        let excluded = root.join("node_modules");
+        std::fs::create_dir_all(root.join("src/deep")).unwrap();
+        std::fs::create_dir_all(excluded.join("a/b")).unwrap();
+        std::fs::create_dir_all(root.join("target/debug")).unwrap();
+
+        let mut event_loop = test_event_loop();
+        event_loop
+            .add_watch(
+                WatchPath::new(&root, None).unwrap(),
+                recursive_watch().with_exclusions(vec![excluded.clone(), root.join("target")]),
+                true,
+                false,
+            )
+            .expect("watch root recursively");
+
+        assert_eq!(
+            watched_under(&event_loop, &root),
+            vec![root.clone(), root.join("src"), root.join("src/deep")]
+        );
+        assert_eq!(event_loop.paths.len(), 3);
+    }
+
+    #[test]
+    fn folders_made_at_or_under_an_exclusion_get_no_watch() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().to_path_buf();
+        let existing = root.join("node_modules");
+        let later = root.join("target");
+        std::fs::create_dir(&existing).unwrap();
+
+        let mut event_loop = test_event_loop();
+        event_loop
+            .add_watch(
+                WatchPath::new(&root, None).unwrap(),
+                recursive_watch().with_exclusions(vec![existing.clone(), later.clone()]),
+                true,
+                false,
+            )
+            .expect("watch root recursively");
+        std::fs::create_dir_all(existing.join("pkg/lib")).unwrap();
+        std::fs::create_dir_all(later.join("debug/deps")).unwrap();
+        std::fs::create_dir_all(root.join("src/deep")).unwrap();
+        event_loop.handle_inotify();
+        // a walk started by an event inherits the exclusions of the watch over it
+        std::fs::create_dir_all(root.join("src/deep/more")).unwrap();
+        event_loop.handle_inotify();
+
+        assert_eq!(
+            watched_under(&event_loop, &root),
+            vec![
+                root.clone(),
+                root.join("src"),
+                root.join("src/deep"),
+                root.join("src/deep/more"),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_excluded_folder_made_later_tells_nothing_under_it() {
+        let tmpdir = testdir();
+        let root = tmpdir.path().to_path_buf();
+        let excluded = root.join("target");
+        let (mut watcher, mut rx) = watcher();
+        watcher
+            .watcher
+            .watch_with(
+                &root,
+                recursive_watch().with_exclusions(vec![excluded.clone()]),
+            )
+            .expect("watch root");
+
+        std::fs::create_dir(&excluded).expect("create");
+        rx.wait_ordered([expected(&excluded).create_folder()]);
+        std::fs::create_dir_all(excluded.join("debug")).expect("create");
+        std::fs::write(excluded.join("debug/out"), "").expect("write");
+        let done = root.join("done");
+        std::fs::write(&done, "").expect("write");
+
+        let mut events = Vec::new();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !events.iter().any(|e: &Event| e.paths.contains(&done)) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "no event for {done:?}: {events:#?}"
+            );
+            events.extend(rx.iter());
+            thread::sleep(Duration::from_millis(10));
+        }
+        let under: Vec<_> = events
+            .iter()
+            .filter(|e| {
+                e.paths
+                    .iter()
+                    .any(|p| p.starts_with(&excluded) && p != &excluded)
+            })
+            .collect();
+        assert!(
+            under.is_empty(),
+            "told a change under {excluded:?}: {under:#?}"
+        );
+    }
+
+    #[test]
+    fn rewatching_with_other_exclusions_walks_again() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().to_path_buf();
+        let excluded = root.join("target");
+        std::fs::create_dir_all(excluded.join("debug")).unwrap();
+
+        let mut event_loop = test_event_loop();
+        let watch = |exclusions| recursive_watch().with_exclusions(exclusions);
+        event_loop
+            .add_watch(
+                WatchPath::new(&root, None).unwrap(),
+                watch(vec![excluded.clone()]),
+                true,
+                false,
+            )
+            .expect("watch");
+        assert_eq!(watched_under(&event_loop, &root), vec![root.clone()]);
+        event_loop
+            .add_watch(
+                WatchPath::new(&root, None).unwrap(),
+                watch(vec![]),
+                true,
+                false,
+            )
+            .expect("rewatch");
+        assert_eq!(
+            watched_under(&event_loop, &root),
+            vec![root.clone(), excluded.clone(), excluded.join("debug")]
+        );
+        event_loop
+            .add_watch(
+                WatchPath::new(&root, None).unwrap(),
+                watch(vec![excluded.clone()]),
+                true,
+                false,
+            )
+            .expect("rewatch");
+        assert_eq!(watched_under(&event_loop, &root), vec![root.clone()]);
+    }
+
+    #[test]
+    fn a_recursive_watch_under_an_exclusion_still_covers_it() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().to_path_buf();
+        let excluded = root.join("target");
+        std::fs::create_dir_all(&excluded).unwrap();
+
+        let mut event_loop = test_event_loop();
+        event_loop
+            .add_watch(
+                WatchPath::new(&root, None).unwrap(),
+                recursive_watch().with_exclusions(vec![excluded.clone()]),
+                true,
+                false,
+            )
+            .expect("watch root");
+        event_loop
+            .add_watch(
+                WatchPath::new(&excluded, None).unwrap(),
+                recursive_watch(),
+                true,
+                false,
+            )
+            .expect("watch the excluded folder");
+        std::fs::create_dir(excluded.join("debug")).unwrap();
+        event_loop.handle_inotify();
+
+        assert_eq!(
+            watched_under(&event_loop, &root),
+            vec![root.clone(), excluded.clone(), excluded.join("debug")]
         );
     }
 
