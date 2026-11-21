@@ -2,9 +2,10 @@
 
 //! A debouncer for [notify] that is optimized for ease of use.
 //!
-//! * Only emits a single `Rename` event if the rename `From` and `To` events can be matched
-//! * Merges multiple `Rename` events
-//! * Takes `Rename` events into account and updates paths for events that occurred before the rename event, but which haven't been emitted, yet
+//! * Matches `Rename` `From`/`To` events and merges rename chains
+//! * Updates paths of queued events when files are renamed
+//! * Emits renames before events that reuse their source paths
+//! * Emits `Remove` for the source if a renamed file is deleted or replaced before delivery
 //! * Optionally keeps track of the file system IDs all files and stitches rename events together (macOS FS Events, Windows)
 //! * Emits only one `Remove` event when deleting a directory (inotify)
 //! * Doesn't emit duplicate create events
@@ -78,6 +79,7 @@ mod file_id_map;
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BinaryHeap, VecDeque, btree_map::Entry},
+    num::NonZeroU32,
     ops::Bound,
     path::{Path, PathBuf},
     sync::{
@@ -240,6 +242,8 @@ struct SharedDebounceData<T> {
     changed: Condvar,
 }
 
+const RENAME: EventKind = EventKind::Modify(ModifyKind::Name(RenameMode::Both));
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Queue {
     /// Events must be stored in the following order:
@@ -250,6 +254,51 @@ struct Queue {
 }
 
 impl Queue {
+    /// A pending rename follows at most one removal.
+    fn rename_index(&self) -> Option<usize> {
+        self.events
+            .iter()
+            .take(2)
+            .position(|event| event.kind == RENAME)
+    }
+
+    fn take_rename(&mut self) -> Option<DebouncedEvent> {
+        self.events.remove(self.rename_index()?)
+    }
+
+    /// Drains and deduplicates expired events. The front, if any, must be expired.
+    fn take_expired(
+        &mut self,
+        is_expired: impl Fn(&DebouncedEvent) -> bool,
+    ) -> VecDeque<DebouncedEvent> {
+        // Reuse the allocation when there is nothing to deduplicate.
+        if self.events.len() == 1 {
+            return std::mem::take(&mut self.events);
+        }
+
+        let mut kind_index: HashMap<EventKind, usize> = HashMap::default();
+        let mut queue_expired = Vec::new();
+
+        while let Some(event) = self.events.pop_front() {
+            // remove previous event of the same kind
+            if is_expired(&event) {
+                if let Some(idx) = kind_index.insert(event.kind, queue_expired.len()) {
+                    queue_expired[idx] = None;
+                }
+
+                queue_expired.push(Some(event));
+            } else {
+                if let Some(&idx) = kind_index.get(&event.kind) {
+                    queue_expired[idx] = None;
+                }
+                self.events.push_front(event);
+                break;
+            }
+        }
+
+        queue_expired.into_iter().flatten().collect()
+    }
+
     fn was_created(&self) -> bool {
         self.events.front().is_some_and(|event| {
             matches!(
@@ -269,9 +318,83 @@ impl Queue {
     }
 }
 
+/// A path vacated by a pending rename.
+///
+/// Nanosecond timestamps and a separate presence flag keep each entry at 24 bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Vacated {
+    /// Nanoseconds since debouncer creation: the rename time, or the tick that last deferred it.
+    time: u64,
+    /// User data from the source watch; valid when `has_user_data` is set.
+    user_data: u64,
+    has_user_data: bool,
+    /// The rename was deferred after expiry; retrieve its source queue when it is delivered.
+    waits: bool,
+    /// Index in the current tick's `waiting` list, plus one; cleared before returning.
+    waiting: Option<NonZeroU32>,
+}
+
+impl Vacated {
+    fn new(time: u64, user_data: Option<u64>) -> Self {
+        Self {
+            time,
+            user_data: user_data.unwrap_or_default(),
+            has_user_data: user_data.is_some(),
+            waits: false,
+            waiting: None,
+        }
+    }
+
+    fn user_data(&self) -> Option<u64> {
+        self.has_user_data.then_some(self.user_data)
+    }
+}
+
+/// Expired events blocked by the rename that vacated their path.
+struct Waiting {
+    group: usize,
+    rename: Rename,
+    /// Metadata to restore if this group's rename is requeued.
+    vacated: Option<Vacated>,
+}
+
+/// Delivery state of the rename blocking a `Waiting` group.
+enum Rename {
+    Queued,
+    Delivered,
+    /// The rename belongs to this `Waiting` entry.
+    Waits(u32),
+}
+
+/// A group released after the rename in `rename` is emitted.
+struct Held {
+    rename: usize,
+    group: usize,
+    events: VecDeque<DebouncedEvent>,
+}
+
+impl Held {
+    /// Releases this group once; returns whether it contained events.
+    fn release(
+        &mut self,
+        groups: &mut [VecDeque<DebouncedEvent>],
+        min_time_heap: &mut BinaryHeap<Reverse<(Instant, usize)>>,
+    ) -> bool {
+        let events = std::mem::take(&mut self.events);
+        let Some(event) = events.front() else {
+            return false;
+        };
+        min_time_heap.push(Reverse((event.time, self.group)));
+        groups[self.group] = events;
+        true
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct DebounceDataInner<T> {
     queues: BTreeMap<PathBuf, Queue>,
+    /// Pending rename sources, used to order events that reuse those paths.
+    vacated: HashMap<Box<Path>, Vacated>,
     /// Registered watch roots, kept **sorted by path** so that `add_root`
     /// can dedupe via binary search in O(log N) and doesn't suffer from injection
     roots: VecDeque<WatchRoot>,
@@ -283,12 +406,16 @@ pub(crate) struct DebounceDataInner<T> {
     rescan_event: Option<DebouncedEvent>,
     errors: Vec<Error>,
     timeout: Duration,
+    created: Instant,
+    /// Whether `vacated` may contain deferred renames.
+    waits: bool,
 }
 
 impl<T: FileIdCache> DebounceDataInner<T> {
     pub(crate) fn new(cache: T, timeout: Duration) -> Self {
         Self {
             queues: BTreeMap::new(),
+            vacated: HashMap::default(),
             roots: VecDeque::new(),
             cache,
             rename_events: Vec::new(),
@@ -296,7 +423,15 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             rescan_event: None,
             errors: Vec::new(),
             timeout,
+            created: now(),
+            waits: false,
         }
+    }
+
+    /// Nanoseconds since `created`, saturated to `u64::MAX`.
+    fn nanos(&self, time: Instant) -> u64 {
+        let nanos = time.saturating_duration_since(self.created).as_nanos();
+        u64::try_from(nanos).unwrap_or(u64::MAX)
     }
 
     fn is_idle(&self) -> bool {
@@ -327,45 +462,219 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         {
             self.finish_pending_renames();
         }
-        let mut events_expired = Vec::with_capacity(self.queues.len());
+        let mut groups = Vec::with_capacity(self.queues.len());
 
         if let Some(event) = self.rescan_event.take() {
             if now.saturating_duration_since(event.time) >= self.timeout {
                 log::trace!("debounced event: {event:?}");
-                events_expired.push(event);
+                groups.push(VecDeque::from([event]));
             } else {
                 self.rescan_event = Some(event);
             }
         }
 
+        let timeout = self.timeout;
+        let is_expired =
+            move |event: &DebouncedEvent| now.saturating_duration_since(event.time) >= timeout;
+        // Expiry cutoff in the same units as `Vacated::time`.
+        let timeout_nanos = u64::try_from(timeout.as_nanos()).unwrap_or(u64::MAX);
+        let expired = self.nanos(now).checked_sub(timeout_nanos);
+
         // Visit each queue in place and remove only the ones that become empty.
-        self.queues.retain(|_, queue| {
-            let mut kind_index: HashMap<EventKind, usize> = HashMap::default();
-            let mut queue_expired = Vec::new();
-
-            while let Some(event) = queue.events.pop_front() {
-                // remove previous event of the same kind
-                if now.saturating_duration_since(event.time) >= self.timeout {
-                    if let Some(idx) = kind_index.insert(event.kind, queue_expired.len()) {
-                        queue_expired[idx] = None;
-                    }
-
-                    queue_expired.push(Some(event));
-                } else {
-                    if let Some(&idx) = kind_index.get(&event.kind) {
-                        queue_expired[idx] = None;
-                    }
-                    queue.events.push_front(event);
-                    break;
-                }
+        let mut waiting = Vec::new();
+        self.queues.retain(|path, queue| {
+            let Some(event) = queue.events.front() else {
+                return false;
+            };
+            if !is_expired(event) {
+                return true;
             }
-
-            events_expired.extend(queue_expired.into_iter().flatten());
-
+            // Leave blocked queues intact until their rename can be emitted or rechecked.
+            let vacated = self.vacated.get_mut(path.as_path());
+            if let Some(vacated) = &vacated
+                && expired.is_none_or(|expired| vacated.time > expired)
+            {
+                return true;
+            }
+            let events = queue.take_expired(is_expired);
+            if !events.is_empty() {
+                if let Some(vacated) = vacated
+                    && let Ok(entry) = u32::try_from(waiting.len() + 1)
+                {
+                    vacated.waiting = NonZeroU32::new(entry);
+                    waiting.push(Waiting {
+                        group: groups.len(),
+                        rename: Rename::Queued,
+                        vacated: None,
+                    });
+                }
+                groups.push(events);
+            }
             !queue.events.is_empty()
         });
 
-        sort_events(events_expired)
+        if groups.is_empty() {
+            return Vec::new();
+        }
+
+        let held = self.hold_waiting(&mut groups, waiting, is_expired, self.nanos(now));
+        self.waits &= !self.vacated.is_empty();
+        sort_events(groups, held)
+    }
+
+    /// Resolves rename dependencies and requeues groups that cannot be delivered yet.
+    /// Returned groups are released by `sort_events` after their rename.
+    fn hold_waiting(
+        &mut self,
+        groups: &mut Vec<VecDeque<DebouncedEvent>>,
+        mut waiting: Vec<Waiting>,
+        is_expired: impl Fn(&DebouncedEvent) -> bool + Copy,
+        now: u64,
+    ) -> Vec<Held> {
+        if self.vacated.is_empty() {
+            return Vec::new();
+        }
+
+        // Pairs of (rename group, waiting follower).
+        let mut followers = Vec::new();
+        let mut next = 0;
+        let mut group = 0;
+        while group < groups.len() {
+            let own = waiting
+                .get(next as usize)
+                .is_some_and(|waiting| waiting.group == group)
+                .then_some(next);
+            next += u32::from(own.is_some());
+            let rename = groups[group]
+                .iter()
+                .take(2)
+                .find(|event| event.kind == RENAME);
+            if let Some(source) = rename.map(|rename| rename.paths[0].as_path())
+                && let Some(vacated) = self.vacated.remove(source)
+            {
+                let follower = match vacated.waiting {
+                    Some(follower) => Some(follower.get() as usize - 1),
+                    // Retrieve followers deferred on an earlier tick.
+                    None if vacated.waits => {
+                        let path = source.to_path_buf();
+                        self.take_waiting(path, groups, &mut waiting, is_expired)
+                    }
+                    None => None,
+                };
+                if let Some(follower) = follower {
+                    waiting[follower].rename = own.map_or(Rename::Delivered, Rename::Waits);
+                    followers.push((group, follower));
+                }
+                if let Some(own) = own {
+                    waiting[own as usize].vacated = Some(Vacated {
+                        waiting: None,
+                        ..vacated
+                    });
+                }
+            }
+            group += 1;
+        }
+
+        let mut delivered = vec![None; waiting.len()];
+        let mut chain = Vec::new();
+        for start in 0..waiting.len() {
+            let mut entry = start;
+            let result = loop {
+                if let Some(known) = delivered[entry] {
+                    break known;
+                }
+                // Mark as deliverable while visiting so cycles can be emitted together.
+                delivered[entry] = Some(true);
+                chain.push(entry);
+                match waiting[entry].rename {
+                    Rename::Queued => break false,
+                    Rename::Delivered => break true,
+                    Rename::Waits(holder) => entry = holder as usize,
+                }
+            };
+            for entry in chain.drain(..) {
+                delivered[entry] = Some(result);
+            }
+        }
+
+        for (entry, waiting) in waiting.iter().enumerate() {
+            if delivered[entry] != Some(true) {
+                self.requeue(std::mem::take(&mut groups[waiting.group]), waiting, now);
+            }
+        }
+        followers
+            .into_iter()
+            .map(|(rename, follower)| {
+                let group = waiting[follower].group;
+                Held {
+                    rename,
+                    group,
+                    events: std::mem::take(&mut groups[group]),
+                }
+            })
+            .collect()
+    }
+
+    /// Appends expired events from `path` and returns their index in `waiting`.
+    fn take_waiting(
+        &mut self,
+        path: PathBuf,
+        groups: &mut Vec<VecDeque<DebouncedEvent>>,
+        waiting: &mut Vec<Waiting>,
+        is_expired: impl Fn(&DebouncedEvent) -> bool,
+    ) -> Option<usize> {
+        let Entry::Occupied(mut queue) = self.queues.entry(path) else {
+            return None;
+        };
+        if !queue.get().events.front().is_some_and(&is_expired) {
+            return None;
+        }
+        let events = queue.get_mut().take_expired(is_expired);
+        if queue.get().events.is_empty() {
+            queue.remove();
+        }
+        if events.is_empty() {
+            return None;
+        }
+        waiting.push(Waiting {
+            group: groups.len(),
+            rename: Rename::Queued,
+            vacated: None,
+        });
+        groups.push(events);
+        Some(waiting.len() - 1)
+    }
+
+    /// Requeues a blocked group until its rename is delivered or continues.
+    /// Otherwise recheck at `now + timeout`, when all current blockers have expired.
+    fn requeue(&mut self, events: VecDeque<DebouncedEvent>, waiting: &Waiting, now: u64) {
+        // A rename is queued at its destination, and other events at their path.
+        let rename = events.iter().take(2).find(|event| event.kind == RENAME);
+        let path = match &events[0] {
+            event if event.kind == RENAME => event.paths[1].clone(),
+            event => event.paths[0].clone(),
+        };
+        self.waits = true;
+        if let (Some(rename), Some(mut vacated)) = (rename, waiting.vacated) {
+            (vacated.time, vacated.waits) = (now, true);
+            self.vacated
+                .insert(rename.paths[0].as_path().into(), vacated);
+        }
+        if let Rename::Queued = waiting.rename
+            && let Some(vacated) = self.vacated.get_mut(path.as_path())
+        {
+            (vacated.time, vacated.waits, vacated.waiting) = (now, true, None);
+        }
+        match self.queues.entry(path) {
+            Entry::Occupied(mut queue) => {
+                for event in events.into_iter().rev() {
+                    queue.get_mut().events.push_front(event);
+                }
+            }
+            Entry::Vacant(queue) => {
+                queue.insert(Queue { events });
+            }
+        }
     }
 
     /// Returns all currently stored errors
@@ -533,10 +842,8 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         match source {
             Some(source) => {
                 // connect rename
-                let (mut rename_event, _) = self.rename_events.remove(source);
-                let path = rename_event.paths.remove(0);
-                let time = rename_event.time;
-                self.push_rename_event(path, event, time);
+                let (source, _) = self.rename_events.remove(source);
+                self.push_rename_event(source, event);
             }
             None if self.rename_events.iter().any(trackers_match) => {
                 // An alias destination can arrive before the destination below the source's
@@ -560,9 +867,8 @@ impl<T: FileIdCache> DebounceDataInner<T> {
                 .iter()
                 .position(|(source, _)| source.tracker() == destination.tracker());
             if let Some(source) = source {
-                let (mut source, _) = self.rename_events.remove(source);
-                let path = source.paths.remove(0);
-                self.push_rename_event(path, destination.event, source.time);
+                let (source, _) = self.rename_events.remove(source);
+                self.push_rename_event(source, destination.event);
             } else {
                 self.push_event(destination.event, destination.time);
             }
@@ -576,34 +882,25 @@ impl<T: FileIdCache> DebounceDataInner<T> {
             .map(|root| root.path.as_path())
     }
 
-    fn push_rename_event(&mut self, path: PathBuf, event: Event, time: Instant) {
+    fn push_rename_event(&mut self, mut source: DebouncedEvent, mut event: Event) {
+        let time = source.time;
+        let path = source.event.paths.swap_remove(0);
         self.cache.remove_path(&path);
 
-        let mut source_queue = self.queues.remove(&path).unwrap_or_default();
+        let (vacated, mut source_queue) = self
+            .queues
+            .remove_entry(&path)
+            .unwrap_or_else(|| (path.clone(), Queue::default()));
 
         // remove rename `from` event
         source_queue.events.pop_back();
 
-        // remove existing rename event
-        let (remove_index, original_path, original_time) = source_queue
-            .events
-            .iter()
-            .enumerate()
-            .find_map(|(index, e)| {
-                if matches!(
-                    e.kind,
-                    EventKind::Modify(ModifyKind::Name(RenameMode::Both))
-                ) {
-                    Some((Some(index), e.paths[0].clone(), e.time))
-                } else {
-                    None
-                }
-            })
-            .unwrap_or((None, path, time));
+        // Attribute replacement removals to the destination watch.
+        let user_data = event.user_data();
 
-        if let Some(remove_index) = remove_index {
-            source_queue.events.remove(remove_index);
-        }
+        // remove existing rename event
+        let earlier = source_queue.take_rename();
+        let original_time = earlier.as_ref().map_or(time, |rename| rename.time);
 
         // split off remove or move out event and add it back to the events map
         if source_queue.was_removed() {
@@ -624,6 +921,25 @@ impl<T: FileIdCache> DebounceDataInner<T> {
 
         // insert rename event at the front, unless the file was just created
         if !source_queue.was_created() {
+            let original_path = match earlier {
+                // A rename chain keeps its original source.
+                Some(mut rename) => {
+                    let original_path = rename.event.paths.swap_remove(0);
+                    // The new destination may change dependencies; invalidate the deferred state.
+                    if self.waits {
+                        let time = self.nanos(original_time);
+                        if let Some(vacated) = self.vacated.get_mut(original_path.as_path()) {
+                            (vacated.time, vacated.waits) = (time, false);
+                        }
+                    }
+                    original_path
+                }
+                None => {
+                    let rename = Vacated::new(self.nanos(time), source.user_data());
+                    self.vacated.insert(vacated.into_boxed_path(), rename);
+                    path
+                }
+            };
             source_queue.events.push_front(DebouncedEvent {
                 event: Event {
                     kind: EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
@@ -632,26 +948,58 @@ impl<T: FileIdCache> DebounceDataInner<T> {
                 },
                 time: original_time,
             });
+        } else if let Some(rename) = earlier {
+            // The file is reported as created at its new path, without its earlier rename.
+            self.discard_rename(rename, &path);
         }
 
-        if let Some(target_queue) = self.queues.get_mut(&event.paths[0]) {
-            if !target_queue.was_created() {
-                let mut remove_event = DebouncedEvent {
-                    event: Event {
-                        kind: EventKind::Remove(RemoveKind::Any),
-                        paths: vec![event.paths[0].clone()],
-                        attrs: Default::default(),
-                    },
-                    time: original_time,
-                };
-                if !target_queue.was_removed() {
-                    remove_event.event = remove_event.event.set_info("override");
+        let overwritten = match self.queues.entry(event.paths.swap_remove(0)) {
+            Entry::Occupied(mut target) => {
+                if !target.get().was_created() {
+                    let mut removal = removal(target.key().clone(), user_data);
+                    if !target.get().was_removed() {
+                        removal = removal.set_info("override");
+                    }
+                    source_queue
+                        .events
+                        .push_front(DebouncedEvent::new(removal, original_time));
                 }
-                source_queue.events.push_front(remove_event);
+                let rename = target.insert(source_queue).take_rename();
+                rename.map(|rename| (rename, target.key().clone()))
             }
-            *target_queue = source_queue;
-        } else {
-            self.queues.insert(event.paths[0].clone(), source_queue);
+            Entry::Vacant(target) => {
+                target.insert(source_queue);
+                None
+            }
+        };
+        if let Some((rename, destination)) = overwritten {
+            self.discard_rename(rename, &destination);
+        }
+    }
+
+    /// Replaces a discarded rename with removal of its source.
+    /// `removed` is the deleted or replaced destination, or an ancestor directory.
+    fn discard_rename(&mut self, mut rename: DebouncedEvent, removed: &Path) {
+        let source = rename.event.paths.swap_remove(0);
+        let vacated = self.vacated.remove(source.as_path());
+        // The removal of a directory covers the paths below it.
+        if source.starts_with(removed) {
+            return;
+        }
+        let user_data = vacated.and_then(|vacated| vacated.user_data());
+        let removal =
+            |path: &PathBuf| DebouncedEvent::new(removal(path.clone(), user_data), rename.time);
+        match self.queues.entry(source) {
+            Entry::Occupied(queue) if queue.get().was_removed() => {}
+            // Keep later events, such as recreation of the source.
+            Entry::Occupied(mut queue) => {
+                let removal = removal(queue.key());
+                queue.get_mut().events.push_front(removal);
+            }
+            Entry::Vacant(queue) => {
+                let events = [removal(queue.key())].into();
+                queue.insert(Queue { events });
+            }
         }
     }
 
@@ -659,7 +1007,16 @@ impl<T: FileIdCache> DebounceDataInner<T> {
         let path = &event.paths[0];
 
         // Replace this path's queue and discard any pending events below it.
-        remove_subtree(&mut self.queues, path);
+        let mut discarded = Vec::new();
+        let has_renames = !self.vacated.is_empty();
+        remove_subtree(&mut self.queues, path, |mut queue| {
+            if has_renames {
+                discarded.extend(queue.take_rename());
+            }
+        });
+        for rename in discarded {
+            self.discard_rename(rename, path);
+        }
         self.cache.remove_path(path);
         self.queues.insert(
             path.to_path_buf(),
@@ -1017,8 +1374,8 @@ fn root_at<'a>(roots: &'a VecDeque<WatchRoot>, path: &Path) -> Option<&'a WatchR
     Some(&roots[index])
 }
 
-/// Removes a path and its descendants without scanning unrelated keys.
-fn remove_subtree<V>(map: &mut BTreeMap<PathBuf, V>, path: &Path) {
+/// Removes a subtree without scanning unrelated keys, passing each value to `removed`.
+fn remove_subtree<V>(map: &mut BTreeMap<PathBuf, V>, path: &Path, mut removed: impl FnMut(V)) {
     // Path orders by component, so a path and its descendants form a contiguous range.
     let count = map
         .range::<Path, _>((Bound::Included(path), Bound::Unbounded))
@@ -1032,54 +1389,66 @@ fn remove_subtree<V>(map: &mut BTreeMap<PathBuf, V>, path: &Path) {
     // instead, removing entries in place without cloning their keys or looking them up again.
     map.extract_if(path.to_path_buf().., |_, _| true)
         .take(count)
-        .for_each(drop);
+        .for_each(|(_, value)| removed(value));
 }
 
-fn sort_events(events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
-    let mut sorted = Vec::with_capacity(events.len());
-
-    // group events by path
-    let mut groups = Vec::<(PathBuf, VecDeque<DebouncedEvent>)>::new();
-    let mut group_indexes: HashMap<PathBuf, usize> = HashMap::default();
-    group_indexes.reserve(events.len());
-    groups.reserve(events.len());
-
-    for event in events {
-        let path = event.paths.last().cloned().unwrap_or_default();
-
-        if let Some(&index) = group_indexes.get(&path) {
-            groups[index].1.push_back(event);
-        } else {
-            group_indexes.insert(path.clone(), groups.len());
-            groups.push((path, [event].into()));
-        }
+fn removal(path: PathBuf, user_data: Option<u64>) -> Event {
+    let event = Event::new(EventKind::Remove(RemoveKind::Any)).add_path(path);
+    match user_data {
+        Some(user_data) => event.set_user_data(user_data),
+        None => event,
     }
+}
 
-    // Keep path order as the tie-breaker for identical timestamps.
-    groups.sort_unstable_by(|(left_path, _), (right_path, _)| left_path.cmp(right_path));
+/// Merges groups by time, preserving each queue's order and releasing `held` followers.
+/// `held` must be sorted by rename group. Timestamp ties use group order.
+fn sort_events(
+    mut groups: Vec<VecDeque<DebouncedEvent>>,
+    mut held: Vec<Held>,
+) -> Vec<DebouncedEvent> {
+    let len = groups.iter().map(VecDeque::len).sum::<usize>()
+        + held.iter().map(|held| held.events.len()).sum::<usize>();
+    let mut sorted = Vec::with_capacity(len);
 
-    // push events for different paths in chronological order and keep the order of events with the same path
+    let mut min_times = Vec::with_capacity(groups.len());
+    min_times.extend(
+        groups
+            .iter()
+            .enumerate()
+            .filter_map(|(index, events)| Some(Reverse((events.front()?.time, index)))),
+    );
+    let mut min_time_heap = BinaryHeap::from(min_times);
 
-    let mut min_time_heap = groups
-        .iter()
-        .enumerate()
-        .map(|(index, (_, events))| Reverse((events[0].time, index)))
-        .collect::<BinaryHeap<_>>();
+    loop {
+        while let Some(Reverse((min_time, index))) = min_time_heap.pop() {
+            let mut push_next = false;
 
-    while let Some(Reverse((min_time, index))) = min_time_heap.pop() {
-        let events = &mut groups[index].1;
+            while groups[index]
+                .front()
+                .is_some_and(|event| event.time <= min_time)
+            {
+                let event = groups[index].pop_front().unwrap();
+                if event.kind == RENAME
+                    && let Ok(follower) = held.binary_search_by_key(&index, |held| held.rename)
+                {
+                    held[follower].release(&mut groups, &mut min_time_heap);
+                }
+                sorted.push(event);
+                push_next = true;
+            }
 
-        let mut push_next = false;
-
-        while events.front().is_some_and(|event| event.time <= min_time) {
-            // unwrap is safe because `pop_front` mus return some in order to enter the loop
-            let event = events.pop_front().unwrap();
-            sorted.push(event);
-            push_next = true;
+            if push_next && let Some(event) = groups[index].front() {
+                min_time_heap.push(Reverse((event.time, index)));
+            }
         }
 
-        if push_next && let Some(event) = events.front() {
-            min_time_heap.push(Reverse((event.time, index)));
+        // Release remaining groups together to break rename cycles.
+        let mut released = false;
+        for held in &mut held {
+            released |= held.release(&mut groups, &mut min_time_heap);
+        }
+        if !released {
+            break;
         }
     }
 
@@ -1124,7 +1493,7 @@ mod tests {
         #[case] remaining: &[&str],
     ) {
         let mut map = paths.iter().map(|path| (PathBuf::from(path), ())).collect();
-        remove_subtree(&mut map, Path::new(root));
+        remove_subtree(&mut map, Path::new(root), drop);
         let expected = remaining
             .iter()
             .map(|path| (PathBuf::from(path), ()))
@@ -1140,7 +1509,7 @@ mod tests {
             map.insert(PathBuf::from(format!("a/bc/{index}")), index);
         }
 
-        remove_subtree(&mut map, Path::new("a/b"));
+        remove_subtree(&mut map, Path::new("a/b"), drop);
 
         assert_eq!(map.len(), 64);
         for index in 0..64 {
@@ -1319,11 +1688,16 @@ mod tests {
             "add_remove_event_after_modify_event",
             "add_remove_event_after_create_and_modify_event",
             "add_remove_parent_event_after_remove_child_event",
+            "add_remove_event_after_rename_event",
+            "add_remove_event_after_rename_and_create_event",
+            "add_remove_parent_event_after_rename_event",
             "add_errors",
             "debounce_modify_events",
             "emit_continuous_modify_content_events",
             "emit_events_in_chronological_order",
             "emit_events_with_a_prepended_rename_event",
+            "emit_create_event_after_rename_from_same_path",
+            "emit_create_event_after_rename_in_waiting_queue",
             "emit_close_events_only_once",
             "emit_modify_event_after_close_event",
             "emit_needs_rescan_event",
@@ -1368,6 +1742,7 @@ mod tests {
             state.queues, expected_state.queues,
             "queues not as expected"
         );
+        testing::assert_vacated_paths(&state, &"after the events");
         assert_eq!(
             state.rename_events, expected_state.rename_events,
             "rename event not as expected"
@@ -1396,10 +1771,12 @@ mod tests {
 
         let backup_time = now();
         let backup_queues = state.queues.clone();
+        let backup_vacated = state.vacated.clone();
 
         for (delay, events) in expected_events {
             MockTime::set_time(backup_time);
             state.queues = backup_queues.clone();
+            state.vacated = backup_vacated.clone();
 
             match delay.as_str() {
                 "none" => {}
@@ -1422,6 +1799,7 @@ mod tests {
                 events,
                 "debounced events after a `{delay}` delay"
             );
+            testing::assert_vacated_paths(&state, &delay);
         }
     }
 
@@ -1656,6 +2034,7 @@ mod tests {
     fn recursive_mode_uses_recursive_root_for_overlapping_watches() {
         let state = DebounceDataInner {
             queues: BTreeMap::new(),
+            vacated: HashMap::default(),
             roots: VecDeque::from([
                 WatchRoot {
                     path: PathBuf::from("root"),
@@ -1672,6 +2051,8 @@ mod tests {
             rescan_event: None,
             errors: Vec::new(),
             timeout: Duration::from_millis(50),
+            created: now(),
+            waits: false,
         };
 
         assert_eq!(
@@ -1800,22 +2181,1112 @@ mod tests {
         Ok(())
     }
 
+    const TIMEOUT: Duration = Duration::from_millis(50);
+
+    fn file_state() -> DebounceDataInner<NoCache> {
+        MockTime::set_time(Instant::now());
+        let mut state = DebounceDataInner::new(NoCache, TIMEOUT);
+        state.roots = VecDeque::from([WatchRoot {
+            path: PathBuf::from("/watch"),
+            recursive_mode: RecursiveMode::Recursive,
+        }]);
+        state
+    }
+
+    fn file_event(kind: EventKind, path: &str) -> Event {
+        Event::new(kind).add_path(PathBuf::from(path))
+    }
+
+    fn created(path: &str) -> Event {
+        file_event(EventKind::Create(CreateKind::File), path)
+    }
+
+    fn removed(path: &str) -> Event {
+        file_event(EventKind::Remove(RemoveKind::File), path)
+    }
+
+    /// A removal synthesized by the debouncer.
+    fn removed_any(path: &str) -> Event {
+        file_event(EventKind::Remove(RemoveKind::Any), path)
+    }
+
+    fn renamed(from: &str, to: &str, tracker: usize) -> Event {
+        file_event(EventKind::Modify(ModifyKind::Name(RenameMode::Both)), from)
+            .add_path(PathBuf::from(to))
+            .set_tracker(tracker)
+    }
+
+    /// Adds a backend's `From`/`To` pair.
+    fn add_rename(state: &mut DebounceDataInner<NoCache>, from: &str, to: &str, tracker: usize) {
+        for (mode, path) in [(RenameMode::From, from), (RenameMode::To, to)] {
+            state.add_event(
+                file_event(EventKind::Modify(ModifyKind::Name(mode)), path).set_tracker(tracker),
+            );
+        }
+    }
+
+    /// Lets every event expire and returns the delivered events without their times.
+    fn flush(state: &mut DebounceDataInner<NoCache>) -> Vec<Event> {
+        MockTime::advance(TIMEOUT);
+        let events = state.debounced_events();
+        assert!(state.queues.is_empty(), "{:?}", state.queues);
+        assert!(state.vacated.is_empty(), "{:?}", state.vacated);
+        events.into_iter().map(|event| event.event).collect()
+    }
+
+    /// Blender's backup save must vacate the original path before recreating it.
+    /// See <https://github.com/notify-rs/notify/issues/587>.
+    #[rstest]
+    fn a_file_replaced_through_a_backup_is_created_after_the_backup_rename(
+        // The path order of the file and its backup must not decide the event order.
+        #[values(("test.blend", "test.blend1"), ("b.blend", "a.blend"))] names: (&str, &str),
+        #[values(0, 1)] step: u64,
+        #[values(false, true)] backup_exists: bool,
+    ) {
+        let file = format!("/watch/{}", names.0);
+        let backup = format!("/watch/{}", names.1);
+        let temp = format!("{file}@");
+        let step = Duration::from_millis(step);
+        let mut state = file_state();
+
+        state.add_event(created(&temp));
+        MockTime::advance(step);
+        if backup_exists {
+            state.add_event(removed(&backup));
+            MockTime::advance(step);
+        }
+        add_rename(&mut state, &file, &backup, 1);
+        MockTime::advance(step);
+        add_rename(&mut state, &temp, &file, 2);
+
+        let mut expected = vec![renamed(&file, &backup, 1), created(&file)];
+        if backup_exists {
+            expected.insert(0, removed_any(&backup));
+        }
+        assert_eq!(flush(&mut state), expected);
+    }
+
+    #[test]
+    fn a_create_waits_for_the_rename_that_vacated_its_path() {
+        let mut state = file_state();
+        let start = now();
+        state.add_event(created("/watch/test.blend@"));
+        MockTime::advance(Duration::from_millis(40));
+        state.add_event(removed("/watch/test.blend1"));
+        add_rename(&mut state, "/watch/test.blend", "/watch/test.blend1", 1);
+        add_rename(&mut state, "/watch/test.blend@", "/watch/test.blend", 2);
+
+        // The create expires 40 ms before the rename that makes room for its path.
+        for delay in [10, 39] {
+            MockTime::advance(Duration::from_millis(delay));
+            assert_eq!(state.debounced_events(), []);
+        }
+        MockTime::advance(Duration::from_millis(1));
+        let renamed_at = start + Duration::from_millis(40);
+        assert_eq!(
+            state.debounced_events(),
+            [
+                DebouncedEvent::new(removed_any("/watch/test.blend1"), renamed_at),
+                DebouncedEvent::new(
+                    renamed("/watch/test.blend", "/watch/test.blend1", 1),
+                    renamed_at
+                ),
+                DebouncedEvent::new(created("/watch/test.blend"), start),
+            ]
+        );
+        assert!(state.queues.is_empty());
+    }
+
+    #[rstest]
+    fn removing_a_renamed_file_reports_the_removal_of_its_source(
+        #[values(("a", "b"), ("b", "a"))] names: (&str, &str),
+    ) {
+        let source = format!("/watch/{}", names.0);
+        let destination = format!("/watch/{}", names.1);
+        let mut state = file_state();
+        let start = now();
+
+        add_rename(&mut state, &source, &destination, 1);
+        MockTime::advance(Duration::from_millis(1));
+        state.add_event(removed(&destination));
+
+        MockTime::advance(TIMEOUT);
+        assert_eq!(
+            state.debounced_events(),
+            [
+                DebouncedEvent::new(removed_any(&source), start),
+                DebouncedEvent::new(removed(&destination), start + Duration::from_millis(1)),
+            ]
+        );
+        assert!(state.queues.is_empty());
+    }
+
+    /// Synthesized removals belong to the watch covering the removed path.
+    #[rstest]
+    // The file moves between two watches, and then to a third one.
+    #[case::moved_to_another_watch(&[("/watch/a", 1), ("/watch/b", 2)])]
+    #[case::moved_twice(&[("/watch/a", 1), ("/watch/b", 2), ("/watch/c", 3)])]
+    #[case::moved_within_a_watch(&[("/watch/a", 7), ("/watch/b", 7)])]
+    fn the_removal_of_a_rename_source_has_the_user_data_of_its_watch(
+        #[case] moves: &[(&str, u64)],
+    ) {
+        let mut state = file_state();
+        let renamed = |mode, (path, user_data): (&str, u64), tracker| {
+            file_event(EventKind::Modify(ModifyKind::Name(mode)), path)
+                .set_tracker(tracker)
+                .set_user_data(user_data)
+        };
+        for (tracker, pair) in moves.windows(2).enumerate() {
+            state.add_event(renamed(RenameMode::From, pair[0], tracker));
+            state.add_event(renamed(RenameMode::To, pair[1], tracker));
+        }
+        let (source, source_data) = moves[0];
+        let (destination, destination_data) = moves[moves.len() - 1];
+        MockTime::advance(Duration::from_millis(1));
+        state.add_event(removed(destination).set_user_data(destination_data));
+
+        assert_eq!(
+            flush(&mut state),
+            [
+                removed_any(source).set_user_data(source_data),
+                removed(destination).set_user_data(destination_data),
+            ]
+        );
+    }
+
+    /// Builds `c -> b -> a -> z`, with the last rename 40 ms newer than the others.
+    fn add_waiting_renames(state: &mut DebounceDataInner<NoCache>) {
+        let moved = |mode, path: &str, tracker, user_data| {
+            file_event(EventKind::Modify(ModifyKind::Name(mode)), path)
+                .set_tracker(tracker)
+                .set_user_data(user_data)
+        };
+        state.add_event(moved(RenameMode::From, "/watch/c", 1, 3));
+        state.add_event(moved(RenameMode::To, "/watch/c@", 1, 3));
+        state.add_event(moved(RenameMode::From, "/watch/b", 2, 2));
+        state.add_event(moved(RenameMode::To, "/watch/b@", 2, 2));
+        MockTime::advance(Duration::from_millis(40));
+        add_rename(state, "/watch/a", "/watch/z", 3);
+        state.add_event(moved(RenameMode::From, "/watch/b@", 4, 2));
+        state.add_event(moved(RenameMode::To, "/watch/a", 4, 1));
+        state.add_event(moved(RenameMode::From, "/watch/c@", 5, 3));
+        state.add_event(moved(RenameMode::To, "/watch/b", 5, 2));
+    }
+
+    #[test]
+    fn the_user_data_of_a_rename_source_outlasts_a_wait() {
+        let mut state = file_state();
+        add_waiting_renames(&mut state);
+
+        // The older renames must wait for `a -> z`.
+        MockTime::advance(Duration::from_millis(20));
+        assert_eq!(state.debounced_events(), []);
+        testing::assert_vacated_paths(&state, &"after the wait");
+        state.add_event(removed("/watch/b").set_user_data(2));
+
+        let events = flush(&mut state);
+        assert!(
+            events.contains(&removed_any("/watch/c").set_user_data(3)),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn the_removal_of_a_replaced_file_has_the_user_data_of_its_watch() {
+        let mut state = file_state();
+        let renamed = |mode, path: &str, tracker, user_data| {
+            file_event(EventKind::Modify(ModifyKind::Name(mode)), path)
+                .set_tracker(tracker)
+                .set_user_data(user_data)
+        };
+        // `a` replaces `b`, which belongs to another watch and was modified before.
+        let content = EventKind::Modify(ModifyKind::Data(DataChange::Content));
+        state.add_event(file_event(content, "/watch/b").set_user_data(2));
+        state.add_event(renamed(RenameMode::From, "/watch/a", 1, 1));
+        state.add_event(renamed(RenameMode::To, "/watch/b", 1, 2));
+        assert_eq!(
+            state.queues[Path::new("/watch/b")].events[0].event,
+            removed_any("/watch/b")
+                .set_user_data(2)
+                .set_info("override")
+        );
+
+        // `c` replaces `b` again, before the rename of `a` is delivered.
+        state.add_event(renamed(RenameMode::From, "/watch/c", 2, 3));
+        state.add_event(renamed(RenameMode::To, "/watch/b", 2, 2));
+        assert_eq!(
+            flush(&mut state),
+            [
+                removed_any("/watch/a").set_user_data(1),
+                removed_any("/watch/b").set_user_data(2),
+                renamed(RenameMode::Both, "/watch/c", 2, 2).add_path(PathBuf::from("/watch/b")),
+            ]
+        );
+    }
+
+    #[test]
+    fn removing_a_renamed_file_keeps_the_events_that_follow_for_its_source() {
+        let mut state = file_state();
+        let start = now();
+        add_rename(&mut state, "/watch/a", "/watch/b", 1);
+        MockTime::advance(Duration::from_millis(1));
+        state.add_event(created("/watch/a"));
+        MockTime::advance(Duration::from_millis(1));
+        state.add_event(removed("/watch/b"));
+
+        assert_eq!(
+            state.queues[Path::new("/watch/a")].events,
+            [
+                DebouncedEvent::new(removed_any("/watch/a"), start),
+                DebouncedEvent::new(created("/watch/a"), start + Duration::from_millis(1)),
+            ]
+        );
+        assert_eq!(
+            flush(&mut state),
+            [
+                removed_any("/watch/a"),
+                created("/watch/a"),
+                removed("/watch/b")
+            ]
+        );
+    }
+
+    #[test]
+    fn removing_a_renamed_file_does_not_repeat_the_removal_of_its_source() {
+        let mut state = file_state();
+        add_rename(&mut state, "/watch/a", "/watch/b", 1);
+        state.add_event(created("/watch/a"));
+        state.add_event(removed("/watch/a"));
+        state.add_event(removed("/watch/b"));
+
+        assert_eq!(
+            flush(&mut state),
+            [removed("/watch/a"), removed("/watch/b")]
+        );
+    }
+
+    #[test]
+    fn removing_a_file_that_was_renamed_twice_reports_the_removal_of_its_first_source() {
+        let mut state = file_state();
+        add_rename(&mut state, "/watch/a", "/watch/b", 1);
+        add_rename(&mut state, "/watch/b", "/watch/c", 2);
+        MockTime::advance(Duration::from_millis(1));
+        state.add_event(removed("/watch/c"));
+
+        assert_eq!(
+            flush(&mut state),
+            [removed_any("/watch/a"), removed("/watch/c")]
+        );
+    }
+
+    #[test]
+    fn removing_a_file_reports_only_the_paths_of_its_undelivered_renames() {
+        let mut state = file_state();
+        add_rename(&mut state, "/watch/a", "/watch/b", 1);
+        assert_eq!(flush(&mut state), [renamed("/watch/a", "/watch/b", 1)]);
+
+        // The rename to `b` was delivered, so `a` is known to be gone.
+        state.add_event(removed("/watch/b"));
+        assert_eq!(flush(&mut state), [removed("/watch/b")]);
+
+        add_rename(&mut state, "/watch/c", "/watch/d", 2);
+        assert_eq!(flush(&mut state), [renamed("/watch/c", "/watch/d", 2)]);
+        add_rename(&mut state, "/watch/d", "/watch/e", 3);
+        MockTime::advance(Duration::from_millis(1));
+        state.add_event(removed("/watch/e"));
+        assert_eq!(
+            flush(&mut state),
+            [removed_any("/watch/d"), removed("/watch/e")]
+        );
+    }
+
+    #[test]
+    fn removing_a_directory_reports_the_removal_of_the_sources_of_files_moved_into_it() {
+        let mut state = file_state();
+        add_rename(&mut state, "/watch/out/a", "/watch/dir/sub/b", 1);
+        add_rename(&mut state, "/watch/dir/x", "/watch/dir/y", 2);
+        add_rename(&mut state, "/watch/dir/z", "/watch/out/z", 3);
+        MockTime::advance(Duration::from_millis(1));
+        let removal = file_event(EventKind::Remove(RemoveKind::Folder), "/watch/dir");
+        state.add_event(removal.clone());
+
+        // The removal of the directory covers `/watch/dir/x`.
+        assert_eq!(
+            flush(&mut state),
+            [
+                removed_any("/watch/out/a"),
+                renamed("/watch/dir/z", "/watch/out/z", 3),
+                removal
+            ]
+        );
+    }
+
+    #[test]
+    fn replacing_a_renamed_file_reports_the_removal_of_its_source() {
+        let mut state = file_state();
+        add_rename(&mut state, "/watch/a", "/watch/b", 1);
+        MockTime::advance(Duration::from_millis(1));
+        add_rename(&mut state, "/watch/c", "/watch/b", 2);
+
+        assert_eq!(
+            flush(&mut state),
+            [
+                removed_any("/watch/a"),
+                removed_any("/watch/b").set_info("override"),
+                renamed("/watch/c", "/watch/b", 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn creating_a_renamed_file_again_reports_the_removal_of_its_source() {
+        let mut state = file_state();
+        add_rename(&mut state, "/watch/a", "/watch/b", 1);
+        // The file at `b` is replaced without a removal, and moves on.
+        state.add_event(created("/watch/b"));
+        add_rename(&mut state, "/watch/b", "/watch/c", 2);
+
+        assert_eq!(
+            flush(&mut state),
+            [removed_any("/watch/a"), created("/watch/c")]
+        );
+    }
+
+    #[rstest]
+    fn a_file_created_at_the_source_of_a_rename_follows_the_rename(
+        #[values(("a", "b"), ("b", "a"))] names: (&str, &str),
+        #[values(0, 1)] step: u64,
+    ) {
+        let source = format!("/watch/{}", names.0);
+        let destination = format!("/watch/{}", names.1);
+        let mut state = file_state();
+        add_rename(&mut state, &source, &destination, 1);
+        MockTime::advance(Duration::from_millis(step));
+        state.add_event(created(&source));
+
+        assert_eq!(
+            flush(&mut state),
+            [renamed(&source, &destination, 1), created(&source)]
+        );
+    }
+
+    #[test]
+    fn a_file_created_at_the_first_source_of_two_renames_follows_them() {
+        let mut state = file_state();
+        add_rename(&mut state, "/watch/a", "/watch/b", 1);
+        add_rename(&mut state, "/watch/b", "/watch/c", 2);
+        assert_eq!(
+            state.vacated.keys().map(AsRef::as_ref).collect::<Vec<_>>(),
+            [Path::new("/watch/a")]
+        );
+        state.add_event(created("/watch/a"));
+        state.add_event(created("/watch/b"));
+
+        assert_eq!(
+            flush(&mut state),
+            [
+                created("/watch/b"),
+                renamed("/watch/a", "/watch/c", 2),
+                created("/watch/a"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_removal_at_the_source_of_a_rename_follows_the_rename() {
+        let mut state = file_state();
+        add_rename(&mut state, "/watch/a", "/watch/b", 1);
+        state.add_event(created("/watch/a"));
+        state.add_event(removed("/watch/a"));
+
+        assert_eq!(
+            flush(&mut state),
+            [renamed("/watch/a", "/watch/b", 1), removed("/watch/a")]
+        );
+    }
+
+    #[test]
+    fn events_wait_until_their_rename_expires() {
+        let mut state = file_state();
+        let start = now();
+        let after = |millis| start + Duration::from_millis(millis);
+        // The file that is created at 10 ms moves to `b` at 20 ms, after `b` moved to `c`.
+        MockTime::set_time(after(10));
+        state.add_event(created("/watch/a"));
+        MockTime::set_time(after(20));
+        add_rename(&mut state, "/watch/b", "/watch/c", 1);
+        add_rename(&mut state, "/watch/a", "/watch/b", 2);
+        MockTime::set_time(after(30));
+        state.add_event(created("/watch/c.new"));
+
+        let mut delivered = Vec::new();
+        for millis in [59, 60, 69, 70, 79, 80] {
+            MockTime::set_time(after(millis));
+            delivered.push((millis, state.debounced_events()));
+        }
+        assert_eq!(
+            delivered,
+            [
+                (59, vec![]),
+                // The create at `b` is 60 ms old, but its path is vacated at 70 ms.
+                (60, vec![]),
+                (69, vec![]),
+                (
+                    70,
+                    vec![
+                        DebouncedEvent::new(renamed("/watch/b", "/watch/c", 1), after(20)),
+                        DebouncedEvent::new(created("/watch/b"), after(10)),
+                    ]
+                ),
+                (79, vec![]),
+                (
+                    80,
+                    vec![DebouncedEvent::new(created("/watch/c.new"), after(30))]
+                ),
+            ]
+        );
+        assert!(state.queues.is_empty());
+        assert!(state.vacated.is_empty());
+    }
+
+    #[test]
+    fn events_wait_for_a_rename_that_waits_itself() {
+        let mut state = file_state();
+        let start = now();
+        let after = |millis| start + Duration::from_millis(millis);
+        // `o` moves to `p` and on to `h`, which moved to `z` just before.
+        add_rename(&mut state, "/watch/o", "/watch/p", 1);
+        MockTime::set_time(after(1));
+        state.add_event(created("/watch/o"));
+        MockTime::set_time(after(20));
+        add_rename(&mut state, "/watch/h", "/watch/z", 2);
+        add_rename(&mut state, "/watch/p", "/watch/h", 3);
+
+        // The rename to `h` and the create at `o` are expired, but follow the rename to `z`.
+        for millis in [51, 69] {
+            MockTime::set_time(after(millis));
+            assert_eq!(state.debounced_events(), []);
+            testing::assert_vacated_paths(&state, &millis);
+            assert_eq!(
+                state.queues.keys().collect::<Vec<_>>(),
+                ["/watch/h", "/watch/o", "/watch/z"].map(Path::new)
+            );
+        }
+        MockTime::set_time(after(70));
+        assert_eq!(
+            state.debounced_events(),
+            [
+                DebouncedEvent::new(renamed("/watch/h", "/watch/z", 2), after(20)),
+                DebouncedEvent::new(renamed("/watch/o", "/watch/h", 3), start),
+                DebouncedEvent::new(created("/watch/o"), after(1)),
+            ]
+        );
+        assert!(state.queues.is_empty());
+        assert!(state.vacated.is_empty());
+    }
+
+    #[test]
+    fn waiting_events_return_to_the_front_of_their_queue() {
+        use notify::event::{AccessKind, AccessMode};
+
+        let mut state = file_state();
+        let start = now();
+        let after = |millis| start + Duration::from_millis(millis);
+        let access = |mode| file_event(EventKind::Access(mode), "/watch/c");
+        let closed = access(AccessKind::Close(AccessMode::Write));
+        let opened = access(AccessKind::Open(AccessMode::Any));
+        add_waiting_renames(&mut state);
+        // A new file at `c` follows the rename from `c`.
+        MockTime::set_time(after(1));
+        state.add_event(created("/watch/c"));
+        MockTime::set_time(after(5));
+        state.add_event(closed.clone());
+        MockTime::set_time(after(55));
+        state.add_event(opened.clone());
+
+        // The rename from `c` is expired, but it waits for the renames from `b` and from `a`.
+        // The expired events for `c` and for `b` return to their queues.
+        MockTime::set_time(after(60));
+        assert_eq!(state.debounced_events(), []);
+        testing::assert_vacated_paths(&state, &"after the wait");
+        assert_eq!(
+            state.queues[Path::new("/watch/c")].events,
+            [
+                DebouncedEvent::new(created("/watch/c"), after(1)),
+                DebouncedEvent::new(closed.clone(), after(5)),
+                DebouncedEvent::new(opened.clone(), after(55)),
+            ]
+        );
+        assert_eq!(
+            state.queues.keys().collect::<Vec<_>>(),
+            ["/watch/a", "/watch/b", "/watch/c", "/watch/z"].map(Path::new)
+        );
+
+        MockTime::set_time(after(90));
+        let events: Vec<_> = state
+            .debounced_events()
+            .into_iter()
+            .map(|event| (event.event.kind, event.event.paths, event.time))
+            .collect();
+        let path = |path: &str| PathBuf::from(path);
+        assert_eq!(
+            events,
+            [
+                (RENAME, vec![path("/watch/a"), path("/watch/z")], after(40)),
+                (RENAME, vec![path("/watch/b"), path("/watch/a")], start),
+                (RENAME, vec![path("/watch/c"), path("/watch/b")], start),
+                (created("/watch/c").kind, vec![path("/watch/c")], after(1)),
+                (closed.kind, vec![path("/watch/c")], after(5)),
+            ]
+        );
+        MockTime::set_time(after(105));
+        assert_eq!(
+            state.debounced_events(),
+            [DebouncedEvent::new(opened, after(55))]
+        );
+        assert!(state.queues.is_empty());
+        assert!(state.vacated.is_empty());
+    }
+
+    /// Duplicate kinds expose unnecessary draining: `take_expired` would deduplicate them.
+    #[test]
+    fn events_that_wait_for_an_unexpired_rename_stay_in_their_queue() {
+        use notify::event::{AccessKind, AccessMode};
+
+        let mut state = file_state();
+        let start = now();
+        let after = |millis| start + Duration::from_millis(millis);
+        let closed = |path| {
+            file_event(
+                EventKind::Access(AccessKind::Close(AccessMode::Write)),
+                path,
+            )
+        };
+        // The file that is written as `a@` replaces `a`, which moves to `b`.
+        state.add_event(created("/watch/a@"));
+        for millis in [5, 10] {
+            MockTime::set_time(after(millis));
+            state.add_event(closed("/watch/a@"));
+        }
+        MockTime::set_time(after(40));
+        add_rename(&mut state, "/watch/a", "/watch/b", 1);
+        add_rename(&mut state, "/watch/a@", "/watch/a", 2);
+        let queues = state.queues.clone();
+
+        for millis in [60, 75, 89] {
+            MockTime::set_time(after(millis));
+            assert_eq!(state.debounced_events(), []);
+            assert_eq!(state.queues, queues);
+            testing::assert_vacated_paths(&state, &millis);
+        }
+        MockTime::set_time(after(90));
+        assert_eq!(
+            state.debounced_events(),
+            [
+                DebouncedEvent::new(renamed("/watch/a", "/watch/b", 1), after(40)),
+                DebouncedEvent::new(created("/watch/a"), start),
+                DebouncedEvent::new(closed("/watch/a"), after(10)),
+            ]
+        );
+        assert!(state.queues.is_empty());
+        assert!(state.vacated.is_empty());
+    }
+
+    #[test]
+    fn events_that_returned_to_their_queue_stay_there() {
+        use notify::event::{AccessKind, AccessMode};
+
+        let mut state = file_state();
+        let start = now();
+        let after = |millis| start + Duration::from_millis(millis);
+        let opened = EventKind::Access(AccessKind::Open(AccessMode::Any));
+        let closed = EventKind::Access(AccessKind::Close(AccessMode::Write));
+        add_waiting_renames(&mut state);
+        MockTime::set_time(after(1));
+        state.add_event(created("/watch/c"));
+        for (millis, kind) in [(2, opened), (3, closed)] {
+            MockTime::set_time(after(millis));
+            state.add_event(file_event(kind, "/watch/b"));
+            state.add_event(file_event(kind, "/watch/c"));
+        }
+
+        // The renames from `c` and from `b` are expired, but wait for the rename from `a`.
+        MockTime::set_time(after(60));
+        assert_eq!(state.debounced_events(), []);
+        MockTime::set_time(after(61));
+        state.add_event(file_event(closed, "/watch/b"));
+        state.add_event(file_event(closed, "/watch/c"));
+        let queues = state.queues.clone();
+        for millis in [62, 75, 89] {
+            MockTime::set_time(after(millis));
+            assert_eq!(state.debounced_events(), []);
+            assert_eq!(state.queues, queues);
+            testing::assert_vacated_paths(&state, &millis);
+        }
+
+        let mut delivered = |millis| {
+            MockTime::set_time(after(millis));
+            let events = state.debounced_events().into_iter();
+            let event =
+                |event: DebouncedEvent| (event.kind, event.paths.last().cloned(), event.time);
+            events.map(event).collect::<Vec<_>>()
+        };
+        let path = |path: &str| Some(PathBuf::from(path));
+        assert_eq!(
+            delivered(90),
+            [
+                (RENAME, path("/watch/z"), after(40)),
+                (RENAME, path("/watch/a"), start),
+                (RENAME, path("/watch/b"), start),
+                (created("/watch/c").kind, path("/watch/c"), after(1)),
+                (opened, path("/watch/b"), after(2)),
+                (opened, path("/watch/c"), after(2)),
+            ]
+        );
+        assert_eq!(
+            delivered(111),
+            [
+                (closed, path("/watch/b"), after(61)),
+                (closed, path("/watch/c"), after(61)),
+            ]
+        );
+        assert!(state.queues.is_empty());
+        assert!(state.vacated.is_empty());
+    }
+
+    #[test]
+    fn events_that_returned_to_their_queue_are_delivered_with_their_rename() {
+        let mut state = file_state();
+        let start = now();
+        let after = |millis| start + Duration::from_millis(millis);
+        // A new file at `x` follows the rename of `x`, which continues to `a` at 40 ms.
+        add_rename(&mut state, "/watch/x", "/watch/tmp", 1);
+        state.add_event(created("/watch/x"));
+        state.add_event(created("/watch/c.tmp"));
+        MockTime::set_time(after(40));
+        add_rename(&mut state, "/watch/a", "/watch/b", 2);
+        add_rename(&mut state, "/watch/tmp", "/watch/a", 3);
+        state.add_event(removed("/watch/b"));
+        // The rename of `c` at 50 ms is unrelated to `x`.
+        MockTime::set_time(after(50));
+        add_rename(&mut state, "/watch/c", "/watch/d", 4);
+        add_rename(&mut state, "/watch/c.tmp", "/watch/c", 5);
+
+        // The rename to `a` is expired, but follows the removal of `a` at 40 ms.
+        MockTime::set_time(after(60));
+        assert_eq!(state.debounced_events(), []);
+        testing::assert_vacated_paths(&state, &60);
+        MockTime::set_time(after(90));
+        assert_eq!(
+            state.debounced_events(),
+            [
+                DebouncedEvent::new(removed_any("/watch/a"), after(40)),
+                DebouncedEvent::new(renamed("/watch/x", "/watch/a", 3), start),
+                DebouncedEvent::new(created("/watch/x"), start),
+                DebouncedEvent::new(removed("/watch/b"), after(40)),
+            ]
+        );
+        testing::assert_vacated_paths(&state, &90);
+        MockTime::set_time(after(91));
+        assert_eq!(state.debounced_events(), []);
+        MockTime::set_time(after(100));
+        assert_eq!(
+            state.debounced_events(),
+            [
+                DebouncedEvent::new(renamed("/watch/c", "/watch/d", 4), after(50)),
+                DebouncedEvent::new(created("/watch/c"), start),
+            ]
+        );
+        assert!(state.queues.is_empty());
+        assert!(state.vacated.is_empty());
+    }
+
+    #[test]
+    fn unexpired_events_stay_when_the_rename_that_they_follow_is_delivered() {
+        let mut state = file_state();
+        let start = now();
+        let after = |millis| start + Duration::from_millis(millis);
+        // A new file at `x` follows the rename of `x`, which continues to `a` at 40 ms.
+        add_rename(&mut state, "/watch/x", "/watch/tmp", 1);
+        state.add_event(created("/watch/x"));
+        MockTime::set_time(after(40));
+        add_rename(&mut state, "/watch/a", "/watch/b", 2);
+        add_rename(&mut state, "/watch/tmp", "/watch/a", 3);
+        state.add_event(removed("/watch/b"));
+
+        // The create at `x` returns to its queue, and is replaced by a removal.
+        MockTime::set_time(after(60));
+        assert_eq!(state.debounced_events(), []);
+        MockTime::set_time(after(70));
+        state.add_event(removed("/watch/x"));
+
+        MockTime::set_time(after(90));
+        assert_eq!(
+            state.debounced_events(),
+            [
+                DebouncedEvent::new(removed_any("/watch/a"), after(40)),
+                DebouncedEvent::new(renamed("/watch/x", "/watch/a", 3), start),
+                DebouncedEvent::new(removed("/watch/b"), after(40)),
+            ]
+        );
+        testing::assert_vacated_paths(&state, &90);
+        MockTime::set_time(after(120));
+        assert_eq!(
+            state.debounced_events(),
+            [DebouncedEvent::new(removed("/watch/x"), after(70))]
+        );
+        assert!(state.queues.is_empty());
+        assert!(state.vacated.is_empty());
+    }
+
+    /// Continuing a deferred rename can turn its dependency chain into a cycle.
+    #[test]
+    fn renames_that_come_to_wait_for_each_other_are_delivered() {
+        let mut state = file_state();
+        let start = now();
+        let after = |millis| start + Duration::from_millis(millis);
+        add_rename(&mut state, "/watch/a", "/watch/a.tmp", 1);
+        add_rename(&mut state, "/watch/b", "/watch/b.tmp", 2);
+        MockTime::set_time(after(40));
+        add_rename(&mut state, "/watch/c", "/watch/z", 3);
+        add_rename(&mut state, "/watch/a.tmp", "/watch/c", 4);
+        add_rename(&mut state, "/watch/b.tmp", "/watch/a", 5);
+
+        // `b -> a` waits for `a -> c`, which waits for `c -> z`.
+        MockTime::set_time(after(60));
+        assert_eq!(state.debounced_events(), []);
+        // The rename from `a` continues to `b`, and now follows the rename from `b`.
+        MockTime::set_time(after(61));
+        add_rename(&mut state, "/watch/c", "/watch/b", 6);
+        testing::assert_vacated_paths(&state, &61);
+
+        MockTime::set_time(after(90));
+        assert_eq!(
+            state.debounced_events(),
+            [
+                DebouncedEvent::new(renamed("/watch/c", "/watch/z", 3), after(40)),
+                DebouncedEvent::new(renamed("/watch/b", "/watch/a", 5), start),
+                DebouncedEvent::new(renamed("/watch/a", "/watch/b", 6), start),
+            ]
+        );
+        assert!(state.queues.is_empty());
+        assert!(state.vacated.is_empty());
+    }
+
+    #[test]
+    fn a_vacated_path_is_small() {
+        // See `Vacated`.
+        assert_eq!(size_of::<Vacated>(), 24);
+    }
+
+    #[rstest]
+    fn rotated_files_are_renamed_from_the_last_to_the_first(#[values(0, 1)] step: u64) {
+        let mut state = file_state();
+        for (tracker, index) in (0..3).rev().enumerate() {
+            add_rename(
+                &mut state,
+                &format!("/watch/log.{index}"),
+                &format!("/watch/log.{}", index + 1),
+                tracker,
+            );
+            MockTime::advance(Duration::from_millis(step));
+        }
+        state.add_event(created("/watch/log.0"));
+
+        assert_eq!(
+            flush(&mut state),
+            [
+                renamed("/watch/log.2", "/watch/log.3", 0),
+                renamed("/watch/log.1", "/watch/log.2", 1),
+                renamed("/watch/log.0", "/watch/log.1", 2),
+                created("/watch/log.0"),
+            ]
+        );
+    }
+
+    /// A swap creates a cycle between the two pending renames.
+    #[test]
+    fn renames_that_wait_for_each_other_are_delivered() {
+        let mut state = file_state();
+        add_rename(&mut state, "/watch/a", "/watch/tmp", 1);
+        MockTime::advance(Duration::from_millis(1));
+        add_rename(&mut state, "/watch/b", "/watch/a", 2);
+        add_rename(&mut state, "/watch/tmp", "/watch/b", 3);
+        state.add_event(created("/watch/tmp"));
+
+        // The rename to `b` waits for the rename to `a`, which expires 1 ms later.
+        MockTime::advance(TIMEOUT - Duration::from_millis(1));
+        assert_eq!(state.debounced_events(), []);
+        MockTime::advance(Duration::from_millis(1));
+        let events: Vec<_> = state
+            .debounced_events()
+            .into_iter()
+            .map(|event| event.event)
+            .collect();
+        assert_eq!(
+            events,
+            [
+                created("/watch/tmp"),
+                renamed("/watch/a", "/watch/b", 3),
+                renamed("/watch/b", "/watch/a", 2),
+            ]
+        );
+        assert!(state.queues.is_empty());
+        assert!(state.vacated.is_empty());
+    }
+
+    #[test]
+    fn a_file_that_is_renamed_back_is_delivered() {
+        let mut state = file_state();
+        add_rename(&mut state, "/watch/a", "/watch/b", 1);
+        add_rename(&mut state, "/watch/b", "/watch/a", 2);
+
+        assert_eq!(flush(&mut state), [renamed("/watch/a", "/watch/a", 2)]);
+    }
+
+    #[test]
+    fn a_file_saved_twice_through_a_backup_replaces_the_file_and_the_backup() {
+        let mut state = file_state();
+        for save in 0..2 {
+            state.add_event(created("/watch/test.blend@"));
+            state.add_event(removed("/watch/test.blend1"));
+            add_rename(
+                &mut state,
+                "/watch/test.blend",
+                "/watch/test.blend1",
+                save * 2,
+            );
+            add_rename(
+                &mut state,
+                "/watch/test.blend@",
+                "/watch/test.blend",
+                save * 2 + 1,
+            );
+        }
+
+        assert_eq!(
+            flush(&mut state),
+            [
+                removed_any("/watch/test.blend"),
+                created("/watch/test.blend"),
+                removed_any("/watch/test.blend1"),
+                created("/watch/test.blend1"),
+            ]
+        );
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum Op {
+        Create(&'static str),
+        Remove(&'static str),
+        Rename(&'static str, &'static str),
+    }
+
+    /// Applies emitted events to the consumer's file set.
+    fn apply(files: &mut std::collections::BTreeSet<PathBuf>, event: &Event) {
+        match event.kind {
+            EventKind::Create(_) => {
+                files.insert(event.paths[0].clone());
+            }
+            EventKind::Remove(_) => files.retain(|file| !file.starts_with(&event.paths[0])),
+            RENAME => {
+                assert!(files.remove(&event.paths[0]), "unknown source: {event:?}");
+                files.insert(event.paths[1].clone());
+            }
+            _ => {}
+        }
+    }
+
+    /// Replaying all emitted events must reconstruct the final file set.
+    #[rstest]
+    #[case::backup_save(
+        &["test.blend", "test.blend1"],
+        &[
+            Op::Create("test.blend@"),
+            Op::Remove("test.blend1"),
+            Op::Rename("test.blend", "test.blend1"),
+            Op::Rename("test.blend@", "test.blend"),
+        ],
+    )]
+    #[case::first_backup_save(
+        &["b.blend"],
+        &[
+            Op::Create("b.blend@"),
+            Op::Rename("b.blend", "a.blend"),
+            Op::Rename("b.blend@", "b.blend"),
+        ],
+    )]
+    #[case::two_backup_saves(
+        &["test.blend", "test.blend1"],
+        &[
+            Op::Create("test.blend@"),
+            Op::Remove("test.blend1"),
+            Op::Rename("test.blend", "test.blend1"),
+            Op::Rename("test.blend@", "test.blend"),
+            Op::Create("test.blend@"),
+            Op::Remove("test.blend1"),
+            Op::Rename("test.blend", "test.blend1"),
+            Op::Rename("test.blend@", "test.blend"),
+        ],
+    )]
+    #[case::atomic_save(&["file"], &[Op::Create("file.tmp"), Op::Rename("file.tmp", "file")])]
+    #[case::rename_and_remove(&["a"], &[Op::Rename("a", "b"), Op::Remove("b")])]
+    #[case::rename_and_remove_reversed(&["b"], &[Op::Rename("b", "a"), Op::Remove("a")])]
+    #[case::renames_and_remove(
+        &["a"],
+        &[Op::Rename("a", "b"), Op::Rename("b", "c"), Op::Remove("c")],
+    )]
+    #[case::recreated_source(&["a"], &[Op::Rename("a", "b"), Op::Create("a")])]
+    #[case::recreated_source_reversed(&["b"], &[Op::Rename("b", "a"), Op::Create("b")])]
+    #[case::recreated_source_and_remove(
+        &["a"],
+        &[Op::Rename("a", "b"), Op::Create("a"), Op::Remove("b")],
+    )]
+    #[case::recreated_and_removed_source(
+        &["a"],
+        &[Op::Rename("a", "b"), Op::Create("a"), Op::Remove("a")],
+    )]
+    #[case::recreated_and_removed_source_and_remove(
+        &["a"],
+        &[Op::Rename("a", "b"), Op::Create("a"), Op::Remove("a"), Op::Remove("b")],
+    )]
+    #[case::recreated_and_renamed_source(
+        &["a"],
+        &[Op::Rename("a", "b"), Op::Create("a"), Op::Rename("a", "c")],
+    )]
+    #[case::replaced_destination(&["a", "c"], &[Op::Rename("a", "b"), Op::Rename("c", "b")])]
+    #[case::reused_source_and_remove(
+        &["a", "c"],
+        &[Op::Rename("a", "b"), Op::Rename("c", "a"), Op::Remove("b")],
+    )]
+    #[case::rotation(
+        &["log", "log.1", "log.2"],
+        &[
+            Op::Rename("log.2", "log.3"),
+            Op::Rename("log.1", "log.2"),
+            Op::Rename("log", "log.1"),
+            Op::Create("log"),
+        ],
+    )]
+    #[case::renamed_back(&["a"], &[Op::Rename("a", "b"), Op::Rename("b", "a")])]
+    #[case::removed_directory(
+        &["out/a", "dir/x"],
+        &[Op::Rename("out/a", "dir/b"), Op::Rename("dir/x", "dir/y"), Op::Remove("dir")],
+    )]
+    fn delivered_events_lead_to_the_existing_files(#[case] files: &[&str], #[case] ops: &[Op]) {
+        let path = |name: &str| PathBuf::from(format!("/watch/{name}"));
+        // Pause evenly, or once for about the timeout, so that only the earlier events expire.
+        let mut schedules: Vec<Vec<u64>> = [0, 25, 49, 50]
+            .into_iter()
+            .map(|pause| vec![pause; ops.len()])
+            .collect();
+        for index in 0..ops.len() {
+            for pause in [49, 50] {
+                let mut pauses = vec![0; ops.len()];
+                pauses[index] = pause;
+                schedules.push(pauses);
+            }
+        }
+
+        for pauses in schedules {
+            let mut state = file_state();
+            let mut existing: std::collections::BTreeSet<_> =
+                files.iter().map(|name| path(name)).collect();
+            let mut known = existing.clone();
+            for (index, (op, pause)) in ops.iter().zip(&pauses).enumerate() {
+                match *op {
+                    Op::Create(name) => {
+                        state.add_event(created(&format!("/watch/{name}")));
+                        existing.insert(path(name));
+                    }
+                    Op::Remove(name) => {
+                        state.add_event(removed(&format!("/watch/{name}")));
+                        existing.retain(|file| !file.starts_with(path(name)));
+                    }
+                    Op::Rename(from, to) => {
+                        add_rename(
+                            &mut state,
+                            &format!("/watch/{from}"),
+                            &format!("/watch/{to}"),
+                            index,
+                        );
+                        assert!(existing.remove(&path(from)));
+                        existing.insert(path(to));
+                    }
+                }
+                MockTime::advance(Duration::from_millis(*pause));
+                for event in state.debounced_events() {
+                    apply(&mut known, &event);
+                }
+            }
+            for event in flush(&mut state) {
+                apply(&mut known, &event);
+            }
+            assert_eq!(known, existing, "pauses: {pauses:?}");
+        }
+    }
+
+    #[test]
+    fn random_operations_leave_no_events_or_vacated_paths_behind() {
+        let names = ["a", "b", "c", "d"];
+        // A linear congruential generator keeps the operations reproducible.
+        let mut seed = 1_u64;
+        let mut next = move |bound: u64| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 33) % bound
+        };
+        for _ in 0..5000 {
+            let mut state = file_state();
+            let mut exists: Vec<bool> = names.iter().map(|_| next(2) == 0).collect();
+            let mut steps = vec![format!("{exists:?}")];
+            for tracker in 0..2 + next(9) as usize {
+                let (first, second) = (next(4) as usize, next(4) as usize);
+                let path = format!("/watch/{}", names[first]);
+                let operation = next(4);
+                match operation {
+                    0 if !exists[first] => state.add_event(created(&path)),
+                    1 if exists[first] => state.add_event(removed(&path)),
+                    2 if exists[first] && first != second => {
+                        add_rename(
+                            &mut state,
+                            &path,
+                            &format!("/watch/{}", names[second]),
+                            tracker,
+                        );
+                        exists[second] = true;
+                    }
+                    3 if exists[first] => {
+                        let kind = EventKind::Modify(ModifyKind::Data(DataChange::Content));
+                        state.add_event(file_event(kind, &path));
+                    }
+                    _ => continue,
+                }
+                exists[first] = operation == 0 || operation == 3;
+                let pause = [0, 0, 0, 10, 25, 50][next(6) as usize];
+                MockTime::advance(Duration::from_millis(pause));
+                let tick = next(2) == 0;
+                if tick {
+                    state.debounced_events();
+                }
+                steps.push(format!("{operation} {first} {second} +{pause} {tick}"));
+                testing::assert_vacated_paths(&state, &steps);
+            }
+            flush(&mut state);
+        }
+    }
+
     #[test]
     fn sort_events_ties_by_path() {
-        let time = now();
-        let events = vec![
-            DebouncedEvent::new(
-                Event::new(EventKind::Any).add_path(PathBuf::from("/watch/b")),
-                time,
-            ),
-            DebouncedEvent::new(
-                Event::new(EventKind::Any).add_path(PathBuf::from("/watch/a")),
-                time,
-            ),
-        ];
+        MockTime::set_time(Instant::now());
+        let mut state = DebounceDataInner::new(NoCache, Duration::ZERO);
+        for path in ["/watch/b", "/watch/a"] {
+            state.add_event(Event::new(EventKind::Any).add_path(PathBuf::from(path)));
+        }
 
-        let sorted = sort_events(events);
-        let paths = sorted
+        let paths = state
+            .debounced_events()
             .into_iter()
             .map(|event| event.paths[0].clone())
             .collect::<Vec<_>>();

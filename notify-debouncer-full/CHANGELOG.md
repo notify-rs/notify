@@ -2,6 +2,13 @@
 
 ## unreleased
 
+- FIX: emit renames before events that reuse their source paths, fixing Blender's backup saves [#587]
+- FIX: report source removals when renamed files or their parent directories are removed or replaced before delivery
+- FIX: preserve watch `user_data` in synthesized `Remove` events
+- PERF: reduce allocations during event delivery and avoid repeatedly draining queues blocked by renames
+
+[#587]: https://github.com/notify-rs/notify/issues/587
+
 ## debouncer-full 0.8.0-rc.4 (2026-11-15)
 
 - CHANGE: upgrade `notify` to 9.0.0-rc.9 and `notify-types` to 2.3.1

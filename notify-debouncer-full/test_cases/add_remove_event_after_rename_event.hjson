@@ -1,0 +1,30 @@
+// A file is renamed and then removed before the rename is emitted.
+// The removal of the source must still be reported.
+{
+    state: {}
+    events: [
+        { kind: "rename-from", paths: ["/watch/source"], tracker: 1, time: 1 }
+        { kind: "rename-to", paths: ["/watch/target"], tracker: 1, time: 2 }
+        { kind: "remove-file", paths: ["/watch/target"], time: 3 }
+    ]
+    expected: {
+        queues: {
+            /watch/source: {
+                events: [
+                    { kind: "remove-any", paths: ["*"], time: 1 }
+                ]
+            }
+            /watch/target: {
+                events: [
+                    { kind: "remove-file", paths: ["*"], time: 3 }
+                ]
+            }
+        }
+        events: {
+            long: [
+                { kind: "remove-any", paths: ["/watch/source"], time: 1 }
+                { kind: "remove-file", paths: ["/watch/target"], time: 3 }
+            ]
+        }
+    }
+}

@@ -1,5 +1,6 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
+    fmt::Debug,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -13,7 +14,7 @@ use notify::{
     },
 };
 
-use crate::{DebounceDataInner, DebouncedEvent, FileIdCache, Queue, time::Instant};
+use crate::{DebounceDataInner, DebouncedEvent, FileIdCache, Queue, Vacated, time::Instant};
 
 pub(crate) use schema::TestCase;
 
@@ -218,7 +219,7 @@ impl schema::Event {
 
 impl schema::State {
     pub(crate) fn into_debounce_data_inner(self, time: Instant) -> DebounceDataInner<TestCache> {
-        let queues = self
+        let queues: BTreeMap<_, _> = self
             .queues
             .into_iter()
             .map(|(path, queue)| {
@@ -270,6 +271,13 @@ impl schema::State {
             .map(|e| e.into_debounced_event(time, None));
 
         DebounceDataInner {
+            vacated: renames(&queues)
+                .map(|rename| {
+                    let nanos = rename.time.saturating_duration_since(time).as_nanos();
+                    let vacated = Vacated::new(nanos as u64, None);
+                    (rename.paths[0].as_path().into(), vacated)
+                })
+                .collect(),
             queues,
             roots: VecDeque::new(),
             cache,
@@ -278,7 +286,53 @@ impl schema::State {
             rescan_event,
             errors: Vec::new(),
             timeout: Duration::from_millis(self.timeout.unwrap_or(50)),
+            created: time,
+            waits: false,
         }
+    }
+}
+
+fn renames(queues: &BTreeMap<PathBuf, Queue>) -> impl Iterator<Item = &DebouncedEvent> {
+    queues
+        .values()
+        .filter_map(|queue| Some(&queue.events[queue.rename_index()?]))
+}
+
+/// Checks that `vacated` matches queued renames and has no stale per-tick indices.
+pub(crate) fn assert_vacated_paths<T: FileIdCache>(
+    state: &DebounceDataInner<T>,
+    context: &dyn Debug,
+) {
+    let mut vacated: Vec<(&Path, &Vacated)> = state
+        .vacated
+        .iter()
+        .map(|(path, vacated)| (path.as_ref(), vacated))
+        .collect();
+    let mut renames: Vec<_> = renames(&state.queues).collect();
+    vacated.sort_by_key(|&(path, _)| path);
+    renames.sort_by(|left, right| left.paths[0].cmp(&right.paths[0]));
+    assert_eq!(
+        vacated.iter().map(|&(path, _)| path).collect::<Vec<_>>(),
+        renames
+            .iter()
+            .map(|rename| rename.paths[0].as_path())
+            .collect::<Vec<_>>(),
+        "vacated paths: {context:?}"
+    );
+    for ((path, vacated), rename) in vacated.into_iter().zip(renames) {
+        // Deferred entries store a later tick; others retain the rename timestamp.
+        let (time, now) = (state.nanos(rename.time), state.nanos(crate::time::now()));
+        let times = if vacated.waits {
+            time + 1..=now
+        } else {
+            time..=time
+        };
+        assert!(
+            times.contains(&vacated.time),
+            "time of {path:?}: {context:?}"
+        );
+        assert!(!vacated.waits || state.waits, "{path:?} waits: {context:?}");
+        assert_eq!(vacated.waiting, None, "waiting events: {context:?}");
     }
 }
 

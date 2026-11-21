@@ -1,0 +1,32 @@
+// A directory is removed while it holds a file that moved in from outside and a file that was
+// renamed inside it. The removal of the directory covers only the paths below it.
+{
+    state: {}
+    events: [
+        { kind: "rename-from", paths: ["/watch/source"], tracker: 1, time: 1 }
+        { kind: "rename-to", paths: ["/watch/parent/target"], tracker: 1, time: 2 }
+        { kind: "rename-from", paths: ["/watch/parent/a"], tracker: 2, time: 3 }
+        { kind: "rename-to", paths: ["/watch/parent/b"], tracker: 2, time: 4 }
+        { kind: "remove-folder", paths: ["/watch/parent"], time: 5 }
+    ]
+    expected: {
+        queues: {
+            /watch/source: {
+                events: [
+                    { kind: "remove-any", paths: ["*"], time: 1 }
+                ]
+            }
+            /watch/parent: {
+                events: [
+                    { kind: "remove-folder", paths: ["*"], time: 5 }
+                ]
+            }
+        }
+        events: {
+            long: [
+                { kind: "remove-any", paths: ["/watch/source"], time: 1 }
+                { kind: "remove-folder", paths: ["/watch/parent"], time: 5 }
+            ]
+        }
+    }
+}
