@@ -228,6 +228,10 @@ A file created and removed within the debounce window now produces a `Remove` ev
 instead of being discarded. Applications maintaining a file index must tolerate removals
 for paths that are not in the index.
 
+If `a` is renamed to `b` and a new file is created at `a`, the debouncer delivers
+the rename before the creation. If `b` is deleted or replaced before the rename is
+delivered, the debouncer reports a `Remove` event for the original `a`.
+
 #### Pass a `Config` to `new_debouncer_opt`
 
 `new_debouncer_opt` now takes a `notify_debouncer_full::Config`, the event handler, and the

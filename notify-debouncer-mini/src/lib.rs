@@ -6,14 +6,14 @@
 //!
 //! ```toml
 //! [dependencies]
-//! notify-debouncer-mini = "0.8.0-rc.2"
+//! notify-debouncer-mini = "0.8.0"
 //! ```
 //! In case you want to select specific features of notify,
 //! specify notify as dependency explicitly in your dependencies.
 //! Otherwise you can just use the re-export of notify from debouncer-mini.
 //! ```toml
-//! notify-debouncer-mini = "0.8.0-rc.2"
-//! notify = { version = "9.0.0-rc.9", features = ["serde"] }
+//! notify-debouncer-mini = "0.8.0"
+//! notify = { version = "9.0.0", features = ["serde"] }
 //! ```
 //!
 //! # Examples

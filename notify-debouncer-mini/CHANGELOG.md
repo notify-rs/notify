@@ -2,6 +2,13 @@
 
 ## unreleased
 
+## debouncer-mini 0.8.0 (2026-11-21)
+
+This release uses notify 9.0.0 and requires Rust 1.91. For an updated event handler, see the [0.7 to 0.8 migration guide](../docs/UPGRADING_V8_TO_V9.md#5-mini-debouncer-notifications).
+
+- `DebounceEventResult` delivers path changes in `DebouncedEventBatch::Events`. A `DebouncedEventBatch::Rescan` is delivered immediately when events may have been missed. Refresh all watched paths on receipt.
+- The default event filter excludes access events.
+
 ## debouncer-mini 0.8.0-rc.2 (2026-11-15)
 
 - CHANGE: upgrade `notify` to 9.0.0-rc.9 and `notify-types` to 2.3.1
