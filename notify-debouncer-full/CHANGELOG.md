@@ -2,6 +2,17 @@
 
 ## unreleased
 
+## debouncer-full 0.8.0 (2026-11-21)
+
+This release uses notify 9.0.0 and requires Rust 1.91. For examples of the updated APIs, see the [0.7 to 0.8 migration guide](../docs/UPGRADING_V8_TO_V9.md#7-full-debouncer-changes).
+
+- Pass a `Config` to `new_debouncer_opt` and call watch methods directly on `Debouncer`.
+- Custom `FileIdCache` implementations must provide `add_single_path` and use `&[WatchRoot]` when overriding `rescan`.
+- The default event filter excludes access events.
+- Files created and removed within a debounce window now produce a `Remove` event.
+
+### Changes since 0.8.0-rc.4
+
 - FIX: emit renames before events that reuse their source paths, fixing Blender's backup saves [#587]
 - FIX: report source removals when renamed files or their parent directories are removed or replaced before delivery
 - FIX: preserve watch `user_data` in synthesized `Remove` events

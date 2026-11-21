@@ -2,6 +2,18 @@
 
 ## unreleased
 
+## notify 9.0.0 (2026-11-21)
+
+notify 9 requires Rust 1.91 and works with version 0.8 of both debouncers. For examples and backend-specific changes, see the [v8 to v9 migration guide](../docs/UPGRADING_V8_TO_V9.md).
+
+- `Watcher::update_paths` replaces `Watcher::paths_mut` for batched changes. `Watcher::watched_paths` lists registrations as `WatchedPath` values.
+- Event paths preserve the registered path, including relative roots. Watching the same path again replaces its settings.
+- `Config` no longer implements `Copy`. Use constructors for `Error` and include a wildcard arm when matching `ErrorKind`.
+- `Config::with_event_kinds` filters events by kind. `WatchPathConfig::with_user_data` attaches a caller-supplied ID to events and errors from a watch.
+- With the `futures` or `tokio` feature enabled, watchers can use the corresponding unbounded channel sender as an event handler.
+- `PollWatcher` reports file writes as data changes and classifies created and removed entries by type.
+- Native builds on FreeBSD 14.5 and later select inotify by default. The `freebsd_inotify` feature selects it when cross-compiling for those versions.
+
 ## notify 9.0.0-rc.9 (2026-11-15)
 
 - CHANGE: `Watcher::watched_paths` returns `Vec<WatchedPath>` instead of `Vec<(PathBuf, RecursiveMode)>`. See the [migration guide](../docs/UPGRADING_V8_TO_V9.md#custom-watchers-and-additional-configuration) [#1106] **breaking**
