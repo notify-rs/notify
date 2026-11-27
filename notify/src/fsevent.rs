@@ -183,6 +183,9 @@ struct RunLoopHandle {
     stop_flag: Arc<AtomicBool>,
     thread_handle: thread::JoinHandle<fs::FSEventStreamEventId>,
     recursive_info: Arc<Mutex<HashMap<PathBuf, WatchInfo>>>,
+    /// The event ID the stream was created to start from.
+    #[cfg(test)]
+    since_when: fs::FSEventStreamEventId,
 }
 
 impl fmt::Debug for FsEventWatcher {
@@ -822,11 +825,15 @@ impl FsEventWatcher {
             copyDescription: None,
         };
 
-        // A concrete initial ID preserves pending events across restarts before the first callback.
+        // A replacement of this stream must not resume before this ID.
         // All roots resume from the same ID; watch_for filters events predating each watch.
-        let since_when = self
+        let resume_from = self
             .since_when
             .unwrap_or_else(|| unsafe { fs::FSEventsGetCurrentEventId() });
+        // FSEvents is slow to report changes made right after a stream starts when the stream
+        // starts from an event ID. A replacement stream needs the event ID to pick up what its
+        // predecessor did not deliver. A stream with nothing to resume from starts from now.
+        let since_when = self.since_when.unwrap_or(fs::kFSEventStreamEventIdSinceNow);
         let stream = unsafe {
             fs::FSEventStreamCreate(
                 cf::kCFAllocatorDefault,
@@ -904,7 +911,7 @@ impl FsEventWatcher {
                         rl_tx
                             .send(Err(Error::new(ErrorKind::WatchStartFailed)))
                             .expect("Unable to send error for FSEventStreamStart");
-                        return since_when;
+                        return resume_from;
                     }
 
                     // `stop()` will call `CFRunLoopStop` + `CFRunLoopWakeUp` and then join this
@@ -929,9 +936,8 @@ impl FsEventWatcher {
                     // The runloop has finished all callbacks. Preserve the last
                     // delivered ID before releasing the stream so its replacement
                     // also receives events queued before or during the restart.
-                    // RootChanged events have ID zero; never rewind past the
-                    // point where this stream started.
-                    let since_when = fs::FSEventStreamGetLatestEventId(stream).max(since_when);
+                    let since_when =
+                        resume_id(fs::FSEventStreamGetLatestEventId(stream), resume_from);
                     fs::FSEventStreamInvalidate(stream);
                     fs::FSEventStreamRelease(stream);
                     since_when
@@ -965,6 +971,8 @@ impl FsEventWatcher {
             stop_flag,
             thread_handle,
             recursive_info,
+            #[cfg(test)]
+            since_when,
         });
 
         Ok(())
@@ -973,6 +981,21 @@ impl FsEventWatcher {
     fn configure_raw_mode(&mut self, _config: Config, tx: Sender<Result<bool>>) {
         tx.send(Ok(false))
             .expect("configuration channel disconnect");
+    }
+}
+
+/// The event ID that the replacement of a stopped stream starts from, given the stopped
+/// stream's latest event ID and the earliest ID it may resume from.
+fn resume_id(
+    latest: fs::FSEventStreamEventId,
+    resume_from: fs::FSEventStreamEventId,
+) -> fs::FSEventStreamEventId {
+    // A stream that started from now reports that as its latest ID until its first callback.
+    if latest == fs::kFSEventStreamEventIdSinceNow {
+        resume_from
+    } else {
+        // RootChanged events have ID zero; never rewind past `resume_from`.
+        latest.max(resume_from)
     }
 }
 
@@ -1668,6 +1691,54 @@ mod tests {
         let (rewatched_since, rewatched_deep_since) = watch(&mut watcher, RecursiveMode::Recursive);
         assert!(rewatched_since > replaced_since);
         assert_eq!(rewatched_deep_since, rewatched_since);
+    }
+
+    #[test]
+    fn only_a_replacement_stream_starts_from_an_event_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let a = root.join("a");
+        let b = root.join("b");
+        for path in [&a, &b] {
+            std::fs::create_dir(path).unwrap();
+        }
+        let started_from = |watcher: &FsEventWatcher| {
+            watcher
+                .runloop
+                .as_ref()
+                .expect("running watcher")
+                .since_when
+        };
+        let current_id = || unsafe { fs::FSEventsGetCurrentEventId() };
+
+        let (tx, _rx) = mpsc::channel();
+        let mut watcher = FsEventWatcher::new(tx, Config::default()).unwrap();
+        let before = current_id();
+        watcher.watch(&a, RecursiveMode::Recursive).unwrap();
+        assert_eq!(started_from(&watcher), fs::kFSEventStreamEventIdSinceNow);
+
+        // The stream that replaces it resumes from an event ID.
+        watcher.watch(&b, RecursiveMode::Recursive).unwrap();
+        let resumed_from = started_from(&watcher);
+        assert!(
+            (before..=current_id()).contains(&resumed_from),
+            "resumed from {resumed_from}, first watched after {before}"
+        );
+
+        // With no root left there is nothing to resume.
+        watcher.unwatch(&a).unwrap();
+        watcher.unwatch(&b).unwrap();
+        watcher.watch(&a, RecursiveMode::Recursive).unwrap();
+        assert_eq!(started_from(&watcher), fs::kFSEventStreamEventIdSinceNow);
+    }
+
+    #[test]
+    fn a_stream_without_a_latest_event_is_resumed_from_its_starting_event() {
+        // A stream that started from now and has had no event.
+        assert_eq!(resume_id(fs::kFSEventStreamEventIdSinceNow, 7), 7);
+        // A stream whose only event was a RootChanged.
+        assert_eq!(resume_id(0, 7), 7);
+        assert_eq!(resume_id(9, 7), 9);
     }
 
     #[test]

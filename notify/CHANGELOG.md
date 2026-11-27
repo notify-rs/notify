@@ -2,6 +2,10 @@
 
 ## unreleased
 
+- FIX: [macOS] avoid late events for changes made right after the first `watch` [#1120]
+
+[#1120]: https://github.com/notify-rs/notify/pull/1120
+
 ## notify 9.0.0 (2026-11-21)
 
 notify 9 requires Rust 1.91 and works with version 0.8 of both debouncers. For examples and backend-specific changes, see the [v8 to v9 migration guide](../docs/UPGRADING_V8_TO_V9.md).
